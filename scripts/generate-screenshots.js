@@ -51,27 +51,16 @@ async function run() {
         { name: 'TransactionID', type: 'UUID' },
         { name: 'CustomerName', type: 'FullName' },
         { name: 'EmailAddress', type: 'Email' },
-        { name: 'PhoneNumber', type: 'Phone' },
-        { name: 'CompanyName', type: 'Company' },
         { name: 'ShippingAddress', type: 'Address' },
-        { name: 'City', type: 'City' },
-        { name: 'Country', type: 'Country' },
         { name: 'OrderAmount', type: 'Decimal' },
-        { name: 'DiscountCode', type: 'String' },
         { name: 'IsActive', type: 'Boolean' },
-        { name: 'RegistrationDate', type: 'Date' },
-        { name: 'LastLoginIP', type: 'IP Address' }
+        { name: 'RegistrationDate', type: 'Date' }
       );
       if (window.dfRenderSchema) window.dfRenderSchema();
       if (window.dfPreview) window.dfPreview();
     }
     const countInput = document.getElementById('df-count');
     if (countInput) countInput.value = '250000';
-    if (window.dfGenerate) window.dfGenerate();
-    else {
-       const btn = document.getElementById('df-generate-btn') || document.querySelector('#panel-data-factory button.btn-primary');
-       if (btn) btn.click();
-    }
   });
   await sleep(2000);
   await page.screenshot({ path: path.join(assetsDir, 'screenshot-data-factory.png') });
