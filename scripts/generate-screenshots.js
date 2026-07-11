@@ -105,20 +105,38 @@ async function run() {
   // 3. LOG VIEWER
   await switchTool('log-viewer');
   await page.evaluate(() => {
-    const wowLog = `2026-07-10 14:51:09.591  INFO - Core: Mendix Runtime started successfully on port 8080
-2026-07-10 14:51:12.000  INFO - Connector: Connecting to database jdbc:postgresql://localhost:5432/mendix
+    const wowLog = `2026-07-10 14:50:01.123  INFO - Core: Mendix Runtime started successfully on port 8080
+2026-07-10 14:50:02.450  INFO - ModuleManager: Module 'System' loaded successfully.
+2026-07-10 14:50:03.110  INFO - ModuleManager: Module 'Administration' loaded successfully.
+2026-07-10 14:50:05.800  INFO - Connector: Connecting to database jdbc:postgresql://localhost:5432/mendix
+2026-07-10 14:50:06.120  INFO - Connector: Database connection established.
+2026-07-10 14:50:06.200  DEBUG - ActionManager: Executing Microflow 'System.Startup'
+2026-07-10 14:50:08.500  INFO - ModuleManager: Module 'OrderManagement' loaded successfully.
+2026-07-10 14:50:09.150  WARN - Core: Deprecated java action 'StringSplit' is used in Microflow 'OrderManagement.ACT_FormatString'. This action will be removed in a future Mendix version.
+2026-07-10 14:50:11.900  INFO - Core: Application is ready for requests.
+2026-07-10 14:51:00.001  DEBUG - REST: Incoming GET request to /rest/api/v1/customers
+2026-07-10 14:51:00.045  DEBUG - REST: Successfully processed request in 44ms (Status 200)
+2026-07-10 14:51:12.105  DEBUG - REST: Incoming POST request to /rest/api/v1/orders
+2026-07-10 14:51:12.150  INFO - OrderManagement: Processing new order ORD-2026-9941
+2026-07-10 14:51:13.000  WARN - ExternalAPI: Payment gateway responded with high latency (850ms)
+2026-07-10 14:51:13.050  INFO - OrderManagement: Order ORD-2026-9941 processed successfully
 2026-07-10 14:52:15.999  ERROR - Connector: Connection to database timed out after 30000ms. Attempting retry.
   at com.mendix.connectionbus.ConnectionBusImpl.getConnection(ConnectionBusImpl.java:123)
   at com.mendix.modules.MyModule.MyAction(MyAction.java:45)
   at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+2026-07-10 14:52:16.500  INFO - Connector: Re-established database connection.
+2026-07-10 14:52:45.100  DEBUG - REST: Incoming PUT request to /rest/api/v1/inventory/update
+2026-07-10 14:52:46.200  WARN - Inventory: Stock level for item 'Laptop-X1' is below threshold (Current: 4, Threshold: 10)
 2026-07-10 14:53:11.100  ERROR - ActionManager: Error in execution of microflow 'OrderManagement.ACT_ProcessOrder'
   at com.mendix.core.actionmanagement.ActionManager.executeSync(ActionManager.java:178)
 Caused by: com.mendix.core.CoreRuntimeException: Exception occurred in action '{"type":"RetrieveByXPath","entity":"Sales.Order"}', all database connections are exhausted.
   at com.mendix.modules.microflowengine.MicroflowObject.execute(MicroflowObject.java:82)
-2026-07-10 14:53:15.000  CRITICAL - Core: Application state corrupted due to massive database latency. Entering safe mode.`;
+2026-07-10 14:53:12.000  ERROR - ConnectionBus: Could not retrieve connection from pool. Pool size: 50, Active: 50, Idle: 0
+2026-07-10 14:53:15.000  CRITICAL - Core: Application state corrupted due to massive database latency. Entering safe mode.
+2026-07-10 14:53:15.005  INFO - Core: Safe mode activated. Rejecting all incoming requests.`;
     if (window.logParseContent) window.logParseContent(wowLog, "production_outage.log");
     
-    document.getElementById('log-search').value = 'Caused by';
+    document.getElementById('log-search').value = '';
     if(window.logRenderFiltered) window.logRenderFiltered();
   });
   await sleep(1000);
