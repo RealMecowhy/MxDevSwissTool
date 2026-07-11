@@ -276,11 +276,11 @@ Caused by: com.mendix.core.CoreRuntimeException: Exception occurred in action '{
       await sleep(1500); // Give it time to parse
       
       await page.evaluate(() => {
-        const firstRow = document.querySelector('#lqe-query-list tr');
+        const firstRow = document.querySelector('#lqe-query-list .lqe-list-item');
         if (firstRow) firstRow.click();
         
         // Mock a complex query plan for WOW effect
-        const planBtn = document.querySelector('button[onclick*="lqe-tab-plan"]');
+        const planBtn = document.querySelector('div[onclick*="lqe-tab-plan"]');
         if (planBtn) planBtn.click();
         
         const planContent = document.getElementById('lqe-plan-content');
