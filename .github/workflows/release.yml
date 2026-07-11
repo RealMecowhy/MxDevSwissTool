@@ -1,0 +1,40 @@
+name: Build and Publish Release
+
+on:
+  push:
+    tags:
+      - 'v*' # Triggers on tags like v1.0.0, v2.1.3, etc.
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Required to create a GitHub Release
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Prepare Release Package
+        run: |
+          mkdir -p release_package
+          # Copy only the files needed for the end user
+          cp -r public release_package/
+          cp -r server release_package/
+          cp package.json release_package/
+          cp package-lock.json release_package/
+          cp Start-MendixTools.bat release_package/
+          cp README.md release_package/
+          
+      - name: Create ZIP Archive
+        working-directory: release_package
+        run: zip -r ../MendixTools-Release-${{ github.ref_name }}.zip ./*
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: MendixTools-Release-${{ github.ref_name }}.zip
+          name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true

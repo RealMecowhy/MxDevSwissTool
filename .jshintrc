@@ -1,0 +1,1 @@
+{ "esversion": 2022, "undef": true, "browser": true, "globals": {"crypto": false} }

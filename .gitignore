@@ -1,0 +1,7 @@
+node_modules/
+dist/
+_local_assets/
+.agents/
+.env
+.DS_Store
+*.zip

@@ -1,0 +1,902 @@
+// ============================================================
+// HELP DATABASE & CONTROLLER FOR MXDEV SWISS TOOL
+// ============================================================
+
+const TOOLS_HELP = {
+  'log-viewer-stream': {
+    title: 'Mendix Log Viewer - Log Stream',
+    description: 'Tool for rapid analysis, searching, and filtering of Mendix application logs. Instead of opening giant text files in a traditional notepad, you can load them here, filter loggers and error levels, and automatically group (aggregate) identical errors.',
+    howToGet: `
+      <ul>
+        <li><strong>Mendix Cloud:</strong> Log in to the Mendix Portal, go to <em>Environments</em> → select an environment (e.g., Production) → <em>Details</em> → <em>Logs</em> → click <em>Download Log File</em> or download archive logs.</li>
+        <li><strong>Local Environment:</strong> In your Mendix project folder, logs are located at <code>[project_directory]/deployment/log/log.txt</code>.</li>
+        <li><strong>Hybrid Environments (Docker):</strong> Download container logs using the command: <code>docker logs [container_name] > app_log.txt</code>.</li>
+      </ul>
+    `,
+    howToUse: `
+      <ol>
+        <li>Drag and drop the log file (e.g., <code>.txt</code>, <code>.log</code>) directly into the browser window or paste raw log text into the input field.</li>
+        <li>Use the filters in the sidebar: enter a phrase (e.g., Microflow name), select log level (DEBUG, INFO, WARNING, ERROR, CRITICAL) or filter by a specific logger name (e.g., <code>ConnectionBus</code>).</li>
+        <li>Search for specific time intervals by moving the time slider or entering the time.</li>
+        <li>Click <strong>Aggregate Errors</strong> in the top right corner of the module bar to open a modal with a summary of unique errors and their occurrence statistics (useful for locating error loops).</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>ConnectionBus errors:</strong> Usually indicate database problems, query timeouts, or attempts to write incomplete objects.</li>
+        <li><strong>ActionManager errors:</strong> Indicate a failure in Microflow / Activity execution. Check the Microflow name provided in the log and navigate to it in Mendix Studio Pro.</li>
+        <li><strong>Jetty / Connector errors:</strong> Suggest network issues, dropped client HTTP connections, or server response timeouts to a user request.</li>
+      </ul>
+    `
+  },
+  'log-viewer-correlation': {
+    title: 'Mendix Log Viewer - Correlation Flow',
+    description: 'Visualizes the flow of requests and microflow executions based on correlation IDs in the logs, allowing you to trace a complete transaction across multiple log entries.',
+    howToGet: `
+      <p>Ensure your logs contain Correlation IDs. There are a few ways to achieve this:</p>
+      <ul style="margin-top:var(--sp-2); margin-left:var(--sp-4); list-style-type:disc;">
+        <li style="margin-bottom:var(--sp-1)"><strong>Mendix 10+ (OpenTelemetry):</strong> When OpenTelemetry is enabled, Mendix automatically generates a <code>Trace ID</code> for each thread, which acts as a perfect Correlation ID across your entire application.</li>
+        <li style="margin-bottom:var(--sp-1)"><strong>Mendix (Legacy/Modules):</strong> For older versions, use modules from the Marketplace that inject a unique key into logs (e.g., <code>[corr_id: xyz]</code>) for every REST/Microflow action.</li>
+        <li><strong>NGINX:</strong> NGINX can generate a unique ID for every incoming HTTP request using the <code>$request_id</code> variable. Add it to your <code>log_format</code> in <code>nginx.conf</code>, and pass it to Mendix via the header <code>proxy_set_header X-Request-ID $request_id;</code> so both systems log the same ID.</li>
+      </ul>
+    `,
+    howToUse: `
+      <ol>
+        <li>Switch to the <strong>Correlation Flow</strong> tab.</li>
+        <li>Select a specific Correlation ID from the list to see all log entries related to that specific transaction.</li>
+        <li>Follow the chronological flow to identify where a process failed or took too long.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>For beginners:</strong> If a user reports an error, ask them for the time it happened. Find the error in the Log Stream, copy its Correlation ID, and paste it here. You will see everything that happened during that exact button click!</li>
+        <li><strong>Complex transactions:</strong> Helps in debugging transactions that span multiple microflows and integrations by isolating only the logs relevant to a single user action.</li>
+      </ul>
+    `
+  },
+  'log-viewer-sequence': {
+    title: 'Mendix Log Viewer - Sequence Diagram',
+    description: 'Generates a UML sequence diagram based on Mendix log entries, showing the interactions between different components (e.g., ActionManager, ConnectionBus, REST services).',
+    howToGet: 'You need logs with sufficient detail, preferably <code>DEBUG</code> or <code>TRACE</code> for relevant loggers like <code>ActionManager</code> or <code>REST_Consume</code>.',
+    howToUse: `
+      <ol>
+        <li>Switch to the <strong>Sequence Diagram</strong> tab.</li>
+        <li>Analyze the chronological sequence of events and calls between different system components.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>For beginners:</strong> A visual way to see "what calls what". If your app hangs, check the sequence diagram to see where the last call stopped.</li>
+        <li><strong>Architecture:</strong> Useful for spotting unexpected loops (e.g., a microflow calling itself recursively) or missing API calls.</li>
+      </ul>
+    `
+  },
+  'log-viewer-gantt': {
+    title: 'Mendix Log Viewer - Gantt Chart',
+    description: 'Provides a timeline view of long-running operations in your logs, helping you identify performance bottlenecks and parallel execution issues.',
+    howToGet: 'Logs containing timestamps for start and end of operations, typically found in <code>TRACE</code> level logs for microflows or database queries.',
+    howToUse: `
+      <ol>
+        <li>Switch to the <strong>Gantt Chart</strong> tab.</li>
+        <li>Look for long horizontal bars that represent slow operations.</li>
+        <li>Zoom in to inspect parallel vs sequential executions.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>For beginners:</strong> Think of this as a race track. The longest bar is the slowest runner (bottleneck). Fix that one first to speed up your app.</li>
+        <li><strong>Parallelization:</strong> If you see many operations executed sequentially (stairs-like pattern), consider using parallel execution in your Mendix microflows or batching database queries.</li>
+      </ul>
+    `
+  },
+  'log-query-extractor': {
+    title: 'Log Query Extractor',
+    description: 'Extract, parse and correlate executed SQL queries and XPath/OQL from Mendix TRACE logs. This tool converts raw Mendix log outputs into readable, formatted, runnable SQL statements with parameters automatically injected.',
+    howToGet: `
+      <p>Ensure your application logs contain database trace information. Here is how to configure it:</p>
+      <ul>
+        <li><strong>Local Studio Pro:</strong> Go to <em>Console</em> → <em>Advanced</em> → <em>Set Log Levels</em>. Set <code>ConnectionBus</code>, <code>DataStorage</code>, and <code>QueryParser</code> to <strong>TRACE</strong>. Perform the actions you want to track, then export the Console log to a CSV or TXT file.</li>
+        <li><strong>Mendix Cloud:</strong> Change log levels for <code>ConnectionBus</code>, <code>DataStorage</code>, and <code>QueryParser</code> to <strong>TRACE</strong> in the Environment Details page. Download the logs from the portal.</li>
+      </ul>
+    `,
+    howToUse: `
+      <ol>
+        <li>Load the exported CSV or TXT log file into the tool.</li>
+        <li>The tool will automatically group related log entries and extract all SQL queries. They will be listed on the left, displaying their type, transaction connection, execution duration, and estimated cost.</li>
+        <li>Select a query from the list to see its details neatly grouped on the right:
+          <ul>
+            <li><strong>Runnable SQL:</strong> The final SQL statement with all <code>?</code> parameters substituted correctly.</li>
+            <li><strong>Source XPath/OQL:</strong> The original Mendix queries that generated the SQL, including intermediate OQL translation.</li>
+            <li><strong>Parameters:</strong> A table listing the raw values bound to the SQL query.</li>
+            <li><strong>Result Data:</strong> The raw output rows returned by the database.</li>
+            <li><strong>Query Plan:</strong> The PostgreSQL execution plan in JSON format.</li>
+          </ul>
+        </li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>For beginners:</strong> This tool bridges the gap between what Mendix executes and the underlying database. It allows you to grab a query and immediately paste it into your database client to test it.</li>
+        <li><strong>Performance Tuning:</strong> Focus on queries that return a large number of rows, have high cost, or long duration. The Query Plan tab reveals whether the database is using indexes (Index Scan) or performing slow table scans (Seq Scan).</li>
+        <li><strong>Duration & Cost:</strong> By setting <code>DataStorage</code> to TRACE, Mendix logs the database query execution plan. This tool parses it to display the exact execution time (Duration) and estimated Cost calculated by PostgreSQL.</li>
+      </ul>
+    `
+  },
+  'nginx-log': {
+    title: 'Nginx Log Analyzer',
+    description: 'Module for parsing Nginx access logs. Helps to instantly check the most popular IP addresses, frequently accessed URLs, HTTP status code breakdown, and geographical location of visitors.',
+    howToGet: `
+      <ul>
+        <li>The standard location for Nginx access logs on Linux systems is <code>/var/log/nginx/access.log</code>.</li>
+        <li>You can download this file directly from the VPS / virtual machine where the Mendix app proxy is hosted.</li>
+      </ul>
+    `,
+    howToUse: `
+      <ol>
+        <li>Paste the content of Nginx logs (<em>combined</em> format) or drag and drop the log file into the tool window.</li>
+        <li>Check the <strong>Enable IP Geolocation</strong> option to automatically query a free external API for the country of origin of IPs sending the most requests (runs asynchronously, doesn't block the browser).</li>
+        <li>Click <strong>Analyze Logs</strong>. Results will be presented as interactive tables and pie charts.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>4xx Status Codes:</strong> Frequent 404 (Not Found) or 403 (Forbidden) codes might indicate scanning of your server by bots/malware looking for vulnerabilities.</li>
+        <li><strong>5xx Status Codes:</strong> Indicate a failure in the Mendix backend application (e.g., Mendix server is down or dropped the connection).</li>
+        <li><strong>High traffic from a single IP:</strong> If one IP sends thousands of requests per minute, it could be a DoS attack attempt or a looped client script. Consider blocking such IPs at the firewall level.</li>
+      </ul>
+    `
+  },
+  'telemetry-monitor': {
+    title: 'Metrics & Telemetry',
+    description: 'Advanced console for monitoring performance metrics (Prometheus) and logs/traces (OpenTelemetry) generated by the Mendix application engine. Enables bottleneck diagnostics on Waterfall charts.',
+    howToGet: `
+      <p>To have the Mendix app generate this data, it needs proper configuration:</p>
+      <ol>
+        <li><strong>Local Diagnostics (Agent Mode):</strong> Run the utility script <code>node mendix-observability-bridge.js</code> in the terminal at the project root. This script proxies logs from the local Mendix and connects to the PostgreSQL database.</li>
+        <li><strong>Enable OpenTelemetry (Mendix 11.12+):</strong> In Mendix Studio Pro, go to <em>Settings</em> → <em>Configurations</em> → <em>Edit</em>. In the <strong>OpenTelemetry</strong> tab, select:
+          <ul>
+            <li><strong>Enable OpenTelemetry:</strong> Yes</li>
+            <li><strong>Endpoint:</strong> <code>http://127.0.0.1:4318</code> (resolves local DNS issues on Windows)</li>
+            <li><strong>Service Name:</strong> e.g., <code>MendixApp</code></li>
+            <li><strong>Enable Traces & Logs:</strong> Yes / Yes</li>
+          </ul>
+          No Extra JVM parameters are required! (The Agent natively supports both binary Protobuf and JSON OTLP formats).
+        </li>
+        <li><strong>Enable Metrics in Mendix (Prometheus):</strong> In Mendix Studio Pro, go to <em>Settings</em> → <em>Configurations</em> → add Custom Setting:
+          <br>Key: <code>Metrics.Registries</code>, Value: <code>[{"type": "prometheus", "settings": {"step": "10s"}}]</code>.
+        </li>
+      </ol>
+    `,
+    howToUse: `
+      <ol>
+        <li>Select the operating mode in the toolbar: <em>Local Agent Mode</em> (NodeJS bridge) or <em>Direct Prometheus Mode</em> (provide Cloud URL and API Key).</li>
+        <li>Click <strong>Connect Agent</strong> / <strong>Start Scraping</strong>. Charts for JVM memory usage, database connection pool, and request counts will start updating live.</li>
+        <li>Go to the <strong>Traces & Logs</strong> tab to see waterfall charts of Microflow / SQL executions. Click on individual chart bars to see details.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>JVM Heap Memory:</strong> If memory usage constantly increases (staircase chart upwards) and does not drop after Garbage Collection, the application might have a memory leak.</li>
+        <li><strong>Database Connection Pool:</strong> If the number of used connections approaches the limit (e.g., 50), subsequent user requests will be blocked waiting for a free connection, drastically slowing down the system.</li>
+        <li><strong>Waterfall (Traces):</strong> A long horizontal bar means the longest running activity. If you see dozens of small SQL query bars to the same table underneath, you've detected an <strong>N+1 queries</strong> problem, which should be optimized (e.g., by fetching data at once using an association or modifying a loop).</li>
+      </ul>
+    `
+  },
+  'http-status': {
+    title: 'HTTP Status Codes',
+    description: 'Handy, fully local knowledge base of all HTTP response codes. Each code includes a detailed explanation of its meaning and practical developer tips in the context of system integrations implemented in Mendix (REST, SOAP, OData).',
+    howToGet: 'This tool is for reference. It does not require uploading any external data.',
+    howToUse: `
+      <ol>
+        <li>Select a group of codes (e.g., 4xx for client errors, 5xx for server errors).</li>
+        <li>Click on the code you are interested in (e.g., <code>401 Unauthorized</code> or <code>504 Gateway Timeout</code>).</li>
+        <li>Read the description and developer advice regarding the configuration of the <em>Call REST</em> action in Mendix Studio Pro.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>For beginners:</strong> 4xx means YOU (your Mendix app) made a mistake in the request. 5xx means the TARGET SERVER crashed or failed.</li>
+        <li><strong>Integration tip:</strong> Always add error handling for 5xx codes in Mendix to prevent the whole microflow from failing gracefully.</li>
+      </ul>
+    `
+  },
+  'thread-dump': {
+    title: 'Thread Dump & GC Analyzer',
+    description: 'Used to analyze Java Virtual Machine (JVM) Thread Dumps of a Mendix application and Garbage Collector logs. Helps in diagnosing application hang issues (Deadlock / Thread Starvation) and high CPU usage.',
+    howToGet: `
+      <ul>
+        <li><strong>Mendix Cloud:</strong> Go to Mendix Portal → *Environments* → select environment → *Details* tab → *Logs* → click *Download Thread Dump*.</li>
+        <li><strong>Local (Studio Pro):</strong> In the bottom Mendix console, click <em>Advanced</em> → <em>Create thread dump</em>.</li>
+        <li><strong>Custom Linux Server:</strong> Log in to the server and execute a dump using the JDK tool: <code>jstack [PID_java_process] > thread_dump.txt</code>.</li>
+      </ul>
+    `,
+    howToUse: `
+      <ol>
+        <li>Copy and paste the entire text of the generated thread dump into the text field.</li>
+        <li>Click the <strong>Analyze Thread Dump</strong> button.</li>
+        <li>Analyze the list of threads grouped by states (RUNNABLE, WAITING, TIMED_WAITING, BLOCKED) and detected blocking threads (monitors).</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>Number of BLOCKED threads > 0:</strong> Alarm situation. This means threads are waiting for a lock to be released by another thread. The tool will point out which thread is holding the lock (look for keywords related to database transactions or HTTP requests).</li>
+        <li><strong>Threads in RUNNABLE state:</strong> Threads actively executing Java code. If there are very many of them and CPU usage is 100%, check if there is an infinite loop in the code (e.g., faulty recursion in a Microflow or a while loop in a Java Action).</li>
+        <li><strong>Garbage Collection (GC) Pauses:</strong> Long pause times (Stop-the-world) visible in GC logs mean the JVM spends too much time cleaning up memory, causing the entire Mendix application to freeze momentarily.</li>
+      </ul>
+    `
+  },
+  'json-formatter': {
+    title: 'JSON Formatter & Validator',
+    description: 'Used for formatting, fixing, syntax validation, and convenient interactive exploration of data structures in JSON format.',
+    howToGet: 'JSON data is mostly obtained from request/response headers and bodies of REST services logged in Mendix (after setting the <code>REST_Consume</code> or <code>REST_Publish</code> log level to <code>TRACE</code>).',
+    howToUse: `
+      <ol>
+        <li>Paste unformatted or minified JSON text into the left text field.</li>
+        <li>Formatting happens automatically upon data entry (you can also click the <em>Format</em> button). In case of syntax errors, the parser will indicate the exact line and cause of the problem.</li>
+        <li>Use the interactive tree view on the right side to collapse and expand deeply nested objects or search for keys.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>For beginners:</strong> Use this to create JSON snippets for Mendix Import/Export mappings. It helps visualize complex data structures.</li>
+        <li><strong>Troubleshooting:</strong> If a REST call fails with a parsing error, paste the payload here. The validator will point exactly to the missing comma or bracket.</li>
+      </ul>
+    `
+  },
+  'xml-formatter': {
+    title: 'XML Formatter & Validator',
+    description: 'Tool for structural validation and formatting of XML documents, most commonly used in SOAP (Web Services) integrations or data import/export in standard enterprise formats.',
+    howToGet: 'XML text can be copied from the Mendix console (SOAP service logs after setting the <code>WebServices_Consume</code> log level to <code>TRACE</code>).',
+    howToUse: `
+      <ol>
+        <li>Paste raw XML code into the input field.</li>
+        <li>Click <strong>Format XML</strong>. The tool will arrange tags with proper indentation and check if the document is well-formed.</li>
+        <li>You can explore the tag tree and copy the formatted XML code with one click.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>For beginners:</strong> XML is very strict. A missing closing tag breaks everything. Use this to find structural errors in SOAP responses.</li>
+        <li><strong>Mendix Namespaces:</strong> Watch out for namespaces (e.g., <code>xmlns:xsi</code>). They often cause issues during Mendix XML import mappings if not defined correctly.</li>
+      </ul>
+    `
+  },
+  'char-sanitizer': {
+    title: 'XML & Text Sanitizer',
+    description: 'Tool for analyzing and cleaning texts and XML messages from invisible characters, faulty spaces, control codes, and encoding errors (Mojibake), which often cause integration errors in external systems.',
+    howToGet: `
+      <ul>
+        <li>Copy the content of an XML message that bounces off an external system (e.g., from error logs in the Mendix console).</li>
+        <li>Copy text (e.g., address, contact details) entered by a user that you suspect contains invisible characters.</li>
+        <li>You can also drag and drop a text or XML file directly into the input area.</li>
+      </ul>
+    `,
+    howToUse: `
+      <ol>
+        <li>Paste text or XML into the left text field or drop a file.</li>
+        <li>Select detection filters in the bottom panel (e.g., Invisible Spaces, Control Characters, Mojibake).</li>
+        <li>In the <strong>Visual Inspector</strong> tab, you will see problematic characters highlighted. Hovering over them will display the character name and its Unicode code (e.g., <code>U+200B ZERO WIDTH SPACE</code>).</li>
+        <li>In the <strong>Statistics & Issues</strong> tab, you will find a table with a summary and count of specific anomalies.</li>
+        <li>Go to the <strong>Sanitized Output</strong> tab, adjust cleaning rules (e.g., replace NBSP with a regular space, fix specific characters), and copy the cleaned text or download it as a file.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>Invisible spaces (e.g., ZWSP, BOM):</strong> Very often pasted accidentally when copying text from a PDF or website. They block XML parsers even if the field looks empty.</li>
+        <li><strong>Mojibake (e.g., Ã„â€¦, Ã…â€š):</strong> Occurs when systems exchange data using different encodings (e.g., database in Windows-1250, and interface in UTF-8).</li>
+        <li><strong>C0 Control Characters (e.g., NUL, BEL, SUB):</strong> Older type control characters. They are not allowed in the XML 1.0 standard and cause immediate rejection of the file by the standard XML parser in Mendix.</li>
+      </ul>
+    `
+  },
+  'sql-formatter': {
+    title: 'SQL Formatter',
+    description: 'Allows for quick beautification and formatting of SQL queries generated automatically by the Mendix Connection Bus. This makes it easier to analyze queries sent to PostgreSQL, Oracle, or SQL Server databases.',
+    howToGet: `
+      <p>To get SQL queries from a Mendix application:</p>
+      <ul>
+        <li>Set the log level of the <code>ConnectionBus</code> logger to <code>DEBUG</code> or <code>TRACE</code> in the Mendix console.</li>
+        <li>Execute an action in the application and copy the generated SQL query from the console.</li>
+      </ul>
+    `,
+    howToUse: `
+      <ol>
+        <li>Paste a raw, one-line compressed SQL query into the text field.</li>
+        <li>Click the <strong>Format SQL</strong> button. Keywords such as SELECT, FROM, JOIN, WHERE will be moved to new lines and bolded.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>For beginners:</strong> Mendix generates very long, unreadable SQL queries under the hood. Formatting them here helps you see exactly which database tables are being joined.</li>
+        <li><strong>Debugging:</strong> If an OQL query fails or is slow, inspect the generated SQL to check if it's hitting the expected indexes.</li>
+      </ul>
+    `
+  },
+  'text-diff': {
+    title: 'Text Diff Utility',
+    description: 'Local tool for comparing two pieces of text. Instantly locates and highlights differences (added lines, deleted lines, and changed characters). Useful for comparing configurations, JSON payloads from different environments, or generated files.',
+    howToGet: 'Copy the original payload/configuration and the new version you want to compare against.',
+    howToUse: `
+      <ol>
+        <li>Paste the original version of the text into the <strong>Original Text (Left)</strong> field.</li>
+        <li>Paste the new (modified) version of the text into the <strong>Modified Text (Right)</strong> field.</li>
+        <li>Differences will be generated automatically and marked with colors: red (deleted) and green (added).</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>For beginners:</strong> If an integration worked yesterday but fails today, compare the JSON responses from both days to instantly spot what field changed.</li>
+        <li><strong>Configuration sync:</strong> Use this to compare <code>yaml</code> configs between test and production environments to find missing variables.</li>
+      </ul>
+    `
+  },
+  'encoder': {
+    title: 'Base64 / URL Encoder & Decoder',
+    description: 'On-the-fly text encoding converter. Supports Base64 (useful for Basic Authentication and file transfers), URL encoding (needed for building query parameters in GET requests), and HTML entity decoding.',
+    howToGet: 'Obtain Base64 strings from API headers (like Basic Auth) or URL parameters that need decoding.',
+    howToUse: `
+      <ol>
+        <li>Type or paste text into a chosen input field (Plain Text, Base64, or URL Encoded).</li>
+        <li>The tool will automatically recalculate values in all other fields in real-time.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>For beginners:</strong> URLs cannot contain spaces or special characters. If your REST API call fails because of a space in the query parameter, use URL Encoding.</li>
+        <li><strong>Basic Authentication:</strong> It is just Base64 of <code>username:password</code>. You can easily generate or decode it here.</li>
+      </ul>
+    `
+  },
+  'md-preview': {
+    title: 'Markdown Editor & Table Generator',
+    description: 'Interactive Markdown technical documentation editor with live HTML preview. Also includes a Markdown table generator, making it easy to create readable tables without manually typing vertical bars (pipes).',
+    howToGet: 'Paste existing documentation or start writing from scratch in the editor.',
+    howToUse: `
+      <ol>
+        <li>Type text in Markdown format in the left editor panel. On the right side, you will instantly see the rendered preview of the document.</li>
+        <li><strong>Table Generator:</strong> Enter the number of rows and columns in the helper form, fill in headers and cells, and the tool will output ready Markdown table code that you can paste into your <code>.md</code> file.</li>
+        <li>You can copy the resulting HTML code of the rendered document using the <em>Copy HTML</em> button.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>For beginners:</strong> Markdown is the standard way developers write documentation. Use this to format text easily without needing Word.</li>
+        <li><strong>Tables:</strong> Generating markdown tables manually is painful. Use the generator to create structured release notes quickly!</li>
+      </ul>
+    `
+  },
+  'xpath-builder': {
+    title: 'XPath Formatter',
+    description: 'Tool assisting in writing, formatting, and validating XPath queries in the Mendix standard. Includes a handy cheat sheet with the most popular system tokens (e.g., current user, date operations) and query templates.',
+    howToGet: 'Get the XPath query directly from the properties of a <em>Retrieve</em> action from the database in Mendix Studio Pro or from entity Access Rules.',
+    howToUse: `
+      <ol>
+        <li>Paste your XPath query into the editor window.</li>
+        <li>Click <strong>Format</strong>. A complex, multi-line query with multiple logical operators will be formatted into a readable indentation tree.</li>
+        <li>Use the <strong>XPath Cheat Sheet</strong> section at the bottom of the screen to quickly copy special Mendix platform variables like <code>[%CurrentUser%]</code> or <code>[reversed()]</code> operators for associations.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>For beginners:</strong> Avoid using <code>contains()</code> or <code>or</code> in your XPath if possible, as they usually cause database performance issues (table scans).</li>
+        <li><strong>Deep paths:</strong> Be careful with long XPath associations (e.g. <code>/Module.Entity1/Module.Entity2/Module.Entity3</code>). They translate to multiple SQL JOINs and can slow down your app significantly.</li>
+      </ul>
+    `
+  },
+  'query-intelligence-formatter': {
+    title: 'OQL Formatter',
+    description: 'A tool to format complex Mendix OQL (Object Query Language) queries to improve their readability and structure.',
+    howToGet: `
+      <ul>
+        <li>You can retrieve OQL queries from Mendix application logs by setting the <code>OQL</code> log node to <code>DEBUG</code> level.</li>
+        <li>Alternatively, copy OQL queries from the dataset configurations in Report modules.</li>
+      </ul>
+    `,
+    howToUse: `
+      <ol>
+        <li>Paste your raw OQL query into the input field.</li>
+        <li>Click <strong>Format</strong> or type/edit the query. It will be formatted and syntax-highlighted automatically.</li>
+        <li>Click <strong>Copy</strong> to copy the clean, formatted OQL query back to your clipboard.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>For beginners:</strong> OQL is Mendix\'s version of SQL. Formatting helps you understand what data is being fetched and joined.</li>
+        <li><strong>Optimization:</strong> Formatting the query visually exposes missing WHERE clauses that could lead to large data retrievals.</li>
+      </ul>
+    `
+  },
+  'query-intelligence-translator': {
+    title: 'OQL &rarr; SQL Translator',
+    description: 'Translates Mendix OQL query syntax to raw PostgreSQL SQL query syntax, and vice versa. It maps entity paths to standard SQL syntax and replaces Mendix system tokens.',
+    howToGet: `
+      <ul>
+        <li>Copy OQL queries from logs or Mendix Studio Pro microflows (OQL actions).</li>
+        <li>Or, copy PostgreSQL queries from database profiling tools to translate back into OQL.</li>
+      </ul>
+    `,
+    howToUse: `
+      <ol>
+        <li>Select the translation direction using the dropdown: <strong>OQL &rarr; SQL (Postgres)</strong> or <strong>SQL &rarr; OQL</strong>.</li>
+        <li>Paste the source query into the input field. The translation will happen automatically.</li>
+        <li>Copy the translated query from the output field.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>For beginners:</strong> Helps bridge the gap between database admin tools (SQL) and Mendix logic (OQL).</li>
+        <li><strong>Migration:</strong> Essential when migrating pure SQL queries into Mendix OQL reporting datasets.</li>
+      </ul>
+    `
+  },
+  'query-intelligence-explain': {
+    title: 'SQL Explain Plan Visualizer',
+    description: 'Analyzes and visualizes PostgreSQL execution plans (EXPLAIN outputs) to help you find bottlenecks, sequence scans, and missing indexes.',
+    howToGet: `
+      <p>There are two ways to obtain a PostgreSQL execution plan:</p>
+      <ul>
+        <li>
+          <strong>Option 1 (Directly from Mendix Logs - Recommended):</strong>
+          <ol>
+            <li>In Mendix Studio Pro, go to the <strong>Console</strong>.</li>
+            <li>Click on <strong>Advanced</strong> > <strong>Set Log Levels...</strong>.</li>
+            <li>Locate the <strong>DataStorage_QueryPlan</strong> log node and set its level to <code>DEBUG</code> or <code>TRACE</code>.</li>
+            <li>Run the action that triggers the database query. Mendix will automatically execute an EXPLAIN query and log the resulting plan to the console.</li>
+            <li>Copy the logged plan text.</li>
+          </ol>
+        </li>
+        <li>
+          <strong>Option 2 (Using a Database Client):</strong>
+          <ol>
+            <li>Connect to your Mendix PostgreSQL database using a DB client (e.g., pgAdmin, DBeaver).</li>
+            <li>Prepend your SQL query with <code>EXPLAIN (ANALYZE, COSTS, VERBOSE, BUFFERS, FORMAT TEXT)</code> (or simply <code>EXPLAIN ANALYZE</code>) and execute it.</li>
+            <li>Copy the resulting text output of the execution plan.</li>
+          </ol>
+        </li>
+      </ul>
+    `,
+    howToUse: `
+      <ol>
+        <li>Paste the copied PostgreSQL EXPLAIN plan text into the input area.</li>
+        <li>Click <strong>Visualize Query Plan</strong>.</li>
+        <li>Review the generated visual tree:
+          <ul>
+            <li><strong style="color:var(--danger)">Seq Scan (Red):</strong> Table scan. Database is reading all rows. Consider adding indexes.</li>
+            <li><strong style="color:var(--success)">Index Scan (Green):</strong> Optimal. The database uses an index to locate rows.</li>
+          </ul>
+        </li>
+      </ol>
+    `
+  },
+  'query-intelligence-schema': {
+    title: 'OQL Schema Visualizer',
+    description: 'Generates a visual diagram of your Mendix entities and their association relationships directly from an OQL query.',
+    howToGet: `
+      <p>Paste any OQL query containing <code>FROM</code> and <code>JOIN</code> statements connecting Mendix entities (e.g. <code>MyModule.Customer</code>).</p>
+    `,
+    howToUse: `
+      <ol>
+        <li>Paste the OQL query into the query textarea.</li>
+        <li>The tool will automatically parse the entity paths (e.g., <code>Module.Entity</code>) and relationships.</li>
+        <li>It will render a visual model showing the extracted entities grouped by Mendix Module and connected based on the OQL join conditions.</li>
+      </ol>
+    `
+  },
+  'odata-builder': {
+    title: 'OData Query Builder',
+    description: 'Convenient OData query generator (v3/v4 standard) for communicating with Mendix Published OData Services. Helps graphically select filters, sorting, and pagination, eliminating syntax errors in URLs.',
+    howToGet: 'Get the base URL of the OData service published in your Mendix application (e.g., <code>https://myapp.mendixcloud.com/odata/v1/</code>) and familiarize yourself with the entity names in the service.',
+    howToUse: `
+      <ol>
+        <li>Enter the service base URL and the resource name (Entity Set).</li>
+        <li>Add filters in the builder (e.g., <code>Age gt 18</code>, <code>Status eq 'Active'</code>), select fields to retrieve ($select) and sort order ($orderby).</li>
+        <li>The tool will generate a full, correctly encoded query URL that you can paste into a browser, Postman, or integration configuration in Mendix.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>For beginners:</strong> OData query syntax is tricky (e.g. using <code>eq</code> instead of <code>=</code>). Use this builder to avoid frustrating syntax errors.</li>
+        <li><strong>Performance:</strong> Always use <code>$select</code> to only fetch the columns you need, and <code>$top</code> to limit results, preventing server overload.</li>
+      </ul>
+    `
+  },
+
+  'architecture': {
+    title: 'Domain Model & Architecture Diagrammer',
+    description: 'Tool for rapid visualization of architecture and database relationships using text code and Mermaid diagrams. Allows you to instantly draw a Domain Model without using heavy graphic tools.',
+    howToGet: 'Define relationships in text format, e.g., <code>Customer [1] -- [*] Order</code> or describe entities verbally.',
+    howToUse: `
+      <ol>
+        <li>Use the text editor on the left, typing classes and their connections according to simple Mermaid syntax (or use built-in templates from helper buttons).</li>
+        <li>A dynamic, interactive class diagram will render on the right side.</li>
+        <li>You can download the diagram as a PNG / SVG code or copy the Mermaid code to paste, for example, in project documentation.</li>
+      </ol>
+    `
+  },
+  'dev-studio': {
+    title: 'Mendix Developer Studio Connector',
+    description: 'Local integration tool communicating directly with a running Mendix Studio Pro instance on your computer via local API (Mendix Development Port). Enables quick preview and synchronization of project information.',
+    howToGet: `
+      <ul>
+        <li>Run your project locally in Mendix Studio Pro.</li>
+        <li>Ensure the developer port (usually 8080 or diagnostic console port) is active and accessible locally.</li>
+      </ul>
+    `,
+    howToUse: `
+      <ol>
+        <li>Enter the local address (e.g., <code>http://localhost:8080</code>) into the text field.</li>
+        <li>Click <strong>Connect</strong>.</li>
+        <li>The tool will fetch basic information about the project run status, Runtime version, and loaded modules.</li>
+      </ol>
+    `
+  },
+  'perf-lab': {
+    title: 'Performance Lab (Load Tester)',
+    description: 'Lightweight tool for conducting load tests (Load Testing) and performance analysis of selected endpoints (REST API, SOAP, HTML pages) directly from the browser. Measures response times and generates latency statistics.',
+    howToGet: 'The URL address of the web service (e.g., Published REST Service in Mendix) and optional authorization data (Basic Auth, API tokens).',
+    howToUse: `
+      <ol>
+        <li>Enter the tested URL and select the request method (GET, POST, etc.).</li>
+        <li>Specify test parameters: number of concurrent connections (Concurrency), total number of requests, and request headers (e.g., <code>Content-Type: application/json</code>).</li>
+        <li>Click <strong>Start Test</strong>. The tool will begin sending requests in the background and draw a latency chart in real-time.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>p50 Response Time (Median):</strong> Average response time for half of the users. Should oscillate below 200 ms.</li>
+        <li><strong>p99 Response Time:</strong> Metric for the 1% slowest requests. If p99 is drastically higher than p50 (e.g., 5 seconds vs 100 ms), the Mendix application might have issues with occasional thread blocking, database locking, or long Garbage Collector pauses.</li>
+        <li><strong>Error Rate:</strong> Appearance of network errors or 5xx statuses under higher load suggests the application has reached its performance limit (e.g., CPU overload or database connection pool exhaustion).</li>
+      </ul>
+    `
+  },
+  'traffic-inspector': {
+    title: 'Traffic Inspector (HAR Analyzer)',
+    description: 'Tool for analyzing HTTP Archive (HAR) files and cURL commands. Helps developers trace exactly what network requests the Mendix Client sent to the server (e.g., when diagnosing slow widgets or login issues).',
+    howToGet: `
+      <p>To get a HAR file:</p>
+      <ol>
+        <li>Open the Mendix application in a browser and press <strong>F12</strong> (Developer Tools).</li>
+        <li>Go to the <strong>Network</strong> tab.</li>
+        <li>Refresh the page and perform the action you want to diagnose.</li>
+        <li>Click the download icon (down arrow) or right-click on the requests list and select <strong>Save all as HAR with content</strong>.</li>
+      </ol>
+    `,
+    howToUse: `
+      <ol>
+        <li>Drag and drop the <code>.har</code> file into the tool's workspace or paste a cURL command into the second tab.</li>
+        <li>Analyze the request timeline, response codes, transfer sizes, and headers sent in queries.</li>
+      </ol>
+    `
+  },
+  'mock-server': {
+    title: 'Mock Server & Chaos Engineering',
+    description: 'A fully functional local Mock Server that allows you to simulate external API responses and test Chaos Engineering (intentionally introducing network faults). This tool works in tandem with the Mendix Observability Bridge to expose a real HTTP endpoint on your localhost.',
+    howToGet: 'Before using this tool, you must start the local bridge by running <code>node mendix-observability-bridge.js</code> in your terminal. Once running, you can configure your Mendix <em>Call REST</em> actions to send requests to <code>http://localhost:9999/mock</code>.',
+    howToUse: `
+      <ol>
+        <li><strong>Response Payload:</strong> Enter the JSON or XML that you want the simulated API to return to your Mendix application.</li>
+        <li><strong>HTTP Status:</strong> This represents the server's response code. It defaults to <code>200 OK</code> (which means the request was successful). You can change this to simulate different scenarios. Common codes include:
+          <ul>
+            <li><code>400 Bad Request</code> (Client sent invalid data)</li>
+            <li><code>401 Unauthorized</code> (Authentication failed)</li>
+            <li><code>404 Not Found</code> (Endpoint doesn't exist)</li>
+            <li><code>500 Internal Server Error</code> (Server crashed)</li>
+            <li><code>504 Gateway Timeout</code> (Server took too long to respond)</li>
+          </ul>
+        </li>
+        <li><strong>Latency:</strong> Set the base delay in milliseconds (e.g., 200ms) to simulate network travel time.</li>
+        <li><strong>Chaos Monkey:</strong> Enable this checkbox to introduce random chaos. When active, some requests will randomly fail with a 500 error or experience huge latency spikes, perfectly mimicking an unstable microservice.</li>
+        <li>Click <strong>Activate Responder</strong> to push this configuration to the local bridge server.</li>
+        <li>(Optional) Click <strong>Trigger Manual Request</strong> to test the endpoint from your browser before calling it from Mendix.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>What is this for?</strong> You can point your Mendix <em>Call REST</em> actions to <code>http://localhost:9999/mock</code> instead of a real external API. This allows you to safely test how your application behaves under various conditions without needing an internet connection or relying on a third-party server.</li>
+        <li><strong>Why is this important?</strong> It teaches you to build resilient applications. If your Mendix app integrates with a CRM system and that CRM goes down or slows down, your app shouldn't crash or freeze. Simulating these failures (Chaos Engineering) ensures you have proper Error Handlers and Timeouts configured in your Mendix REST calls.</li>
+      </ul>
+    `
+  },
+  'data-factory': {
+    title: 'Data Factory (Mock Data Generator)',
+    description: 'Generator of large sets of random, realistic test data (e.g., names, surnames, email addresses, phone numbers, dates, constants). Facilitates the preparation of CSV / JSON / XML files for import into the Mendix application database for performance testing.',
+    howToGet: 'The tool generates data randomly based on selected templates. It does not require uploading files.',
+    howToUse: `
+      <ol>
+        <li>Define the schema by adding columns. For each column, select the <strong>Data Type</strong> (e.g., <code>UUID</code>, <code>FullName</code>, <code>Email</code>, <code>Constant</code>) and then specify a custom <strong>Field Name</strong> (which will be used in the exported file).</li>
+        <li><em>Tip:</em> Use the drag handle on the left of each row to reorder columns. If you select the <code>Constant</code> type, a third input will appear for you to enter the static value to be applied to every record.</li>
+        <li>Select the desired output format (JSON, CSV, or XML).</li>
+        <li>Specify the number of records (e.g., 1000 or 10000 rows).</li>
+        <li>Click <strong>Generate Data</strong> and download the generated file to disk. Then import it into Mendix using, for example, the <em>Excel Importer</em> module or a dedicated import action.</li>
+      </ol>
+    `
+  },
+  'api-economics': {
+    title: 'API Economics Optimizer',
+    description: 'Tool analyzing JSON data structures sent over REST APIs. Locates unnecessary data transfer overhead: empty properties (null), repeating key names, excessive whitespace, and suggests specific optimizations to save network transfer.',
+    howToGet: 'Copy the JSON response body from a tool like Postman or from Mendix logs (at REST log level TRACE).',
+    howToUse: `
+      <ol>
+        <li>Paste the JSON payload into the text field.</li>
+        <li>Click the <strong>Analyze API Payload</strong> button.</li>
+        <li>Analyze the results: size reduction rate after minification and a list of fields with default/null values that can be excluded in Mendix Export Mapping in Studio Pro to reduce data size.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>Redundancy Rate:</strong> If it exceeds 30%, it means your API transmits a lot of repeating information or empty fields. Optimizing export mappings (Export Mapping) in Mendix by unchecking empty attributes will bring immediate improvement in loading times on mobile devices.</li>
+      </ul>
+    `
+  },
+  'memory-inspector': {
+    title: 'Memory Inspector (JVM Heap Analyzer)',
+    description: 'Module for analyzing JVM memory statistics and Garbage Collector logs. Facilitates interpreting RAM usage data and finding potential memory leaks in Mendix applications.',
+    howToGet: `
+      <ul>
+        <li>Garbage Collector logs (GC logs) can be downloaded from the Mendix Cloud administration console (Logs → GC Logs tab).</li>
+        <li>Heap dump statistics can be obtained through a JVM diagnostic tool (e.g., <code>jmap -histo [PID]</code>).</li>
+      </ul>
+    `,
+    howToUse: `
+      <ol>
+        <li>Paste generated memory usage statistics or an excerpt from GC logs into the text field.</li>
+        <li>Click <strong>Analyze Memory Data</strong>.</li>
+        <li>Browse charts showing the distribution of object types in memory (e.g., strings, Mendix entity objects) and GC pause duration statistics.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>High number of <code>com.mendix.basis.objectmanagement.MendixObjectImpl</code> objects:</strong> Indicates a very large number of objects held in the application's RAM. If this number constantly grows and doesn't fall after a full GC cycle, ensure that in long-running background processes (Scheduled Events) objects are properly cleared from memory or processed in batches (Batching).</li>
+      </ul>
+    `
+  },
+  'wasm-profiler': {
+    title: 'WASM Profiler',
+    description: 'Specialized analyzer for modules compiled to WebAssembly (WASM) format used in advanced Mendix client widgets (e.g., graphic editors, analytical tools in the browser). Measures execution times of low-level functions.',
+    howToGet: `There are two main ways to extract WASM traces from your browser:
+      <ul style="margin-top:var(--sp-2); padding-left:var(--sp-4)">
+        <li style="margin-bottom:var(--sp-2)"><strong>Method 1 (Error Stack Traces):</strong> Open Chrome/Firefox DevTools (F12) and go to the <strong>Console</strong>. If a WebAssembly module crashes, it prints a stack trace. Right-click the error text and select "Save as..." or simply copy the stack trace text (look for lines with <code>wasm-function[...]</code>).</li>
+        <li><strong>Method 2 (Performance Profiler):</strong> Open DevTools and go to the <strong>Performance</strong> tab. Click the <strong>Record</strong> button, perform the action in your Mendix app, and click Stop. Select the recorded timeline, go to the <strong>Bottom-Up</strong> or <strong>Call Tree</strong> tab, right-click any row and select <strong>"Copy all"</strong>.</li>
+      </ul>`,
+    howToUse: `
+      <ol>
+        <li>Paste the copied stack trace or Call Tree text into the text area.</li>
+        <li>The tool will parse the text, extracting WebAssembly function calls.</li>
+        <li>Review the "Hot Paths" table to see which functions were called most frequently.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul style="margin-top:var(--sp-2); padding-left:var(--sp-4)">
+        <li style="margin-bottom:var(--sp-2)"><strong>Noise Reduction (JS vs WASM):</strong> Chrome DevTools flame graphs contain thousands of React and framework calls. This tool filters out the JavaScript noise and aggregates ONLY the WebAssembly function calls, allowing you to quickly focus on the performance of low-level modules.</li>
+        <li style="margin-bottom:var(--sp-2)"><strong>Crash Dump Analysis:</strong> If a Mendix app crashes throwing a text stack trace (e.g., <code>RuntimeError: memory access out of bounds</code>), you can't load plain text into Chrome's Profiler. By pasting the text here, you instantly see which WASM function caused the loop or crash.</li>
+        <li><strong>JS-to-WASM Bridge Overhead:</strong> A very high call count for functions like <code>convert_js_to_rust</code> indicates that you are passing data between JavaScript and WebAssembly byte-by-byte rather than using efficient memory buffers (serialization bottleneck).</li>
+      </ul>
+    `
+  },
+  'jwt-decoder': {
+    title: 'JWT Token Decoder',
+    description: 'Local tool for decoding and inspecting JWT (JSON Web Tokens). Since decoding happens 100% in your browser using JavaScript, confidential data (access tokens) is not sent anywhere. Allows checking token contents, expiration date, and permissions (scopes/roles).',
+    howToGet: 'Copy the JWT token from an HTTP header <code>Authorization: Bearer [token_JWT]</code> logged in Mendix or from a user session in the browser.',
+    howToUse: `
+      <ol>
+        <li>Paste the entire JWT token (three parts separated by dots) into the text field.</li>
+        <li>The tool will instantly decode the token and show:
+          <br>– <strong>Header:</strong> encryption algorithm and token type.
+          <br>– <strong>Payload (Claims):</strong> encoded information about the user, their roles, and permissions.
+          <br>– <strong>Expiration Status:</strong> information whether the token is active or expired, along with exact date &amp; time.
+        </li>
+      </ol>
+    `
+  },
+  'hash-gen': {
+    title: 'Hash Generator',
+    description: 'Local generator of checksums and cryptographic hashes. Supports popular algorithms: MD5, SHA-1, SHA-256, and SHA-512. Useful for verifying file integrity, generating unique object keys, or testing authorization mechanisms in Mendix.',
+    howToGet: 'Type the text string, or provide a file if you need to verify its integrity.',
+    howToUse: `
+      <ol>
+        <li>Enter text in the input field.</li>
+        <li>Hashes for all available cryptographic algorithms will be generated and displayed automatically below.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>For beginners:</strong> Hashing is a one-way street. It turns any text into a fixed-length string. If even one letter changes, the hash changes completely. Useful for verifying file integrity.</li>
+        <li><strong>Security:</strong> MD5 and SHA-1 are considered broken for security purposes. Always use SHA-256 or SHA-512 for hashing sensitive data like passwords or tokens.</li>
+      </ul>
+    `
+  },
+  'password-generator': {
+    title: 'Password Generator',
+    description: 'Generator of strong, secure, and random passwords. Facilitates creating passwords for system accounts, database administrators, or technical accounts in Mendix Cloud.',
+    howToGet: 'The generator works fully locally and randomly. It does not require input data.',
+    howToUse: `
+      <ol>
+        <li>Set the password length using the slider.</li>
+        <li>Check options defining what characters the password should contain (uppercase, lowercase, numbers, special characters).</li>
+        <li>Click the <strong>Generate Password</strong> button and copy the generated secure string.</li>
+      </ol>
+    `
+  },
+  'regex-tester': {
+    title: 'Java Regex Tester (Mendix)',
+    description: 'Dedicated tool for testing Regular Expressions (Regex). It works based on Java regular expression engine rules (which is directly used by Mendix Runtime e.g., in attribute validation functions and in the <code>isMatch()</code> function in Microflows).',
+    howToGet: 'Prepare a regular expression you want to test (e.g., zip code validator, tax ID) and test text.',
+    howToUse: `
+      <ol>
+        <li>Enter the Regex pattern in the top field (e.g., <code>^\\d{2}-\\d{3}$</code> for Polish zip codes).</li>
+        <li>Enter test text in the bottom field.</li>
+        <li>The tool will instantly highlight matching text fragments and inform about potential syntax errors in the Java regular expression engine.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>Full String Match:</strong> Mendix's <code>isMatch()</code> requires the <strong>entire</strong> text to match the pattern. Enabling "Simulate isMatch()" simulates this by anchoring the pattern.</li>
+        <li><strong>Multiline Testing:</strong> Because the tool has the <code>m</code> (multiline) flag enabled by default, it evaluates each line independently. This allows you to conveniently test multiple examples (one per line) simultaneously. To strictly simulate Mendix (which treats the whole multi-line text as a single string block), remove the <code>m</code> flag from the flags input.</li>
+        <li><strong>Engine Differences:</strong> This tool uses the browser's JS engine. Some Java-specific regex features (like possessive quantifiers <code>.*+</code> or inline flags like <code>(?x)</code>) are not supported in JS and cannot be simulated here.</li>
+      </ul>
+    `
+  },
+  'timestamp': {
+    title: 'Timestamp & Date Converter',
+    description: 'Used for quick conversion of timestamps (Unix Timestamp in seconds or milliseconds) to readable calendar dates in various time zones (UTC, user local zone) and vice-versa. Useful for analyzing raw data in the Mendix database, where dates and times are often stored as numbers (Epoch).',
+    howToGet: 'Get the numeric timestamp value from the database (e.g., <code>1719878400000</code>) or copy from a system log.',
+    howToUse: `
+      <ol>
+        <li><strong>Convert to Date:</strong> Enter the timestamp value (seconds or milliseconds). The tool will instantly calculate and display the calendar date.</li>
+        <li><strong>Convert to Timestamp:</strong> Select a date and time from the calendar to generate the corresponding Unix Epoch timestamp.</li>
+      </ol>
+    `
+  },
+  'log-anonymizer': {
+    title: 'Log & Text Anonymizer',
+    description: 'Anonymizes sensitive data from any arbitrary text, JSON payloads, or Mendix logs before sharing them externally.',
+    howToGet: 'Simply paste your Mendix log file content or drag and drop the log file into the tool.',
+    howToUse: `
+      <ol>
+        <li>Select the types of data you want to anonymize (UUIDs, IP addresses, Emails, Mendix IDs, MAC Addresses, Credit Cards, Auth Tokens).</li>
+        <li>Check "Consistent Masking (Pseudonymization)" to securely map identical values to the same pseudonym across the entire log (e.g. replacing the same email with [EMAIL-1] everywhere) to maintain traceability.</li>
+        <li>You can also provide custom keywords (e.g., your company name or secret project names) to be redacted.</li>
+        <li>Click Run or enable Auto-run to see the cleaned logs instantly.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>Enterprise standard:</strong> Never share raw logs publicly! This tool prevents Data Loss (DLP) by scrubbing personal, authentication, and network data locally in your browser.</li>
+        <li><strong>Consistent Masking:</strong> Enables tracking a user session without knowing their actual identity.</li>
+        <li><strong>Custom Keywords:</strong> Use this to hide proprietary table names or module names that might reveal your business logic.</li>
+      </ul>
+    `
+  },
+  'password-generator': {
+    title: 'Password Generator',
+    description: 'Generates secure, complex passwords for database accounts, API keys, or MxAdmin credentials.',
+    howToGet: 'Works locally in your browser. No input data required.',
+    howToUse: `
+      <ol>
+        <li>Adjust the password length (default is usually secure enough for most systems).</li>
+        <li>Toggle options for Uppercase, Lowercase, Numbers, and Symbols depending on the target system\'s requirements.</li>
+        <li>Click Generate and copy the result.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>Mendix Cloud:</strong> When setting up a new environment, use this to generate a 32+ character password for MxAdmin.</li>
+        <li><strong>Database integrations:</strong> Some legacy databases have restrictions on certain symbols. You can disable symbols if your connection string fails.</li>
+      </ul>
+    `
+  }
+};
+
+// ============================================================
+// MODAL CONTROLLER FUNCTIONS
+// ============================================================
+
+function showActiveToolHelp() {
+  let toolId = typeof currentTool !== 'undefined' ? currentTool : 'home';
+  if (toolId === 'home') return;
+
+  if (toolId === 'log-viewer') {
+    const activeTab = document.querySelector('#panel-log-viewer .tabs .tab.active');
+    if (activeTab) {
+      if (activeTab.innerText.includes('Stream')) toolId = 'log-viewer-stream';
+      else if (activeTab.innerText.includes('Correlation')) toolId = 'log-viewer-correlation';
+      else if (activeTab.innerText.includes('Sequence')) toolId = 'log-viewer-sequence';
+      else if (activeTab.innerText.includes('Gantt')) toolId = 'log-viewer-gantt';
+      else toolId = 'log-viewer-stream';
+    } else {
+      toolId = 'log-viewer-stream';
+    }
+  }
+
+  if (toolId === 'query-intelligence') {
+    const activeTab = document.querySelector('#panel-query-intelligence .tabs .tab.active');
+    if (activeTab) {
+      if (activeTab.innerText.includes('Formatter')) toolId = 'query-intelligence-formatter';
+      else if (activeTab.innerText.includes('Translator')) toolId = 'query-intelligence-translator';
+      else if (activeTab.innerText.includes('Explain')) toolId = 'query-intelligence-explain';
+      else if (activeTab.innerText.includes('Visualizer')) toolId = 'query-intelligence-schema';
+    } else {
+      toolId = 'query-intelligence-formatter';
+    }
+  }
+
+  const helpData = TOOLS_HELP[toolId];
+  if (!helpData) {
+    alert('Help for this module is currently under construction.');
+    return;
+  }
+
+  // Populate title
+  document.getElementById('help-modal-title').textContent = 'Help: ' + helpData.title;
+
+  // Build body HTML dynamically using premium styled blocks
+  let html = '';
+
+  // 1. Description
+  html += `
+    <div class="help-section">
+      <div style="display:flex; align-items:center; gap:var(--sp-2); margin-bottom:var(--sp-2); font-weight:600; color:var(--accent);">
+        <span style="display:flex;align-items:center;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></span> About this module and its purpose
+      </div>
+      <p style="color:var(--text-secondary); margin:0; font-size:0.85rem; line-height:1.6;">${helpData.description}</p>
+    </div>
+  `;
+
+  // 2. How to get/prepare data
+  if (helpData.howToGet) {
+    html += `
+      <div class="help-section" style="background:var(--bg-elevated); padding:var(--sp-4); border-radius:var(--r-md); border:1px solid var(--border);">
+        <div style="display:flex; align-items:center; gap:var(--sp-2); margin-bottom:var(--sp-2); font-weight:600; color:var(--info);">
+          <span style="display:flex;align-items:center;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></span> How to obtain / prepare input data
+        </div>
+        <div style="color:var(--text-secondary); margin:0; font-size:0.85rem; line-height:1.6;">${helpData.howToGet}</div>
+      </div>
+    `;
+  }
+
+  // 3. How to use
+  if (helpData.howToUse) {
+    html += `
+      <div class="help-section">
+        <div style="display:flex; align-items:center; gap:var(--sp-2); margin-bottom:var(--sp-2); font-weight:600; color:var(--success);">
+          <span style="display:flex;align-items:center;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg></span> Step-by-step instructions
+        </div>
+        <div style="color:var(--text-secondary); margin:0; font-size:0.85rem; line-height:1.6;">${helpData.howToUse}</div>
+      </div>
+    `;
+  }
+
+  // 4. Interpretation (if exists)
+  if (helpData.interpretation) {
+    html += `
+      <div class="help-section" style="background:color-mix(in srgb, var(--warning) 8%, transparent); padding:var(--sp-4); border-radius:var(--r-md); border:1px solid color-mix(in srgb, var(--warning) 30%, transparent);">
+        <div style="display:flex; align-items:center; gap:var(--sp-2); margin-bottom:var(--sp-2); font-weight:600; color:var(--warning);">
+          <span style="display:flex;align-items:center;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg></span> Result interpretation and developer tips
+        </div>
+        <div style="color:var(--text-secondary); margin:0; font-size:0.85rem; line-height:1.6;">${helpData.interpretation}</div>
+      </div>
+    `;
+  }
+
+  document.getElementById('help-modal-body').innerHTML = html;
+
+  // Open modal
+  const overlay = document.getElementById('help-modal');
+  if (overlay) overlay.classList.add('active');
+}
+
+function closeHelpModal() {
+  const overlay = document.getElementById('help-modal');
+  if (overlay) overlay.classList.remove('active');
+}
+
+// Add Escape key handler
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    closeHelpModal();
+  }
+});
+
+
+window.showActiveToolHelp = showActiveToolHelp;
+window.closeHelpModal = closeHelpModal;
+export function init() {}
