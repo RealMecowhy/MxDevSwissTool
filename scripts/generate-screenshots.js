@@ -153,22 +153,39 @@ Caused by: com.mendix.core.CoreRuntimeException: Exception occurred in action '{
         t.click();
       }
     }
-    if (window.tmToggleMock) window.tmToggleMock();
   });
-  await sleep(2500);
+  await sleep(500);
   await page.evaluate(() => {
     if (typeof Chart !== 'undefined' && Chart.instances) {
+      let chartIndex = 0;
       Object.values(Chart.instances).forEach(chart => {
-        chart.data.datasets.forEach(ds => {
-          if (!ds.data) return;
-          for(let i = ds.data.length - 8; i < ds.data.length - 2; i++) {
-            if (i >= 0 && ds.data[i] !== undefined) {
-               if (typeof ds.data[i] === 'number') ds.data[i] = ds.data[i] * 12 + 80;
-               else if (ds.data[i].y) ds.data[i].y = ds.data[i].y * 12 + 80;
-            }
+        chart.data.labels = Array.from({length: 60}, (_, i) => {
+          const d = new Date();
+          d.setSeconds(d.getSeconds() - (60 - i));
+          return d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+        });
+        
+        chart.data.datasets.forEach((ds, dsIndex) => {
+          let baseVal = 50;
+          let amplitude = 20;
+          if (chartIndex === 0) { // Memory
+            baseVal = 600; amplitude = 150;
+          } else if (chartIndex === 1) { // CPU/Threads
+            baseVal = dsIndex === 0 ? 30 : 150;
+            amplitude = dsIndex === 0 ? 15 : 20;
+          } else if (chartIndex === 2) { // Requests
+            baseVal = 800; amplitude = 400;
           }
+          
+          ds.data = Array.from({length: 60}, (_, i) => {
+            // Create a nice dynamic wave with some random noise and a spike near the end
+            let val = baseVal + Math.sin(i / 5.0) * amplitude + (Math.random() * amplitude * 0.5);
+            if (i > 45 && i < 52) val += amplitude * 1.5; // Add a dramatic spike
+            return Math.max(0, Math.floor(val));
+          });
         });
         chart.update();
+        chartIndex++;
       });
     }
     const kpis = document.querySelectorAll('.tm-kpi-value');
