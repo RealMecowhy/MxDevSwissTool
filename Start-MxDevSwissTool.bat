@@ -1,7 +1,7 @@
 @echo off
 color 0B
 echo ==============================================================
-echo             MendixTools Observability Launcher
+echo             MxDev Swiss Tool Launcher
 echo ==============================================================
 echo.
 echo Zamykanie starych procesow Agenta...
@@ -10,7 +10,7 @@ echo.
 echo Uruchamianie Mendix Observability Bridge...
 start "Mendix Observability Agent" cmd /k "node server/mendix-observability-bridge.js"
 echo.
-echo Otwieranie interfejsu MendixTools w domyslnej przegladarce...
+echo Otwieranie interfejsu MxDev Swiss Tool w domyslnej przegladarce...
 start http://localhost:9999/
 echo.
 echo Gotowe! Mozesz juz zamknac to okienko startowe.

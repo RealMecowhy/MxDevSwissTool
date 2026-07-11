@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mendixtools-v3';
+const CACHE_NAME = 'mxdev-swiss-tool-v3';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

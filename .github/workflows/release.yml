@@ -23,17 +23,17 @@ jobs:
           cp -r server release_package/
           cp package.json release_package/
           cp package-lock.json release_package/
-          cp Start-MendixTools.bat release_package/
+          cp Start-MxDevSwissTool.bat release_package/
           cp README.md release_package/
           
       - name: Create ZIP Archive
         working-directory: release_package
-        run: zip -r ../MendixTools-Release-${{ github.ref_name }}.zip ./*
+        run: zip -r ../MxDevSwissTool-Release-${{ github.ref_name }}.zip ./*
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          files: MendixTools-Release-${{ github.ref_name }}.zip
+          files: MxDevSwissTool-Release-${{ github.ref_name }}.zip
           name: Release ${{ github.ref_name }}
           draft: false
           prerelease: false

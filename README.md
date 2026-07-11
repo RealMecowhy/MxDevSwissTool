@@ -5,7 +5,7 @@ All-in-one developer toolkit for Mendix: log viewer, JSON formatter, XPath build
 ## How to run the application?
 
 1. **Default (Recommended):**
-   Double-click the `Start-MendixTools.bat` file. This will start the local bridge server and automatically open the tool interface in your browser.
+   Double-click the `Start-MxDevSwissTool.bat` file. This will start the local bridge server and automatically open the tool interface in your browser.
 
 2. **Alternative option (for blocked .bat files in corporate environments):**
    Often in corporate environments, running `.bat` files is blocked for security reasons. In this situation, use the command line:

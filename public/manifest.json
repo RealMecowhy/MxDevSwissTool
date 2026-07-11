@@ -1,6 +1,6 @@
 {
   "name": "MxDev Swiss Tool - Developer Toolkit",
-  "short_name": "MendixTools",
+  "short_name": "MxDev Swiss Tool",
   "description": "All-in-one developer toolkit for Mendix.",
   "start_url": "/index.html",
   "display": "standalone",
