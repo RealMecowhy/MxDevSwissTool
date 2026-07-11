@@ -16,8 +16,8 @@ async function run() {
     </style></head>
     <body>
       <svg viewBox="0 0 24 24">
-        <path d="M8 4C6.5 4 5.5 5 5.5 6.5V10C5.5 11.5 4 12 4 12C4 12 5.5 12.5 5.5 14V17.5C5.5 19 6.5 20 8 20" stroke-width="2"></path>
-        <path d="M16 4C17.5 4 18.5 5 18.5 6.5V10C18.5 11.5 20 12 20 12C20 12 18.5 12.5 18.5 14V17.5C18.5 19 17.5 20 16 20" stroke-width="2"></path>
+        <path d="M5 4C3.5 4 2.5 5 2.5 6.5V10C2.5 11.5 1 12 1 12C1 12 2.5 12.5 2.5 14V17.5C2.5 19 3.5 20 5 20" stroke-width="2"></path>
+        <path d="M19 4C20.5 4 21.5 5 21.5 6.5V10C21.5 11.5 23 12 23 12C23 12 21.5 12.5 21.5 14V17.5C21.5 19 20.5 20 19 20" stroke-width="2"></path>
         <line x1="12" y1="7" x2="12" y2="17" stroke-width="4"></line>
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="4"></line>
       </svg>
