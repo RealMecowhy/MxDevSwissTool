@@ -274,10 +274,30 @@ Caused by: com.mendix.core.CoreRuntimeException: Exception occurred in action '{
         if (window.lqeLoadFile) window.lqeLoadFile(dt.files);
       }, csvContent);
       await sleep(1500); // Give it time to parse
-      // Click the first query to show details
+      
       await page.evaluate(() => {
         const firstRow = document.querySelector('#lqe-query-list tr');
         if (firstRow) firstRow.click();
+        
+        // Mock a complex query plan for WOW effect
+        const planBtn = document.querySelector('button[onclick*="lqe-tab-plan"]');
+        if (planBtn) planBtn.click();
+        
+        const planContent = document.getElementById('lqe-plan-content');
+        if (planContent) {
+            planContent.innerHTML = `Nested Loop Left Join  (cost=12.50..345.80 rows=10 width=145) (actual time=0.045..0.048 rows=2 loops=1)
+  Join Filter: (o.id = l.order_id)
+  ->  Index Scan using idx_order_status on sales_order o  (cost=0.42..8.44 rows=1 width=75) (actual time=0.015..0.018 rows=1 loops=1)
+        Index Cond: ((status)::text = 'PENDING'::text)
+  ->  Bitmap Heap Scan on sales_orderline l  (cost=12.08..337.26 rows=10 width=70) (actual time=0.025..0.026 rows=2 loops=1)
+        Recheck Cond: (order_id = o.id)
+        Heap Blocks: exact=1
+        ->  Bitmap Index Scan on idx_orderline_order_id  (cost=0.00..12.08 rows=10 width=0) (actual time=0.012..0.012 rows=2 loops=1)
+              Index Cond: (order_id = o.id)
+Planning Time: 0.150 ms
+Execution Time: 0.085 ms`;
+            planContent.style.color = '#e6db74';
+        }
       });
       await sleep(500);
     }
@@ -303,6 +323,7 @@ Caused by: com.mendix.core.CoreRuntimeException: Exception occurred in action '{
     }
     if (window.nginxLoadedText !== undefined) {
       window.nginxLoadedText = nginxLogs;
+      document.getElementById('nginx-log-input').value = '[File loaded: mock.log]';
       if (window.nginxAnalyzeLogs) window.nginxAnalyzeLogs();
     }
   });
