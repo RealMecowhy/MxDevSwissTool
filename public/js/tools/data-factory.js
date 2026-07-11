@@ -1,11 +1,12 @@
 // DATA FACTORY
 // High-Volume Mock Data Generator
 
-let dfSchema = [
+let dfSchema = window.dfSchema || [
   { name: 'ID', type: 'UUID' },
   { name: 'FullName', type: 'Name' },
   { name: 'EmailAddress', type: 'Email' }
 ];
+window.dfSchema = dfSchema;
 
 let dfWorker = null;
 let dfDraggedColumnIndex = null;
@@ -37,6 +38,7 @@ function dfHandleDragEnd(e) {
   dfDraggedColumnIndex = null;
 }
 
+window.dfRenderSchema = dfRenderSchema;
 function dfRenderSchema() {
   const list = document.getElementById('df-schema-list');
   if (!list) return;
@@ -88,6 +90,7 @@ function dfRemoveColumn(index) {
   dfRenderSchema();
 }
 
+window.dfGenerate = dfGenerate;
 function dfGenerate() {
   const count = parseInt(document.getElementById('df-count').value);
   const format = document.getElementById('df-format').value;

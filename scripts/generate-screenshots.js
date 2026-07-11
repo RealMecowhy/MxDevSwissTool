@@ -9,30 +9,183 @@ async function run() {
   const browser = await puppeteer.launch({ headless: "new", defaultViewport: { width: 1440, height: 900 } });
   const page = await browser.newPage();
   
-  const targetUrl = 'http://127.0.0.1:8080/';
+  const targetUrl = 'http://localhost:5173/';
   console.log(`Navigating to ${targetUrl}...`);
   try {
-    await page.goto(targetUrl, { waitUntil: 'domcontentloaded' }).catch(() => {});
-    await sleep(2000); // wait for potential SW reload
+    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
   } catch (err) {
-    console.error('Failed to connect to the server. Please ensure `npm start` is running in another terminal.', err);
-    await browser.close();
-    process.exit(1);
+    console.log('Caught goto error, retrying:', err.message);
+    await sleep(2000);
+    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 10000 }).catch(e => console.log('Retry failed too:', e.message));
   }
+  
+  await sleep(4000);
 
   const assetsDir = path.join(__dirname, '..', '_local_assets');
-  if (!fs.existsSync(assetsDir)) {
-    fs.mkdirSync(assetsDir);
-  }
+  if (!fs.existsSync(assetsDir)) fs.mkdirSync(assetsDir);
 
-  // Helper function to switch tools
   async function switchTool(toolId) {
     console.log(`Switching to ${toolId}...`);
     await page.click(`[data-tool="${toolId}"]`);
-    await sleep(500); // wait for animation
+    await sleep(800);
   }
 
-  // 1. JSON Formatter
+  // 0. HOME SCREEN (Header image)
+  await switchTool('home');
+  await page.evaluate(() => {
+    window.toggleFavorite('log-viewer');
+    window.toggleFavorite('xpath-builder');
+    window.toggleFavorite('json-formatter');
+    window.toggleFavorite('text-diff');
+  });
+  await sleep(500);
+  await page.screenshot({ path: path.join(assetsDir, 'screenshot-home.png') });
+  console.log('Saved screenshot-home.png');
+
+  // 1. DATA FACTORY
+  await switchTool('data-factory');
+  await page.evaluate(() => {
+    if (window.dfSchema) {
+      window.dfSchema = [
+        { name: 'TransactionID', type: 'UUID' },
+        { name: 'CustomerName', type: 'FullName' },
+        { name: 'EmailAddress', type: 'Email' },
+        { name: 'OrderAmount', type: 'Decimal' },
+        { name: 'IsActive', type: 'Boolean' },
+        { name: 'RegistrationDate', type: 'Date' }
+      ];
+      if (window.dfRenderSchema) window.dfRenderSchema();
+    }
+    const countInput = document.getElementById('df-count');
+    if (countInput) countInput.value = '150000';
+    if (window.dfGenerate) window.dfGenerate();
+    else {
+       const btn = document.getElementById('df-generate-btn') || document.querySelector('#panel-data-factory button.btn-primary');
+       if (btn) btn.click();
+    }
+  });
+  await sleep(2000);
+  await page.screenshot({ path: path.join(assetsDir, 'screenshot-data-factory.png') });
+  console.log('Saved screenshot-data-factory.png');
+
+  // 2. TEXT DIFF
+  await switchTool('text-diff');
+  await page.evaluate(() => {
+    const left = document.getElementById('diff-a');
+    const right = document.getElementById('diff-b');
+    if (left && right) {
+      left.value = JSON.stringify({
+        order: {
+          id: "ORD-123",
+          status: "pending",
+          items: [
+            { productId: "PROD-1", qty: 2, price: 19.99 },
+            { productId: "PROD-2", qty: 1, price: 49.99 }
+          ],
+          customer: { name: "John Doe", email: "john@example.com" }
+        }
+      }, null, 2);
+      right.value = JSON.stringify({
+        order: {
+          id: "ORD-123",
+          status: "shipped",
+          items: [
+            { productId: "PROD-1", qty: 2, price: 19.99 },
+            { productId: "PROD-3", qty: 5, price: 9.99 }
+          ],
+          customer: { name: "John Doe", email: "john.doe@newdomain.com", phone: "+1-555-0198" },
+          trackingInfo: { carrier: "FedEx", number: "FX-9921-331" }
+        }
+      }, null, 2);
+      if (window.diffCompare) window.diffCompare();
+    }
+  });
+  await sleep(500);
+  await page.screenshot({ path: path.join(assetsDir, 'screenshot-text-diff.png') });
+  console.log('Saved screenshot-text-diff.png');
+
+  // 3. LOG VIEWER
+  await switchTool('log-viewer');
+  await page.evaluate(() => {
+    const wowLog = `2026-07-10 14:51:09.591  INFO - Core: Mendix Runtime started successfully on port 8080
+2026-07-10 14:51:12.000  INFO - Connector: Connecting to database jdbc:postgresql://localhost:5432/mendix
+2026-07-10 14:52:15.999  ERROR - Connector: Connection to database timed out after 30000ms. Attempting retry.
+  at com.mendix.connectionbus.ConnectionBusImpl.getConnection(ConnectionBusImpl.java:123)
+  at com.mendix.modules.MyModule.MyAction(MyAction.java:45)
+  at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+2026-07-10 14:53:11.100  ERROR - ActionManager: Error in execution of microflow 'OrderManagement.ACT_ProcessOrder'
+  at com.mendix.core.actionmanagement.ActionManager.executeSync(ActionManager.java:178)
+Caused by: com.mendix.core.CoreRuntimeException: Exception occurred in action '{"type":"RetrieveByXPath","entity":"Sales.Order"}', all database connections are exhausted.
+  at com.mendix.modules.microflowengine.MicroflowObject.execute(MicroflowObject.java:82)
+2026-07-10 14:53:15.000  CRITICAL - Core: Application state corrupted due to massive database latency. Entering safe mode.`;
+    if (window.logParseContent) window.logParseContent(wowLog, "production_outage.log");
+    
+    document.getElementById('log-search').value = 'Caused by';
+    if(window.logRenderFiltered) window.logRenderFiltered();
+  });
+  await sleep(1000);
+  await page.screenshot({ path: path.join(assetsDir, 'screenshot-log-viewer.png') });
+  console.log('Saved screenshot-log-viewer.png');
+
+  // 4. TELEMETRY MONITOR
+  await switchTool('telemetry-monitor');
+  await sleep(1000);
+  await page.evaluate(() => {
+    const tabs = document.querySelectorAll('#panel-telemetry-monitor .tab');
+    for (let t of tabs) {
+      if (t.textContent.includes('Dashboard') || t.getAttribute('onclick')?.includes('dashboard')) {
+        t.click();
+      }
+    }
+    if (window.tmToggleMock) window.tmToggleMock();
+  });
+  await sleep(2500);
+  await page.evaluate(() => {
+    if (typeof Chart !== 'undefined' && Chart.instances) {
+      Object.values(Chart.instances).forEach(chart => {
+        chart.data.datasets.forEach(ds => {
+          if (!ds.data) return;
+          for(let i = ds.data.length - 8; i < ds.data.length - 2; i++) {
+            if (i >= 0 && ds.data[i] !== undefined) {
+               if (typeof ds.data[i] === 'number') ds.data[i] = ds.data[i] * 12 + 80;
+               else if (ds.data[i].y) ds.data[i].y = ds.data[i].y * 12 + 80;
+            }
+          }
+        });
+        chart.update();
+      });
+    }
+    const kpis = document.querySelectorAll('.tm-kpi-value');
+    if(kpis.length >= 4) {
+      kpis[0].innerHTML = '892 MB <span style="font-size:1rem;color:var(--text-muted)">/ 1024 MB</span>';
+      kpis[1].innerHTML = '198 <span style="font-size:1rem;color:var(--text-muted)">/ 200</span>';
+      kpis[2].innerHTML = '1254.3 req/s';
+      kpis[3].innerHTML = '482.1 / s';
+    }
+  });
+  await sleep(500);
+  await page.screenshot({ path: path.join(assetsDir, 'screenshot-telemetry.png') });
+  console.log('Saved screenshot-telemetry.png');
+
+  // 5. Memory Inspector
+  await switchTool('memory-inspector');
+  await page.evaluate(() => {
+    const jmapData = ` num     #instances         #bytes  class name (module)
+-------------------------------------------------------
+   1:         15420      125000000  com.mendix.core.objectmanagement.MendixObjectImpl
+   2:           830       85000000  java.lang.String
+   3:         42000       65000000  [C
+   4:          1250       15000000  com.mendix.connectionbus.ConnectionBusImpl
+   5:           420        5000000  [Ljava.lang.Object;`;
+    const input = document.getElementById('mi-input');
+    if (input) input.value = jmapData;
+    if (window.miAnalyze) window.miAnalyze();
+  });
+  await sleep(1000);
+  await page.screenshot({ path: path.join(assetsDir, 'screenshot-memory-inspector.png') });
+  console.log('Saved screenshot-memory-inspector.png');
+
+  // 6. JSON Formatter
   await switchTool('json-formatter');
   await page.evaluate(() => {
     const data = {
@@ -64,140 +217,35 @@ async function run() {
       }
     };
     document.getElementById('json-input').value = JSON.stringify(data);
-    if (typeof window.jsonFormat === 'function') window.jsonFormat();
+    if (window.jsonFormat) window.jsonFormat();
   });
   await sleep(500);
   await page.screenshot({ path: path.join(assetsDir, 'screenshot-json-formatter.png') });
-  console.log('Screenshot saved: screenshot-json-formatter.png');
+  console.log('Saved screenshot-json-formatter.png');
 
-  // 2. JWT Decoder
+  // 7. JWT Decoder
   await switchTool('jwt-decoder');
   await page.evaluate(() => {
-    // A dummy JWT token (header.payload.signature)
-    // Header: {"alg":"HS256","typ":"JWT"} -> eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9
-    // Payload: {"sub":"1234567890","name":"Mendix Developer","iat":1516239022,"roles":["admin"]} -> eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6Ik1lbmRpeCBEZXZlbG9wZXIiLCJpYXQiOjE1MTYyMzkwMjIsInJvbGVzIjpbImFkbWluIl19
     const dummyJwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6Ik1lbmRpeCBEZXZlbG9wZXIiLCJpYXQiOjE1MTYyMzkwMjIsInJvbGVzIjpbImFkbWluIl19.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
     document.getElementById('jwt-input').value = dummyJwt;
-    if (typeof window.jwtDecode === 'function') window.jwtDecode();
+    if (window.jwtDecode) window.jwtDecode();
   });
   await sleep(500);
   await page.screenshot({ path: path.join(assetsDir, 'screenshot-jwt-decoder.png') });
-  console.log('Screenshot saved: screenshot-jwt-decoder.png');
+  console.log('Saved screenshot-jwt-decoder.png');
 
-  // 3. XPath Builder
+  // 8. XPath Builder
   await switchTool('xpath-builder');
   await page.evaluate(() => {
     document.getElementById('xpath-input').value = "//Sales.Order[Status = 'Shipped' and TotalPrice > 1000.00 and starts-with(OrderNumber, 'ORD-2026')]/Sales.Order_Customer/CRM.Customer[City = 'Rotterdam' or City = 'Amsterdam']";
-    if (typeof window.xpathAnalyze === 'function') window.xpathAnalyze();
-    if (typeof window.formatXPathClick === 'function') window.formatXPathClick();
+    if (window.xpathAnalyze) window.xpathAnalyze();
+    if (window.formatXPathClick) window.formatXPathClick();
   });
   await sleep(500);
   await page.screenshot({ path: path.join(assetsDir, 'screenshot-xpath-builder.png') });
-  console.log('Screenshot saved: screenshot-xpath-builder.png');
+  console.log('Saved screenshot-xpath-builder.png');
 
-  // 4. Data Factory
-  await switchTool('data-factory');
-  await page.evaluate(() => {
-    if (typeof window.dfSchema !== 'undefined') {
-      window.dfSchema = [
-        { name: 'EmployeeID', type: 'UUID' },
-        { name: 'FullName', type: 'Name' },
-        { name: 'EmailAddress', type: 'Email' },
-        { name: 'Department', type: 'Company' },
-        { name: 'StartDate', type: 'Date' }
-      ];
-      if (typeof window.dfRenderSchema === 'function') window.dfRenderSchema();
-    }
-    const countInput = document.getElementById('df-count');
-    if (countInput) countInput.value = '500';
-    if (typeof window.dfGenerate === 'function') window.dfGenerate();
-    else {
-       const btn = document.getElementById('df-generate-btn') || document.querySelector('#panel-data-factory button.btn-primary');
-       if (btn) btn.click();
-    }
-  });
-  await sleep(1500);
-  await page.screenshot({ path: path.join(assetsDir, 'screenshot-data-factory.png') });
-  console.log('Screenshot saved: screenshot-data-factory.png');
-
-  // 5. Diff / Text Compare
-  await switchTool('text-diff');
-  await page.evaluate(() => {
-    try {
-      const left = document.getElementById('diff-a');
-      const right = document.getElementById('diff-b');
-      if (left && right) {
-        left.value = "{\n  \"api_endpoint\": \"/v1/users\",\n  \"timeout\": 3000,\n  \"retry\": false,\n  \"cache\": false\n}";
-        right.value = "{\n  \"api_endpoint\": \"/v2/users\",\n  \"timeout\": 5000,\n  \"retry\": true,\n  \"cache\": true,\n  \"max_retries\": 3\n}";
-      }
-      if (typeof window.diffCompare === 'function') window.diffCompare();
-    } catch (e) { console.error(e); }
-  });
-  await sleep(500);
-  await page.screenshot({ path: path.join(assetsDir, 'screenshot-text-diff.png') });
-  console.log('Screenshot saved: screenshot-text-diff.png');
-
-  // 6. Memory Inspector
-  await switchTool('memory-inspector');
-  await page.evaluate(() => {
-    const jmapData = ` num     #instances         #bytes  class name (module)
--------------------------------------------------------
-   1:         15420      125000000  com.mendix.core.objectmanagement.MendixObjectImpl
-   2:           830       85000000  java.lang.String
-   3:         42000       65000000  [C
-   4:          1250       15000000  com.mendix.connectionbus.ConnectionBusImpl
-   5:           420        5000000  [Ljava.lang.Object;`;
-    const input = document.getElementById('mi-input');
-    if (input) input.value = jmapData;
-    if (typeof window.miAnalyze === 'function') window.miAnalyze();
-  });
-  await sleep(1000);
-  await page.screenshot({ path: path.join(assetsDir, 'screenshot-memory-inspector.png') });
-  console.log('Screenshot saved: screenshot-memory-inspector.png');
-
-  // 7. Telemetry Monitor
-  await switchTool('telemetry-monitor');
-  await sleep(1000); // Wait a bit for charts to initialize
-  await page.evaluate(() => {
-    // Switch to Dashboard tab
-    const tabs = document.querySelectorAll('#panel-telemetry-monitor .tab');
-    for (let t of tabs) {
-      if (t.textContent.includes('Dashboard') || t.getAttribute('onclick')?.includes('dashboard')) {
-        t.click();
-      }
-    }
-    if (typeof window.tmToggleMock === 'function') {
-      window.tmToggleMock();
-    }
-  });
-  await sleep(3500); // Give charts time to animate
-  await page.screenshot({ path: path.join(assetsDir, 'screenshot-telemetry.png') });
-  console.log('Screenshot saved: screenshot-telemetry.png');
-
-  // 8. Log Viewer
-  await switchTool('log-viewer');
-  await page.evaluate(() => {
-    const dummyLog = `2026-07-10 14:51:09.591  INFO - Core: Mendix Runtime started successfully on port 8080
-2026-07-10 14:51:10.123  WARN - Core: Deprecated custom java action used in MyModule.Action_VerifyToken
-2026-07-10 14:51:12.000  INFO - Connector: Connecting to database jdbc:postgresql://localhost:5432/mendix
-2026-07-10 14:51:12.050  INFO - Connector: Connection pool initialized with 50 active connections
-2026-07-10 14:51:15.500  DEBUG - REST: Incoming POST request to /rest/api/v1/users
-2026-07-10 14:52:15.999  ERROR - Connector: Connection to database timed out after 30000ms. Attempting retry.
-  at com.mendix.connectionbus.ConnectionBusImpl.getConnection(ConnectionBusImpl.java:123)
-  at com.mendix.modules.MyModule.MyAction(MyAction.java:45)
-  at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
-2026-07-10 14:52:16.050  CRITICAL - Core: Application state corrupted due to massive database latency. Entering safe mode.`;
-    if (typeof window.logParseContent === 'function') {
-      window.logParseContent(dummyLog, "production.log");
-    }
-    // Set level filter to ERROR & CRITICAL to showcase UI filtering
-    document.getElementById('log-search').value = '';
-  });
-  await sleep(1000);
-  await page.screenshot({ path: path.join(assetsDir, 'screenshot-log-viewer.png') });
-  console.log('Screenshot saved: screenshot-log-viewer.png');
-
-  console.log('All screenshots taken successfully!');
+  console.log('All WOW screenshots taken successfully!');
   await browser.close();
 }
 
