@@ -75,8 +75,10 @@ function dfUpdateSchema(index, key, value) {
       dfSchema[index].name = value;
     }
     dfRenderSchema();
+    dfPreview();
   } else {
     dfSchema[index][key] = value;
+    dfPreview();
   }
 }
 
@@ -88,6 +90,7 @@ function dfAddColumn() {
 function dfRemoveColumn(index) {
   dfSchema.splice(index, 1);
   dfRenderSchema();
+  dfPreview();
 }
 
 window.dfGenerate = dfGenerate;
@@ -273,6 +276,91 @@ function dfResetState() {
   }
 }
 
+window.dfPreview = dfPreview;
+function dfPreview() {
+  const format = document.getElementById('df-format')?.value || 'json';
+  const previewArea = document.getElementById('df-preview-area');
+  if (!previewArea) return;
+  if (dfSchema.length === 0) {
+    previewArea.innerText = 'Schema is empty';
+    return;
+  }
+  
+  const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+  const randString = (len) => Math.random().toString(36).substring(2, len + 2);
+  const randDate = () => new Date(Date.now() - randInt(0, 10000000000)).toISOString();
+  const randUUID = () => (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { let r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16); });
+  const firstNames = ['John','Jane','Alice','Bob','Charlie','Eve','David','Sarah','Michael','Emma'];
+  const lastNames = ['Smith','Doe','Johnson','Brown','Williams','Jones','Garcia','Miller','Davis','Rodriguez'];
+  const companies = ['Acme Corp', 'Globex', 'Soylent', 'Initech', 'Umbrella Corp', 'Massive Dynamic', 'Stark Industries', 'Wayne Enterprises'];
+  const streets = ['Main St', 'High St', 'Park Ave', 'Broadway', 'Elm St', 'Maple Dr', 'Oak Ln', 'Pine Rd'];
+  const cities = ['New York', 'London', 'Tokyo', 'Paris', 'Berlin', 'Sydney', 'Toronto', 'Dubai'];
+  const countries = ['USA', 'UK', 'Japan', 'France', 'Germany', 'Australia', 'Canada', 'UAE'];
+  
+  const generateField = (schemaItem) => {
+    switch (schemaItem.type) {
+      case 'UUID': return randUUID();
+      case 'Name': return firstNames[randInt(0,9)];
+      case 'Surname': return lastNames[randInt(0,9)];
+      case 'FullName': return firstNames[randInt(0,9)] + ' ' + lastNames[randInt(0,9)];
+      case 'Email': return firstNames[randInt(0,9)].toLowerCase() + '.' + lastNames[randInt(0,9)].toLowerCase() + randInt(1,999) + '@example.com';
+      case 'Number': return randInt(1, 10000);
+      case 'Integer': return randInt(-10000, 10000);
+      case 'Positive value': return randInt(1, 100000);
+      case 'Negative value': return randInt(-100000, -1);
+      case 'Decimal': return (Math.random() * 10000).toFixed(2);
+      case 'Boolean': return Math.random() > 0.5;
+      case 'Date': return randDate();
+      case 'String': return randString(10);
+      case 'Address': return randInt(1, 9999) + ' ' + streets[randInt(0, 7)] + ', ' + cities[randInt(0, 7)];
+      case 'City': return cities[randInt(0, 7)];
+      case 'Country': return countries[randInt(0, 7)];
+      case 'Phone': return '+1-' + randInt(100, 999) + '-' + randInt(100, 999) + '-' + randInt(1000, 9999);
+      case 'Company': return companies[randInt(0, 7)];
+      case 'IP Address': return randInt(1, 255) + '.' + randInt(0, 255) + '.' + randInt(0, 255) + '.' + randInt(0, 255);
+      case 'Constant': return schemaItem.constantValue || '';
+      default: return 'mock';
+    }
+  };
+
+  let result = '';
+  const count = 3; // Preview 3 records
+  
+  if (format === 'csv') {
+    result += dfSchema.map(s => s.name).join(',') + '\n';
+    for (let i = 0; i < count; i++) {
+      result += dfSchema.map(s => {
+        let val = generateField(s);
+        if (typeof val === 'string' && val.includes(',')) val = '"' + val + '"';
+        return val;
+      }).join(',') + '\n';
+    }
+  } else if (format === 'json') {
+    result += '[\n';
+    for (let i = 0; i < count; i++) {
+      let obj = {};
+      dfSchema.forEach(s => { obj[s.name] = generateField(s); });
+      result += '  ' + JSON.stringify(obj) + (i < count - 1 ? ',\n' : '\n');
+    }
+    result += ']';
+  } else if (format === 'xml') {
+    result += '<?xml version="1.0" encoding="UTF-8"?>\n<Data>\n';
+    for (let i = 0; i < count; i++) {
+      result += '  <Record>\n';
+      dfSchema.forEach(s => {
+        let val = generateField(s);
+        if (typeof val === 'string') val = val.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        let safeName = s.name.replace(/[^a-zA-Z0-9_]/g, '') || 'Field';
+        result += '    <' + safeName + '>' + val + '</' + safeName + '>\n';
+      });
+      result += '  </Record>\n';
+    }
+    result += '</Data>';
+  }
+  
+  previewArea.innerText = result;
+}
+
 // Initial render handled when panel opens or core init
 
 
@@ -287,5 +375,11 @@ window.dfAddColumn = dfAddColumn;
 window.dfRemoveColumn = dfRemoveColumn;
 window.dfGenerate = dfGenerate;
 window.dfResetState = dfResetState;
+window.dfPreview = dfPreview;
 
-export function init() {}
+export function init() {
+  setTimeout(() => {
+    document.getElementById('df-format')?.addEventListener('change', dfPreview);
+    dfPreview();
+  }, 100);
+}

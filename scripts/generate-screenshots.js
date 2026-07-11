@@ -46,7 +46,8 @@ async function run() {
   await switchTool('data-factory');
   await page.evaluate(() => {
     if (window.dfSchema) {
-      window.dfSchema = [
+      window.dfSchema.length = 0;
+      window.dfSchema.push(
         { name: 'TransactionID', type: 'UUID' },
         { name: 'CustomerName', type: 'FullName' },
         { name: 'EmailAddress', type: 'Email' },
@@ -60,8 +61,9 @@ async function run() {
         { name: 'IsActive', type: 'Boolean' },
         { name: 'RegistrationDate', type: 'Date' },
         { name: 'LastLoginIP', type: 'IP Address' }
-      ];
+      );
       if (window.dfRenderSchema) window.dfRenderSchema();
+      if (window.dfPreview) window.dfPreview();
     }
     const countInput = document.getElementById('df-count');
     if (countInput) countInput.value = '250000';

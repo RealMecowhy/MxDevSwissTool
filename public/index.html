@@ -1106,6 +1106,14 @@
            
            <button class="btn btn-primary" id="df-generate-btn" onclick="dfGenerate()">Generate Data</button>
         </div>
+        
+        <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-4)">
+           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--sp-3)">
+             <h4 style="margin:0">3. Preview</h4>
+             <button class="btn btn-ghost btn-sm" onclick="dfPreview()">Refresh Preview</button>
+           </div>
+           <pre class="code-area" id="df-preview-area" style="max-height:250px;overflow-y:auto;background:var(--bg-base);margin:0;font-size:0.85rem">Select schema and format to preview...</pre>
+        </div>
       </div>
     </div>
 
