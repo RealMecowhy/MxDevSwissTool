@@ -261,6 +261,85 @@ Caused by: com.mendix.core.CoreRuntimeException: Exception occurred in action '{
   await page.screenshot({ path: path.join(assetsDir, 'screenshot-xpath-builder.png') });
   console.log('Saved screenshot-xpath-builder.png');
 
+  // 9. LOG QUERY EXTRACTOR
+  await switchTool('log-query-extractor');
+  try {
+    const csvPath = path.join(assetsDir, 'Console export 2026-07-11_21-30-52.csv');
+    if (fs.existsSync(csvPath)) {
+      const csvContent = fs.readFileSync(csvPath, 'utf8');
+      await page.evaluate((csv) => {
+        const file = new File([csv], "Console_export.csv", { type: "text/csv" });
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        if (window.lqeLoadFile) window.lqeLoadFile(dt.files);
+      }, csvContent);
+      await sleep(1500); // Give it time to parse
+      // Click the first query to show details
+      await page.evaluate(() => {
+        const firstRow = document.querySelector('#lqe-query-list tr');
+        if (firstRow) firstRow.click();
+      });
+      await sleep(500);
+    }
+  } catch(e) { console.error('Failed to generate log query extractor mock', e); }
+  await page.screenshot({ path: path.join(assetsDir, 'screenshot-log-query-extractor.png') });
+  console.log('Saved screenshot-log-query-extractor.png');
+
+  // 10. NGINX LOG ANALYZER
+  await switchTool('nginx-log');
+  await page.evaluate(() => {
+    // Generate some fake realistic Nginx logs
+    let nginxLogs = '';
+    const methods = ['GET', 'GET', 'GET', 'POST', 'POST', 'PUT'];
+    const urls = ['/index.html', '/api/users', '/api/orders', '/login', '/api/inventory', '/images/logo.png'];
+    const codes = [200, 200, 200, 201, 404, 500, 502];
+    for (let i = 0; i < 200; i++) {
+      const ip = `192.168.1.${Math.floor(Math.random() * 255)}`;
+      const method = methods[Math.floor(Math.random() * methods.length)];
+      const url = urls[Math.floor(Math.random() * urls.length)];
+      const code = codes[Math.floor(Math.random() * codes.length)];
+      const size = Math.floor(Math.random() * 5000) + 500;
+      nginxLogs += `${ip} - - [10/Jul/2026:14:5${Math.floor(i/30)}:${(i%60).toString().padStart(2,'0')} +0000] "${method} ${url} HTTP/1.1" ${code} ${size} "-" "Mozilla/5.0"\n`;
+    }
+    if (window.nginxLoadedText !== undefined) {
+      window.nginxLoadedText = nginxLogs;
+      if (window.nginxAnalyzeLogs) window.nginxAnalyzeLogs();
+    }
+  });
+  await sleep(1500);
+  await page.screenshot({ path: path.join(assetsDir, 'screenshot-nginx-analyzer.png') });
+  console.log('Saved screenshot-nginx-analyzer.png');
+
+  // 11. MOCK SERVER & CHAOS
+  await switchTool('mock-server');
+  await page.evaluate(() => {
+    // Mock the UI directly to avoid needing the node backend bridge running
+    document.getElementById('ms-code').value = JSON.stringify({
+      status: "success",
+      data: {
+        id: "USR-9941",
+        role: "ADMIN",
+        permissions: ["read", "write", "delete"]
+      }
+    }, null, 2);
+    document.getElementById('ms-status').value = "200";
+    document.getElementById('ms-delay').value = "1500";
+    document.getElementById('ms-chaos').checked = true;
+    
+    // Simulate the active state and response
+    const out = document.getElementById('ms-output');
+    out.innerHTML = '<div style="color:var(--success)">Mock Server activated on <b>http://localhost:9999/mock</b><br><br>Configure your Mendix Call REST action to use this URL.</div>' +
+    '<div style="font-size:0.8rem;color:var(--text-muted);margin-top:var(--sp-4)">14:52:10 - Response received after 1520ms (Chaos Enabled: +1500ms delay)</div>' +
+    '<div style="margin-top:var(--sp-2)">' +
+      '<span class="badge badge-success">HTTP 200 OK</span>' +
+      '<span class="badge badge-warning" style="margin-left:var(--sp-2)">Chaos Injected</span>' +
+    '</div>' +
+    '<pre style="margin-top:var(--sp-2);background:var(--bg-card);padding:var(--sp-3);border-radius:var(--r-md);font-size:0.85rem">{\n  "status": "success",\n  "data": {\n    "id": "USR-9941",\n    "role": "ADMIN",\n    "permissions": [\n      "read",\n      "write",\n      "delete"\n    ]\n  }\n}</pre>';
+  });
+  await sleep(1000);
+  await page.screenshot({ path: path.join(assetsDir, 'screenshot-mock-server.png') });
+  console.log('Saved screenshot-mock-server.png');
+
   console.log('All WOW screenshots taken successfully!');
   await browser.close();
 }
