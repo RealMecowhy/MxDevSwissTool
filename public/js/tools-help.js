@@ -605,6 +605,7 @@ const TOOLS_HELP = {
         <li>Define the schema by adding columns. For each column, select the <strong>Data Type</strong> (e.g., <code>UUID</code>, <code>FullName</code>, <code>Email</code>, <code>Constant</code>) and then specify a custom <strong>Field Name</strong> (which will be used in the exported file).</li>
         <li><em>Tip:</em> Use the drag handle on the left of each row to reorder columns. If you select the <code>Constant</code> type, a third input will appear for you to enter the static value to be applied to every record.</li>
         <li>Select the desired output format (JSON, CSV, or XML).</li>
+        <li>Check the live <strong>Preview</strong> panel to immediately see how the first few records will look based on your current schema and format.</li>
         <li>Specify the number of records (e.g., 1000 or 10000 rows).</li>
         <li>Click <strong>Generate Data</strong> and download the generated file to disk. Then import it into Mendix using, for example, the <em>Excel Importer</em> module or a dedicated import action.</li>
       </ol>
