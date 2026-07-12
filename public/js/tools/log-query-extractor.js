@@ -363,6 +363,20 @@ window.lqeFilter = function() {
   renderQueryList(filtered);
 };
 
+function highlightJsonSimple(json) {
+  if (typeof json != 'string') json = JSON.stringify(json, undefined, 2);
+  json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+    let cls = 'jt-num';
+    if (/^"/.test(match)) {
+      if (/:$/.test(match)) cls = 'jt-key';
+      else cls = 'jt-str';
+    } else if (/true|false/.test(match)) cls = 'jt-bool';
+    else if (/null/.test(match)) cls = 'jt-null';
+    return '<span class="' + cls + '">' + match + '</span>';
+  });
+}
+
 function renderQueryList(list) {
   const container = document.getElementById('lqe-query-list');
   if (!container) return;
@@ -444,13 +458,23 @@ function selectQuery(q) {
                            .replace(/ SET /gi, '\nSET ')
                            .replace(/ VALUES /gi, '\nVALUES ');
                            
-  document.getElementById('lqe-sql-content').textContent = runnableSql;
+  const sqlEl = document.getElementById('lqe-sql-content');
+  if (window.sqlHighlight) {
+    sqlEl.innerHTML = window.sqlHighlight(runnableSql);
+  } else {
+    sqlEl.textContent = runnableSql;
+  }
   window._currentRunnableSql = runnableSql;
   
+  const sourceEl = document.getElementById('lqe-source-content');
   if (q.xpathContent) {
-    document.getElementById('lqe-source-content').textContent = q.xpathContent;
+    if (window.sqlHighlight) {
+      sourceEl.innerHTML = window.sqlHighlight(q.xpathContent);
+    } else {
+      sourceEl.textContent = q.xpathContent;
+    }
   } else {
-    document.getElementById('lqe-source-content').textContent = 'No source available (XPath/OQL) for this query.';
+    sourceEl.textContent = 'No source available (XPath/OQL) for this query.';
   }
   
   const tbody = document.getElementById('lqe-params-body');
@@ -479,12 +503,13 @@ function selectQuery(q) {
     // Try to pretty-print the JSON plan
     try {
       const planObj = JSON.parse(q.queryPlan);
-      let planText = '';
-      if (q.duration) planText = 'Execution Time: ' + q.duration + '\n';
-      if (q.planningTime) planText += 'Planning Time: ' + q.planningTime + '\n';
-      if (q.duration || q.planningTime) planText += '\n';
-      planText += JSON.stringify(planObj, null, 2);
-      document.getElementById('lqe-plan-content').textContent = planText;
+      let prefix = '';
+      if (q.duration) prefix += 'Execution Time: ' + q.duration + '\n';
+      if (q.planningTime) prefix += 'Planning Time: ' + q.planningTime + '\n';
+      if (q.duration || q.planningTime) prefix += '\n';
+      
+      const planEl = document.getElementById('lqe-plan-content');
+      planEl.innerHTML = (window.escHtml ? window.escHtml(prefix) : prefix) + highlightJsonSimple(planObj);
     } catch(e) {
       document.getElementById('lqe-plan-content').textContent = q.queryPlan.trim();
     }

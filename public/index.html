@@ -256,7 +256,7 @@
           <button class="btn btn-secondary btn-sm" onclick="logClear()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Clear</button>
           <button class="btn btn-secondary btn-sm" onclick="logOpenPasteModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>Paste Logs</button>
           <label class="btn btn-primary btn-sm" for="log-file-input"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Load Log File</label>
-          <input type="file" id="log-file-input" style="display:none" accept=".log,.txt" multiple onchange="logLoadFiles(this.files)">
+          <input type="file" id="log-file-input" style="display:none" accept=".log,.txt,.csv" multiple onchange="logLoadFiles(this.files)">
         </div>
       </div>
       <div class="tool-body" style="padding-top:0">
@@ -315,7 +315,7 @@
             <label class="btn btn-secondary btn-sm" for="log-file-input" style="cursor:pointer">Browse Files</label>
             <button class="btn btn-primary btn-sm" onclick="logOpenPasteModal()">Paste Log Content</button>
           </div>
-          <input type="file" id="log-file-input" style="display:none" accept=".log,.txt" multiple onchange="if(window.logLoadFiles) window.logLoadFiles(this.files)">
+          <input type="file" id="log-file-input" style="display:none" accept=".log,.txt,.csv" multiple onchange="if(window.logLoadFiles) window.logLoadFiles(this.files)">
         </div>
         <div id="log-virtual-list" style="display:none"></div>
       </div>
@@ -549,7 +549,7 @@
           <div class="anonymizer-grid-col-output">
             <div class="json-pane-header">
               <h4>Anonymized Output</h4>
-              <span id="anon-stats" style="font-size:0.68rem; color:var(--text-secondary)">Ready. Paste some text or logs to anonymize.</span>
+              <span id="anon-stats" style="font-size:0.68rem; color:var(--accent)">Ready. Paste some text or logs to anonymize.</span>
             </div>
             <div style="flex:1; display:flex; flex-direction:column;">
               <div id="anonymizer-clean-output" style="flex:1; border:none; border-radius:0; height:100%; width:100%;"></div>
@@ -1764,13 +1764,20 @@ EntityName -> OtherEntity : Association"></textarea>
     <div class="tool-panel" id="panel-nginx-log">
       <div class="tool-header">
         <div class="tool-header-icon" style="background:#2ea043;color:white"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">Nginx Log Analyzer</div><div class="tool-header-desc">Analyze Nginx access logs (top IPs, URLs, status codes, GeoIP)</div></div>
+        <div class="tool-header-info"><div class="tool-header-title">Nginx Log Viewer & Analyzer</div><div class="tool-header-desc">Analyze and View Nginx access & error logs (search, filtering, top IPs, URLs, status codes)</div></div>
         <div class="tool-header-actions">
+          <button class="btn btn-secondary btn-sm" onclick="nginxClearData()" title="Clear logs and memory"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg> Clear</button>
           <button class="btn btn-secondary btn-sm" id="nginx-send-anon-btn" style="display:none" onclick="nginxSendToAnonymizer()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Anonymize in Tool</button>
-          <button class="btn btn-primary btn-sm" onclick="showLoader('Analyzing logs...'); setTimeout(nginxAnalyzeLogs, 50)">Analyze Logs</button>
+          <button class="btn btn-primary btn-sm" onclick="showLoader('Analyzing logs...'); setTimeout(() => { window.nginxActiveTab === 'error' ? nginxAnalyzeErrorLogs() : nginxAnalyzeLogs(); }, 50)">Analyze Logs</button>
         </div>
       </div>
-      <div class="tool-body" style="display:flex;flex-direction:column;gap:var(--sp-4);">
+      <div class="tool-body" style="display:flex;flex-direction:column;gap:var(--sp-4); overflow:hidden; padding-bottom:0;">
+        <div class="tabs" style="display:flex;gap:16px;border-bottom:1px solid var(--border);margin-bottom:-8px;flex-shrink:0;">
+          <div class="tab active" onclick="nginxSwitchTab('access')" id="nx-tab-access" style="cursor:pointer;padding:8px;border-bottom:2px solid var(--primary);font-weight:bold;color:var(--text)">Access Log</div>
+          <div class="tab" onclick="nginxSwitchTab('error')" id="nx-tab-error" style="cursor:pointer;padding:8px;border-bottom:2px solid transparent;color:var(--text-muted)">Error Log</div>
+        </div>
+        
+        <div id="nx-content-access" style="display:flex;flex-direction:column;gap:var(--sp-4); flex:1; min-height:0;">
         <div class="card" id="nginx-input-card" ondragover="event.preventDefault(); this.classList.add('drag-over');" ondragleave="this.classList.remove('drag-over');" ondrop="event.preventDefault(); this.classList.remove('drag-over'); if(typeof nginxHandleDrop === 'function') nginxHandleDrop(event)" style="transition:all 0.2s">
           <div class="card-body">
             <div style="position:relative; height:150px; margin-bottom:var(--sp-2);">
@@ -1783,16 +1790,39 @@ EntityName -> OtherEntity : Association"></textarea>
                   <button class="btn btn-primary btn-sm" onclick="document.getElementById('nginx-log-input').focus()">Paste Log Content</button>
                 </div>
               </div>
-              <input type="file" id="nginx-file-input" style="display:none" accept=".log,.txt" multiple onchange="nginxLoadFilesFromInput(this.files)">
+              <input type="file" id="nginx-file-input" style="display:none" accept=".log,.txt,.gz" multiple onchange="nginxLoadFilesFromInput(this.files, 'access')">
             </div>
             <div style="font-size:0.75rem;color:var(--text-muted);display:flex;align-items:center;gap:4px">
-              <input type="checkbox" id="nx-geoip-toggle" style="cursor:pointer">
+              <input type="checkbox" id="nx-geoip-toggle" style="cursor:pointer" onchange="nginxAggregateAndRender()">
               <label for="nx-geoip-toggle" style="cursor:pointer;user-select:none">Enable IP Geolocation (fetches Country for top IPs using geojs.io API). Turn off for privacy.</label>
             </div>
           </div>
         </div>
         
-        <div id="nginx-results" style="display:none;flex-direction:column;gap:var(--sp-4);">
+        <div id="nginx-results" style="display:none;flex-direction:column;gap:var(--sp-4); flex:1; min-height:0;">
+          <div id="log-toolbar" style="flex-shrink:0;">
+            <div id="log-toolbar-row1">
+              <input class="input input-mono" id="nx-access-search" placeholder="Search IP, URL, Method..." oninput="nginxApplyStreamFilters('access', 800)">
+              <div class="log-level-filters">
+                <span class="level-filter-btn active" style="background:rgba(46,160,67,0.15);color:#2ea043;border-color:#2ea043" data-val="2" onclick="nginxToggleStatusClass(2, this)">2xx</span>
+                <span class="level-filter-btn active" style="background:rgba(52,152,219,0.15);color:#3498db;border-color:#3498db" data-val="3" onclick="nginxToggleStatusClass(3, this)">3xx</span>
+                <span class="level-filter-btn active" style="background:rgba(255,159,67,0.15);color:#ff9f43;border-color:#ff9f43" data-val="4" onclick="nginxToggleStatusClass(4, this)">4xx</span>
+                <span class="level-filter-btn active" style="background:rgba(231,76,60,0.15);color:#e74c3c;border-color:#e74c3c" data-val="5" onclick="nginxToggleStatusClass(5, this)">5xx</span>
+              </div>
+            </div>
+            <div id="log-toolbar-row2" style="margin-top:4px">
+              <span style="font-size:.72rem;color:var(--text-muted)">Time:</span>
+              <input class="input input-mono" id="nx-access-time-from" placeholder="09:00:00" oninput="nginxApplyStreamFilters('access', 800)" style="width:90px">
+              <span style="color:var(--text-muted)">&#8594;</span>
+              <input class="input input-mono" id="nx-access-time-to" placeholder="10:00:00" oninput="nginxApplyStreamFilters('access', 800)" style="width:90px">
+              <select class="select" id="nx-access-date-filter" onchange="nginxApplyStreamFilters('access')" style="width:140px"><option value="">All dates</option></select>
+            </div>
+          </div>
+          <div class="tabs" style="margin-bottom:0;padding:0;border-bottom:1px solid var(--border); flex-shrink:0;">
+            <div class="tab active" onclick="nginxSetView('access', 'analyzer', this)" id="nx-access-tab-analyzer">Analyzer</div>
+            <div class="tab" onclick="nginxSetView('access', 'stream', this)" id="nx-access-tab-stream">Log Stream</div>
+          </div>
+          <div id="nx-access-view-analyzer" style="display:flex;flex-direction:column;gap:var(--sp-4); flex:1; overflow-y:auto; padding-right:8px; padding-bottom:16px;">
           <!-- Filters UI -->
           <div id="nx-filters-container" style="display:none;align-items:center;gap:8px;background:rgba(52,152,219,0.1);padding:8px 12px;border-radius:6px;border:1px solid var(--info)">
             <span style="font-size:0.8rem;font-weight:600;color:var(--info)">Active Filters:</span>
@@ -1922,7 +1952,133 @@ EntityName -> OtherEntity : Association"></textarea>
               </div>
             </div>
           </div>
+          </div>
+          <div id="nx-access-view-stream" style="display:none;flex-direction:column;flex:1;min-height:0;">
+            <div id="nx-access-stream-container" style="flex:1;min-height:0;overflow-y:auto;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-md);position:relative;font-family:var(--font-mono);font-size:0.8rem;padding:4px 0;">
+              <div id="nx-access-virtual-list"></div>
+            </div>
+            <div style="font-size:0.75rem;color:var(--text-muted);text-align:right;margin-top:4px">Showing <span id="nx-access-stream-count">0</span> logs</div>
+          </div>
+        </div>
+        </div>
+        
+        <div id="nx-content-error" style="display:none;flex-direction:column;gap:var(--sp-4); flex:1; min-height:0;">
+          <div class="card" id="nginx-error-input-card" ondragover="event.preventDefault(); this.classList.add('drag-over');" ondragleave="this.classList.remove('drag-over');" ondrop="event.preventDefault(); this.classList.remove('drag-over'); if(typeof nginxHandleErrorDrop === 'function') nginxHandleErrorDrop(event)" style="transition:all 0.2s">
+            <div class="card-body">
+              <div style="position:relative; height:150px;">
+                <textarea class="textarea" id="nginx-error-log-input" style="height:100%; width:100%; resize:none;" placeholder=" "></textarea>
+                <div class="empty-state-overlay">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  <p style="margin:0">Paste text or drag &amp; drop an error log file here</p>
+                  <div style="margin-top:var(--sp-2); display:flex; gap:var(--sp-2); pointer-events:auto;">
+                    <label class="btn btn-secondary btn-sm" for="nginx-error-file-input" style="cursor:pointer">Browse Files</label>
+                    <button class="btn btn-primary btn-sm" onclick="document.getElementById('nginx-error-log-input').focus()">Paste Log Content</button>
+                  </div>
+                </div>
+                <input type="file" id="nginx-error-file-input" style="display:none" accept=".log,.txt,.gz" multiple onchange="nginxLoadFilesFromInput(this.files, 'error')">
+              </div>
+            </div>
+            <div style="font-size:0.75rem;color:var(--text-muted);display:flex;align-items:center;gap:4px;margin-top:16px;padding:0 16px 16px;">
+              <input type="checkbox" id="nx-err-geoip-toggle" style="cursor:pointer" onchange="nginxAggregateAndRenderErrorLog()">
+              <label for="nx-err-geoip-toggle" style="cursor:pointer;user-select:none">Enable IP Geolocation (fetches Country for top IPs using geojs.io API). Turn off for privacy.</label>
+            </div>
+          </div>
+          </div>
+          
+          <div id="nginx-error-results" style="display:none;flex-direction:column;gap:var(--sp-4); flex:1; min-height:0;">
+            <div id="log-toolbar" style="flex-shrink:0;">
+              <div id="log-toolbar-row1">
+                <input class="input input-mono" id="nx-error-search" placeholder="Search Message, IP..." oninput="nginxApplyStreamFilters('error', 800)">
+                <div class="log-level-filters">
+                  <span class="level-filter-btn active" style="background:rgba(52,152,219,0.15);color:#3498db;border-color:#3498db" data-val="info" onclick="nginxToggleErrorLevel('info', this)">INFO</span>
+                  <span class="level-filter-btn active" style="background:rgba(255,159,67,0.15);color:#ff9f43;border-color:#ff9f43" data-val="notice" onclick="nginxToggleErrorLevel('notice', this)">NOTICE</span>
+                  <span class="level-filter-btn active" style="background:rgba(255,159,67,0.15);color:#ff9f43;border-color:#ff9f43" data-val="warn" onclick="nginxToggleErrorLevel('warn', this)">WARN</span>
+                  <span class="level-filter-btn active" style="background:rgba(231,76,60,0.15);color:#e74c3c;border-color:#e74c3c" data-val="error" onclick="nginxToggleErrorLevel('error', this)">ERROR</span>
+                  <span class="level-filter-btn active" style="background:rgba(192,57,43,0.15);color:#c0392b;border-color:#c0392b" data-val="crit" onclick="nginxToggleErrorLevel('crit', this)">CRIT</span>
+                  <span class="level-filter-btn active" style="background:rgba(192,57,43,0.15);color:#c0392b;border-color:#c0392b" data-val="alert" onclick="nginxToggleErrorLevel('alert', this)">ALERT</span>
+                  <span class="level-filter-btn active" style="background:rgba(192,57,43,0.15);color:#c0392b;border-color:#c0392b" data-val="emerg" onclick="nginxToggleErrorLevel('emerg', this)">EMERG</span>
+                </div>
+              </div>
+              <div id="log-toolbar-row2" style="margin-top:4px">
+                <span style="font-size:.72rem;color:var(--text-muted)">Time:</span>
+                <input class="input input-mono" id="nx-error-time-from" placeholder="09:00:00" oninput="nginxApplyStreamFilters('error', 800)" style="width:90px">
+                <span style="color:var(--text-muted)">&#8594;</span>
+                <input class="input input-mono" id="nx-error-time-to" placeholder="10:00:00" oninput="nginxApplyStreamFilters('error', 800)" style="width:90px">
+                <select class="select" id="nx-error-date-filter" onchange="nginxApplyStreamFilters('error')" style="width:140px"><option value="">All dates</option></select>
+              </div>
+            </div>
+            <div class="tabs" style="margin-bottom:0;padding:0;border-bottom:1px solid var(--border); flex-shrink:0;">
+              <div class="tab active" onclick="nginxSetView('error', 'analyzer', this)" id="nx-error-tab-analyzer">Analyzer</div>
+              <div class="tab" onclick="nginxSetView('error', 'stream', this)" id="nx-error-tab-stream">Log Stream</div>
+            </div>
+            <div id="nx-error-view-analyzer" style="display:flex;flex-direction:column;gap:var(--sp-4); flex:1; overflow-y:auto; padding-right:8px; padding-bottom:16px;">
+            <!-- Error Log Stats -->
+            <div class="grid-3" id="nginx-error-stats-grid">
+              <div class="stat-item"><div class="stat-label">Total Errors</div><div class="stat-value" id="nx-err-total">0</div></div>
+              <div class="stat-item"><div class="stat-label">Unique Levels</div><div class="stat-value" id="nx-err-levels">0</div></div>
+              <div class="stat-item"><div class="stat-label">Unique Clients</div><div class="stat-value" id="nx-err-clients">0</div></div>
+              <div class="stat-item"><div class="stat-label">Most Active Hour</div><div class="stat-value" id="nx-err-active-hour">-</div></div>
+            </div>
+            
+            <!-- Error Charts -->
+            <div class="grid-2">
+              <div class="card">
+                <div class="card-header"><span style="font-weight:600">Error Levels</span></div>
+                <div class="card-body" id="nx-err-level-chart" style="padding:var(--sp-3);display:flex;flex-direction:column;gap:4px"></div>
+              </div>
+              <div class="card">
+                <div class="card-header"><span style="font-weight:600">Errors over Time (per hour)</span></div>
+                <div class="card-body" id="nx-err-time-chart" style="padding:var(--sp-3);height:180px;"></div>
+              </div>
+            </div>
 
+            <!-- Error Tables -->
+            <div class="grid-2">
+              <div class="card" style="grid-column:1/-1">
+                <div class="card-header"><span style="font-weight:600">Top 10 Error Messages</span></div>
+                <div class="card-body" style="padding:0;overflow-x:auto">
+                  <table style="width:100%;border-collapse:collapse;font-size:0.8rem" id="nx-err-msg-table">
+                    <thead style="background:var(--bg-elevated);border-bottom:1px solid var(--border);text-align:left">
+                      <tr><th style="padding:var(--sp-2)">Error Message</th><th style="padding:var(--sp-2);width:80px">Count</th></tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            
+            <div class="grid-2">
+              <div class="card">
+                <div class="card-header"><span style="font-weight:600">Top 10 Client IPs</span></div>
+                <div class="card-body" style="padding:0;overflow-x:auto">
+                  <table style="width:100%;border-collapse:collapse;font-size:0.8rem" id="nx-err-ip-table">
+                    <thead style="background:var(--bg-elevated);border-bottom:1px solid var(--border);text-align:left">
+                      <tr><th style="padding:var(--sp-2)">IP Address</th><th style="padding:var(--sp-2)">Country</th><th style="padding:var(--sp-2);width:80px">Count</th></tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="card">
+                <div class="card-header"><span style="font-weight:600">Top 10 Failing Requests</span></div>
+                <div class="card-body" style="padding:0;overflow-x:auto">
+                  <table style="width:100%;border-collapse:collapse;font-size:0.8rem" id="nx-err-req-table">
+                    <thead style="background:var(--bg-elevated);border-bottom:1px solid var(--border);text-align:left">
+                      <tr><th style="padding:var(--sp-2)">Request</th><th style="padding:var(--sp-2);width:80px">Count</th></tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div id="nx-error-view-stream" style="display:none;flex-direction:column;flex:1;min-height:0;">
+              <div id="nx-error-stream-container" style="flex:1;min-height:0;overflow-y:auto;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-md);position:relative;font-family:var(--font-mono);font-size:0.8rem;padding:4px 0;">
+                <div id="nx-error-virtual-list"></div>
+              </div>
+              <div style="font-size:0.75rem;color:var(--text-muted);text-align:right;margin-top:4px">Showing <span id="nx-error-stream-count">0</span> logs</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

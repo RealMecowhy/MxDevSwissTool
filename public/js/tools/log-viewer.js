@@ -42,16 +42,85 @@ function logHandleDrop(e) {
   e.preventDefault();
   document.getElementById('log-container').classList.remove('drag-over');
   const files = Array.from(e.dataTransfer.files).filter(f => {
-    return f.name.endsWith('.log') || f.name.endsWith('.txt') || f.type === 'text/plain' || f.type === '';
+    const fn = f.name.toLowerCase();
+    return fn.endsWith('.log') || fn.endsWith('.txt') || fn.endsWith('.csv') || f.type === 'text/plain' || f.type === 'text/csv' || f.type === '';
   });
   if (files.length) logLoadFiles(files);
 }
 function logParseContent(text, filename) {
-  const lines = text.split(/\r?\n/);
   const entries = [];
   let prev = null, lineNum = 0;
 
-  for (const raw of lines) {
+  if (filename && filename.toLowerCase().endsWith('.csv')) {
+    const rawLines = text.split(/\r?\n/);
+    const csvRows = [];
+    let currentLine = '';
+    let insideQuotes = false;
+    
+    for (let i = 0; i < rawLines.length; i++) {
+      let line = rawLines[i];
+      currentLine += (currentLine ? '\n' : '') + line;
+      let quoteCount = 0;
+      for (let j = 0; j < line.length; j++) {
+        if (line[j] === '"') quoteCount++;
+      }
+      if (quoteCount % 2 !== 0) insideQuotes = !insideQuotes;
+      if (!insideQuotes) {
+        csvRows.push(currentLine);
+        currentLine = '';
+      }
+    }
+    if (currentLine) csvRows.push(currentLine);
+
+    const parseCSVRow = function(row) {
+      const fields = [];
+      let i = 0;
+      while (i < row.length) {
+        if (row[i] === '"') {
+          let field = '';
+          i++;
+          while (i < row.length) {
+            if (row[i] === '"' && i + 1 < row.length && row[i + 1] === '"') {
+              field += '"';
+              i += 2;
+            } else if (row[i] === '"') {
+              i++;
+              break;
+            } else {
+              field += row[i];
+              i++;
+            }
+          }
+          fields.push(field);
+          if (i < row.length && row[i] === ',') i++;
+        } else {
+          let end = row.indexOf(',', i);
+          if (end === -1) end = row.length;
+          fields.push(row.substring(i, end));
+          i = end + 1;
+        }
+      }
+      return fields;
+    };
+
+    for (const row of csvRows) {
+      lineNum++;
+      if (!row.trim()) continue;
+      if (row.startsWith('Type,TimeStamp,LogNode,Message') || row.startsWith('"Type","TimeStamp","LogNode","Message"')) continue;
+      const fields = parseCSVRow(row);
+      if (fields.length < 4) continue;
+      let level = fields[0].toUpperCase();
+      if (level === 'WARNING') level = 'WARN';
+      if (level === 'ERR' || level === 'FATAL') level = 'ERROR';
+      let ts = fields[1] ? fields[1].trim() : '';
+      let node = fields[2] ? fields[2].trim() : 'Runtime';
+      let msg = fields[3] || '';
+      if (fields[4]) msg += '\n' + fields[4];
+      entries.push({ line: lineNum, ts: ts, level: level, node: node, msg: msg.trim(), raw: row, file: filename, stackLines: 0 });
+    }
+  } else {
+    const lines = text.split(/\r?\n/);
+    for (const raw of lines) {
     lineNum++;
     const line = raw.trimEnd();
 
@@ -136,6 +205,7 @@ function logParseContent(text, filename) {
         entries.push(prev);
       }
     }
+  }
   }
 
   if (entries.length === 0) {
@@ -364,6 +434,19 @@ function logClear() {
   document.getElementById('log-anon-copy-btn').style.display='none';
   document.getElementById('log-send-anon-btn').style.display='none';
   logClearSignatureFilter();
+  
+  // Clear filters
+  document.getElementById('log-search').value = '';
+  document.getElementById('log-time-from').value = '';
+  document.getElementById('log-time-to').value = '';
+  document.getElementById('log-node-filter').value = '';
+  logToggleAllLevels(true);
+  
+  // Clear tabs data
+  document.getElementById('log-correlation-id').value = '';
+  document.getElementById('log-correlation-output').innerHTML = '<span style="color:var(--text-muted)">Enter a correlation ID to see the flow...</span>';
+  document.getElementById('log-sequence-output').innerHTML = '<span style="color:var(--text-muted);margin-top:var(--sp-5)">Sequence diagram will appear here...</span>';
+  document.getElementById('log-gantt-output').innerHTML = '<span style="color:var(--text-muted)">Gantt chart will appear here...</span>';
 }
 function logExportFiltered() {
   if (!logFilteredEntries.length) return;

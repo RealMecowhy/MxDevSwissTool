@@ -464,14 +464,17 @@ window.uiSetView = function(splitId, viewMode, btn) {
 
   if (viewMode === 'split') {
     container.style.gridTemplateColumns = container.dataset.origGrid !== 'none' ? container.dataset.origGrid : '1fr 1fr';
+    container.style.gridTemplateRows = '';
     if (leftPane) leftPane.style.display = '';
     if (rightPane) rightPane.style.display = '';
   } else if (viewMode === 'raw') {
     if (splitId === 'anonymizer-split') {
       const isSettingsCollapsed = container.classList.contains('settings-collapsed');
       container.style.gridTemplateColumns = isSettingsCollapsed ? '0px 1fr' : '320px 1fr';
+      container.style.gridTemplateRows = '1fr';
     } else {
       container.style.gridTemplateColumns = '1fr';
+      container.style.gridTemplateRows = '1fr';
     }
     if (leftPane) leftPane.style.display = '';
     if (rightPane) rightPane.style.display = 'none';
@@ -479,8 +482,10 @@ window.uiSetView = function(splitId, viewMode, btn) {
     if (splitId === 'anonymizer-split') {
       const isSettingsCollapsed = container.classList.contains('settings-collapsed');
       container.style.gridTemplateColumns = isSettingsCollapsed ? '0px 1fr' : '320px 1fr';
+      container.style.gridTemplateRows = '1fr';
     } else {
       container.style.gridTemplateColumns = '1fr';
+      container.style.gridTemplateRows = '1fr';
     }
     if (leftPane) leftPane.style.display = 'none';
     if (rightPane) rightPane.style.display = '';
