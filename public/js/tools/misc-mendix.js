@@ -308,29 +308,78 @@ function analyzeThreadDump() {
   let blocked = [], waiting = [], runnable = [];
   let currentThread = null, currentTrace = [];
   
-  const lines = input.split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line.startsWith('"')) {
-      if (currentThread) {
-        currentThread.trace = currentTrace.join('\n');
-        if (currentThread.state.includes('BLOCKED')) blocked.push(currentThread);
-        else if (currentThread.state.includes('WAITING')) waiting.push(currentThread);
-        else if (currentThread.state.includes('RUNNABLE')) runnable.push(currentThread);
+  let m2eeJsonStr = null;
+  const marker = "Current JVM Thread Stacktraces:";
+  const markerIdx = input.indexOf(marker);
+  
+  if (markerIdx !== -1) {
+    const bracketIdx = input.indexOf('{', markerIdx);
+    if (bracketIdx !== -1) {
+      const lastBracketIdx = input.lastIndexOf('}');
+      if (lastBracketIdx > bracketIdx) {
+         m2eeJsonStr = input.substring(bracketIdx, lastBracketIdx + 1);
       }
-      currentThread = { name: line, state: 'UNKNOWN', trace: '' };
-      currentTrace = [];
-    } else if (line.includes('java.lang.Thread.State:')) {
-      if (currentThread) currentThread.state = line.trim();
-    } else if (line.trim().startsWith('at ') || line.trim().startsWith('- ')) {
-      currentTrace.push(line);
+    }
+  } else if (input.trim().startsWith('{')) {
+    const trimmed = input.trim();
+    const lastBracketIdx = trimmed.lastIndexOf('}');
+    if (lastBracketIdx !== -1) {
+       m2eeJsonStr = trimmed.substring(0, lastBracketIdx + 1);
     }
   }
-  if (currentThread) {
-    currentThread.trace = currentTrace.join('\n');
-    if (currentThread.state.includes('BLOCKED')) blocked.push(currentThread);
-    else if (currentThread.state.includes('WAITING')) waiting.push(currentThread);
-    else if (currentThread.state.includes('RUNNABLE')) runnable.push(currentThread);
+  
+  let parsedAsJson = false;
+  if (m2eeJsonStr) {
+    try {
+      let jsonObj = JSON.parse(m2eeJsonStr);
+      for (let threadName in jsonObj) {
+        let traceArray = jsonObj[threadName];
+        let traceStr = traceArray.join('\n');
+        let thread = { name: `"${threadName}"`, trace: traceStr, state: 'UNKNOWN' };
+        
+        // Infer state for m2ee dumps
+        if (traceStr.includes('waiting to lock') || traceStr.includes('java.lang.Thread.State: BLOCKED')) {
+          thread.state = 'BLOCKED';
+          blocked.push(thread);
+        } else if (traceStr.includes('Unsafe.park') || traceStr.includes('Object.wait') || traceStr.includes('waiting on condition') || traceStr.includes('EPoll.wait')) {
+          thread.state = 'WAITING';
+          waiting.push(thread);
+        } else {
+          thread.state = 'RUNNABLE';
+          runnable.push(thread);
+        }
+      }
+      parsedAsJson = true;
+    } catch (e) {
+      console.error("Failed to parse JSON thread dump", e);
+    }
+  }
+  
+  if (!parsedAsJson) {
+    const lines = input.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.startsWith('"')) {
+        if (currentThread) {
+          currentThread.trace = currentTrace.join('\n');
+          if (currentThread.state.includes('BLOCKED')) blocked.push(currentThread);
+          else if (currentThread.state.includes('WAITING')) waiting.push(currentThread);
+          else if (currentThread.state.includes('RUNNABLE')) runnable.push(currentThread);
+        }
+        currentThread = { name: line, state: 'UNKNOWN', trace: '' };
+        currentTrace = [];
+      } else if (line.includes('java.lang.Thread.State:')) {
+        if (currentThread) currentThread.state = line.trim();
+      } else if (line.trim().startsWith('at ') || line.trim().startsWith('- ')) {
+        currentTrace.push(line);
+      }
+    }
+    if (currentThread) {
+      currentThread.trace = currentTrace.join('\n');
+      if (currentThread.state.includes('BLOCKED')) blocked.push(currentThread);
+      else if (currentThread.state.includes('WAITING')) waiting.push(currentThread);
+      else if (currentThread.state.includes('RUNNABLE')) runnable.push(currentThread);
+    }
   }
   
   // Detect deadlocks: threads waiting for locks held by other blocked/waiting threads
@@ -350,6 +399,21 @@ function analyzeThreadDump() {
     <div class="card" style="flex:1;border-color:var(--warning)"><div class="card-body"><h3 style="color:var(--warning);margin:0">${waiting.length}</h3><div style="font-size:0.8rem">WAITING</div></div></div>
     <div class="card" style="flex:1;border-color:var(--success)"><div class="card-body"><h3 style="color:var(--success);margin:0">${runnable.length}</h3><div style="font-size:0.8rem">RUNNABLE</div></div></div>
   </div>`;
+  
+  html += `<div class="card" style="margin-bottom:var(--sp-4); border-left: 4px solid ${blocked.length > 0 ? 'var(--danger)' : 'var(--success)'};">
+    <div class="card-body">
+      <h4 style="margin-top:0; margin-bottom:var(--sp-2)">Analysis Insight</h4>
+      <p style="margin:0; font-size:0.9rem; color:var(--text-secondary); line-height:1.5;">`;
+      
+  if (blocked.length === 0) {
+    html += `<strong style="color:var(--success)">System looks healthy.</strong> No blocked threads were detected. <br/>
+    &bull; <strong>${runnable.length} RUNNABLE</strong> threads were actively processing work (e.g. handling requests, running microflows).<br/>
+    &bull; <strong>${waiting.length} WAITING</strong> threads are idle in thread pools (e.g. database connections, web server) waiting for new tasks. This high number is completely normal.`;
+  } else {
+    html += `<strong style="color:var(--danger)">Warning: ${blocked.length} blocked threads detected!</strong> This might indicate a severe performance bottleneck.<br/>
+    Check the "Blocked Threads" list below. These threads are stuck waiting indefinitely for a resource (like a database lock or an external API response) held by another process.`;
+  }
+  html += `</p></div></div>`;
   
   if (deadlocks.length > 0) {
     html += `<div class="notice notice-error" style="margin-bottom:var(--sp-3)"><strong>⚠️ ${deadlocks.length} Deadlock(s) detected!</strong><ul style="margin-top:4px;padding-left:1.2em">`;
@@ -633,4 +697,29 @@ window.visualizeSqlExplain = visualizeSqlExplain;
 window.regexTestMendixMode = regexTestMendixMode;
 window.generatePassword = generatePassword;
 
-export function init() {}
+export function init() {
+  const tdInput = document.getElementById('thread-dump-input');
+  if (tdInput) {
+    tdInput.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      tdInput.style.borderColor = 'var(--accent)';
+    });
+    tdInput.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      tdInput.style.borderColor = '';
+    });
+    tdInput.addEventListener('drop', (e) => {
+      e.preventDefault();
+      tdInput.style.borderColor = '';
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        const file = e.dataTransfer.files[0];
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          tdInput.value = event.target.result;
+          analyzeThreadDump();
+        };
+        reader.readAsText(file);
+      }
+    });
+  }
+}

@@ -152,18 +152,74 @@ function plStart() {
   const url = document.getElementById('pl-url').value;
   const conc = parseInt(document.getElementById('pl-concurrency').value);
   const count = parseInt(document.getElementById('pl-count').value);
-  const mode = document.getElementById('pl-mode').value;
+  const modeElement = document.getElementById('pl-mode');
+  const mode = modeElement ? modeElement.value : 'cors';
+  const method = document.getElementById('pl-method').value;
   
   if (!url) return alert('Enter URL');
+  
+  let headers = {};
+  const headersStr = document.getElementById('pl-headers').value.trim();
+  if (headersStr) {
+    try {
+      headers = JSON.parse(headersStr);
+    } catch (e) {
+      return alert('Headers must be a valid JSON object');
+    }
+  }
+
+  const fetchOpts = { method, mode, cache: 'no-store', headers };
+  if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
+    const bodyStr = document.getElementById('pl-body').value.trim();
+    if (bodyStr) fetchOpts.body = bodyStr;
+  }
   
   plStopFlag = false;
   plResults = [];
   plTestStartTime = performance.now();
   plLastChartUpdate = performance.now();
   
+  const engine = document.getElementById('pl-engine') ? document.getElementById('pl-engine').value : 'browser';
+  
+  document.getElementById('pl-empty-state').style.display = 'none';
+  document.getElementById('pl-results-content').style.display = 'flex';
+  const exportBtn = document.getElementById('pl-btn-export');
+  if (exportBtn) exportBtn.style.display = 'none';
+
+  if (engine === 'server') {
+     document.getElementById('pl-btn-start').style.display = 'none';
+     document.getElementById('pl-btn-stop').style.display = 'inline-block';
+     document.getElementById('pl-status').innerText = 'Running on Server (Turbo)...';
+     document.getElementById('pl-cors-warn').style.display = 'none';
+     plInitCharts();
+     
+     fetch('http://localhost:9999/api/perf-test', {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify({ url, method, headers, body: fetchOpts.body, concurrency: conc, count })
+     })
+     .then(res => res.json())
+     .then(data => {
+       if (!data.success) {
+         alert("Server error: " + (data.reason || data.error || "Unknown"));
+       } else {
+         plResults = data.results;
+         if (exportBtn) exportBtn.style.display = 'inline-block';
+       }
+     })
+     .catch(err => {
+       alert("Failed to reach Turbo Backend. Ensure mendix-observability-bridge.js is running.");
+     })
+     .finally(() => {
+       plFinish();
+     });
+     return;
+  }
+  
   document.getElementById('pl-btn-start').style.display = 'none';
   document.getElementById('pl-btn-stop').style.display = 'inline-block';
   document.getElementById('pl-status').innerText = 'Running...';
+  document.getElementById('pl-cors-warn').style.display = 'none';
   
   plInitCharts();
   
@@ -176,14 +232,18 @@ function plStart() {
     plActiveCount++;
     const t0 = performance.now();
     
-    fetch(url, { mode, cache: 'no-store' })
+    fetch(url, fetchOpts)
       .then(res => {
         const t1 = performance.now();
         plResults.push({ id, time: t1 - t0, status: res.status, start: t0, end: t1 });
       })
       .catch(err => {
         const t1 = performance.now();
-        plResults.push({ id, time: t1 - t0, status: 'Error', start: t0, end: t1 });
+        const duration = t1 - t0;
+        plResults.push({ id, time: duration, status: 'Error', start: t0, end: t1 });
+        if (duration < 150) {
+           document.getElementById('pl-cors-warn').style.display = 'block';
+        }
       })
       .finally(() => {
         plActiveCount--;
@@ -205,6 +265,8 @@ function plFinish() {
   document.getElementById('pl-btn-start').style.display = 'inline-block';
   document.getElementById('pl-btn-stop').style.display = 'none';
   document.getElementById('pl-status').innerText = 'Completed.';
+  const exportBtn = document.getElementById('pl-btn-export');
+  if (exportBtn && plResults.length > 0) exportBtn.style.display = 'inline-block';
   plUpdateUI(true); // Force final chart render
 }
 
@@ -242,10 +304,84 @@ function plUpdateUI(forceChartRender = false) {
 }
 
 
+window.plMethodChanged = function() {
+  const method = document.getElementById('pl-method').value;
+  const bodyGroup = document.getElementById('pl-body-group');
+  if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
+    bodyGroup.style.display = 'block';
+  } else {
+    bodyGroup.style.display = 'none';
+  }
+};
+
+window.plCheckConcurrency = function() {
+  const conc = parseInt(document.getElementById('pl-concurrency').value) || 0;
+  const warn = document.getElementById('pl-concurrency-warn');
+  const engine = document.getElementById('pl-engine') ? document.getElementById('pl-engine').value : 'browser';
+  if (conc > 6 && engine === 'browser') {
+    warn.style.display = 'inline-block';
+  } else {
+    warn.style.display = 'none';
+  }
+};
+
+window.plSavePreset = function() {
+  const preset = {
+    url: document.getElementById('pl-url').value,
+    method: document.getElementById('pl-method').value,
+    headers: document.getElementById('pl-headers').value,
+    body: document.getElementById('pl-body').value,
+    conc: document.getElementById('pl-concurrency').value,
+    count: document.getElementById('pl-count').value,
+    engine: document.getElementById('pl-engine') ? document.getElementById('pl-engine').value : 'browser'
+  };
+  localStorage.setItem('perfLabPreset', JSON.stringify(preset));
+  alert('Preset saved to browser memory.');
+};
+
+window.plLoadPreset = function() {
+  const saved = localStorage.getItem('perfLabPreset');
+  if (!saved) return alert('No preset found in memory.');
+  try {
+    const preset = JSON.parse(saved);
+    if (preset.url) document.getElementById('pl-url').value = preset.url;
+    if (preset.method) { document.getElementById('pl-method').value = preset.method; plMethodChanged(); }
+    if (preset.headers) document.getElementById('pl-headers').value = preset.headers;
+    if (preset.body) document.getElementById('pl-body').value = preset.body;
+    if (preset.conc) document.getElementById('pl-concurrency').value = preset.conc;
+    if (preset.count) document.getElementById('pl-count').value = preset.count;
+    if (preset.engine && document.getElementById('pl-engine')) document.getElementById('pl-engine').value = preset.engine;
+    plCheckConcurrency();
+  } catch(e) {
+    alert('Failed to load preset');
+  }
+};
+
+window.plExportCSV = function() {
+  if (plResults.length === 0) return alert("No results to export.");
+  let csv = "RequestID,LatencyMs,StatusCode,StartTime,EndTime\n";
+  plResults.forEach(r => {
+    csv += `${r.id},${r.time},${r.status},${r.start},${r.end}\n`;
+  });
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `perf_lab_results_${Date.now()}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+};
+
 // --- AUTO-GENERATED ESM EXPORTS ---
 window.plStart = plStart;
 window.plStop = plStop;
 window.plFinish = plFinish;
 window.plUpdateUI = plUpdateUI;
+window.plMethodChanged = window.plMethodChanged;
+window.plCheckConcurrency = window.plCheckConcurrency;
+window.plSavePreset = window.plSavePreset;
+window.plLoadPreset = window.plLoadPreset;
+window.plExportCSV = window.plExportCSV;
 
 export function init() {}

@@ -374,33 +374,14 @@ const newToolsHelp = `const TOOLS_HELP = {
         <li>Specify test parameters: number of concurrent connections (Concurrency), total number of requests, and request headers (e.g., <code>Content-Type: application/json</code>).</li>
         <li>Click <strong>Start Test</strong>. The tool will begin sending requests in the background and draw a latency chart in real-time.</li>
       </ol>
-    \`,
-    interpretation: \`
+    `,
+    interpretation: `
       <ul>
         <li><strong>p50 Response Time (Median):</strong> Average response time for half of the users. Should oscillate below 200 ms.</li>
         <li><strong>p99 Response Time:</strong> Metric for the 1% slowest requests. If p99 is drastically higher than p50 (e.g., 5 seconds vs 100 ms), the Mendix application might have issues with occasional thread blocking, database locking, or long Garbage Collector pauses.</li>
         <li><strong>Error Rate:</strong> Appearance of network errors or 5xx statuses under higher load suggests the application has reached its performance limit (e.g., CPU overload or database connection pool exhaustion).</li>
       </ul>
-    \`
-  },
-  'traffic-inspector': {
-    title: 'Traffic Inspector (HAR Analyzer)',
-    description: 'Tool for analyzing HTTP Archive (HAR) files and cURL commands. Helps developers trace exactly what network requests the Mendix Client sent to the server (e.g., when diagnosing slow widgets or login issues).',
-    howToGet: \`
-      <p>To get a HAR file:</p>
-      <ol>
-        <li>Open the Mendix application in a browser and press <strong>F12</strong> (Developer Tools).</li>
-        <li>Go to the <strong>Network</strong> tab.</li>
-        <li>Refresh the page and perform the action you want to diagnose.</li>
-        <li>Click the download icon (down arrow) or right-click on the requests list and select <strong>Save all as HAR with content</strong>.</li>
-      </ol>
-    \`,
-    howToUse: \`
-      <ol>
-        <li>Drag and drop the <code>.har</code> file into the tool's workspace or paste a cURL command into the second tab.</li>
-        <li>Analyze the request timeline, response codes, transfer sizes, and headers sent in queries.</li>
-      </ol>
-    \`
+    `
   },
   'mock-server': {
     title: 'Mock Server & Chaos Engineering',

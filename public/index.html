@@ -105,10 +105,7 @@
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></span>
       <span class="nav-label">Performance Lab</span>
     </div>
-    <div class="nav-item" data-tool="traffic-inspector" onclick="navigate('traffic-inspector',this)">
-      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg></span>
-      <span class="nav-label">Traffic Inspector</span>
-    </div>
+
     <div class="nav-item" data-tool="mock-server" onclick="navigate('mock-server',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg></span>
       <span class="nav-label">Mock Server &amp; Chaos</span>
@@ -1109,7 +1106,7 @@
         
         <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-4)">
            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--sp-3)">
-             <h4 style="margin:0">3. Preview</h4>
+             <h4 style="margin:0">3. Sample Preview</h4>
              <button class="btn btn-ghost btn-sm" onclick="dfPreview()">Refresh Preview</button>
            </div>
            <pre class="code-area" id="df-preview-area" style="max-height:250px;overflow-y:auto;background:var(--bg-base);margin:0;font-size:0.85rem">Select schema and format to preview...</pre>
@@ -1145,87 +1142,115 @@
         <div class="tool-header-info"><div class="tool-header-title">Performance Lab</div><div class="tool-header-desc">Simulate concurrent load on endpoints with latency tracking</div></div>
       </div>
       <div class="tool-body" style="display:flex;gap:var(--sp-4)">
-        <div style="flex:1;display:flex;flex-direction:column">
-           <div class="form-group"><div class="form-label">Target URL</div><input class="input" id="pl-url" placeholder="https://api.example.com/v1/data"></div>
-           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:var(--sp-3)">
-             <div class="form-group"><div class="form-label">Concurrency (Threads)</div><input type="number" class="input" id="pl-concurrency" value="5"></div>
-             <div class="form-group"><div class="form-label">Total Requests</div><input type="number" class="input" id="pl-count" value="50"></div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:var(--sp-3)">
+           <div style="display:flex;justify-content:space-between;align-items:center">
+             <div style="font-weight:600;color:var(--text-primary)">Request Configuration</div>
+             <div style="display:flex;gap:var(--sp-2)">
+                <button class="btn btn-secondary" style="padding:4px 8px;font-size:0.8rem" onclick="plSavePreset()">Save Preset</button>
+                <button class="btn btn-secondary" style="padding:4px 8px;font-size:0.8rem" onclick="plLoadPreset()">Load Preset</button>
+             </div>
+           </div>
+           <div style="display:flex;gap:var(--sp-2)">
+             <div class="form-group" style="width:110px">
+               <div class="form-label">Method</div>
+               <select class="select" id="pl-method" onchange="plMethodChanged()">
+                 <option value="GET">GET</option><option value="POST">POST</option><option value="PUT">PUT</option><option value="PATCH">PATCH</option><option value="DELETE">DELETE</option>
+               </select>
+             </div>
+             <div class="form-group" style="flex:1"><div class="form-label">Target URL</div><input class="input" id="pl-url" placeholder="https://api.example.com/v1/data"></div>
+           </div>
+           
+           <details style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-3)">
+             <summary style="cursor:pointer;font-weight:600;color:var(--text-primary);outline:none">Headers & Body</summary>
+             <div style="margin-top:var(--sp-3);display:flex;flex-direction:column;gap:var(--sp-3)">
+               <div class="form-group">
+                 <div class="form-label">Headers (JSON format)</div>
+                 <textarea class="code-area" id="pl-headers" style="height:60px" placeholder='{"Authorization": "Bearer token", "Content-Type": "application/json"}'></textarea>
+               </div>
+               <div class="form-group" id="pl-body-group" style="display:none">
+                 <div class="form-label">Request Body</div>
+                 <textarea class="code-area" id="pl-body" style="height:80px" placeholder='{"key": "value"}'></textarea>
+               </div>
+             </div>
+           </details>
+
+           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:var(--sp-3);background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-3)">
              <div class="form-group">
-               <div class="form-label">Request Mode</div>
-               <select class="select" id="pl-mode">
-                 <option value="cors">CORS (Standard)</option>
-                 <option value="no-cors">No-CORS (Opaque)</option>
+               <div class="form-label" style="display:flex;align-items:center;gap:4px">
+                 Threads
+                 <span id="pl-concurrency-warn" style="color:var(--warning);cursor:help;display:none" title="Browsers limit concurrent connections per domain (usually max 6). Higher values will queue up in the browser, skewing latency results.">⚠️</span>
+               </div>
+               <input type="number" class="input" id="pl-concurrency" value="5" oninput="plCheckConcurrency()">
+             </div>
+             <div class="form-group"><div class="form-label">Total Reqs</div><input type="number" class="input" id="pl-count" value="50"></div>
+             <div class="form-group">
+               <div class="form-label">Engine</div>
+               <select class="select" id="pl-engine" onchange="plCheckConcurrency()">
+                 <option value="browser">Browser (Fetch)</option>
+                 <option value="server">Server (Turbo)</option>
                </select>
              </div>
            </div>
-           <div style="margin-top:var(--sp-4);display:flex;gap:var(--sp-3)">
+           
+           <div id="pl-cors-warn" style="display:none;background:rgba(231,76,60,0.1);border-left:3px solid var(--danger);padding:var(--sp-2);color:var(--text-primary);font-size:0.85rem">
+             <strong>Potential CORS issue detected.</strong> Requests failed immediately without a status code. Ensure the target server allows cross-origin requests from this domain.
+           </div>
+
+           <div style="display:flex;gap:var(--sp-3);margin-top:var(--sp-3)">
              <button class="btn btn-primary" id="pl-btn-start" onclick="plStart()">Start Load Test</button>
              <button class="btn btn-secondary" id="pl-btn-stop" onclick="plStop()" style="display:none;background:var(--danger)">Stop</button>
              <div id="pl-status" style="display:flex;align-items:center;color:var(--text-muted);font-weight:600"></div>
            </div>
         </div>
         <div style="flex:1;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-4);display:flex;flex-direction:column">
-           <h4 style="margin-top:0">Results</h4>
-           <div class="grid-2" style="gap:var(--sp-3)">
-             <div style="background:var(--bg-base);padding:var(--sp-3);border-radius:var(--r-md);text-align:center">
-               <div style="font-size:0.75rem;color:var(--text-secondary)">Total Sent</div>
-               <div id="pl-stats-req" style="font-size:1.5rem;font-weight:bold;color:var(--info)">0</div>
-             </div>
-             <div style="background:var(--bg-base);padding:var(--sp-3);border-radius:var(--r-md);text-align:center">
-               <div style="font-size:0.75rem;color:var(--text-secondary)">Errors</div>
-               <div id="pl-stats-err" style="font-size:1.5rem;font-weight:bold;color:var(--danger)">0</div>
-             </div>
-             <div style="background:var(--bg-base);padding:var(--sp-3);border-radius:var(--r-md);text-align:center">
-               <div style="font-size:0.75rem;color:var(--text-secondary)">Min / Avg / Max</div>
-               <div style="font-size:1rem;font-weight:bold;color:var(--text-primary);margin-top:4px"><span id="pl-stats-min">0 ms</span> / <span id="pl-stats-avg" style="color:var(--warning)">0 ms</span> / <span id="pl-stats-max">0 ms</span></div>
-             </div>
-             <div style="background:var(--bg-base);padding:var(--sp-3);border-radius:var(--r-md);text-align:center">
-               <div style="font-size:0.75rem;color:var(--text-secondary)">Percentiles (p50 / 95 / 99)</div>
-               <div style="font-size:1rem;font-weight:bold;color:var(--text-primary);margin-top:4px"><span id="pl-stats-p50" style="color:var(--info)">0 ms</span> / <span id="pl-stats-p95" style="color:var(--warning)">0 ms</span> / <span id="pl-stats-p99" style="color:var(--danger)">0 ms</span></div>
-             </div>
+           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--sp-3)">
+             <h4 style="margin:0">Results</h4>
+             <button class="btn btn-secondary" id="pl-btn-export" style="display:none;padding:4px 8px;font-size:0.8rem" onclick="plExportCSV()">Export CSV</button>
            </div>
-           <div id="pl-charts" style="margin-top:var(--sp-4);display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-4);flex:1;overflow-y:auto;min-height:400px">
-             <div style="background:var(--bg-base);border-radius:var(--r-md);padding:var(--sp-2);position:relative;height:220px">
-               <canvas id="pl-chart-timeline"></canvas>
+           
+           <div id="pl-empty-state" style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:var(--sp-2);color:var(--text-muted)">
+             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:48px;height:48px;opacity:0.3"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+             <div>Configure request and start load test to see results</div>
+           </div>
+
+           <div id="pl-results-content" style="display:none;flex-direction:column;flex:1">
+             <div class="grid-2" style="gap:var(--sp-3)">
+               <div style="background:var(--bg-base);padding:var(--sp-3);border-radius:var(--r-md);text-align:center">
+                 <div style="font-size:0.75rem;color:var(--text-secondary)">Total Sent</div>
+                 <div id="pl-stats-req" style="font-size:1.5rem;font-weight:bold;color:var(--info)">0</div>
+               </div>
+               <div style="background:var(--bg-base);padding:var(--sp-3);border-radius:var(--r-md);text-align:center">
+                 <div style="font-size:0.75rem;color:var(--text-secondary)">Errors</div>
+                 <div id="pl-stats-err" style="font-size:1.5rem;font-weight:bold;color:var(--danger)">0</div>
+               </div>
+               <div style="background:var(--bg-base);padding:var(--sp-3);border-radius:var(--r-md);text-align:center">
+                 <div style="font-size:0.75rem;color:var(--text-secondary)">Min / Avg / Max</div>
+                 <div style="font-size:1rem;font-weight:bold;color:var(--text-primary);margin-top:4px"><span id="pl-stats-min">0 ms</span> / <span id="pl-stats-avg" style="color:var(--warning)">0 ms</span> / <span id="pl-stats-max">0 ms</span></div>
+               </div>
+               <div style="background:var(--bg-base);padding:var(--sp-3);border-radius:var(--r-md);text-align:center">
+                 <div style="font-size:0.75rem;color:var(--text-secondary)">Percentiles (p50 / 95 / 99)</div>
+                 <div style="font-size:1rem;font-weight:bold;color:var(--text-primary);margin-top:4px"><span id="pl-stats-p50" style="color:var(--info)">0 ms</span> / <span id="pl-stats-p95" style="color:var(--warning)">0 ms</span> / <span id="pl-stats-p99" style="color:var(--danger)">0 ms</span></div>
+               </div>
              </div>
-             <div style="background:var(--bg-base);border-radius:var(--r-md);padding:var(--sp-2);position:relative;height:220px">
-               <canvas id="pl-chart-throughput"></canvas>
-             </div>
-             <div style="background:var(--bg-base);border-radius:var(--r-md);padding:var(--sp-2);position:relative;height:220px">
-               <canvas id="pl-chart-histogram"></canvas>
-             </div>
-             <div style="background:var(--bg-base);border-radius:var(--r-md);padding:var(--sp-2);position:relative;height:220px">
-               <canvas id="pl-chart-status"></canvas>
+             <div id="pl-charts" style="margin-top:var(--sp-4);display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-4);flex:1;overflow-y:auto;min-height:400px">
+               <div style="background:var(--bg-base);border-radius:var(--r-md);padding:var(--sp-2);position:relative;height:220px">
+                 <canvas id="pl-chart-timeline"></canvas>
+               </div>
+               <div style="background:var(--bg-base);border-radius:var(--r-md);padding:var(--sp-2);position:relative;height:220px">
+                 <canvas id="pl-chart-throughput"></canvas>
+               </div>
+               <div style="background:var(--bg-base);border-radius:var(--r-md);padding:var(--sp-2);position:relative;height:220px">
+                 <canvas id="pl-chart-histogram"></canvas>
+               </div>
+               <div style="background:var(--bg-base);border-radius:var(--r-md);padding:var(--sp-2);position:relative;height:220px">
+                 <canvas id="pl-chart-status"></canvas>
+               </div>
              </div>
            </div>
         </div>
       </div>
     </div>
 
-    <!-- TRAFFIC INSPECTOR -->
-    <div class="tool-panel" id="panel-traffic-inspector">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:#192736"><svg viewBox="0 0 24 24" fill="none" stroke="#3498db" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">Traffic Inspector</div><div class="tool-header-desc">Parse HAR files and cURL commands for offline debugging</div></div>
-      </div>
-      <div class="tool-body" style="display:flex;gap:var(--sp-4)">
-        <div style="flex:1;display:flex;flex-direction:column">
-           <div class="form-label" style="display:flex;justify-content:space-between">
-              <span>Paste HAR JSON or cURL</span>
-              <span style="font-size:0.75rem;font-weight:normal;color:var(--text-muted)">Drag & drop HAR file here</span>
-           </div>
-           <textarea class="code-area" id="ti-input" style="flex:1" placeholder="curl -X POST ... OR paste/drop entire HAR JSON"></textarea>
-           <div id="ti-file-info" style="margin-top:var(--sp-2);font-size:0.8rem;color:var(--info);display:none"></div>
-           <button class="btn btn-primary" style="margin-top:var(--sp-3)" onclick="tiParse()">Parse Traffic</button>
-        </div>
-        <div style="flex:1;display:flex;flex-direction:column;overflow-y:auto">
-           <div class="form-label">Inspector Output</div>
-           <div id="ti-results" style="flex:1;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-4);display:flex;flex-direction:column">
-              <div style="color:var(--text-muted)">Parsed details will appear here...</div>
-           </div>
-        </div>
-      </div>
-    </div>
 
     <!-- MOCK SERVER -->
     <div class="tool-panel" id="panel-mock-server">
@@ -1406,16 +1431,14 @@
                  <option value="">Searching for running apps...</option>
                </select>
              </div>
-             
-             <div style="display:flex; flex-direction:column; gap:var(--sp-1);">
+               <div style="display:flex; flex-direction:column; gap:var(--sp-1);">
                <label style="font-size:0.85rem; color:var(--text-secondary);">Or specify manual Project Root Path:</label>
                <input type="text" id="ds-manual-path" class="input" style="width:100%" placeholder="e.g. C:\Mendix_Projects\MyFirstApp">
              </div>
            </div>
 
            <div style="display:flex; gap:var(--sp-2); width:100%; justify-content:center; margin-bottom:var(--sp-5)">
-             <button class="btn btn-primary" onclick="dsConnectAction()" style="flex:2">Connect to Application</button>
-             <button class="btn btn-secondary" onclick="dsStartSandbox()" style="flex:1">Sandbox Mode</button>
+             <button class="btn btn-primary" onclick="dsConnectAction()" style="flex:1">Connect to Application</button>
            </div>
 
            <div class="notice notice-info" style="text-align:left; width:100%; font-size:0.85rem">
@@ -1694,7 +1717,7 @@ EntityName -> OtherEntity : Association"></textarea>
         </div>
         <div class="form-group" style="margin-bottom:var(--sp-3)">
           <div class="form-label">Paste Thread Dump</div>
-          <textarea class="code-area" id="thread-dump-input" rows="8" placeholder="Paste your thread dump here..."></textarea>
+          <textarea class="code-area" id="thread-dump-input" rows="8" placeholder="Paste your thread dump here, or drag & drop a file..."></textarea>
         </div>
         <button class="btn btn-primary" onclick="analyzeThreadDump()">Analyze Thread Dump</button>
         <div id="thread-dump-result" style="margin-top:var(--sp-4);display:none;"></div>

@@ -104,44 +104,33 @@ async function run() {
 
   // 3. LOG VIEWER
   await switchTool('log-viewer');
-  await page.evaluate(() => {
-    const wowLog = `2026-07-10 14:50:01.123  INFO - Core: Mendix Runtime started successfully on port 8080
-2026-07-10 14:50:02.450  INFO - ModuleManager: Module 'System' loaded successfully.
-2026-07-10 14:50:03.110  INFO - ModuleManager: Module 'Administration' loaded successfully.
-2026-07-10 14:50:05.800  INFO - Connector: Connecting to database jdbc:postgresql://localhost:5432/mendix
-2026-07-10 14:50:06.120  INFO - Connector: Database connection established.
-2026-07-10 14:50:06.200  DEBUG - ActionManager: Executing Microflow 'System.Startup'
-2026-07-10 14:50:08.500  INFO - ModuleManager: Module 'OrderManagement' loaded successfully.
-2026-07-10 14:50:09.150  WARN - Core: Deprecated java action 'StringSplit' is used in Microflow 'OrderManagement.ACT_FormatString'. This action will be removed in a future Mendix version.
-2026-07-10 14:50:11.900  INFO - Core: Application is ready for requests.
-2026-07-10 14:51:00.001  DEBUG - REST: Incoming GET request to /rest/api/v1/customers
-2026-07-10 14:51:00.045  DEBUG - REST: Successfully processed request in 44ms (Status 200)
-2026-07-10 14:51:12.105  DEBUG - REST: Incoming POST request to /rest/api/v1/orders
-2026-07-10 14:51:12.150  INFO - OrderManagement: Processing new order ORD-2026-9941
-2026-07-10 14:51:13.000  WARN - ExternalAPI: Payment gateway responded with high latency (850ms)
-2026-07-10 14:51:13.050  INFO - OrderManagement: Order ORD-2026-9941 processed successfully
-2026-07-10 14:52:15.999  ERROR - Connector: Connection to database timed out after 30000ms. Attempting retry.
-  at com.mendix.connectionbus.ConnectionBusImpl.getConnection(ConnectionBusImpl.java:123)
-  at com.mendix.modules.MyModule.MyAction(MyAction.java:45)
-  at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
-2026-07-10 14:52:16.500  INFO - Connector: Re-established database connection.
-2026-07-10 14:52:45.100  DEBUG - REST: Incoming PUT request to /rest/api/v1/inventory/update
-2026-07-10 14:52:46.200  WARN - Inventory: Stock level for item 'Laptop-X1' is below threshold (Current: 4, Threshold: 10)
-2026-07-10 14:53:11.100  ERROR - ActionManager: Error in execution of microflow 'OrderManagement.ACT_ProcessOrder'
-  at com.mendix.core.actionmanagement.ActionManager.executeSync(ActionManager.java:178)
-Caused by: com.mendix.core.CoreRuntimeException: Exception occurred in action '{"type":"RetrieveByXPath","entity":"Sales.Order"}', all database connections are exhausted.
-  at com.mendix.modules.microflowengine.MicroflowObject.execute(MicroflowObject.java:82)
-2026-07-10 14:53:12.000  ERROR - ConnectionBus: Could not retrieve connection from pool. Pool size: 50, Active: 50, Idle: 0
-2026-07-10 14:53:15.000  CRITICAL - Core: Application state corrupted due to massive database latency. Entering safe mode.
-2026-07-10 14:53:15.005  INFO - Core: Safe mode activated. Rejecting all incoming requests.`;
-    if (window.logParseContent) window.logParseContent(wowLog, "production_outage.log");
-    
+  const mendixLogContent = fs.readFileSync(path.join(assetsDir, 'Mendix Log Viewer', 'mendix_production_incident_LogsTab.log'), 'utf8');
+  await page.evaluate((wowLog) => {
+    if (window.logParseContent) window.logParseContent(wowLog, "mendix_production_incident_LogsTab.log");
     document.getElementById('log-search').value = '';
     if(window.logRenderFiltered) window.logRenderFiltered();
+  }, mendixLogContent);
+  await sleep(1000);
+  await page.screenshot({ path: path.join(assetsDir, 'screenshot-log-viewer-stream.png') });
+  console.log('Saved screenshot-log-viewer-stream.png');
+
+  // Log Viewer: Sequence Tab
+  await page.evaluate(() => {
+    if(window.logSetTab) window.logSetTab('sequence', document.querySelector('.tabs .tab:nth-child(3)'));
+    if(window.logGenerateSequence) window.logGenerateSequence();
   });
   await sleep(1000);
-  await page.screenshot({ path: path.join(assetsDir, 'screenshot-log-viewer.png') });
-  console.log('Saved screenshot-log-viewer.png');
+  await page.screenshot({ path: path.join(assetsDir, 'screenshot-log-viewer-sequence.png') });
+  console.log('Saved screenshot-log-viewer-sequence.png');
+
+  // Log Viewer: Gantt Tab
+  await page.evaluate(() => {
+    if(window.logSetTab) window.logSetTab('gantt', document.querySelector('.tabs .tab:nth-child(4)'));
+    if(window.logGenerateGantt) window.logGenerateGantt();
+  });
+  await sleep(1000);
+  await page.screenshot({ path: path.join(assetsDir, 'screenshot-log-viewer-gantt.png') });
+  console.log('Saved screenshot-log-viewer-gantt.png');
 
   // 4. TELEMETRY MONITOR
   await switchTool('telemetry-monitor');
@@ -220,38 +209,11 @@ Caused by: com.mendix.core.CoreRuntimeException: Exception occurred in action '{
 
   // 6. JSON Formatter
   await switchTool('json-formatter');
-  await page.evaluate(() => {
-    const data = {
-      "user": {
-        "id": "USR-9941",
-        "name": "Jane Doe",
-        "roles": ["Administrator", "Developer"],
-        "isActive": true,
-        "preferences": {
-          "theme": "dark",
-          "notifications": {"email": true, "sms": false}
-        },
-        "lastLogin": "2026-07-09T08:30:00Z",
-        "history": [
-           {"action": "login", "ip": "192.168.1.100", "status": "success"},
-           {"action": "update_profile", "ip": "192.168.1.100", "status": "success"},
-           {"action": "failed_login", "ip": "10.0.0.5", "status": "failed"}
-        ]
-      },
-      "api_response": {
-        "status": 200,
-        "message": "Data retrieved successfully",
-        "timestamp": "2026-07-10T12:00:00Z",
-        "metadata": {
-          "page": 1,
-          "totalRecords": 15420,
-          "executionTimeMs": 42
-        }
-      }
-    };
-    document.getElementById('json-input').value = JSON.stringify(data);
+  const complexJson = fs.readFileSync(path.join(assetsDir, 'JSON Formatter', 'complex_payload_FormatterTab.json'), 'utf8');
+  await page.evaluate((jsonStr) => {
+    document.getElementById('json-input').value = jsonStr;
     if (window.jsonFormat) window.jsonFormat();
-  });
+  }, complexJson);
   await sleep(500);
   await page.screenshot({ path: path.join(assetsDir, 'screenshot-json-formatter.png') });
   console.log('Saved screenshot-json-formatter.png');
@@ -291,14 +253,18 @@ Caused by: com.mendix.core.CoreRuntimeException: Exception occurred in action '{
         if (window.lqeLoadFile) window.lqeLoadFile(dt.files);
       }, csvContent);
       await sleep(1500); // Give it time to parse
+      await page.screenshot({ path: path.join(assetsDir, 'screenshot-log-query-extractor-list.png') });
+      console.log('Saved screenshot-log-query-extractor-list.png');
       
       await page.evaluate(() => {
         const firstRow = document.querySelector('#lqe-query-list .lqe-list-item');
         if (firstRow) firstRow.click();
         
         // Mock a complex query plan for WOW effect
-        const planBtn = document.querySelector('div[onclick*="lqe-tab-plan"]');
-        if (planBtn) planBtn.click();
+        const planBtn = document.querySelector('div[data-target="lqe-tab-plan"]');
+        if (planBtn) {
+            window.lqeSetTab('lqe-tab-plan', planBtn);
+        }
         
         const planContent = document.getElementById('lqe-plan-content');
         if (planContent) {
@@ -319,34 +285,36 @@ Execution Time: 0.085 ms`;
       await sleep(500);
     }
   } catch(e) { console.error('Failed to generate log query extractor mock', e); }
-  await page.screenshot({ path: path.join(assetsDir, 'screenshot-log-query-extractor.png') });
-  console.log('Saved screenshot-log-query-extractor.png');
+  await page.screenshot({ path: path.join(assetsDir, 'screenshot-log-query-extractor-plan.png') });
+  console.log('Saved screenshot-log-query-extractor-plan.png');
 
   // 10. NGINX LOG ANALYZER
   await switchTool('nginx-log');
-  await page.evaluate(() => {
-    // Generate some fake realistic Nginx logs
-    let nginxLogs = '';
-    const methods = ['GET', 'GET', 'GET', 'POST', 'POST', 'PUT'];
-    const urls = ['/index.html', '/api/users', '/api/orders', '/login', '/api/inventory', '/images/logo.png'];
-    const codes = [200, 200, 200, 201, 404, 500, 502];
-    for (let i = 0; i < 200; i++) {
-      const ip = `192.168.1.${Math.floor(Math.random() * 255)}`;
-      const method = methods[Math.floor(Math.random() * methods.length)];
-      const url = urls[Math.floor(Math.random() * urls.length)];
-      const code = codes[Math.floor(Math.random() * codes.length)];
-      const size = Math.floor(Math.random() * 5000) + 500;
-      nginxLogs += `${ip} - - [10/Jul/2026:14:5${Math.floor(i/30)}:${(i%60).toString().padStart(2,'0')} +0000] "${method} ${url} HTTP/1.1" ${code} ${size} "-" "Mozilla/5.0"\n`;
-    }
+  const nginxLogs = fs.readFileSync(path.join(assetsDir, 'Nginx Log Analyzer', 'nginx_traffic_spike_GanttChartTab.log'), 'utf8');
+  await page.evaluate((logs) => {
     if (window.nginxLoadedText !== undefined) {
-      window.nginxLoadedText = nginxLogs;
-      document.getElementById('nginx-log-input').value = '[File loaded: mock.log]';
+      window.nginxLoadedText = logs;
+      document.getElementById('nginx-log-input').value = '[File loaded: nginx_traffic_spike.log]';
       if (window.nginxAnalyzeLogs) window.nginxAnalyzeLogs();
     }
-  });
+  }, nginxLogs);
   await sleep(1500);
-  await page.screenshot({ path: path.join(assetsDir, 'screenshot-nginx-analyzer.png') });
-  console.log('Saved screenshot-nginx-analyzer.png');
+  await page.screenshot({ path: path.join(assetsDir, 'screenshot-nginx-analyzer-logs.png') });
+  console.log('Saved screenshot-nginx-analyzer-logs.png');
+
+  // Nginx Log Analyzer: Gantt Tab
+  await page.evaluate(() => {
+    const tabs = document.querySelectorAll('#panel-nginx-log .tabs .tab');
+    for (let t of tabs) {
+      if (t.textContent.includes('Gantt') || t.getAttribute('onclick')?.includes('gantt')) {
+        t.click();
+      }
+    }
+    if (window.nginxGenerateGantt) window.nginxGenerateGantt();
+  });
+  await sleep(1000);
+  await page.screenshot({ path: path.join(assetsDir, 'screenshot-nginx-analyzer-gantt.png') });
+  console.log('Saved screenshot-nginx-analyzer-gantt.png');
 
   // 11. MOCK SERVER & CHAOS
   await switchTool('mock-server');
@@ -377,6 +345,120 @@ Execution Time: 0.085 ms`;
   await sleep(1000);
   await page.screenshot({ path: path.join(assetsDir, 'screenshot-mock-server.png') });
   console.log('Saved screenshot-mock-server.png');
+
+  // 12. THREAD DUMP ANALYZER
+  await switchTool('thread-dump');
+  const threadDump = fs.readFileSync(path.join(assetsDir, 'Thread Dump & GC Analyzer', 'jvm_thread_dump_deadlock_ThreadsTab.txt'), 'utf8');
+  await page.evaluate((dump) => {
+    if (window.tdParseContent) window.tdParseContent(dump, "jvm_thread_dump_deadlock_ThreadsTab.txt");
+  }, threadDump);
+  await sleep(1000);
+  await page.screenshot({ path: path.join(assetsDir, 'screenshot-thread-dump.png') });
+  console.log('Saved screenshot-thread-dump.png');
+
+  // 13. LOG ANONYMIZER
+  await switchTool('log-anonymizer');
+  const anonymizerLog = fs.readFileSync(path.join(assetsDir, 'Log & Text Anonymizer', 'log_with_pii_for_anonymizer_AnonymizeTab.txt'), 'utf8');
+  await page.evaluate((log) => {
+    document.getElementById('anonymizer-input').value = log;
+    if (window.anonymizeText) window.anonymizeText();
+  }, anonymizerLog);
+  await sleep(500);
+  await page.screenshot({ path: path.join(assetsDir, 'screenshot-log-anonymizer.png') });
+  console.log('Saved screenshot-log-anonymizer.png');
+
+  // 14. SQL FORMATTER
+  await switchTool('sql-formatter');
+  const sqlContent = fs.readFileSync(path.join(assetsDir, 'SQL Formatter', 'enterprise_query_FormatterTab.sql'), 'utf8');
+  await page.evaluate((sql) => {
+    document.getElementById('sql-input').value = sql;
+    if (window.sqlFormat) window.sqlFormat();
+  }, sqlContent);
+  await sleep(500);
+  await page.screenshot({ path: path.join(assetsDir, 'screenshot-sql-formatter.png') });
+  console.log('Saved screenshot-sql-formatter.png');
+
+
+  // 16. HTTP STATUS CODES
+  await switchTool('http-status');
+  const statusSearch = fs.readFileSync(path.join(assetsDir, 'HTTP Status Codes', 'sample_query_SearchTab.txt'), 'utf8');
+  await page.evaluate((val) => {
+    const input = document.getElementById('http-search');
+    if (input) {
+        input.value = val;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    const firstStatus = document.querySelector('.http-status-card');
+    if (firstStatus) firstStatus.click();
+  }, statusSearch);
+  await sleep(500);
+  await page.screenshot({ path: path.join(assetsDir, 'screenshot-http-status.png') });
+  console.log('Saved screenshot-http-status.png');
+
+  // 17. PERFORMANCE LAB
+  await switchTool('perf-lab');
+  const perfCode = fs.readFileSync(path.join(assetsDir, 'Performance Lab', 'mendix_list_processing_PerformanceTab.js'), 'utf8');
+  await page.evaluate((code) => {
+    const input = document.getElementById('perf-code');
+    if (input) input.value = code;
+    const iterations = document.getElementById('perf-iterations');
+    if (iterations) iterations.value = '50';
+    if(window.perfRunTest) window.perfRunTest();
+  }, perfCode);
+  await sleep(3500); // Wait for the chart to draw
+  await page.screenshot({ path: path.join(assetsDir, 'screenshot-perf-lab.png') });
+  console.log('Saved screenshot-perf-lab.png');
+
+  // 18. XML FORMATTER
+  await switchTool('xml-formatter');
+  const xmlContent = fs.readFileSync(path.join(assetsDir, 'XML Formatter', 'sap_invoice_response_FormatterTab.xml'), 'utf8');
+  await page.evaluate((xml) => {
+    const input = document.getElementById('xml-input');
+    if (input) input.value = xml;
+    if (window.xmlFormat) window.xmlFormat();
+  }, xmlContent);
+  await sleep(500);
+  await page.screenshot({ path: path.join(assetsDir, 'screenshot-xml-formatter.png') });
+  console.log('Saved screenshot-xml-formatter.png');
+
+  // 19. XML & TEXT SANITIZER
+  await switchTool('char-sanitizer');
+  const dirtyXml = fs.readFileSync(path.join(assetsDir, 'XML & Text Sanitizer', 'dirty_mendix_export_SanitizeTab.xml'), 'utf8');
+  await page.evaluate((text) => {
+    const input = document.getElementById('sanitizer-input');
+    if (input) input.value = text;
+    if (window.sanitizeText) window.sanitizeText();
+  }, dirtyXml);
+  await sleep(500);
+  await page.screenshot({ path: path.join(assetsDir, 'screenshot-char-sanitizer.png') });
+  console.log('Saved screenshot-char-sanitizer.png');
+
+  // 20. BASE64 / URL ENCODER
+  await switchTool('encoder');
+  const b64Data = fs.readFileSync(path.join(assetsDir, 'Base64 - URL Encoder', 'jwt_token_payload_EncoderTab.txt'), 'utf8');
+  await page.evaluate((data) => {
+    const input = document.getElementById('encoder-input');
+    if (input) input.value = data;
+    const encodeBtn = document.querySelector('button[onclick*="encodeBase64"]');
+    if (encodeBtn) encodeBtn.click();
+  }, b64Data);
+  await sleep(500);
+  await page.screenshot({ path: path.join(assetsDir, 'screenshot-encoder.png') });
+  console.log('Saved screenshot-encoder.png');
+
+  // 21. MARKDOWN & TABLE GENERATOR
+  await switchTool('md-preview');
+  const csvData = fs.readFileSync(path.join(assetsDir, 'Markdown & Table Generator', 'entities_export_GeneratorTab.csv'), 'utf8');
+  await page.evaluate((csv) => {
+    const input = document.getElementById('md-input');
+    if (input) {
+       input.value = "## CSV Export from Mendix\\n\\n" + csv;
+       if (window.mdRender) window.mdRender();
+    }
+  }, csvData);
+  await sleep(500);
+  await page.screenshot({ path: path.join(assetsDir, 'screenshot-md-preview.png') });
+  console.log('Saved screenshot-md-preview.png');
 
   console.log('All WOW screenshots taken successfully!');
   await browser.close();

@@ -214,7 +214,7 @@ const TOOLS_HELP = {
     `,
     howToUse: `
       <ol>
-        <li>Copy and paste the entire text of the generated thread dump into the text field.</li>
+        <li>Copy and paste the entire text of the generated thread dump into the text field, or drag and drop a thread dump file directly into the area.</li>
         <li>Click the <strong>Analyze Thread Dump</strong> button.</li>
         <li>Analyze the list of threads grouped by states (RUNNABLE, WAITING, TIMED_WAITING, BLOCKED) and detected blocking threads (monitors).</li>
       </ol>
@@ -538,8 +538,12 @@ const TOOLS_HELP = {
     howToUse: `
       <ol>
         <li>Enter the tested URL and select the request method (GET, POST, etc.).</li>
-        <li>Specify test parameters: number of concurrent connections (Concurrency), total number of requests, and request headers (e.g., <code>Content-Type: application/json</code>).</li>
-        <li>Click <strong>Start Test</strong>. The tool will begin sending requests in the background and draw a latency chart in real-time.</li>
+        <li><strong>Headers & Body:</strong> Specify request headers (e.g., <code>{"Content-Type": "application/json"}</code>) and request body in JSON format.</li>
+        <li><strong>Test Parameters:</strong> Set the number of concurrent connections (Threads) and the total number of requests.</li>
+        <li><strong>Engine Selection:</strong> Choose <strong>Browser (Fetch)</strong> for simple requests, or <strong>Server (Turbo)</strong> to bypass browser CORS and connection limits (requires running <code>node mendix-observability-bridge.js</code>).</li>
+        <li><strong>Presets:</strong> Use <em>Save Preset</em> and <em>Load Preset</em> buttons to store your frequently used test configurations.</li>
+        <li>Click <strong>Start Load Test</strong>. The tool will begin sending requests in the background and draw a latency chart in real-time. You can pause the test at any time using the <strong>Stop</strong> button.</li>
+        <li>After the test, click <strong>Export CSV</strong> to download the raw latency data for further analysis.</li>
       </ol>
     `,
     interpretation: `
@@ -550,25 +554,7 @@ const TOOLS_HELP = {
       </ul>
     `
   },
-  'traffic-inspector': {
-    title: 'Traffic Inspector (HAR Analyzer)',
-    description: 'Tool for analyzing HTTP Archive (HAR) files and cURL commands. Helps developers trace exactly what network requests the Mendix Client sent to the server (e.g., when diagnosing slow widgets or login issues).',
-    howToGet: `
-      <p>To get a HAR file:</p>
-      <ol>
-        <li>Open the Mendix application in a browser and press <strong>F12</strong> (Developer Tools).</li>
-        <li>Go to the <strong>Network</strong> tab.</li>
-        <li>Refresh the page and perform the action you want to diagnose.</li>
-        <li>Click the download icon (down arrow) or right-click on the requests list and select <strong>Save all as HAR with content</strong>.</li>
-      </ol>
-    `,
-    howToUse: `
-      <ol>
-        <li>Drag and drop the <code>.har</code> file into the tool's workspace or paste a cURL command into the second tab.</li>
-        <li>Analyze the request timeline, response codes, transfer sizes, and headers sent in queries.</li>
-      </ol>
-    `
-  },
+
   'mock-server': {
     title: 'Mock Server & Chaos Engineering',
     description: 'A fully functional local Mock Server that allows you to simulate external API responses and test Chaos Engineering (intentionally introducing network faults). This tool works in tandem with the Mendix Observability Bridge to expose a real HTTP endpoint on your localhost.',
@@ -607,7 +593,7 @@ const TOOLS_HELP = {
         <li>Define the schema by adding columns. For each column, select the <strong>Data Type</strong> (e.g., <code>UUID</code>, <code>FullName</code>, <code>Email</code>, <code>Constant</code>) and then specify a custom <strong>Field Name</strong> (which will be used in the exported file).</li>
         <li><em>Tip:</em> Use the drag handle on the left of each row to reorder columns. If you select the <code>Constant</code> type, a third input will appear for you to enter the static value to be applied to every record.</li>
         <li>Select the desired output format (JSON, CSV, or XML).</li>
-        <li>Check the live <strong>Preview</strong> panel to immediately see how the first few records will look based on your current schema and format.</li>
+        <li>Check the live <strong>Sample Preview</strong> panel to immediately see how the first few records will look based on your current schema and format.</li>
         <li>Specify the number of records (e.g., 1000 or 10000 rows).</li>
         <li>Click <strong>Generate Data</strong> and download the generated file to disk. Then import it into Mendix using, for example, the <em>Excel Importer</em> module or a dedicated import action.</li>
       </ol>

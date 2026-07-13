@@ -1011,6 +1011,71 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (url.pathname === '/api/perf-test') {
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', async () => {
+        try {
+          const config = JSON.parse(body);
+          const targetUrl = config.url;
+          const method = config.method || 'GET';
+          const headers = config.headers || {};
+          const payload = config.body || undefined;
+          const conc = parseInt(config.concurrency) || 1;
+          const count = parseInt(config.count) || 1;
+          
+          if (!targetUrl) return sendError(res, 'Missing url', 400);
+
+          const fetchOpts = { method, headers };
+          if (payload && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
+            fetchOpts.body = payload;
+          }
+
+          const results = [];
+          let sent = 0;
+          let activeCount = 0;
+          const testStartTime = Date.now();
+          
+          // Helper to use native fetch if available
+          if (typeof fetch === 'undefined') {
+             return sendError(res, 'Node.js version too old. fetch() is required.', 500);
+          }
+
+          const executeWorker = async () => {
+             while (sent < count) {
+                const id = sent++;
+                const t0 = Date.now();
+                try {
+                  const r = await fetch(targetUrl, fetchOpts);
+                  // read body to complete request
+                  await r.text().catch(()=>null);
+                  const t1 = Date.now();
+                  results.push({ id, time: t1 - t0, status: r.status, start: t0, end: t1 });
+                } catch (err) {
+                  const t1 = Date.now();
+                  results.push({ id, time: t1 - t0, status: 'Error', start: t0, end: t1 });
+                }
+             }
+          };
+
+          const workers = [];
+          for (let i = 0; i < conc; i++) {
+             workers.push(executeWorker());
+          }
+
+          await Promise.all(workers);
+          
+          sendJson(res, { success: true, results, duration: Date.now() - testStartTime });
+        } catch (e) {
+          sendError(res, `Failed perf test: ${e.message}`, 500);
+        }
+      });
+      return;
+    }
+    return sendError(res, 'Method Not Allowed', 405);
+  }
+
   // Fallback
   return sendError(res, 'Not Found', 404);
 });
