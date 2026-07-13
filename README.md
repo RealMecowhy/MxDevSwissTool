@@ -2,6 +2,8 @@
 
 The **MxDev Swiss Tool** is an offline-first, all-in-one developer toolkit designed specifically for Mendix developers. It runs entirely locally in your browser to guarantee 100% data privacy—ensuring you never have to paste sensitive client logs, database queries, or authorization tokens into public web utilities.
 
+![MxDev Swiss Tool Home](assets/screenshot-home.png)
+
 ---
 
 ## 🛠️ Included Tools & Features
@@ -10,32 +12,42 @@ The toolkit is divided into logical categories to assist you across the entire d
 
 ### 1. Diagnostics & Logs
 * **Mendix Log Viewer**: Tail, search, and filter Mendix logs with time-range filtering, error aggregation, and interactive Sequence/Gantt chart visualization.
+  ![Mendix Log Viewer](assets/screenshot-log-viewer.png)
 * **Log & Text Anonymizer**: Automatically strip sensitive PII (emails, IPs, UUIDs, custom keywords) from logs before sharing them with support.
 * **Log Query Extractor**: Extract, parse, and correlate executed SQL, OQL, and XPath queries from Mendix TRACE logs, complete with parameter binding.
+  ![Log Query Extractor](assets/screenshot-log-query-extractor.png)
 * **Nginx Log Analyzer**: Analyze access logs to identify top IPs, request paths, status codes, and response times, with optional IP geolocation mapping.
+  ![Nginx Log Analyzer](assets/screenshot-nginx-analyzer.png)
 * **Thread Dump & GC Analyzer**: Analyze JVM thread dumps and garbage collector logs to locate blocked threads and diagnose GC pauses.
 
 ### 2. Performance & Testing
 * **Performance Lab**: Simulate concurrent load on Mendix HTTP/REST endpoints with real-time latency tracking and statistics (min/avg/max and p50/p95/p99 percentiles).
 * **Mock Server & Chaos Engineering**: Simulate external REST endpoints with configurable mock responses, artificial latency, and injected connection errors (5xx, timeouts).
+  ![Mock Server](assets/screenshot-mock-server.png)
 * **Data Factory**: A high-volume mock data generator (JSON/CSV) to generate realistic test data based on configurable schemas.
+  ![Data Factory](assets/screenshot-data-factory.png)
 
 ### 3. Data & Formatting
 * **JSON / XML Formatters**: Format, validate, and explore payloads with interactive tree views.
+  ![JSON Formatter](assets/screenshot-json-formatter.png)
 * **SQL Formatter**: Format and highlight complex ORM-generated database queries.
 * **Base64 / URL Encoder**: Encode and decode strings and HTML entities locally.
 * **XML & Text Sanitizer**: Detect and clean hidden control characters, zero-width spaces, and Mojibake.
 
 ### 4. Mendix Platform Utilities
 * **OData / XPath Query Builders**: Sandboxes to build and test queries with cheat sheets.
+  ![XPath Builder](assets/screenshot-xpath-builder.png)
 * **Domain Model & Architecture Visualizer**: Generate Mermaid.js class diagrams from Domain Model JSON schemas or pseudocode.
 * **OQL / XPath Formatters**: Format and structure database and retrieve constraints.
 
 ### 5. Security & Utilities
 * **JWT Decoder**: Inspect JWT tokens securely without transmitting them externally.
+  ![JWT Decoder](assets/screenshot-jwt-decoder.png)
 * **Hash / Password Generators**: Generate strong passwords and cryptographic hashes (SHA-256, SHA-512) locally.
 * **Java Regex Tester**: Evaluate regular expressions using a Java-compatible regex engine.
 * **Timestamp Converter**: Convert between Unix epochs, ISO 8601, and local timezone formats.
+* **Diff / Text Compare**: Compare two text blocks or code side-by-side with differences highlighted.
+  ![Text Diff](assets/screenshot-text-diff.png)
 
 ---
 
