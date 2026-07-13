@@ -5,3 +5,4 @@ _local_assets/
 .env
 .DS_Store
 *.zip
+.bridge-token

@@ -8,13 +8,71 @@
 // Run it with: node mendix-observability-bridge.js
 // =========================================================================
 
+"use strict";
+
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
 const { Client } = require('pg');
+const crypto = require('crypto');
 
 const PORT = 9999;
+
+// =========================================================================
+// SECURITY / CORS / TOKEN / BODY LIMITS
+// =========================================================================
+const ALLOWED_ORIGINS = [
+  'http://localhost:9999',
+  'http://127.0.0.1:9999'
+];
+
+function corsHeaders(req) {
+  const origin = req.headers ? (req.headers.origin || '') : '';
+  const allowOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+  return {
+    'Access-Control-Allow-Origin': allowOrigin,
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Bridge-Token',
+    'Vary': 'Origin'
+  };
+}
+
+const BRIDGE_TOKEN = crypto.randomBytes(24).toString('hex');
+try {
+  fs.writeFileSync('.bridge-token', BRIDGE_TOKEN);
+} catch (e) {}
+
+function requireToken(req, res) {
+  const provided = req.headers['x-bridge-token'];
+  if (provided !== BRIDGE_TOKEN) {
+    res.writeHead(401, { 'Content-Type': 'application/json', ...corsHeaders(req) });
+    res.end(JSON.stringify({ error: true, message: 'Unauthorized: missing or invalid X-Bridge-Token' }));
+    return false;
+  }
+  return true;
+}
+
+const MAX_BODY_BYTES = 5 * 1024 * 1024; // 5 MB
+
+function readBody(req, res, maxBytes, onComplete) {
+  let size = 0;
+  const chunks = [];
+  req.on('data', chunk => {
+    size += chunk.length;
+    if (size > maxBytes) {
+      req.destroy();
+      res.writeHead(413, { 'Content-Type': 'application/json', ...corsHeaders(req) });
+      res.end(JSON.stringify({ error: true, message: `Payload too large (max ${maxBytes} bytes)` }));
+      return;
+    }
+    chunks.push(chunk);
+  });
+  req.on('end', () => {
+    if (size <= maxBytes) onComplete(Buffer.concat(chunks));
+  });
+}
+
 
 // Log File State
 let logFilePath = '';
@@ -231,11 +289,8 @@ function mapLogsProtobufToJson(buffer) {
 // =========================================================================
 
 function handleOtlpRequest(req, res, buffer) {
-  const chunks = [];
-  req.on('data', chunk => chunks.push(chunk));
-  req.on('end', () => {
+  readBody(req, res, 20 * 1024 * 1024, (rawBody) => {
     try {
-      const rawBody = Buffer.concat(chunks);
       let payload = null;
       let formatStr = 'Unknown';
 
@@ -298,16 +353,14 @@ function handleOtlpRequest(req, res, buffer) {
       
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type'
+        ...corsHeaders(req)
       });
       res.end(JSON.stringify({}));
     } catch (e) {
       console.error(`[Bridge OTLP] Failed to parse OTLP payload on ${req.url}: ${e.message}`);
       res.writeHead(400, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
+        ...corsHeaders(req)
       });
       res.end(JSON.stringify({ error: 'Invalid payload format' }));
     }
@@ -317,11 +370,7 @@ function handleOtlpRequest(req, res, buffer) {
 const otlpServer = http.createServer((req, res) => {
   // CORS Preflight
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type'
-    });
+    res.writeHead(204, corsHeaders(req));
     return res.end();
   }
 
@@ -457,7 +506,7 @@ function readNewLogLines() {
 // POSTGRESQL CONNECTOR (via pg module)
 // =========================================================================
 
-async function fetchPostgresMetrics(res, dbConfig) {
+async function fetchPostgresMetrics(req, res, dbConfig) {
   const client = new Client({
     host: dbConfig.host || 'localhost',
     port: dbConfig.port || 5432,
@@ -608,7 +657,7 @@ async function fetchPostgresMetrics(res, dbConfig) {
     const top_tables = resTables.rows[0].json_data;
     const table_health = resTableHealth.rows[0].json_data;
 
-    sendJson(res, {
+    sendJson(req, res, {
       dbname: dbConfig.database,
       stats,
       sessions,
@@ -620,7 +669,7 @@ async function fetchPostgresMetrics(res, dbConfig) {
       slow_queries_error
     });
   } catch (e) {
-    sendError(res, `Database Query Error: ${e.message}`);
+    sendError(req, res, `Database Query Error: ${e.message}`);
   } finally {
     await client.end().catch(console.error);
   }
@@ -631,20 +680,18 @@ async function fetchPostgresMetrics(res, dbConfig) {
 // API ROUTING & HTTP SERVER
 // =========================================================================
 
-function sendJson(res, data) {
+function sendJson(req, res, data) {
   res.writeHead(200, {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-API-Key'
+    ...corsHeaders(req)
   });
   res.end(JSON.stringify(data));
 }
 
-function sendError(res, message, code = 200) {
+function sendError(req, res, message, code = 200) {
   res.writeHead(code, {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*'
+    ...corsHeaders(req)
   });
   res.end(JSON.stringify({ error: true, message }));
 }
@@ -652,11 +699,7 @@ function sendError(res, message, code = 200) {
 const server = http.createServer((req, res) => {
   // CORS Preflight
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, X-API-Key'
-    });
+    res.writeHead(204, corsHeaders(req));
     return res.end();
   }
 
@@ -671,6 +714,10 @@ const server = http.createServer((req, res) => {
                        pathOnly === '/logo.png' || 
                        pathOnly === '/manifest.json' ||
                        pathOnly === '/service-worker.js';
+
+  if (pathOnly !== '/status' && !isStaticFile) {
+    if (!requireToken(req, res)) return;
+  }
 
   if (isStaticFile && req.method === 'GET') {
     const filePath = path.join(__dirname, '../public', pathOnly === '/' ? 'index.html' : pathOnly);
@@ -692,16 +739,17 @@ const server = http.createServer((req, res) => {
 
       res.writeHead(200, {
         'Content-Type': contentType,
-        'Access-Control-Allow-Origin': '*'
+        ...corsHeaders(req)
       });
       res.end(content);
     });
     return;
   }
 
-  if (url.pathname === '/status') {
-    return sendJson(res, {
+  if (pathOnly === '/status') {
+    return sendJson(req, res, {
       status: 'online',
+      token: BRIDGE_TOKEN,
       logFile: logFilePath || 'Not found',
       logLinesCount: logBuffer.length,
       otel: {
@@ -717,7 +765,7 @@ const server = http.createServer((req, res) => {
     const since = parseInt(url.searchParams.get('since') || '0');
     // Filter lines new since timestamp
     const filtered = logBuffer.filter(line => line.timestamp > since);
-    return sendJson(res, {
+    return sendJson(req, res, {
       timestamp: Date.now(),
       lines: filtered
     });
@@ -726,28 +774,26 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/otel/traces') {
     const since = parseInt(url.searchParams.get('since') || '0');
     const filtered = otelTraceBuffer.filter(t => t.timestamp > since);
-    return sendJson(res, { timestamp: Date.now(), items: filtered });
+    return sendJson(req, res, { timestamp: Date.now(), items: filtered });
   }
 
   if (url.pathname === '/otel/logs') {
     const since = parseInt(url.searchParams.get('since') || '0');
     const filtered = otelLogBuffer.filter(l => l.timestamp > since);
-    return sendJson(res, { timestamp: Date.now(), items: filtered });
+    return sendJson(req, res, { timestamp: Date.now(), items: filtered });
   }
 
   if (url.pathname === '/otel/metrics') {
     const since = parseInt(url.searchParams.get('since') || '0');
     const filtered = otelMetricBuffer.filter(m => m.timestamp > since);
-    return sendJson(res, { timestamp: Date.now(), items: filtered });
+    return sendJson(req, res, { timestamp: Date.now(), items: filtered });
   }
 
   if (url.pathname === '/detect-project') {
     if (req.method === 'POST') {
-      let body = '';
-      req.on('data', chunk => body += chunk);
-      req.on('end', () => {
+      readBody(req, res, 5 * 1024 * 1024, (rawBody) => {
         try {
-          const payload = JSON.parse(body);
+          const payload = JSON.parse(rawBody.toString('utf8'));
           if (!payload.projectRoot) throw new Error("Missing projectRoot");
           const deploymentPath = path.join(payload.projectRoot, 'deployment');
           const metadataPath = path.join(deploymentPath, 'model', 'metadata.json');
@@ -760,9 +806,9 @@ const server = http.createServer((req, res) => {
           if (fs.existsSync(configPath)) config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
           
           const proj = { deploymentPath, projectRoot: payload.projectRoot, metadata, config };
-          sendJson(res, { success: true, projects: [proj], deploymentPath, projectRoot: payload.projectRoot, metadata, config });
+          sendJson(req, res, { success: true, projects: [proj], deploymentPath, projectRoot: payload.projectRoot, metadata, config });
         } catch (e) {
-          sendError(res, `Failed manual detection: ${e.message}`, 400);
+          sendError(req, res, `Failed manual detection: ${e.message}`, 400);
         }
       });
       return;
@@ -785,10 +831,10 @@ const server = http.createServer((req, res) => {
       return null;
     };
 
-    const cmd = `wmic process where "name='javaw.exe'" get commandline`;
-    exec(cmd, (error, stdout, stderr) => {
+    const cmd = `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"Name='javaw.exe'\\" | Select-Object -ExpandProperty CommandLine"`;
+    exec(cmd, { maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
       if (error) {
-        return sendJson(res, { success: false, reason: `Failed to query running processes: ${error.message}` });
+        return sendJson(req, res, { success: false, reason: `Failed to query running processes: ${error.message}` });
       }
       
       const lines = stdout.split('\n').map(l => l.trim()).filter(l => l.length > 0);
@@ -800,7 +846,7 @@ const server = http.createServer((req, res) => {
           if (deploymentPath && !projects.find(p => p.deploymentPath === deploymentPath)) {
             const metadataPath = path.join(deploymentPath, 'model', 'metadata.json');
             const configPath = path.join(deploymentPath, 'model', 'config.json');
-            
+            let metadata = null;
             let config = null;
             
             try {
@@ -830,10 +876,10 @@ const server = http.createServer((req, res) => {
       }
       
       if (projects.length === 0) {
-        return sendJson(res, { success: false, reason: "No running Mendix runtime process found. Make sure the app is running in Studio Pro." });
+        return sendJson(req, res, { success: false, reason: "No running Mendix runtime process found. Make sure the app is running in Studio Pro." });
       }
       
-      sendJson(res, {
+      sendJson(req, res, {
         success: true,
         projects: projects,
         // Keep top-level fields for backwards compatibility
@@ -847,11 +893,9 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname === '/project-insights') {
     if (req.method === 'POST') {
-      let body = '';
-      req.on('data', chunk => body += chunk);
-      req.on('end', () => {
+      readBody(req, res, 5 * 1024 * 1024, (rawBody) => {
         try {
-          const payload = JSON.parse(body);
+          const payload = JSON.parse(rawBody.toString('utf8'));
           const prj = payload.projectRoot;
           if (!prj) throw new Error("Missing projectRoot");
 
@@ -915,32 +959,30 @@ const server = http.createServer((req, res) => {
             scanJava(path.join(prj, 'javasource'));
           } catch(e){}
 
-          sendJson(res, { success: true, bundleSize, widgets, javaIssues });
+          sendJson(req, res, { success: true, bundleSize, widgets, javaIssues });
         } catch (e) {
-          sendError(res, `Insights error: ${e.message}`, 400);
+          sendError(req, res, `Insights error: ${e.message}`, 400);
         }
       });
       return;
     }
-    return sendError(res, 'Method Not Allowed', 405);
+    return sendError(req, res, 'Method Not Allowed', 405);
   }
 
 
   if (url.pathname === '/postgres') {
       if (req.method === 'POST') {
-        let body = '';
-        req.on('data', chunk => body += chunk);
-        req.on('end', () => {
+        readBody(req, res, 5 * 1024 * 1024, (rawBody) => {
           try {
-            const dbConfig = JSON.parse(body);
-            fetchPostgresMetrics(res, dbConfig);
+            const dbConfig = JSON.parse(rawBody.toString('utf8'));
+            fetchPostgresMetrics(req, res, dbConfig);
           } catch (e) {
-            sendError(res, `Invalid JSON body: ${e.message}`, 400);
+            sendError(req, res, `Invalid JSON body: ${e.message}`, 400);
           }
         });
         return;
       }
-      return sendError(res, 'Method Not Allowed', 405);
+      return sendError(req, res, 'Method Not Allowed', 405);
     }
 
   if (url.pathname === '/prometheus') {
@@ -951,34 +993,32 @@ const server = http.createServer((req, res) => {
       let data = '';
       resp.on('data', (chunk) => { data += chunk; });
       resp.on('end', () => {
-        res.writeHead(200, { 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' });
+        res.writeHead(200, { 'Content-Type': 'text/plain', ...corsHeaders(req) });
         res.end(data);
       });
     }).on("error", (err) => {
-      sendError(res, `Failed proxying Prometheus on port ${targetPort}: ${err.message}`, 200);
+      sendError(req, res, `Failed proxying Prometheus on port ${targetPort}: ${err.message}`, 200);
     });
     return;
   }
 
   if (url.pathname === '/mock-config') {
     if (req.method === 'POST') {
-      let body = '';
-      req.on('data', chunk => body += chunk);
-      req.on('end', () => {
+      readBody(req, res, 5 * 1024 * 1024, (rawBody) => {
         try {
-          const config = JSON.parse(body);
+          const config = JSON.parse(rawBody.toString('utf8'));
           if (config.status !== undefined) mockConfig.status = config.status;
           if (config.payload !== undefined) mockConfig.payload = config.payload;
           if (config.delay !== undefined) mockConfig.delay = parseInt(config.delay, 10);
           if (config.chaos !== undefined) mockConfig.chaos = !!config.chaos;
-          sendJson(res, { success: true, mockConfig });
+          sendJson(req, res, { success: true, mockConfig });
         } catch (e) {
-          sendError(res, `Invalid JSON body: ${e.message}`, 400);
+          sendError(req, res, `Invalid JSON body: ${e.message}`, 400);
         }
       });
       return;
     }
-    return sendError(res, 'Method Not Allowed', 405);
+    return sendError(req, res, 'Method Not Allowed', 405);
   }
 
   if (url.pathname.startsWith('/mock')) {
@@ -1002,9 +1042,7 @@ const server = http.createServer((req, res) => {
     setTimeout(() => {
       res.writeHead(statusCode, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, PUT, DELETE, PATCH',
-        'Access-Control-Allow-Headers': '*'
+        ...corsHeaders(req)
       });
       res.end(outPayload);
     }, outDelay);
@@ -1013,19 +1051,23 @@ const server = http.createServer((req, res) => {
 
   if (url.pathname === '/api/perf-test') {
     if (req.method === 'POST') {
-      let body = '';
-      req.on('data', chunk => { body += chunk; });
-      req.on('end', async () => {
+      readBody(req, res, 5 * 1024 * 1024, async (rawBody) => {
         try {
-          const config = JSON.parse(body);
+          const config = JSON.parse(rawBody.toString('utf8'));
           const targetUrl = config.url;
           const method = config.method || 'GET';
           const headers = config.headers || {};
           const payload = config.body || undefined;
-          const conc = parseInt(config.concurrency) || 1;
-          const count = parseInt(config.count) || 1;
+          const conc = Math.min(parseInt(config.concurrency) || 1, 50);
+          const count = Math.min(parseInt(config.count) || 1, 5000);
+
+          const targetHost = new URL(targetUrl).hostname;
+          const isPrivateOrLocal = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(targetHost);
+          if (!isPrivateOrLocal && process.env.MXDEV_ALLOW_EXTERNAL_PERFTEST !== 'true') {
+            return sendError(req, res, 'Perf Lab domyślnie działa tylko na adresach lokalnych/prywatnych. Ustaw zmienną środowiskową MXDEV_ALLOW_EXTERNAL_PERFTEST=true, aby testować cele zewnętrzne.', 403);
+          }
           
-          if (!targetUrl) return sendError(res, 'Missing url', 400);
+          if (!targetUrl) return sendError(req, res, 'Missing url', 400);
 
           const fetchOpts = { method, headers };
           if (payload && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
@@ -1039,7 +1081,7 @@ const server = http.createServer((req, res) => {
           
           // Helper to use native fetch if available
           if (typeof fetch === 'undefined') {
-             return sendError(res, 'Node.js version too old. fetch() is required.', 500);
+             return sendError(req, res, 'Node.js version too old. fetch() is required.', 500);
           }
 
           const executeWorker = async () => {
@@ -1066,30 +1108,30 @@ const server = http.createServer((req, res) => {
 
           await Promise.all(workers);
           
-          sendJson(res, { success: true, results, duration: Date.now() - testStartTime });
+          sendJson(req, res, { success: true, results, duration: Date.now() - testStartTime });
         } catch (e) {
-          sendError(res, `Failed perf test: ${e.message}`, 500);
+          sendError(req, res, `Failed perf test: ${e.message}`, 500);
         }
       });
       return;
     }
-    return sendError(res, 'Method Not Allowed', 405);
+    return sendError(req, res, 'Method Not Allowed', 405);
   }
 
   // Fallback
-  return sendError(res, 'Not Found', 404);
+  return sendError(req, res, 'Not Found', 404);
 });
 
 // Initialize bridge
 initializeLogWatcher();
 
-server.listen(PORT, () => {
+server.listen(PORT, '127.0.0.1', () => {
   console.log(`=========================================================================`);
   console.log(`[Bridge] Mendix Observability Bridge successfully running on:`);
   console.log(`         http://localhost:${PORT}`);
 });
 
-otlpServer.listen(OTLP_PORT, () => {
+otlpServer.listen(OTLP_PORT, '127.0.0.1', () => {
   console.log(`[Bridge] OpenTelemetry Collector (OTLP/JSON) listening on:`);
   console.log(`         http://localhost:${OTLP_PORT}  (Routes: /v1/traces, /v1/logs)`);
   console.log(`[Bridge] Keep this terminal open to feed logs, SQL metrics and OTEL traces to browser!`);

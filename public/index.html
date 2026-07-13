@@ -16,25 +16,35 @@
       mermaid.initialize({ startOnLoad: false, theme: 'dark' });
     }
   });
-  // Programmatically unregister any existing service worker to resolve caching and extension conflicts
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistrations().then(function(registrations) {
-      if (registrations.length > 0) {
-        for (let registration of registrations) {
-          registration.unregister().then(function(success) {
-            if (success) {
-              console.log('Successfully unregistered service worker.');
-            }
-          });
-        }
-        // Force a reload to clear SW caching/interception immediately (only once)
-        if (!sessionStorage.getItem('sw_reloaded')) {
-          sessionStorage.setItem('sw_reloaded', 'true');
-          setTimeout(() => {
-            window.location.reload();
-          }, 100);
-        }
+
+  window.BRIDGE_TOKEN = '';
+  const originalFetch = window.fetch;
+  window.fetch = async function(resource, options) {
+    const url = typeof resource === 'string' ? resource : resource.url;
+    if (url && (url.includes('localhost:9999') || url.startsWith('/'))) {
+      if (window.BRIDGE_TOKEN) {
+        options = options || {};
+        options.headers = options.headers || {};
+        options.headers['X-Bridge-Token'] = window.BRIDGE_TOKEN;
       }
+    }
+    return originalFetch(resource, options);
+  };
+  
+  originalFetch('http://localhost:9999/status').then(res => res.json()).then(data => {
+    if (data && data.token) {
+      window.BRIDGE_TOKEN = data.token;
+    }
+  }).catch(e => console.warn('Could not fetch bridge token', e));
+
+  // Register service worker for offline support and caching
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/service-worker.js').then(registration => {
+        console.log('ServiceWorker registration successful with scope: ', registration.scope);
+      }, err => {
+        console.log('ServiceWorker registration failed: ', err);
+      });
     });
   }
 </script>
@@ -950,12 +960,12 @@
       <div class="tool-header">
         <div class="tool-header-icon" style="background:var(--accent-subtle)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
         <div class="tool-header-info"><div class="tool-header-title">Timestamp &amp; Date Converter</div><div class="tool-header-desc">Convert epoch, ISO 8601 and human-readable dates &mdash; click any result to copy</div></div>
-        <div class="tool-header-actions"><button class="btn btn-secondary btn-sm" onclick="tsSetNow()">Set to Now</button></div>
+        <div class="tool-header-actions"><button class="btn btn-secondary btn-sm" id="ts-btn-now">Set to Now</button></div>
       </div>
       <div class="tool-body">
         <div class="form-group" style="margin-bottom:var(--sp-4)">
           <div class="form-label">Input (epoch ms/s, ISO 8601, or any date string)</div>
-          <div class="form-row"><input class="input input-mono" id="ts-input" placeholder="1716220800000  or  2024-05-20T12:00:00Z" oninput="tsConvert()" style="flex:1"><button class="btn btn-primary btn-sm" onclick="tsConvert()">Convert</button></div>
+          <div class="form-row"><input class="input input-mono" id="ts-input" placeholder="1716220800000  or  2024-05-20T12:00:00Z" style="flex:1"><button class="btn btn-primary btn-sm" id="ts-btn-convert">Convert</button></div>
         </div>
         <div class="ts-grid" id="ts-grid"></div>
         <div class="sep"></div>
@@ -963,7 +973,7 @@
         <div class="form-row" style="margin-bottom:var(--sp-3)">
           <div class="form-group" style="flex:1"><div class="form-label">From</div><input class="input input-mono" id="ts-diff-from" placeholder="2024-01-01T00:00:00Z"></div>
           <div class="form-group" style="flex:1"><div class="form-label">To</div><input class="input input-mono" id="ts-diff-to" placeholder="2024-12-31T23:59:59Z"></div>
-          <button class="btn btn-primary btn-sm" onclick="tsDiff()" style="align-self:flex-end">Calculate</button>
+          <button class="btn btn-primary btn-sm" id="ts-btn-diff" style="align-self:flex-end">Calculate</button>
         </div>
         <div id="ts-diff-result" class="ts-grid" style="display:none"></div>
       </div>

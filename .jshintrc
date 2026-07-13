@@ -1,1 +1,13 @@
-{ "esversion": 2022, "undef": true, "browser": true, "globals": {"crypto": false} }
+{
+  "esversion": 2022,
+  "undef": true,
+  "browser": true,
+  "node": true,
+  "devel": true,
+  "worker": true,
+  "globals": {
+    "crypto": false,
+    "mermaid": false,
+    "Chart": false
+  }
+}

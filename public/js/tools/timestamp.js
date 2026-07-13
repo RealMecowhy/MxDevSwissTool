@@ -1,4 +1,4 @@
-﻿// TIMESTAMP CONVERTER
+// TIMESTAMP CONVERTER
 // ============================================================
 function tsConvert() {
   const raw=document.getElementById('ts-input').value.trim(); if(!raw) return;
@@ -6,7 +6,7 @@ function tsConvert() {
   if (/^\d{13}$/.test(raw)) d=new Date(parseInt(raw));
   else if (/^\d{10}$/.test(raw)) d=new Date(parseInt(raw)*1000);
   else d=new Date(raw);
-  if (isNaN(d.getTime())) { document.getElementById('ts-grid').innerHTML='<div class="notice notice-error"><span>Cannot parse: "'+escHtml(raw)+'"</span></div>'; return; }
+  if (isNaN(d.getTime())) { document.getElementById('ts-grid').innerHTML='<div class="notice notice-error"><span>Cannot parse: "'+window.escHtml(raw)+'"</span></div>'; return; }
   const tz=getTimezoneStr();
   const items=[
     {label:'Epoch (milliseconds)',value:d.getTime()},
@@ -20,7 +20,7 @@ function tsConvert() {
     {label:'Day of Week',value:['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][d.getDay()]},
     {label:'Week Number',value:'Week '+getWeekNumber(d)+' of '+d.getFullYear()},
   ];
-  document.getElementById('ts-grid').innerHTML=items.map(it=>'<div class="ts-card"><div class="ts-card-label">'+it.label+'</div><div class="ts-value" onclick="copyToClipboard(\''+String(it.value).replace(/'/g,"\\'")+'\')" title="Click to copy">'+escHtml(String(it.value))+'</div></div>').join('');
+  document.getElementById('ts-grid').innerHTML=items.map(it=>'<div class="ts-card"><div class="ts-card-label">'+it.label+'</div><div class="ts-value" onclick="window.copyToClipboard(\''+String(it.value).replace(/'/g,"\\'")+'\')" title="Click to copy">'+window.escHtml(String(it.value))+'</div></div>').join('');
 }
 function tsSetNow() { document.getElementById('ts-input').value=Date.now(); tsConvert(); }
 function tsDiff() {
@@ -36,11 +36,23 @@ function getTimezoneStr() { const o=-new Date().getTimezoneOffset(), s=o>=0?'+':
 // ============================================================
 
 
-// --- AUTO-GENERATED ESM EXPORTS ---
-window.tsConvert = tsConvert;
-window.tsSetNow = tsSetNow;
-window.tsDiff = tsDiff;
-window.getWeekNumber = getWeekNumber;
-window.getTimezoneStr = getTimezoneStr;
-
-export function init() {}
+// --- ES MODULE MIGRATION ---
+export function init() {
+  const tsInput = document.getElementById('ts-input');
+  if (tsInput) tsInput.addEventListener('input', tsConvert);
+  
+  const convertBtn = document.getElementById('ts-btn-convert');
+  if (convertBtn) convertBtn.addEventListener('click', tsConvert);
+  
+  const nowBtn = document.getElementById('ts-btn-now');
+  if (nowBtn) nowBtn.addEventListener('click', tsSetNow);
+  
+  const diffFrom = document.getElementById('ts-diff-from');
+  if (diffFrom) diffFrom.addEventListener('input', tsDiff);
+  
+  const diffTo = document.getElementById('ts-diff-to');
+  if (diffTo) diffTo.addEventListener('input', tsDiff);
+  
+  const diffBtn = document.getElementById('ts-btn-diff');
+  if (diffBtn) diffBtn.addEventListener('click', tsDiff);
+}

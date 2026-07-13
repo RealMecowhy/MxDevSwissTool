@@ -45,10 +45,14 @@ self.onmessage = function(e) {
   var creditCardRegex = /\b(?:4[0-9]{12}(?:[0-9]{3})?|(?:5[1-5][0-9]{2}|222[1-9]|22[3-9][0-9]|2[3-6][0-9]{2}|27[01][0-9]|2720)[0-9]{12}|3[47][0-9]{13})\b/g;
   var jwtRegex = /\beyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*\b/g;
   var bearerRegex = /\b(?:Bearer|Basic)\s+[a-zA-Z0-9\-\._~+\/]+=*/gi;
+  var awsKeyRegex = /\b(AKIA|ASIA)[0-9A-Z]{16}\b/g;
+  var genericApiKeyRegex = /\b(?:api[_-]?key|x-api-key)\s*[:=]\s*["']?[A-Za-z0-9\-_]{16,}["']?/gi;
+  var passwordInUrlRegex = /([?&](?:password|passwd|pwd|secret|token)=)[^&\s"']+/gi;
+  var setCookieRegex = /\b(?:Set-Cookie|Cookie):\s*[^\r\n]+/gi;
 
-  var keywordsList = opts.keywords && opts.keywords.trim()
-    ? opts.keywords.split(',').map(function(k) { return k.trim(); }).filter(function(k) { return k.length > 0; }).sort(function(a, b) { return b.length - a.length; })
-    : [];
+  var keywordsList = (opts.keywords && opts.keywords.trim()) ?
+    opts.keywords.split(',').map(function(k) { return k.trim(); }).filter(function(k) { return k.length > 0; }).sort(function(a, b) { return b.length - a.length; }) :
+    [];
 
   self.postMessage({
     type: 'progress',
@@ -107,6 +111,10 @@ self.onmessage = function(e) {
     if (opts.auth) {
       addMatches(jwtRegex, 'JWT_TOKEN', 'auth');
       addMatches(bearerRegex, 'AUTH_TOKEN', 'auth');
+      addMatches(awsKeyRegex, 'AWS_KEY', 'auth');
+      addMatches(genericApiKeyRegex, 'API_KEY', 'auth');
+      addMatches(passwordInUrlRegex, 'PASSWORD_URL', 'auth');
+      addMatches(setCookieRegex, 'COOKIE', 'auth');
     }
 
     if (keywordsList.length > 0) {
@@ -125,12 +133,12 @@ self.onmessage = function(e) {
     // Filter overlaps and update stats
     var validMatches = [];
     var lastEnd = 0;
-    for (var i = 0; i < matches.length; i++) {
-      var m = matches[i];
-      if (m.start >= lastEnd) {
-        validMatches.push(m);
-        lastEnd = m.end;
-        stats[m.statKey]++;
+    for (var j = 0; j < matches.length; j++) {
+      var matchItem = matches[j];
+      if (matchItem.start >= lastEnd) {
+        validMatches.push(matchItem);
+        lastEnd = matchItem.end;
+        stats[matchItem.statKey]++;
       }
     }
 
@@ -138,16 +146,16 @@ self.onmessage = function(e) {
     var rawChunk = '';
     var anonChunk = '';
     var cursor = 0;
-    for (var i = 0; i < validMatches.length; i++) {
-      var m = validMatches[i];
-      var prefix = chunk.substring(cursor, m.start);
-      rawChunk += prefix + '\x01' + m.rawText + '\x02';
+    for (var k = 0; k < validMatches.length; k++) {
+      var mMatch = validMatches[k];
+      var prefix = chunk.substring(cursor, mMatch.start);
+      rawChunk += prefix + '\x01' + mMatch.rawText + '\x02';
       
-      var anonText = m.anonText;
-      if (opts.consistent && m.statKey !== 'keywords' && m.statKey !== 'datetime') {
+      var anonText = mMatch.anonText;
+      if (opts.consistent && mMatch.statKey !== 'keywords' && mMatch.statKey !== 'datetime') {
         // Strip brackets for map key
-        var label = m.anonText.replace('[', '').replace(']', '');
-        var key = label + ':' + m.rawText;
+        var label = mMatch.anonText.replace('[', '').replace(']', '');
+        var key = label + ':' + mMatch.rawText;
         if (!maskMap[key]) {
           maskCounters[label] = (maskCounters[label] || 0) + 1;
           maskMap[key] = '[' + label + '-' + maskCounters[label] + ']';
@@ -156,7 +164,7 @@ self.onmessage = function(e) {
       }
       
       anonChunk += prefix + '\x01' + anonText + '\x02';
-      cursor = m.end;
+      cursor = mMatch.end;
     }
     var suffix = chunk.substring(cursor);
     rawChunk += suffix;
