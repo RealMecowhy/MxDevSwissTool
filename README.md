@@ -91,6 +91,13 @@ If running `.bat` files is blocked by security policies in your corporate enviro
    ```
 3. Open your browser and navigate to: [http://localhost:9999/](http://localhost:9999/)
 
+### 3. Optional: Live PostgreSQL Metrics
+The bridge itself starts with **zero npm dependencies** — no `npm install` needed. Only the live PostgreSQL metrics feature requires the `pg` module. To enable it, run this once in the project directory and restart the bridge:
+```bash
+npm install pg
+```
+Everything else works without it.
+
 ---
 
 ## 📁 Directory Structure

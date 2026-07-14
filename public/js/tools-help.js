@@ -184,7 +184,7 @@ const TOOLS_HELP = {
     howToGet: `
       <p>To have the Mendix app generate this data, it needs proper configuration:</p>
       <ol>
-        <li><strong>Local Diagnostics (Agent Mode):</strong> Run the utility script <code>node mendix-observability-bridge.js</code> in the terminal at the project root. This script proxies logs from the local Mendix and connects to the PostgreSQL database.</li>
+        <li><strong>Local Diagnostics (Agent Mode):</strong> Run the utility script <code>node mendix-observability-bridge.js</code> in the terminal at the project root. This script proxies logs from the local Mendix and connects to the PostgreSQL database (the database metrics part requires the optional <code>pg</code> module: run <code>npm install pg</code> once in the tool directory).</li>
         <li><strong>Enable OpenTelemetry (Mendix 11.12+):</strong> In Mendix Studio Pro, go to <em>Settings</em> → <em>Configurations</em> → <em>Edit</em>. In the <strong>OpenTelemetry</strong> tab, select:
           <ul>
             <li><strong>Enable OpenTelemetry:</strong> Yes</li>
@@ -566,6 +566,7 @@ Customer [1] -- [*] Order : places</pre>
       <ul>
         <li>Run your project locally in Mendix Studio Pro.</li>
         <li>Make sure the local bridge is running (<code>Start-MxDevSwissTool.bat</code> or <code>node server/mendix-observability-bridge.js</code>) &mdash; the topbar indicator should show <strong>Bridge Online</strong>.</li>
+        <li><strong>Live PostgreSQL metrics only:</strong> this feature requires the optional <code>pg</code> module &mdash; run <code>npm install pg</code> once in the tool directory and restart the bridge. Everything else works without it.</li>
       </ul>
     `,
     howToUse: `

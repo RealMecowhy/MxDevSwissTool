@@ -21,6 +21,9 @@ jobs:
           # Copy only the files needed for the end user
           cp -r public release_package/
           cp -r server release_package/
+          # sync-app-version.js is required by the npm prestart hook (zero-dependency)
+          mkdir -p release_package/scripts
+          cp scripts/sync-app-version.js release_package/scripts/
           cp package.json release_package/
           cp package-lock.json release_package/
           cp Start-MxDevSwissTool.bat release_package/

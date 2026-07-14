@@ -2,8 +2,9 @@
 // MENDIX OBSERVABILITY BRIDGE (Zero-Dependency Local Agent)
 // =========================================================================
 // This script runs locally in your Mendix project root directory.
-// It watches the Mendix application log file and connects to PostgreSQL
-// using the command-line 'psql' client to scrape live database metrics.
+// It watches the Mendix application log file and starts with zero npm
+// dependencies. The optional PostgreSQL metrics feature uses the 'pg'
+// module, loaded on demand (enable it with: npm install pg).
 //
 // Run it with: node mendix-observability-bridge.js
 // =========================================================================
@@ -14,8 +15,16 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
-const { Client } = require('pg');
 const crypto = require('crypto');
+
+// 'pg' is optional: loaded on demand so the bridge starts without npm install.
+function loadPgClient() {
+  try {
+    return require('pg').Client;
+  } catch (e) {
+    return null;
+  }
+}
 
 const PORT = 9999;
 
@@ -507,6 +516,10 @@ function readNewLogLines() {
 // =========================================================================
 
 async function fetchPostgresMetrics(req, res, dbConfig) {
+  const Client = loadPgClient();
+  if (!Client) {
+    return sendError(req, res, "PostgreSQL metrics require the 'pg' module. Run 'npm install pg' in the tool directory and restart the Bridge (the rest of the tool works without it).");
+  }
   const client = new Client({
     host: dbConfig.host || 'localhost',
     port: dbConfig.port || 5432,
