@@ -87,7 +87,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.4.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.4.1</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -241,7 +241,11 @@
 <!-- MAIN -->
 <main id="main">
   <div id="topbar">
-    <div><div id="topbar-title">Home</div><div id="topbar-subtitle">MxDev Swiss Tool v1.4.0</div></div>
+    <div id="topbar-icon" aria-hidden="true"></div>
+    <div id="topbar-info">
+      <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.4.1</div>
+    </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -272,10 +276,7 @@
 
     <!-- LOG VIEWER -->
     <div class="tool-panel" id="panel-log-viewer">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:var(--info-subtle)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--info)" stroke-width="2"><use href="#icon-doc-log"></use></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">Mendix Log Viewer</div><div class="tool-header-desc">Load, filter and explore Mendix application logs &mdash; drag &amp; drop supported</div></div>
-        <div class="tool-header-actions">
+      <div class="tool-actions">
           <button class="btn btn-secondary btn-sm" id="log-analyze-btn" style="display:none" onclick="logOpenAggregator()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Aggregate Errors</button>
           <button class="btn btn-secondary btn-sm" id="log-anon-copy-btn" style="display:none" onclick="logAnonymizeAndCopy()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#icon-shield"></use></svg>Anonymize &amp; Copy</button>
           <button class="btn btn-secondary btn-sm" id="log-send-anon-btn" style="display:none" onclick="logSendToAnonymizer()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Anonymize in Tool</button>
@@ -285,7 +286,6 @@
           <label class="btn btn-primary btn-sm" for="log-file-input"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Load Log File</label>
           <input type="file" id="log-file-input" style="display:none" accept=".log,.txt,.csv,.gz" multiple onchange="logLoadFiles(this.files)">
         </div>
-      </div>
       <div class="tool-body" style="padding-top:0">
         <div class="tabs" style="margin-bottom:var(--sp-2);padding:0;border-bottom:1px solid var(--border)">
           <button type="button" class="tab active" data-help-key="log-viewer-stream" onclick="logSetTab('stream',this)">Log Stream</button>
@@ -386,20 +386,13 @@
 
     <!-- LOG QUERY EXTRACTOR -->
     <div class="tool-panel" id="panel-log-query-extractor">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:color-mix(in srgb, #3498db 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#3498db" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12h18"/><path d="M3 19h18"/></svg></div>
-        <div class="tool-header-info">
-          <div class="tool-header-title">Log Query Extractor</div>
-          <div class="tool-header-desc">Extract, parse and correlate SQL/XPath queries from Mendix TRACE logs</div>
-        </div>
-        <div class="tool-header-actions">
+      <div class="tool-actions">
           <label class="btn btn-primary btn-sm" for="lqe-file-input">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Load TRACE Log
           </label>
           <input type="file" id="lqe-file-input" style="display:none" accept=".log,.txt,.csv" onchange="window.lqeLoadFile(this.files)">
           <button class="btn btn-secondary btn-sm" onclick="window.lqeClear()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Clear</button>
         </div>
-      </div>
       <div class="tool-body" style="padding:0; display:flex; flex:1; overflow:hidden;">
         <div style="display:grid; grid-template-columns:1fr 1fr; width:100%; height:100%;">
           
@@ -508,10 +501,7 @@
 
     <!-- LOG & TEXT ANONYMIZER -->
     <div class="tool-panel" id="panel-log-anonymizer">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:var(--danger-subtle)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">Log & Text Anonymizer</div><div class="tool-header-desc">Remove sensitive information from application logs, JSON payloads, or any arbitrary text</div></div>
-        <div class="tool-header-actions">
+      <div class="tool-actions">
           <div class="btn-group">
             <button class="btn btn-secondary btn-sm active" onclick="uiSetView('anonymizer-split', 'split', this)">Split</button>
             <button class="btn btn-secondary btn-sm" onclick="uiSetView('anonymizer-split', 'raw', this)">Raw</button>
@@ -523,7 +513,6 @@
           <button class="btn btn-danger btn-sm" onclick="anonymizerClear()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Clear</button>
           <button class="btn btn-primary btn-sm" onclick="anonymizeProcess()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Anonymize Logs</button>
         </div>
-      </div>
       <div class="tool-body" style="padding:0; display:flex; flex:1; overflow:hidden;">
         <div class="anonymizer-grid" id="anonymizer-split">
           
@@ -597,17 +586,13 @@
 
     <!-- JSON FORMATTER -->
     <div class="tool-panel" id="panel-json-formatter">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:var(--success-subtle)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">JSON Formatter</div><div class="tool-header-desc">Format, validate and explore JSON &mdash; interactive tree view</div></div>
-        <div class="tool-header-actions">
+      <div class="tool-actions">
           <div class="btn-group">
             <button class="btn btn-secondary btn-sm active" onclick="uiSetView('json-split', 'split', this)">Split</button>
             <button class="btn btn-secondary btn-sm" onclick="uiSetView('json-split', 'raw', this)">Raw</button>
             <button class="btn btn-secondary btn-sm" onclick="uiSetView('json-split', 'result', this)">Result</button>
           </div>
         </div>
-      </div>
       <div id="json-split">
         <div class="json-pane">
           <div class="json-pane-header"><h4>Input</h4><button class="btn btn-ghost btn-sm" onclick="jsonFormat()">Format <kbd>Ctrl+Enter</kbd></button><button class="btn btn-ghost btn-sm" onclick="jsonMinify()">Minify</button><button class="btn btn-ghost btn-sm" onclick="document.getElementById('json-input').value='';jsonFormat()">Clear</button></div>
@@ -628,17 +613,13 @@
 
     <!-- XML FORMATTER -->
     <div class="tool-panel" id="panel-xml-formatter">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:var(--info-subtle)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--info)" stroke-width="2"><use href="#icon-doc-edit"></use></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">XML Formatter</div><div class="tool-header-desc">Format, validate and explore XML &mdash; interactive tree view</div></div>
-        <div class="tool-header-actions">
+      <div class="tool-actions">
           <div class="btn-group">
             <button class="btn btn-secondary btn-sm active" onclick="uiSetView('xml-split', 'split', this)">Split</button>
             <button class="btn btn-secondary btn-sm" onclick="uiSetView('xml-split', 'raw', this)">Raw</button>
             <button class="btn btn-secondary btn-sm" onclick="uiSetView('xml-split', 'result', this)">Result</button>
           </div>
         </div>
-      </div>
       <div id="xml-split">
         <div class="json-pane">
           <div class="json-pane-header"><h4>Input XML</h4><button class="btn btn-ghost btn-sm" onclick="xmlFormat()">Format <kbd>Ctrl+Enter</kbd></button><button class="btn btn-ghost btn-sm" onclick="xmlMinify()">Minify</button><button class="btn btn-ghost btn-sm" onclick="document.getElementById('xml-input').value='';xmlFormat()">Clear</button></div>
@@ -659,20 +640,13 @@
 
     <!-- CHARACTER SANITIZER & MOJIBAKE FIXER -->
     <div class="tool-panel" id="panel-char-sanitizer">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:var(--warning-subtle)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--warning)" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></div>
-        <div class="tool-header-info">
-          <div class="tool-header-title">XML &amp; Text Sanitizer</div>
-          <div class="tool-header-desc">Detect and fix invisible characters, control codes, invalid XML tokens, and Mojibake in your texts and XMLs</div>
-        </div>
-        <div class="tool-header-actions">
+      <div class="tool-actions">
           <div class="btn-group">
             <button class="btn btn-secondary btn-sm active" onclick="uiSetView('char-sanitizer-split', 'split', this)">Split</button>
             <button class="btn btn-secondary btn-sm" onclick="uiSetView('char-sanitizer-split', 'raw', this)">Raw</button>
             <button class="btn btn-secondary btn-sm" onclick="uiSetView('char-sanitizer-split', 'result', this)">Result</button>
           </div>
         </div>
-      </div>
       <div id="char-sanitizer-split" style="display:grid;grid-template-columns:1fr 1.2fr;height:calc(100% - 64px);min-height:0;">
         <!-- Left Panel: Input & Settings -->
         <div class="json-pane" style="border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0;">
@@ -782,10 +756,6 @@
 
     <!-- XPATH BUILDER -->
     <div class="tool-panel" id="panel-xpath-builder">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:color-mix(in srgb, #58a6ff 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">XPath Formatter</div><div class="tool-header-desc">Format and lint Mendix XPath queries &mdash; spot index-blocking patterns and costly joins</div></div>
-      </div>
       <div class="xpath-editor">
         <div class="card">
           <div class="card-header">
@@ -819,10 +789,6 @@
 
     <!-- QUERY INTELLIGENCE SUITE -->
     <div class="tool-panel" id="panel-query-intelligence">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:color-mix(in srgb, #3498db 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#3498db" stroke-width="2"><path d="M3 3v18h18"/><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">Query Intelligence Suite</div><div class="tool-header-desc">OQL Formatter, SQL Translator, Execution Plan &amp; Schema Visualizer</div></div>
-      </div>
       <div class="tool-body" style="padding-top:0">
         <div class="tabs" style="margin-bottom:var(--sp-3);padding:0;border-bottom:1px solid var(--border)">
           <button type="button" class="tab active" data-help-key="query-intelligence-formatter" onclick="qiSetTab('formatter',this)">OQL Formatter</button>
@@ -923,10 +889,6 @@
 
      <!-- JWT DECODER -->
     <div class="tool-panel" id="panel-jwt-decoder">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:var(--purple-subtle)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--purple)" stroke-width="2"><use href="#icon-shield"></use></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">JWT Decoder</div><div class="tool-header-desc">Decode and inspect JWT tokens locally &mdash; no data sent externally</div></div>
-      </div>
       <div class="tool-body">
         <div class="form-group" style="margin-bottom:var(--sp-4)">
           <div class="form-label">Paste JWT Token</div>
@@ -945,13 +907,9 @@
     </div>
     <!-- SAML / OIDC DEBUGGER -->
     <div class="tool-panel" id="panel-saml-debugger">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:var(--purple-subtle)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--purple)" stroke-width="2"><path d="M9 12l2 2 4-4"/><path d="M12 3l7 4v5c0 4.5-3 8-7 9-4-1-7-4.5-7-9V7z"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">SAML / OIDC Debugger</div><div class="tool-header-desc">Decode SAML responses and OIDC id_tokens locally &mdash; inspect assertions, claims and validity</div></div>
-        <div class="tool-header-actions">
+      <div class="tool-actions">
           <button class="btn btn-primary btn-sm" onclick="samlDecodeActive()">Decode</button>
         </div>
-      </div>
       <div class="tool-body" style="padding-top:0">
         <div class="tabs" style="margin-bottom:var(--sp-3);padding:0;border-bottom:1px solid var(--border)">
           <button type="button" class="tab active" onclick="samlSetTab('saml',this)">SAML Response / Request</button>
@@ -995,10 +953,6 @@
 
     <!-- REGEX TESTER (Mendix Mode) -->
     <div class="tool-panel" id="panel-regex-tester">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:var(--warning-subtle)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--warning)" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">Java Regex Tester (Mendix)</div><div class="tool-header-desc">Test regular expressions behaving like Java Engine in Mendix</div></div>
-      </div>
       <div class="tool-body rt-body-grid">
         <div style="display:flex;flex-direction:column;gap:var(--sp-3);overflow-y:auto;padding-right:var(--sp-2)">
           <div class="notice notice-warning" style="margin-bottom:0">
@@ -1038,11 +992,7 @@
 
     <!-- TIMESTAMP -->
     <div class="tool-panel" id="panel-timestamp">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:var(--accent-subtle)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">Timestamp Converter</div><div class="tool-header-desc">Convert epoch, ISO 8601 and human-readable dates &mdash; click any result to copy</div></div>
-        <div class="tool-header-actions"><button class="btn btn-secondary btn-sm" id="ts-btn-now">Set to Now</button></div>
-      </div>
+      <div class="tool-actions"><button class="btn btn-secondary btn-sm" id="ts-btn-now">Set to Now</button></div>
       <div class="tool-body">
         <div class="form-group" style="margin-bottom:var(--sp-4)">
           <div class="form-label">Input (epoch ms/s, ISO 8601, or any date string)</div>
@@ -1113,10 +1063,6 @@
 
     <!-- TEXT DIFF -->
     <div class="tool-panel" id="panel-text-diff">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:var(--success-subtle)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">Text Diff</div><div class="tool-header-desc">Compare two text blocks side-by-side with highlighted differences</div></div>
-      </div>
       <div class="tool-body no-pad" style="display:grid;grid-template-rows:auto 1fr;height:100%">
         <div style="display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--border)">
           <div style="border-right:1px solid var(--border);padding:var(--sp-3) var(--sp-4)"><div class="form-label" style="margin-bottom:var(--sp-1)">Original</div><textarea class="json-input-area" id="diff-a" style="height:150px" placeholder="Paste original text..." oninput="diffCompare()"></textarea></div>
@@ -1131,10 +1077,6 @@
 
     <!-- ENCODER -->
     <div class="tool-panel" id="panel-encoder">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:color-mix(in srgb, #2ecc71 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#2ecc71" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">Base64 / URL Encoder</div><div class="tool-header-desc">Encode and decode data in various formats</div></div>
-      </div>
       <div class="tool-body">
         <div class="tabs" style="margin-bottom:var(--sp-4);padding:0;border-bottom:1px solid var(--border)">
           <button type="button" class="tab active" onclick="encSetMode('base64',this)">Base64</button>
@@ -1158,17 +1100,13 @@
 
     <!-- SQL FORMATTER -->
     <div class="tool-panel" id="panel-sql-formatter">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:color-mix(in srgb, #7c85f3 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#7c85f3" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">SQL Formatter</div><div class="tool-header-desc">Format and highlight SQL queries generated by Mendix ORM / ConnectionBus</div></div>
-        <div class="tool-header-actions">
+      <div class="tool-actions">
           <div class="btn-group">
             <button class="btn btn-secondary btn-sm active" onclick="uiSetView('sql-split', 'split', this)">Split</button>
             <button class="btn btn-secondary btn-sm" onclick="uiSetView('sql-split', 'raw', this)">Raw</button>
             <button class="btn btn-secondary btn-sm" onclick="uiSetView('sql-split', 'result', this)">Result</button>
           </div>
         </div>
-      </div>
       <div id="sql-split" style="display:grid;grid-template-columns:1fr 1fr;flex:1;overflow:hidden">
         <div class="json-pane">
           <div class="json-pane-header"><h4>Input SQL</h4><button class="btn btn-ghost btn-sm" onclick="sqlFormat()">Format <kbd>Ctrl+Enter</kbd></button><button class="btn btn-ghost btn-sm" onclick="sqlMinify()">Minify</button><button class="btn btn-ghost btn-sm" onclick="document.getElementById('sql-input').value='';sqlFormat()">Clear</button></div>
@@ -1184,11 +1122,7 @@
 
     <!-- ODATA BUILDER -->
     <div class="tool-panel" id="panel-odata-builder">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:color-mix(in srgb, #2ecc71 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#2ecc71" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">OData Builder</div><div class="tool-header-desc">Build OData v3/v4 queries for Mendix Published OData Services</div></div>
-        <div class="tool-header-actions"><button class="btn btn-secondary btn-sm" onclick="odataCopyUrl()">Copy URL</button></div>
-      </div>
+      <div class="tool-actions"><button class="btn btn-secondary btn-sm" onclick="odataCopyUrl()">Copy URL</button></div>
       <div class="tool-body">
         <div class="form-group" style="margin-bottom:var(--sp-4)"><div class="form-label">Service Base URL</div><input class="input input-mono" id="odata-base" placeholder="https://myapp.mendixcloud.com/odata/PublishedService/v1" oninput="odataBuild()"></div>
         <div class="grid-2" style="gap:var(--sp-4);margin-bottom:var(--sp-4)">
@@ -1215,10 +1149,6 @@
 
     <!-- DATA FACTORY -->
     <div class="tool-panel" id="panel-data-factory">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:color-mix(in srgb, #f39c12 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#f39c12" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">Data Factory</div><div class="tool-header-desc">High-Volume Mock Data Generator for performance testing and mock servers</div></div>
-      </div>
       <div class="tool-body" style="display:flex;flex-direction:column;gap:var(--sp-4);overflow-y:auto">
         <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-4)">
            <h4 style="margin-top:0;margin-bottom:var(--sp-3)">1. Define Schema</h4>
@@ -1258,13 +1188,9 @@
 
     <!-- API ECONOMICS -->
     <div class="tool-panel" id="panel-api-economics">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:color-mix(in srgb, #2ecc71 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#2ecc71" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">API Economics</div><div class="tool-header-desc">Analyze JSON payloads to optimize size and identify redundant fields</div></div>
-        <div class="tool-header-actions">
+      <div class="tool-actions">
           <button class="btn btn-primary btn-sm" onclick="apiEconAnalyze()">Analyze Payload</button>
         </div>
-      </div>
       <div class="tool-body" style="display:flex;gap:var(--sp-4)">
         <div style="flex:1;display:flex;flex-direction:column">
            <div class="form-label">Paste JSON Response / Payload</div>
@@ -1281,14 +1207,10 @@
 
     <!-- PERFORMANCE LAB -->
     <div class="tool-panel" id="panel-perf-lab">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:color-mix(in srgb, #e84393 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#e84393" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">Performance Lab</div><div class="tool-header-desc">Simulate concurrent load on endpoints with latency tracking</div></div>
-        <div class="tool-header-actions">
+      <div class="tool-actions">
           <button class="btn btn-danger btn-sm" id="pl-btn-stop" onclick="plStop()" style="display:none">Stop</button>
           <button class="btn btn-primary btn-sm" id="pl-btn-start" onclick="plStart()">Start Load Test</button>
         </div>
-      </div>
       <div class="tool-body two-col-body">
         <div style="flex:1;display:flex;flex-direction:column;gap:var(--sp-3)">
            <div style="display:flex;justify-content:space-between;align-items:center">
@@ -1400,15 +1322,11 @@
 
     <!-- MOCK SERVER -->
     <div class="tool-panel" id="panel-mock-server">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:color-mix(in srgb, #e67e22 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#e67e22" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">Mock Server &amp; Chaos</div><div class="tool-header-desc">Simulate API endpoints with custom latency and chaos engineering</div></div>
-        <div class="tool-header-actions">
+      <div class="tool-actions">
           <button class="btn btn-ghost btn-sm" onclick="msTrigger()">Trigger Manual Request</button>
           <button class="btn btn-danger btn-sm" onclick="msStop()">Stop</button>
           <button class="btn btn-primary btn-sm" onclick="msStart()">Activate Responder</button>
         </div>
-      </div>
       <div class="tool-body" style="display:flex;gap:var(--sp-4)">
         <div style="flex:1;display:flex;flex-direction:column">
            <div class="form-group"><div class="form-label">Response Payload (JSON)</div><textarea class="code-area" id="ms-code" style="height:200px">{"status":"ok", "data":[]}</textarea></div>
@@ -1446,13 +1364,9 @@
 
     <!-- WASM PROFILER -->
     <div class="tool-panel" id="panel-wasm-profiler">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:color-mix(in srgb, #f1c40f 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#f1c40f" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">WASM Profiler</div><div class="tool-header-desc">Analyze WebAssembly traces and memory usage in Mendix Client</div></div>
-        <div class="tool-header-actions">
+      <div class="tool-actions">
           <button class="btn btn-primary btn-sm" onclick="wpAnalyze()">Analyze Trace</button>
         </div>
-      </div>
       <div class="tool-body" style="display:flex;gap:var(--sp-4)">
         <div style="flex:1;display:flex;flex-direction:column">
            <div class="form-label">Paste WASM Call Trace</div>
@@ -1532,11 +1446,7 @@
           }
         }
       </style>
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:color-mix(in srgb, #7f8c8d 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#7f8c8d" stroke-width="2"><use href="#icon-doc-log-code"></use></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">Developer Studio</div><div class="tool-header-desc">Automatic local Mendix project inspector</div></div>
-      </div>
-      <div class="tool-body" style="display:flex; flex-direction:column; height:calc(100% - 60px); overflow-y:auto; padding:var(--sp-4);">
+      <div class="tool-body" style="display:flex; flex-direction:column; min-height:0; overflow-y:auto; padding:var(--sp-4);">
         
         <!-- OFFLINE / WAITING VIEW -->
         <div id="ds-offline-view" style="display:flex; flex-direction:column; align-items:center; justify-content:center; flex:1; max-width:500px; margin:0 auto; text-align:center; width:100%">
@@ -1726,15 +1636,11 @@
 
     <!-- ARCHITECTURE -->
     <div class="tool-panel" id="panel-architecture">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:color-mix(in srgb, #5cb85c 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#5cb85c" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">Domain Model &amp; Architecture</div><div class="tool-header-desc">Generate Class Diagrams (Mermaid) from JSON or pseudocode</div></div>
-        <div class="tool-header-actions">
+      <div class="tool-actions">
           <button class="btn btn-secondary btn-sm" onclick="archCopyMermaid()">Copy Mermaid</button>
           <button class="btn btn-secondary btn-sm" onclick="archDownloadSvg()">Download SVG</button>
           <button class="btn btn-primary btn-sm" onclick="archGenerate()">Generate Diagram</button>
         </div>
-      </div>
       <div class="tool-body" style="display:flex;gap:var(--sp-4)">
         <div style="flex:1;display:flex;flex-direction:column">
            <div class="form-label">Input Data (JSON or Pseudocode)</div>
@@ -1756,10 +1662,6 @@ EntityName -> OtherEntity : Association"></textarea>
 
     <!-- HASH GENERATOR -->
     <div class="tool-panel" id="panel-hash-gen">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:color-mix(in srgb, #a29bfe 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#a29bfe" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">Hash Generator</div><div class="tool-header-desc">Generate SHA-256, SHA-512, SHA-1 hashes using browser WebCrypto</div></div>
-      </div>
       <div class="tool-body">
         <div style="display:flex;gap:var(--sp-4);margin-bottom:var(--sp-4)">
           <div class="form-group" style="flex:1">
@@ -1781,10 +1683,6 @@ EntityName -> OtherEntity : Association"></textarea>
 
     <!-- PASSWORD GENERATOR -->
     <div class="tool-panel" id="panel-password-generator">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:color-mix(in srgb, #e17055 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#e17055" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">Password Generator</div><div class="tool-header-desc">Generate secure random passwords locally</div></div>
-      </div>
       <div class="tool-body">
         <div style="display:flex;gap:var(--sp-4);flex-wrap:wrap">
           <div class="form-group" style="flex:1;min-width:300px">
@@ -1814,10 +1712,6 @@ EntityName -> OtherEntity : Association"></textarea>
 
     <!-- HTTP STATUS -->
     <div class="tool-panel" id="panel-http-status">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:var(--info-subtle)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--info)" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">HTTP Status Codes</div><div class="tool-header-desc">Quick lookup for HTTP codes with Mendix context and usage notes</div></div>
-      </div>
       <div class="tool-body">
         <div class="form-row" style="margin-bottom:var(--sp-4)">
           <input class="input" id="http-search" placeholder="Search by code or description..." oninput="httpSearch()" style="max-width:300px">
@@ -1836,13 +1730,9 @@ EntityName -> OtherEntity : Association"></textarea>
 
     <!-- JVM HEALTH ANALYZER (Thread Dump + GC & Memory) -->
     <div class="tool-panel" id="panel-thread-dump">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:var(--danger-subtle)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">JVM Health Analyzer</div><div class="tool-header-desc">Thread dumps, GC logs and heap histograms &mdash; find blocked threads and memory leaks</div></div>
-        <div class="tool-header-actions">
+      <div class="tool-actions">
           <button class="btn btn-primary btn-sm" id="jvm-analyze-btn" onclick="jvmAnalyzeActive()">Analyze Thread Dump</button>
         </div>
-      </div>
       <div class="tool-body" style="padding-top:0">
         <div class="tabs" style="margin-bottom:var(--sp-3);padding:0;border-bottom:1px solid var(--border)">
           <button type="button" class="tab active" data-help-key="thread-dump" onclick="jvmSetTab('threads',this)">Thread Dump</button>
@@ -1881,10 +1771,7 @@ EntityName -> OtherEntity : Association"></textarea>
 
     <!-- MARKDOWN PREVIEW -->
     <div class="tool-panel" id="panel-md-preview">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:color-mix(in srgb, #95a5a6 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#95a5a6" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">Markdown &amp; Table Generator</div><div class="tool-header-desc">Write and preview Markdown with live rendering &mdash; export to HTML or generate tables</div></div>
-        <div class="tool-header-actions" id="md-editor-actions">
+      <div class="tool-actions" id="md-editor-actions">
           <div class="btn-group">
             <button class="btn btn-secondary btn-sm active" onclick="uiSetView('md-split', 'split', this)">Split</button>
             <button class="btn btn-secondary btn-sm" onclick="uiSetView('md-split', 'raw', this)">Raw</button>
@@ -1892,10 +1779,9 @@ EntityName -> OtherEntity : Association"></textarea>
           </div>
           <button class="btn btn-secondary btn-sm" onclick="mdExport()">Export HTML</button>
         </div>
-        <div class="tool-header-actions" id="md-table-actions" style="display:none">
+      <div class="tool-actions" id="md-table-actions" style="display:none">
           <button class="btn btn-primary btn-sm" onclick="copyToClipboard(document.getElementById('md-table-preview-md').value)">Copy Markdown</button>
         </div>
-      </div>
       <div class="tool-body" style="padding-top:0">
         <div class="tabs" style="margin-bottom:var(--sp-3);padding:0;border-bottom:1px solid var(--border)">
           <button type="button" class="tab active" onclick="mdSetTab('editor',this)">Markdown Editor</button>
@@ -1940,15 +1826,11 @@ EntityName -> OtherEntity : Association"></textarea>
 
     <!-- NGINX LOG ANALYZER -->
     <div class="tool-panel" id="panel-nginx-log">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:var(--success-subtle);color:var(--success)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">Nginx Log Analyzer</div><div class="tool-header-desc">Analyze and View Nginx access & error logs (search, filtering, top IPs, URLs, status codes)</div></div>
-        <div class="tool-header-actions">
+      <div class="tool-actions">
           <button class="btn btn-secondary btn-sm" onclick="nginxClearData()" title="Clear logs and memory"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg> Clear</button>
           <button class="btn btn-secondary btn-sm" id="nginx-send-anon-btn" style="display:none" onclick="nginxSendToAnonymizer()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Anonymize in Tool</button>
           <button class="btn btn-primary btn-sm" onclick="showLoader('Analyzing logs...'); setTimeout(() => { window.nginxActiveTab === 'error' ? nginxAnalyzeErrorLogs() : nginxAnalyzeLogs(); }, 50)">Analyze Logs</button>
         </div>
-      </div>
       <div class="tool-body" style="display:flex;flex-direction:column;gap:var(--sp-4); overflow:hidden; padding-bottom:0;">
         <div class="tabs" style="display:flex;gap:16px;border-bottom:1px solid var(--border);margin-bottom:-8px;flex-shrink:0;">
           <button type="button" class="tab active" onclick="nginxSwitchTab('access')" id="nx-tab-access" style="cursor:pointer;padding:8px;border-bottom:2px solid var(--primary);font-weight:bold;color:var(--text)">Access Log</button>
@@ -2263,15 +2145,11 @@ EntityName -> OtherEntity : Association"></textarea>
 
     <!-- MENDIX CLIENT TRAFFIC ANALYZER (HAR) -->
     <div class="tool-panel" id="panel-har-analyzer">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:color-mix(in srgb, #3498db 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#3498db" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="5" width="3" height="13"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">Mendix Client Traffic Analyzer</div><div class="tool-header-desc">Decode a browser HAR into named Mendix operations &mdash; spot client-side N+1 and chatty microflows</div></div>
-        <div class="tool-header-actions">
+      <div class="tool-actions">
           <button class="btn btn-secondary btn-sm" onclick="harReset()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Clear</button>
           <label class="btn btn-primary btn-sm" for="har-file-input"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Load HAR File</label>
           <input type="file" id="har-file-input" style="display:none" accept=".har,.json" onchange="harLoadFile(this.files)">
         </div>
-      </div>
       <div class="tool-body">
         <div id="har-empty" class="drag-drop-zone" style="display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;text-align:center;gap:var(--sp-2);border:2px dashed var(--border);border-radius:var(--r-md);min-height:300px" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="harHandleDrop(event)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:48px;height:48px;opacity:0.3"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="5" width="3" height="13"/></svg>
@@ -2316,20 +2194,13 @@ EntityName -> OtherEntity : Association"></textarea>
 
     <!-- METRICS & TELEMETRY -->
     <div class="tool-panel" id="panel-telemetry-monitor">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:rgba(255, 159, 67, 0.15);color:#ff9f43"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></div>
-        <div class="tool-header-info">
-          <div class="tool-header-title">Metrics &amp; Telemetry</div>
-          <div class="tool-header-desc">Monitor local Mendix runtimes via Observability Agent, direct Prometheus scraping, or view OTLP traces.</div>
-        </div>
-        <div class="tool-header-actions">
+      <div class="tool-actions">
           <button class="btn btn-secondary btn-sm" id="tm-btn-mock" onclick="tmToggleMock()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polygon points="5 3 19 12 5 21 5 3"/></svg> <span id="tm-mock-text">Start Sandbox</span></button>
           <button class="btn btn-secondary btn-sm" onclick="tmResetData()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg> Clear Dashboard</button>
           <button class="btn btn-secondary btn-sm" onclick="tmDumpAllMetrics()" title="Show all available Prometheus metrics vs. what we visualize"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Metrics Inventory</button>
           <button class="btn btn-primary btn-sm" id="tm-btn-fetch" onclick="tmFetchMetrics()" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg> Fetch Metrics</button>
           <button class="btn btn-primary btn-sm" id="tm-btn-agent-connect" onclick="tmConnectAgent()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10"/></svg> Connect Agent</button>
         </div>
-      </div>
       <div style="padding:var(--sp-4) var(--sp-5) 0; display:flex; flex-direction:column; gap:var(--sp-3);">
         
         <!-- TOOLBAR: CONNECTION MODE SELECTOR -->

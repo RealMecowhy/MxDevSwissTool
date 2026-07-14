@@ -166,8 +166,15 @@ async function navigate(toolId, navEl) {
   if (navEl) { navEl.classList.add('active'); navEl.setAttribute('aria-current', 'page'); }
   else { const el = document.querySelector('.nav-item[data-tool="'+toolId+'"]'); if (el) { el.classList.add('active'); el.setAttribute('aria-current', 'page'); } }
   const tool = TOOLS.find(t => t.id === toolId) || {label: toolId, section: ''};
+  // The topbar is the single source of tool identity: icon, name and description all come
+  // from the registry, so panels carry no header of their own.
+  const iconEl = document.getElementById('topbar-icon');
+  if (iconEl) {
+    iconEl.innerHTML = tool.icon || '';
+    iconEl.style.color = tool.color || 'var(--accent)';
+  }
   document.getElementById('topbar-title').textContent = tool.label;
-  document.getElementById('topbar-subtitle').textContent = tool.section ? tool.section + ' \u00B7 MxDev Swiss Tool' : 'MxDev Swiss Tool v1.4.0';
+  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.4.1' : (tool.desc || '');
   const previousTool = currentTool;
   currentTool = toolId;
   window.currentTool = currentTool;
@@ -196,28 +203,26 @@ async function navigate(toolId, navEl) {
   const helpBtn = document.getElementById('topbar-help-btn');
   if (helpBtn) helpBtn.style.display = (toolId === 'home') ? 'none' : 'flex';
   
-  // Inject/update header star button
-  const activePanel = document.getElementById('panel-' + toolId);
-  if (activePanel && toolId !== 'home') {
-    const titleEl = activePanel.querySelector('.tool-header-title');
-    if (titleEl) {
-      let favBtn = titleEl.querySelector('.header-fav-btn');
-      if (!favBtn) {
-        favBtn = document.createElement('button');
-        favBtn.type = 'button';
-        favBtn.className = 'header-fav-btn';
-        favBtn.id = 'header-fav-btn';
-        favBtn.onclick = () => toggleFavorite(toolId);
-        titleEl.appendChild(favBtn);
-      }
-      const active = isFavorite(toolId);
-      favBtn.classList.toggle('active', active);
-      favBtn.innerHTML = active ? '★' : '☆';
-      favBtn.title = active ? 'Remove from favorites' : 'Add to favorites';
-      favBtn.setAttribute('aria-label', favBtn.title);
+  // Single star button, owned by the topbar and re-pointed at whatever tool is active.
+  const titleBar = document.getElementById('topbar-titlebar');
+  if (titleBar) {
+    let favBtn = document.getElementById('header-fav-btn');
+    if (!favBtn) {
+      favBtn = document.createElement('button');
+      favBtn.type = 'button';
+      favBtn.className = 'header-fav-btn';
+      favBtn.id = 'header-fav-btn';
+      titleBar.appendChild(favBtn);
     }
+    favBtn.onclick = () => toggleFavorite(toolId);
+    favBtn.style.display = (toolId === 'home') ? 'none' : '';
+    const active = isFavorite(toolId);
+    favBtn.classList.toggle('active', active);
+    favBtn.innerHTML = active ? '★' : '☆';
+    favBtn.title = active ? 'Remove from favorites' : 'Add to favorites';
+    favBtn.setAttribute('aria-label', favBtn.title);
   }
-  
+
   try { localStorage.setItem('mt-last-tool', toolId); } catch(e){}
 }
 

@@ -388,10 +388,36 @@ pre,
   border-bottom: 1px solid var(--border);
   align-items: center;
   gap: var(--sp-3);
-  height: 48px;
+  height: 56px;
   padding: 0 var(--sp-5);
   background: var(--bg-surface);
   flex-shrink: 0;
+  display: flex;
+}
+#topbar-icon {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-elevated);
+  flex-shrink: 0;
+  justify-content: center;
+  align-items: center;
+  width: 32px;
+  height: 32px;
+  display: flex;
+}
+#topbar-icon svg {
+  width: 18px;
+  height: 18px;
+}
+#topbar-icon:empty {
+  display: none;
+}
+/* min-width:0 lets the long registry descriptions ellipsize instead of shoving the buttons off-screen */
+#topbar-info {
+  min-width: 0;
+}
+#topbar-titlebar {
+  align-items: center;
   display: flex;
 }
 #topbar-title {
@@ -401,6 +427,9 @@ pre,
 #topbar-subtitle {
   color: var(--text-muted);
   font-size: 0.75rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
 }
 #topbar-spacer {
   flex: 1;
@@ -463,42 +492,17 @@ pre,
     transform: translateY(0);
   }
 }
-.tool-header {
-  padding: var(--sp-4) var(--sp-5);
+/* Slim per-panel action bar. Tool identity (icon/name/description) lives in the topbar,
+   so a panel only renders this strip when it actually has buttons. */
+.tool-actions {
+  padding: var(--sp-2) var(--sp-5);
   border-bottom: 1px solid var(--border);
+  justify-content: flex-end;
   align-items: center;
-  gap: var(--sp-3);
-  background: var(--bg-surface);
-  flex-shrink: 0;
-  display: flex;
-}
-.tool-header-icon {
-  border-radius: var(--r-md);
-  flex-shrink: 0;
-  justify-content: center;
-  align-items: center;
-  width: 32px;
-  height: 32px;
-  display: flex;
-}
-.tool-header-icon svg {
-  width: 18px;
-  height: 18px;
-}
-.tool-header-info {
-  flex: 1;
-}
-.tool-header-title {
-  font-size: 1rem;
-  font-weight: 700;
-}
-.tool-header-desc {
-  color: var(--text-muted);
-  font-size: 0.75rem;
-}
-.tool-header-actions {
   gap: var(--sp-2);
-  align-items: center;
+  background: var(--bg-surface);
+  flex-wrap: wrap;
+  flex-shrink: 0;
   display: flex;
 }
 .tool-body {
