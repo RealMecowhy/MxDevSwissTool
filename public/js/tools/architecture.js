@@ -1,6 +1,32 @@
 // DOMAIN MODEL & ARCHITECTURE
 // Generates Mermaid class diagrams from JSON payloads or pseudo-code
 
+let archLastMermaidCode = '';
+
+function archCopyMermaid() {
+  if (!archLastMermaidCode) {
+    alert('Generate a diagram first.');
+    return;
+  }
+  window.copyToClipboard(archLastMermaidCode);
+}
+
+function archDownloadSvg() {
+  const svg = document.querySelector('#arch-output svg');
+  if (!svg) {
+    alert('Generate a diagram first.');
+    return;
+  }
+  const clone = svg.cloneNode(true);
+  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  const markup = '<?xml version="1.0" encoding="UTF-8"?>\n' + new XMLSerializer().serializeToString(clone);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([markup], { type: 'image/svg+xml' }));
+  a.download = 'domain-model.svg';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
 function archGenerate() {
   const input = document.getElementById('arch-input').value.trim();
   const out = document.getElementById('arch-output');
@@ -48,7 +74,13 @@ function archGenerate() {
         return;
       }
       
-      if (l.includes('->')) {
+      // Cardinality syntax: Customer [1] -- [*] Order : has
+      const cardMatch = l.match(/^(\S+)\s*\[([^\]]+)\]\s*--\s*\[([^\]]+)\]\s*(\S+)\s*(?::\s*(.+))?$/);
+      if (cardMatch) {
+        const [, left, leftCard, rightCard, right, label] = cardMatch;
+        mermaidCode += `  ${left} "${leftCard}" --> "${rightCard}" ${right}${label ? ' : ' + label.trim() : ''}\n`;
+        currentEntity = null;
+      } else if (l.includes('->')) {
         const parts = l.split('->');
         const left = parts[0].trim();
         const rightParts = parts[1].split(':');
@@ -66,6 +98,8 @@ function archGenerate() {
     });
   }
   
+  archLastMermaidCode = mermaidCode;
+
   // Render using Mermaid API if loaded
   if (window.mermaid) {
     out.innerHTML = `<div class="mermaid">${mermaidCode}</div>`;
@@ -79,5 +113,7 @@ function archGenerate() {
 
 // --- AUTO-GENERATED ESM EXPORTS ---
 window.archGenerate = archGenerate;
+window.archCopyMermaid = archCopyMermaid;
+window.archDownloadSvg = archDownloadSvg;
 
 export function init() {}

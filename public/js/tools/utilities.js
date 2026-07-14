@@ -20,7 +20,7 @@ function handleTextFileDrop(e, inputId, callbackName) {
 }
 
 // Keyboard shortcuts
-document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){if(currentTool==='json-formatter')jsonFormat();else if(currentTool==='xml-formatter')xmlFormat();else if(currentTool==='sql-formatter')sqlFormat();}});
+document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){if(window.currentTool==='json-formatter')jsonFormat();else if(window.currentTool==='xml-formatter')xmlFormat();else if(window.currentTool==='sql-formatter')sqlFormat();}});
 
 // Load fonts
 (function(){

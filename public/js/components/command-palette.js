@@ -1,7 +1,7 @@
 export function initCommandPalette(toolsList, navigateFn) {
   // Create modal HTML
   const modalHTML = `
-    <div class="modal-overlay" id="cmd-palette-modal" style="display:none; align-items:flex-start; padding-top:10vh; backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);">
+    <div class="modal-overlay" id="cmd-palette-modal" style="align-items:flex-start; padding-top:10vh; backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);">
       <div class="modal" style="max-width:600px; width:90%; background:var(--bg-elevated); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); border:1px solid var(--border); border-radius:var(--r-xl); box-shadow:var(--shadow-lg);">
         <div style="display:flex; align-items:center; padding:var(--sp-3); border-bottom:1px solid var(--border);">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="var(--text-secondary)" stroke-width="2" style="margin-right:var(--sp-2)"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -22,15 +22,19 @@ export function initCommandPalette(toolsList, navigateFn) {
   let selectedIndex = 0;
   let currentResults = [];
 
+  function isOpen() {
+    return modal.classList.contains('active');
+  }
+
   function openPalette() {
-    modal.style.display = 'flex';
+    modal.classList.add('active');
     input.value = '';
     renderResults('');
     setTimeout(() => input.focus(), 50);
   }
 
   function closePalette() {
-    modal.style.display = 'none';
+    modal.classList.remove('active');
   }
 
   function renderResults(query) {
@@ -94,6 +98,9 @@ export function initCommandPalette(toolsList, navigateFn) {
     }
   }
 
+  // Allow opening from UI elements (e.g. topbar Search button)
+  window.openCommandPalette = openPalette;
+
   // Event Listeners
   input.addEventListener('input', (e) => renderResults(e.target.value));
   
@@ -115,12 +122,12 @@ export function initCommandPalette(toolsList, navigateFn) {
   });
 
   document.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
       e.preventDefault();
-      if (modal.style.display === 'none') openPalette();
-      else closePalette();
+      if (isOpen()) closePalette();
+      else openPalette();
     }
-    if (e.key === 'Escape' && modal.style.display !== 'none') {
+    if (e.key === 'Escape' && isOpen()) {
       closePalette();
     }
   });

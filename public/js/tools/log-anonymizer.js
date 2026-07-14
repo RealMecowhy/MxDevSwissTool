@@ -95,7 +95,7 @@ function anonymizeInit() {
     'anon-opt-uuid', 'anon-opt-ip', 'anon-opt-email',
     'anon-opt-mendix', 'anon-opt-datetime', 'anon-opt-number',
     'anon-opt-mac', 'anon-opt-creditcard', 'anon-opt-auth',
-    'anon-opt-consistent', 'anon-opt-keywords', 'anon-opt-autorun'
+    'anon-opt-consistent', 'anon-opt-keywords', 'anon-opt-regex', 'anon-opt-autorun'
   ];
   settingsInputs.forEach(id => {
     const el = document.getElementById(id);
@@ -105,7 +105,7 @@ function anonymizeInit() {
           anonymizeProcess();
         }
       });
-      if (id === 'anon-opt-keywords') {
+      if (id === 'anon-opt-keywords' || id === 'anon-opt-regex') {
         el.addEventListener('input', () => {
           if (document.getElementById('anon-opt-autorun').checked) {
             clearTimeout(anonymizerDebounceTimer);
@@ -182,8 +182,16 @@ function anonymizeProcess() {
     creditcard: document.getElementById('anon-opt-creditcard').checked,
     auth: document.getElementById('anon-opt-auth').checked,
     consistent: document.getElementById('anon-opt-consistent').checked,
-    keywords: document.getElementById('anon-opt-keywords').value
+    keywords: document.getElementById('anon-opt-keywords').value,
+    customRegex: (document.getElementById('anon-opt-regex') ? document.getElementById('anon-opt-regex').value : '')
   };
+
+  // Validate custom regex patterns on the main thread so the user gets
+  // immediate feedback; invalid lines are skipped by the worker.
+  const invalidPatterns = [];
+  opts.customRegex.split('\n').map(l => l.trim()).filter(Boolean).forEach(line => {
+    try { new RegExp(line, 'gi'); } catch (e) { invalidPatterns.push(line); }
+  });
 
   showLoader('Anonymizing logs... 0%');
   document.getElementById('anon-stats').innerHTML = '<strong>Status:</strong> Processing...';
@@ -212,7 +220,7 @@ function anonymizeProcess() {
       var totalLines = 0;
       var processedRawChunks = [];
       var processedAnonChunks = [];
-      var stats = { uuid: 0, ip: 0, email: 0, mendixId: 0, datetime: 0, number: 0, mac: 0, creditcard: 0, auth: 0, keywords: 0 };
+      var stats = { uuid: 0, ip: 0, email: 0, mendixId: 0, datetime: 0, number: 0, mac: 0, creditcard: 0, auth: 0, keywords: 0, custom: 0 };
       var totalSizeStr = formatSize(totalLength);
       
       var maskMap = {};
@@ -234,6 +242,15 @@ function anonymizeProcess() {
       var keywordsList = opts.keywords && opts.keywords.trim()
         ? opts.keywords.split(',').map(function(k) { return k.trim(); }).filter(function(k) { return k.length > 0; }).sort(function(a, b) { return b.length - a.length; })
         : [];
+
+      var customRegexList = [];
+      if (opts.customRegex && opts.customRegex.trim()) {
+        opts.customRegex.split('\n').forEach(function(line) {
+          line = line.trim();
+          if (!line) return;
+          try { customRegexList.push(new RegExp(line, 'gi')); } catch (e) { /* invalid pattern — reported on main thread */ }
+        });
+      }
 
       self.postMessage({
         type: 'progress',
@@ -296,14 +313,19 @@ function anonymizeProcess() {
           }
         }
 
+        for (var cri = 0; cri < customRegexList.length; cri++) {
+          customRegexList[cri].lastIndex = 0;
+          addMatches(customRegexList[cri], 'CUSTOM', 'custom');
+        }
+
         matches.sort(function(a, b) {
           return a.start - b.start;
         });
 
         var validMatches = [];
         var lastEnd = 0;
-        for (var i = 0; i < matches.length; i++) {
-          var m = matches[i];
+        for (var mi = 0; mi < matches.length; mi++) {
+          var m = matches[mi];
           if (m.start >= lastEnd) {
             validMatches.push(m);
             lastEnd = m.end;
@@ -314,25 +336,25 @@ function anonymizeProcess() {
         var rawChunk = '';
         var anonChunk = '';
         var cursor = 0;
-        for (var i = 0; i < validMatches.length; i++) {
-          var m = validMatches[i];
-          var prefix = chunk.substring(cursor, m.start);
-          rawChunk += prefix + '\x01' + m.rawText + '\x02';
-          
-          var anonText = m.anonText;
-          if (opts.consistent && m.statKey !== 'keywords' && m.statKey !== 'datetime') {
+        for (var vi = 0; vi < validMatches.length; vi++) {
+          var vm = validMatches[vi];
+          var prefix = chunk.substring(cursor, vm.start);
+          rawChunk += prefix + '\x01' + vm.rawText + '\x02';
+
+          var anonText = vm.anonText;
+          if (opts.consistent && vm.statKey !== 'keywords' && vm.statKey !== 'datetime') {
             // Strip brackets for map key
-            var label = m.anonText.replace('[', '').replace(']', '');
-            var key = label + ':' + m.rawText;
+            var label = vm.anonText.replace('[', '').replace(']', '');
+            var key = label + ':' + vm.rawText;
             if (!maskMap[key]) {
               maskCounters[label] = (maskCounters[label] || 0) + 1;
               maskMap[key] = '[' + label + '-' + maskCounters[label] + ']';
             }
             anonText = maskMap[key];
           }
-          
+
           anonChunk += prefix + '\x01' + anonText + '\x02';
-          cursor = m.end;
+          cursor = vm.end;
         }
         var suffix = chunk.substring(cursor);
         rawChunk += suffix;
@@ -406,10 +428,14 @@ function anonymizeProcess() {
       if (stats.auth > 0) activeStats.push(stats.auth + ' Auth Tokens');
       if (stats.number > 0) activeStats.push(stats.number + ' Numbers');
       if (stats.keywords > 0) activeStats.push(stats.keywords + ' Custom Words');
+      if (stats.custom > 0) activeStats.push(stats.custom + ' Custom Regex');
 
       var statText = activeStats.length > 0
         ? 'Anonymized: ' + activeStats.join(', ') + '.'
         : 'No sensitive data detected with active rules.';
+      if (invalidPatterns.length > 0) {
+        statText += ' <span style="color:var(--danger)">Invalid regex skipped: ' + window.escHtml(invalidPatterns.join(', ')) + '</span>';
+      }
       document.getElementById('anon-stats').innerHTML = '<strong>Status:</strong> ' + statText;
 
       hideLoader();

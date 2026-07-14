@@ -11,9 +11,17 @@
 <script defer src="js/vendor/chart.js"></script>
 <script defer src="js/vendor/mermaid.min.js"></script>
 <script>
+  // Restore saved theme before first paint (default: dark)
+  try {
+    if (localStorage.getItem('mt-theme') === 'light') {
+      document.documentElement.setAttribute('data-theme', 'light');
+    }
+  } catch (e) {}
+
   window.addEventListener('load', () => {
     if (window.mermaid) {
-      mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+      const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+      mermaid.initialize({ startOnLoad: false, theme: isLight ? 'default' : 'dark' });
     }
   });
 
@@ -50,6 +58,13 @@
 </script>
 </head>
 <body>
+<svg style="display:none" aria-hidden="true">
+  <symbol id="icon-doc-plain" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></symbol>
+  <symbol id="icon-doc-log" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></symbol>
+  <symbol id="icon-doc-log-code" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></symbol>
+  <symbol id="icon-doc-edit" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13l3 3-3 3M16 19h-4"/></symbol>
+  <symbol id="icon-shield" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+</svg>
 <div id="global-loader" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);backdrop-filter:blur(3px);z-index:9999;flex-direction:column;align-items:center;justify-content:center;color:white;font-family:var(--font-mono);font-size:1.2rem;">
   <div style="width:40px;height:40px;border:4px solid rgba(255,255,255,0.2);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite;margin-bottom:var(--sp-4);"></div>
   <div id="global-loader-text">Processing...</div>
@@ -60,7 +75,7 @@
 <div id="app">
 <!-- SIDEBAR -->
 <nav id="sidebar">
-  <button id="collapse-btn" onclick="toggleSidebar()" title="Toggle sidebar">
+  <button id="collapse-btn" onclick="toggleSidebar()" title="Toggle sidebar" aria-label="Toggle sidebar">
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="10,4 6,8 10,12"/></svg>
   </button>
   <div id="sidebar-header">
@@ -72,148 +87,148 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.3.0</div></div>
   </div>
   <div id="sidebar-nav">
-    <div class="nav-item active" data-tool="home" onclick="navigate('home',this)">
+    <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>
       <span class="nav-label">Home</span>
-    </div>
+    </button>
     
     <div class="nav-section-label">Diagnostics &amp; Logs</div>
-    <div class="nav-item" data-tool="log-viewer" onclick="navigate('log-viewer',this)">
-      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span>
+    <button type="button" class="nav-item" data-tool="log-viewer" onclick="navigate('log-viewer',this)">
+      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#icon-doc-log"></use></svg></span>
       <span class="nav-label">Mendix Log Viewer</span>
-    </div>
-    <div class="nav-item" data-tool="log-query-extractor" onclick="navigate('log-query-extractor',this)">
+    </button>
+    <button type="button" class="nav-item" data-tool="log-query-extractor" onclick="navigate('log-query-extractor',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12h18"/><path d="M3 19h18"/></svg></span>
       <span class="nav-label">Log Query Extractor</span>
-    </div>
-    <div class="nav-item" data-tool="log-anonymizer" onclick="navigate('log-anonymizer',this)">
-      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+    </button>
+    <button type="button" class="nav-item" data-tool="log-anonymizer" onclick="navigate('log-anonymizer',this)">
+      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
       <span class="nav-label">Log & Text Anonymizer</span>
-    </div>
-    <div class="nav-item" data-tool="nginx-log" onclick="navigate('nginx-log',this)">
+    </button>
+    <button type="button" class="nav-item" data-tool="nginx-log" onclick="navigate('nginx-log',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span>
       <span class="nav-label">Nginx Log Analyzer</span>
-    </div>
-    <div class="nav-item" data-tool="telemetry-monitor" onclick="navigate('telemetry-monitor',this)">
+    </button>
+    <button type="button" class="nav-item" data-tool="telemetry-monitor" onclick="navigate('telemetry-monitor',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span>
       <span class="nav-label">Metrics &amp; Telemetry</span>
-    </div>
-    <div class="nav-item" data-tool="http-status" onclick="navigate('http-status',this)">
+    </button>
+    <button type="button" class="nav-item" data-tool="har-analyzer" onclick="navigate('har-analyzer',this)">
+      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="5" width="3" height="13"/></svg></span>
+      <span class="nav-label">Client Traffic (HAR)</span>
+    </button>
+    <button type="button" class="nav-item" data-tool="http-status" onclick="navigate('http-status',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></span>
       <span class="nav-label">HTTP Status Codes</span>
-    </div>
-    <div class="nav-item" data-tool="thread-dump" onclick="navigate('thread-dump',this)">
+    </button>
+    <button type="button" class="nav-item" data-tool="thread-dump" onclick="navigate('thread-dump',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span>
-      <span class="nav-label">Thread Dump &amp; GC Analyzer</span>
-    </div>
+      <span class="nav-label">JVM Health Analyzer</span>
+    </button>
 
     <div class="nav-section-label">Performance &amp; Testing</div>
-    <div class="nav-item" data-tool="perf-lab" onclick="navigate('perf-lab',this)">
+    <button type="button" class="nav-item" data-tool="perf-lab" onclick="navigate('perf-lab',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></span>
       <span class="nav-label">Performance Lab</span>
-    </div>
+    </button>
 
-    <div class="nav-item" data-tool="mock-server" onclick="navigate('mock-server',this)">
+    <button type="button" class="nav-item" data-tool="mock-server" onclick="navigate('mock-server',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg></span>
       <span class="nav-label">Mock Server &amp; Chaos</span>
-    </div>
+    </button>
 
     <div class="nav-section-label">Data &amp; Format</div>
-    <div class="nav-item" data-tool="json-formatter" onclick="navigate('json-formatter',this)">
+    <button type="button" class="nav-item" data-tool="json-formatter" onclick="navigate('json-formatter',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></span>
       <span class="nav-label">JSON Formatter</span>
-    </div>
-    <div class="nav-item" data-tool="xml-formatter" onclick="navigate('xml-formatter',this)">
-      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13l3 3-3 3M16 19h-4"/></svg></span>
+    </button>
+    <button type="button" class="nav-item" data-tool="xml-formatter" onclick="navigate('xml-formatter',this)">
+      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#icon-doc-edit"></use></svg></span>
       <span class="nav-label">XML Formatter</span>
-    </div>
-    <div class="nav-item" data-tool="char-sanitizer" onclick="navigate('char-sanitizer',this)">
+    </button>
+    <button type="button" class="nav-item" data-tool="char-sanitizer" onclick="navigate('char-sanitizer',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></span>
       <span class="nav-label">XML &amp; Text Sanitizer</span>
-    </div>
-    <div class="nav-item" data-tool="sql-formatter" onclick="navigate('sql-formatter',this)">
+    </button>
+    <button type="button" class="nav-item" data-tool="sql-formatter" onclick="navigate('sql-formatter',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></span>
       <span class="nav-label">SQL Formatter</span>
-    </div>
-    <div class="nav-item" data-tool="text-diff" onclick="navigate('text-diff',this)">
+    </button>
+    <button type="button" class="nav-item" data-tool="text-diff" onclick="navigate('text-diff',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></span>
       <span class="nav-label">Text Diff</span>
-    </div>
-    <div class="nav-item" data-tool="encoder" onclick="navigate('encoder',this)">
+    </button>
+    <button type="button" class="nav-item" data-tool="encoder" onclick="navigate('encoder',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></span>
       <span class="nav-label">Base64 / URL Encoder</span>
-    </div>
-    <div class="nav-item" data-tool="md-preview" onclick="navigate('md-preview',this)">
+    </button>
+    <button type="button" class="nav-item" data-tool="md-preview" onclick="navigate('md-preview',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
       <span class="nav-label">Markdown &amp; Table Generator</span>
-    </div>
-    <div class="nav-item" data-tool="data-factory" onclick="navigate('data-factory',this)">
+    </button>
+    <button type="button" class="nav-item" data-tool="data-factory" onclick="navigate('data-factory',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg></span>
       <span class="nav-label">Data Factory</span>
-    </div>
+    </button>
 
     <div class="nav-section-label">Mendix Platform</div>
-    <div class="nav-item" data-tool="xpath-builder" onclick="navigate('xpath-builder',this)">
-      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></span>
+    <button type="button" class="nav-item" data-tool="xpath-builder" onclick="navigate('xpath-builder',this)">
+      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg></span>
       <span class="nav-label">XPath Formatter</span>
-    </div>
-    <div class="nav-item" data-tool="query-intelligence" onclick="navigate('query-intelligence',this)">
+    </button>
+    <button type="button" class="nav-item" data-tool="query-intelligence" onclick="navigate('query-intelligence',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"/></svg></span>
       <span class="nav-label">Query Intelligence Suite</span>
-    </div>
-    <div class="nav-item" data-tool="odata-builder" onclick="navigate('odata-builder',this)">
-      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span>
+    </button>
+    <button type="button" class="nav-item" data-tool="odata-builder" onclick="navigate('odata-builder',this)">
+      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></span>
       <span class="nav-label">OData Builder</span>
-    </div>
+    </button>
 
-    <div class="nav-item" data-tool="architecture" onclick="navigate('architecture',this)">
+    <button type="button" class="nav-item" data-tool="architecture" onclick="navigate('architecture',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg></span>
       <span class="nav-label">Domain Model &amp; Architecture</span>
-    </div>
-    <div class="nav-item" data-tool="dev-studio" onclick="navigate('dev-studio',this)">
-      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg></span>
+    </button>
+    <button type="button" class="nav-item" data-tool="dev-studio" onclick="navigate('dev-studio',this)">
+      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#icon-doc-log-code"></use></svg></span>
       <span class="nav-label">Developer Studio</span>
-    </div>
+    </button>
 
     <div class="nav-section-label">Analytics &amp; Estimation</div>
-    <div class="nav-item" data-tool="api-economics" onclick="navigate('api-economics',this)">
+    <button type="button" class="nav-item" data-tool="api-economics" onclick="navigate('api-economics',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></span>
       <span class="nav-label">API Economics</span>
-    </div>
-    <div class="nav-item" data-tool="memory-inspector" onclick="navigate('memory-inspector',this)">
-      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></span>
-      <span class="nav-label">Memory Inspector</span>
-    </div>
-    <div class="nav-item" data-tool="wasm-profiler" onclick="navigate('wasm-profiler',this)">
-      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span>
-      <span class="nav-label">WASM Profiler</span>
-    </div>
+    </button>
 
     <div class="nav-section-label">Security &amp; Tokens</div>
-    <div class="nav-item" data-tool="jwt-decoder" onclick="navigate('jwt-decoder',this)">
-      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+    <button type="button" class="nav-item" data-tool="jwt-decoder" onclick="navigate('jwt-decoder',this)">
+      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#icon-shield"></use></svg></span>
       <span class="nav-label">JWT Decoder</span>
-    </div>
-    <div class="nav-item" data-tool="hash-gen" onclick="navigate('hash-gen',this)">
+    </button>
+    <button type="button" class="nav-item" data-tool="saml-debugger" onclick="navigate('saml-debugger',this)">
+      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><path d="M12 3l7 4v5c0 4.5-3 8-7 9-4-1-7-4.5-7-9V7z"/></svg></span>
+      <span class="nav-label">SAML / OIDC Debugger</span>
+    </button>
+    <button type="button" class="nav-item" data-tool="hash-gen" onclick="navigate('hash-gen',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg></span>
       <span class="nav-label">Hash Generator</span>
-    </div>
-    <div class="nav-item" data-tool="password-generator" onclick="navigate('password-generator',this)">
+    </button>
+    <button type="button" class="nav-item" data-tool="password-generator" onclick="navigate('password-generator',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg></span>
       <span class="nav-label">Password Generator</span>
-    </div>
+    </button>
     <div class="nav-section-label">Utilities</div>
-    <div class="nav-item" data-tool="regex-tester" onclick="navigate('regex-tester',this)">
+    <button type="button" class="nav-item" data-tool="regex-tester" onclick="navigate('regex-tester',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
-      <span class="nav-label">Java Regex Tester</span>
-    </div>
-    <div class="nav-item" data-tool="timestamp" onclick="navigate('timestamp',this)">
+      <span class="nav-label">Java Regex Tester (Mendix)</span>
+    </button>
+    <button type="button" class="nav-item" data-tool="timestamp" onclick="navigate('timestamp',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span>
       <span class="nav-label">Timestamp Converter</span>
-    </div>
+    </button>
 
   </div>
   <div id="sidebar-footer">
@@ -226,8 +241,13 @@
 <!-- MAIN -->
 <main id="main">
   <div id="topbar">
-    <div><div id="topbar-title">Home</div><div id="topbar-subtitle">MxDev Swiss Tool v1.0</div></div>
+    <div><div id="topbar-title">Home</div><div id="topbar-subtitle">MxDev Swiss Tool v1.3.0</div></div>
     <div id="topbar-spacer"></div>
+    <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <span>Search</span>
+      <kbd style="font-size:0.7rem;padding:1px 5px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg-elevated);color:var(--text-muted)">Ctrl+K</kbd>
+    </button>
     <div id="global-bridge-status" title="Mendix Observability Bridge" style="display:flex;align-items:center;gap:8px;margin-right:16px;font-size:0.75rem;color:var(--text-muted);font-family:var(--font-mono);background:var(--bg-elevated);padding:4px 10px;border-radius:12px;border:1px solid var(--border);cursor:default;">
       <div id="global-bridge-dot" style="width:8px;height:8px;border-radius:50%;background:var(--danger);box-shadow:0 0 5px var(--danger);"></div>
       <span id="global-bridge-text">Bridge Offline</span>
@@ -253,31 +273,31 @@
     <!-- LOG VIEWER -->
     <div class="tool-panel" id="panel-log-viewer">
       <div class="tool-header">
-        <div class="tool-header-icon" style="background:var(--info-subtle)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--info)" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
+        <div class="tool-header-icon" style="background:var(--info-subtle)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--info)" stroke-width="2"><use href="#icon-doc-log"></use></svg></div>
         <div class="tool-header-info"><div class="tool-header-title">Mendix Log Viewer</div><div class="tool-header-desc">Load, filter and explore Mendix application logs &mdash; drag &amp; drop supported</div></div>
         <div class="tool-header-actions">
           <button class="btn btn-secondary btn-sm" id="log-analyze-btn" style="display:none" onclick="logOpenAggregator()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Aggregate Errors</button>
-          <button class="btn btn-secondary btn-sm" id="log-anon-copy-btn" style="display:none" onclick="logAnonymizeAndCopy()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Anonymize &amp; Copy</button>
+          <button class="btn btn-secondary btn-sm" id="log-anon-copy-btn" style="display:none" onclick="logAnonymizeAndCopy()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#icon-shield"></use></svg>Anonymize &amp; Copy</button>
           <button class="btn btn-secondary btn-sm" id="log-send-anon-btn" style="display:none" onclick="logSendToAnonymizer()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Anonymize in Tool</button>
           <button class="btn btn-secondary btn-sm" onclick="logExportFiltered()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export Filtered</button>
-          <button class="btn btn-secondary btn-sm" onclick="logClear()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Clear</button>
+          <button class="btn btn-danger btn-sm" onclick="logClear()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Clear</button>
           <button class="btn btn-secondary btn-sm" onclick="logOpenPasteModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>Paste Logs</button>
           <label class="btn btn-primary btn-sm" for="log-file-input"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Load Log File</label>
-          <input type="file" id="log-file-input" style="display:none" accept=".log,.txt,.csv" multiple onchange="logLoadFiles(this.files)">
+          <input type="file" id="log-file-input" style="display:none" accept=".log,.txt,.csv,.gz" multiple onchange="logLoadFiles(this.files)">
         </div>
       </div>
       <div class="tool-body" style="padding-top:0">
         <div class="tabs" style="margin-bottom:var(--sp-2);padding:0;border-bottom:1px solid var(--border)">
-          <div class="tab active" onclick="logSetTab('stream',this)">Log Stream</div>
-          <div class="tab" onclick="logSetTab('correlation',this)">Correlation Flow</div>
-          <div class="tab" onclick="logSetTab('sequence',this)">Sequence Diagram</div>
-          <div class="tab" onclick="logSetTab('gantt',this)">Gantt Chart</div>
+          <button type="button" class="tab active" data-help-key="log-viewer-stream" onclick="logSetTab('stream',this)">Log Stream</button>
+          <button type="button" class="tab" data-help-key="log-viewer-correlation" onclick="logSetTab('correlation',this)">Correlation Flow</button>
+          <button type="button" class="tab" data-help-key="log-viewer-sequence" onclick="logSetTab('sequence',this)">Sequence Diagram</button>
+          <button type="button" class="tab" data-help-key="log-viewer-gantt" onclick="logSetTab('gantt',this)">Gantt Chart</button>
         </div>
 
         <!-- LOG STREAM TAB -->
         <div id="log-tab-stream" style="display:flex;flex-direction:column;flex:1;height:calc(100% - 40px)">
-      <div id="log-toolbar">
-        <div id="log-toolbar-row1">
+      <div class="log-toolbar">
+        <div class="log-toolbar-row1">
           <input class="input input-mono" id="log-search" placeholder="Search messages, nodes, text..." oninput="logApplyFilters()">
           <div class="log-level-filters">
             <span class="level-filter-btn lf-trace active" onclick="logToggleLevel('TRACE',this)">TRACE</span>
@@ -290,8 +310,8 @@
           <button class="btn btn-ghost btn-sm" onclick="logToggleAllLevels(true)">All</button>
           <button class="btn btn-ghost btn-sm" onclick="logToggleAllLevels(false)">None</button>
         </div>
-        <div id="log-toolbar-row2">
-          <span style="font-size:.72rem;color:var(--text-muted)">Time:</span>
+        <div class="log-toolbar-row2">
+          <span style="font-size:.75rem;color:var(--text-muted)">Time:</span>
           <input class="input input-mono" id="log-time-from" placeholder="09:00:00" oninput="logApplyFilters()" style="width:90px">
           <span style="color:var(--text-muted)">&#8594;</span>
           <input class="input input-mono" id="log-time-to" placeholder="10:00:00" oninput="logApplyFilters()" style="width:90px">
@@ -315,14 +335,14 @@
       </div>
       <div id="log-container" class="drag-drop-zone" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="logHandleDrop(event)">
         <div id="log-empty-state">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><use href="#icon-doc-plain"></use></svg>
           <p>Drop a log file here or use &ldquo;Load Log File&rdquo;</p>
-          <p style="font-size:.72rem">Supports Mendix log format &bull; Multiple files supported &bull; Large files OK</p>
+          <p style="font-size:.75rem">Supports Mendix log format &bull; Multiple files merged chronologically &bull; .gz archives &bull; Large files OK</p>
           <div style="margin-top:var(--sp-3); display:flex; gap:var(--sp-2)">
-            <label class="btn btn-secondary btn-sm" for="log-file-input" style="cursor:pointer">Browse Files</label>
+            <label class="btn btn-secondary btn-sm" for="log-file-input-empty" style="cursor:pointer">Browse Files</label>
             <button class="btn btn-primary btn-sm" onclick="logOpenPasteModal()">Paste Log Content</button>
           </div>
-          <input type="file" id="log-file-input" style="display:none" accept=".log,.txt,.csv" multiple onchange="if(window.logLoadFiles) window.logLoadFiles(this.files)">
+          <input type="file" id="log-file-input-empty" style="display:none" accept=".log,.txt,.csv,.gz" multiple onchange="if(window.logLoadFiles) window.logLoadFiles(this.files)">
         </div>
         <div id="log-virtual-list" style="display:none"></div>
       </div>
@@ -367,7 +387,7 @@
     <!-- LOG QUERY EXTRACTOR -->
     <div class="tool-panel" id="panel-log-query-extractor">
       <div class="tool-header">
-        <div class="tool-header-icon" style="background:#3498db22"><svg viewBox="0 0 24 24" fill="none" stroke="#3498db" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12h18"/><path d="M3 19h18"/></svg></div>
+        <div class="tool-header-icon" style="background:color-mix(in srgb, #3498db 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#3498db" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12h18"/><path d="M3 19h18"/></svg></div>
         <div class="tool-header-info">
           <div class="tool-header-title">Log Query Extractor</div>
           <div class="tool-header-desc">Extract, parse and correlate SQL/XPath queries from Mendix TRACE logs</div>
@@ -388,24 +408,25 @@
             <!-- Toolbar -->
             <div style="padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border); display:flex; gap:var(--sp-2); align-items:center;">
               <input class="input input-sm" id="lqe-search" placeholder="Search queries..." oninput="window.lqeFilter()" style="flex:1;">
-              <select class="select select-sm" id="lqe-type-filter" onchange="window.lqeFilter()" style="width:120px;">
+              <select class="select select-sm" id="lqe-type-filter" onchange="window.lqeFilter()" style="width:140px;">
                 <option value="ALL">All Types</option>
                 <option value="SELECT">SELECT</option>
                 <option value="UPDATE">UPDATE</option>
                 <option value="INSERT">INSERT</option>
                 <option value="DELETE">DELETE</option>
+                <option value="DUP">Duplicates only (N+1)</option>
               </select>
               <div style="font-size:0.75rem; color:var(--text-muted);"><span id="lqe-count">0</span> queries</div>
             </div>
-            <!-- Table Header -->
-            <div style="display:grid; grid-template-columns:80px 100px 120px 70px 60px 1fr 60px; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border); font-size:0.75rem; font-weight:600; color:var(--text-muted); background:var(--bg);">
+            <!-- Table Header (click Time / Duration / Cost / Rows to sort) -->
+            <div id="lqe-list-header" style="display:grid; grid-template-columns:80px 100px 120px 70px 60px 1fr 60px; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border); font-size:0.75rem; font-weight:600; color:var(--text-muted); background:var(--bg);">
               <div>Type</div>
               <div>Tx-Conn</div>
-              <div>Time</div>
-              <div title="Execution Time (if EXPLAIN is enabled)">Duration</div>
-              <div title="Total Cost (from Query Plan)">Cost</div>
+              <div data-sort-key="time" onclick="window.lqeSort('time')" style="cursor:pointer" title="Click to sort by log order">Time<span class="lqe-sort-arrow"></span></div>
+              <div data-sort-key="duration" onclick="window.lqeSort('duration')" style="cursor:pointer" title="Execution Time (if EXPLAIN is enabled) — click to sort">Duration<span class="lqe-sort-arrow"></span></div>
+              <div data-sort-key="cost" onclick="window.lqeSort('cost')" style="cursor:pointer" title="Total Cost (from Query Plan) — click to sort">Cost<span class="lqe-sort-arrow"></span></div>
               <div>Summary</div>
-              <div style="text-align:right">Rows</div>
+              <div data-sort-key="rows" onclick="window.lqeSort('rows')" style="text-align:right;cursor:pointer" title="Click to sort by returned rows">Rows<span class="lqe-sort-arrow"></span></div>
             </div>
             <!-- Table Body -->
             <div id="lqe-query-list" style="flex:1; overflow-y:auto; padding:0; display:flex; flex-direction:column;">
@@ -418,11 +439,11 @@
           <!-- RIGHT PANEL: Query Details -->
           <div style="display:flex; flex-direction:column; background:var(--bg); overflow:hidden;">
             <div class="tabs" style="border-bottom:1px solid var(--border); padding:0 var(--sp-2);">
-              <div class="tab active" data-target="lqe-tab-sql" onclick="window.lqeSetTab('lqe-tab-sql', this)">Runnable SQL</div>
-              <div class="tab" data-target="lqe-tab-source" onclick="window.lqeSetTab('lqe-tab-source', this)">Source XPath/OQL</div>
-              <div class="tab" data-target="lqe-tab-params" onclick="window.lqeSetTab('lqe-tab-params', this)">Parameters</div>
-              <div class="tab" data-target="lqe-tab-result" onclick="window.lqeSetTab('lqe-tab-result', this)">Result Data</div>
-              <div class="tab" data-target="lqe-tab-plan" onclick="window.lqeSetTab('lqe-tab-plan', this)">Query Plan</div>
+              <button type="button" class="tab active" data-target="lqe-tab-sql" onclick="window.lqeSetTab('lqe-tab-sql', this)">Runnable SQL</button>
+              <button type="button" class="tab" data-target="lqe-tab-source" onclick="window.lqeSetTab('lqe-tab-source', this)">Source XPath/OQL</button>
+              <button type="button" class="tab" data-target="lqe-tab-params" onclick="window.lqeSetTab('lqe-tab-params', this)">Parameters</button>
+              <button type="button" class="tab" data-target="lqe-tab-result" onclick="window.lqeSetTab('lqe-tab-result', this)">Result Data</button>
+              <button type="button" class="tab" data-target="lqe-tab-plan" onclick="window.lqeSetTab('lqe-tab-plan', this)">Query Plan</button>
             </div>
             
             <div style="flex:1; overflow:auto;">
@@ -473,7 +494,8 @@
 
               <!-- PLAN TAB -->
               <div id="lqe-tab-plan" style="padding:var(--sp-3); display:none; height:100%; flex-direction:column;">
-                <div style="display:flex; justify-content:flex-end; margin-bottom:var(--sp-2);">
+                <div style="display:flex; justify-content:flex-end; margin-bottom:var(--sp-2); gap:var(--sp-2);">
+                  <button class="btn btn-ghost btn-sm" onclick="window.lqeVisualizePlan()" title="Open this plan in the Query Intelligence Explain visualizer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"/></svg>Visualize Plan</button>
                   <button class="btn btn-ghost btn-sm" onclick="window.lqeCopyContent('lqe-plan-content', this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy</button>
                 </div>
                  <pre id="lqe-plan-content" style="background:var(--bg-elevated); padding:var(--sp-3); border-radius:var(--r-md); border:1px solid var(--border); font-size:0.85rem; color:var(--text); margin:0; white-space:pre-wrap; word-break:break-all; flex:1; overflow:auto;">No execution plan found for this query.</pre>
@@ -487,7 +509,7 @@
     <!-- LOG & TEXT ANONYMIZER -->
     <div class="tool-panel" id="panel-log-anonymizer">
       <div class="tool-header">
-        <div class="tool-header-icon" style="background:var(--danger-subtle)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+        <div class="tool-header-icon" style="background:var(--danger-subtle)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
         <div class="tool-header-info"><div class="tool-header-title">Log & Text Anonymizer</div><div class="tool-header-desc">Remove sensitive information from application logs, JSON payloads, or any arbitrary text</div></div>
         <div class="tool-header-actions">
           <div class="btn-group">
@@ -495,11 +517,11 @@
             <button class="btn btn-secondary btn-sm" onclick="uiSetView('anonymizer-split', 'raw', this)">Raw</button>
             <button class="btn btn-secondary btn-sm" onclick="uiSetView('anonymizer-split', 'result', this)">Result</button>
           </div>
-          <button class="btn btn-primary btn-sm" onclick="anonymizeProcess()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Anonymize Logs</button>
           <button class="btn btn-secondary btn-sm" onclick="anonymizerCopy()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy Anonymized</button>
           <button class="btn btn-secondary btn-sm" onclick="anonymizerDownload()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download</button>
           <button class="btn btn-secondary btn-sm" onclick="document.querySelector('.anonymizer-grid').classList.toggle('settings-collapsed')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>Toggle Options</button>
-          <button class="btn btn-secondary btn-sm" onclick="anonymizerClear()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Clear</button>
+          <button class="btn btn-danger btn-sm" onclick="anonymizerClear()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Clear</button>
+          <button class="btn btn-primary btn-sm" onclick="anonymizeProcess()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Anonymize Logs</button>
         </div>
       </div>
       <div class="tool-body" style="padding:0; display:flex; flex:1; overflow:hidden;">
@@ -524,13 +546,19 @@
             
             <div style="margin-top:var(--sp-2); margin-bottom:var(--sp-2);">
               <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight: 500;"><input type="checkbox" id="anon-opt-consistent" checked> Consistent Masking (Pseudonymization)</label>
-              <div style="font-size:0.68rem; color:var(--text-muted); margin-left:22px; margin-top:2px;">Maintains context by replacing identical values with the same hash e.g. [IP-1].</div>
+              <div style="font-size:0.75rem; color:var(--text-muted); margin-left:22px; margin-top:2px;">Maintains context by replacing identical values with the same hash e.g. [IP-1].</div>
             </div>
             
             <div class="form-group">
               <div class="form-label">Custom Keywords (CSV)</div>
               <textarea class="textarea" id="anon-opt-keywords" style="min-height:80px; font-family:var(--font-sans); font-size:0.75rem" placeholder="e.g. John, AcmeCorp, MySecretValue"></textarea>
-              <div style="font-size:0.68rem; color:var(--text-muted); margin-top:4px">Case-insensitive keywords separated by commas. Replaced with [REDACTED].</div>
+              <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px">Case-insensitive keywords separated by commas. Replaced with [REDACTED].</div>
+            </div>
+
+            <div class="form-group">
+              <div class="form-label">Custom Regex Patterns (one per line)</div>
+              <textarea class="textarea" id="anon-opt-regex" style="min-height:60px; font-family:var(--font-mono); font-size:0.75rem" placeholder="e.g. ORD-\d{6}&#10;PROJ_[A-Z]+_KEY"></textarea>
+              <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px">JavaScript regex, case-insensitive, without slashes. Matches replaced with [CUSTOM].</div>
             </div>
 
             <div style="margin-top:auto; padding-top:var(--sp-3); border-top:1px solid var(--border)">
@@ -542,7 +570,7 @@
           <div id="anonymizer-input-container" class="anonymizer-grid-col-raw">
             <div class="json-pane-header">
               <h4>Raw Text Input</h4>
-              <span style="font-size:0.68rem; color:var(--text-muted); margin-left:var(--sp-2)">Drop file or paste text below</span>
+              <span style="font-size:0.75rem; color:var(--text-muted); margin-left:var(--sp-2)">Drop file or paste text below</span>
               <div style="flex:1"></div>
               <label class="btn btn-secondary btn-sm" for="anon-file-input" style="cursor:pointer">Browse File</label>
               <input type="file" id="anon-file-input" style="display:none" accept=".log,.txt" onchange="if(window.anonLoadFile) window.anonLoadFile(this.files)">
@@ -556,7 +584,7 @@
           <div class="anonymizer-grid-col-output">
             <div class="json-pane-header">
               <h4>Anonymized Output</h4>
-              <span id="anon-stats" style="font-size:0.68rem; color:var(--accent)">Ready. Paste some text or logs to anonymize.</span>
+              <span id="anon-stats" style="font-size:0.75rem; color:var(--accent)">Ready. Paste some text or logs to anonymize.</span>
             </div>
             <div style="flex:1; display:flex; flex-direction:column;">
               <div id="anonymizer-clean-output" style="flex:1; border:none; border-radius:0; height:100%; width:100%;"></div>
@@ -571,7 +599,7 @@
     <div class="tool-panel" id="panel-json-formatter">
       <div class="tool-header">
         <div class="tool-header-icon" style="background:var(--success-subtle)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">JSON Formatter &amp; Explorer</div><div class="tool-header-desc">Format, validate and explore JSON &mdash; interactive tree view</div></div>
+        <div class="tool-header-info"><div class="tool-header-title">JSON Formatter</div><div class="tool-header-desc">Format, validate and explore JSON &mdash; interactive tree view</div></div>
         <div class="tool-header-actions">
           <div class="btn-group">
             <button class="btn btn-secondary btn-sm active" onclick="uiSetView('json-split', 'split', this)">Split</button>
@@ -601,8 +629,8 @@
     <!-- XML FORMATTER -->
     <div class="tool-panel" id="panel-xml-formatter">
       <div class="tool-header">
-        <div class="tool-header-icon" style="background:var(--info-subtle)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--info)" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13l3 3-3 3M16 19h-4"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">XML Formatter &amp; Explorer</div><div class="tool-header-desc">Format, validate and explore XML &mdash; interactive tree view</div></div>
+        <div class="tool-header-icon" style="background:var(--info-subtle)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--info)" stroke-width="2"><use href="#icon-doc-edit"></use></svg></div>
+        <div class="tool-header-info"><div class="tool-header-title">XML Formatter</div><div class="tool-header-desc">Format, validate and explore XML &mdash; interactive tree view</div></div>
         <div class="tool-header-actions">
           <div class="btn-group">
             <button class="btn btn-secondary btn-sm active" onclick="uiSetView('xml-split', 'split', this)">Split</button>
@@ -617,7 +645,7 @@
           <div class="json-pane-body" style="position:relative;" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="handleTextFileDrop(event, 'xml-input', 'xmlFormat')">
             <textarea class="json-input-area" id="xml-input" placeholder=" " oninput="xmlFormat()"></textarea>
             <div class="empty-state-overlay">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13l3 3-3 3M16 19h-4"/></svg>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><use href="#icon-doc-edit"></use></svg>
               <p>Paste XML or Drop a file here</p>
             </div>
           </div>
@@ -688,9 +716,9 @@
         <div class="json-pane" style="display:flex;flex-direction:column;min-height:0;">
           <div class="json-pane-header" style="padding:0 var(--sp-4);height:38px;align-items:stretch;">
             <div class="tabs" style="border-bottom:none;padding:0;align-items:flex-end;">
-              <div class="tab active" id="cs-tab-inspector" onclick="sanitizeSwitchTab('inspector')">Visual Inspector</div>
-              <div class="tab" id="cs-tab-stats" onclick="sanitizeSwitchTab('stats')">Statistics &amp; Issues</div>
-              <div class="tab" id="cs-tab-output" onclick="sanitizeSwitchTab('output')">Sanitized Output</div>
+              <button type="button" class="tab active" id="cs-tab-inspector" onclick="sanitizeSwitchTab('inspector')">Visual Inspector</button>
+              <button type="button" class="tab" id="cs-tab-stats" onclick="sanitizeSwitchTab('stats')">Statistics &amp; Issues</button>
+              <button type="button" class="tab" id="cs-tab-output" onclick="sanitizeSwitchTab('output')">Sanitized Output</button>
             </div>
             <span id="char-sanitizer-status" style="align-self:center;margin-left:auto;"></span>
           </div>
@@ -755,27 +783,27 @@
     <!-- XPATH BUILDER -->
     <div class="tool-panel" id="panel-xpath-builder">
       <div class="tool-header">
-        <div class="tool-header-icon" style="background:#1c2d3f"><svg viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">XPath Formatter</div><div class="tool-header-desc">Format and build Mendix XPath queries with cheat sheet, templates and auto-suggestions</div></div>
+        <div class="tool-header-icon" style="background:color-mix(in srgb, #58a6ff 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg></div>
+        <div class="tool-header-info"><div class="tool-header-title">XPath Formatter</div><div class="tool-header-desc">Format and lint Mendix XPath queries &mdash; with system-token cheat sheet and templates</div></div>
       </div>
       <div class="xpath-editor">
-        <div class="form-group">
-          <div class="form-label">Input XPath Expression</div>
-          <div style="display:flex;flex-direction:column;gap:var(--sp-2)">
-            <textarea class="code-area" id="xpath-input" rows="4" placeholder="[starts-with(Name, 'Test') and Status = 'Active']" oninput="xpathAnalyze()" style="font-family:var(--font-mono);font-size:0.85rem;line-height:1.4"></textarea>
-            <div style="display:flex;gap:var(--sp-2)">
-              <button class="btn btn-secondary btn-sm" onclick="formatXPathClick()">Format XPath</button>
-              <button class="btn btn-ghost btn-sm" onclick="document.getElementById('xpath-input').value='';document.getElementById('xpath-output').value='';document.getElementById('xpath-result').style.display='none'">Clear</button>
-            </div>
+        <div class="card">
+          <div class="card-header">
+            <h4 style="flex:1;margin:0;font-size:0.75rem;color:var(--text-secondary)">Input XPath Expression</h4>
+            <button class="btn btn-ghost btn-sm" onclick="formatXPathClick()">Format XPath</button>
+            <button class="btn btn-ghost btn-sm" onclick="document.getElementById('xpath-input').value='';document.getElementById('xpath-output').value='';document.getElementById('xpath-result').style.display='none'">Clear</button>
+          </div>
+          <div class="card-body">
+            <textarea class="code-area" id="xpath-input" rows="4" placeholder="[starts-with(Name, 'Test') and Status = 'Active']" oninput="xpathAnalyze()" style="font-family:var(--font-mono);font-size:0.85rem;line-height:1.4;width:100%"></textarea>
           </div>
         </div>
-        <div class="form-group">
-          <div class="form-label">Formatted Output</div>
-          <div style="display:flex;flex-direction:column;gap:var(--sp-2)">
-            <textarea class="code-area" id="xpath-output" rows="6" readonly style="font-family:var(--font-mono);font-size:0.85rem;line-height:1.4;background:var(--bg-elevated);"></textarea>
-            <div style="display:flex;gap:var(--sp-2)">
-              <button class="btn btn-primary btn-sm" onclick="copyToClipboard(document.getElementById('xpath-output').value)">Copy Output</button>
-            </div>
+        <div class="card">
+          <div class="card-header">
+            <h4 style="flex:1;margin:0;font-size:0.75rem;color:var(--text-secondary)">Formatted Output</h4>
+            <button class="btn btn-ghost btn-sm" onclick="copyToClipboard(document.getElementById('xpath-output').value)">Copy Output</button>
+          </div>
+          <div class="card-body">
+            <textarea class="code-area" id="xpath-output" rows="6" readonly style="font-family:var(--font-mono);font-size:0.85rem;line-height:1.4;background:var(--bg-elevated);width:100%"></textarea>
           </div>
         </div>
         <div id="xpath-result" style="display:none" class="notice notice-info">
@@ -787,21 +815,64 @@
           <div id="xpath-linter-text" style="display:flex;flex-direction:column;gap:4px"></div>
         </div>
 
+        <!-- XPATH CHEAT SHEET -->
+        <div class="card" id="xpath-cheatsheet" style="margin-top:var(--sp-3)">
+          <div class="card-header">
+            <h4 style="flex:1;margin:0;font-size:0.75rem;color:var(--text-secondary)">XPath Cheat Sheet &mdash; click any snippet to copy</h4>
+          </div>
+          <div class="card-body" style="display:flex;flex-direction:column;gap:var(--sp-4)">
+            <div>
+              <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:var(--sp-2)">System Variables</div>
+              <div class="xcs-grid">
+                <button type="button" class="xcs-item" data-snippet="[%CurrentUser%]"><code>[%CurrentUser%]</code><span>Logged-in user object</span></button>
+                <button type="button" class="xcs-item" data-snippet="[%CurrentObject%]"><code>[%CurrentObject%]</code><span>Object in current context</span></button>
+                <button type="button" class="xcs-item" data-snippet="[%CurrentDateTime%]"><code>[%CurrentDateTime%]</code><span>Current date and time</span></button>
+                <button type="button" class="xcs-item" data-snippet="[%BeginOfCurrentDay%]"><code>[%BeginOfCurrentDay%]</code><span>Today 00:00:00</span></button>
+                <button type="button" class="xcs-item" data-snippet="[%EndOfCurrentDay%]"><code>[%EndOfCurrentDay%]</code><span>Today 23:59:59</span></button>
+                <button type="button" class="xcs-item" data-snippet="[%BeginOfCurrentWeek%]"><code>[%BeginOfCurrentWeek%]</code><span>Start of this week</span></button>
+                <button type="button" class="xcs-item" data-snippet="[%BeginOfCurrentMonth%]"><code>[%BeginOfCurrentMonth%]</code><span>Start of this month</span></button>
+                <button type="button" class="xcs-item" data-snippet="[%DayLength%]"><code>[%DayLength%]</code><span>Milliseconds in a day (for date math)</span></button>
+                <button type="button" class="xcs-item" data-snippet="[%UserRole_Administrator%]"><code>[%UserRole_Administrator%]</code><span>User role token (per role name)</span></button>
+              </div>
+            </div>
+            <div>
+              <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:var(--sp-2)">Functions &amp; Operators</div>
+              <div class="xcs-grid">
+                <button type="button" class="xcs-item" data-snippet="starts-with(Name, 'A')"><code>starts-with(Attr, 'x')</code><span>Prefix match (index-friendly)</span></button>
+                <button type="button" class="xcs-item" data-snippet="contains(Name, 'test')"><code>contains(Attr, 'x')</code><span>Substring match (&#9888; table scan)</span></button>
+                <button type="button" class="xcs-item" data-snippet="not(Status = 'Done')"><code>not(...)</code><span>Negation (&#9888; may skip indexes)</span></button>
+                <button type="button" class="xcs-item" data-snippet="[Attr = empty]"><code>[Attr = empty]</code><span>NULL check (also != empty)</span></button>
+                <button type="button" class="xcs-item" data-snippet="[reversed(Module.Order_Customer)/Module.Order/Total > 100]"><code>reversed(...)</code><span>Traverse association backwards</span></button>
+                <button type="button" class="xcs-item" data-snippet="[Module.Order_Customer/Module.Customer/Name = 'Acme']"><code>Path/Entity/Attr</code><span>Association traversal (= SQL JOIN)</span></button>
+              </div>
+            </div>
+            <div>
+              <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:var(--sp-2)">Ready Templates</div>
+              <div class="xcs-grid">
+                <button type="button" class="xcs-item" data-snippet="[System.owner = '[%CurrentUser%]']"><code>Owned by me</code><span>[System.owner = '[%CurrentUser%]']</span></button>
+                <button type="button" class="xcs-item" data-snippet="[CreatedDate >= [%BeginOfCurrentDay%] - 7 * [%DayLength%]]"><code>Last 7 days</code><span>[CreatedDate &gt;= [%BeginOfCurrentDay%] - 7 * [%DayLength%]]</span></button>
+                <button type="button" class="xcs-item" data-snippet="[CreatedDate >= [%BeginOfCurrentMonth%]]"><code>This month</code><span>[CreatedDate &gt;= [%BeginOfCurrentMonth%]]</span></button>
+                <button type="button" class="xcs-item" data-snippet="[Status = 'Active' and Priority = 'High']"><code>AND filter</code><span>[Status = 'Active' and Priority = 'High']</span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
 
     <!-- QUERY INTELLIGENCE SUITE -->
     <div class="tool-panel" id="panel-query-intelligence">
       <div class="tool-header">
-        <div class="tool-header-icon" style="background:#153d5c"><svg viewBox="0 0 24 24" fill="none" stroke="#3498db" stroke-width="2"><path d="M3 3v18h18"/><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"/></svg></div>
+        <div class="tool-header-icon" style="background:color-mix(in srgb, #3498db 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#3498db" stroke-width="2"><path d="M3 3v18h18"/><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"/></svg></div>
         <div class="tool-header-info"><div class="tool-header-title">Query Intelligence Suite</div><div class="tool-header-desc">OQL Formatter, SQL Translator, Execution Plan &amp; Schema Visualizer</div></div>
       </div>
       <div class="tool-body" style="padding-top:0">
         <div class="tabs" style="margin-bottom:var(--sp-3);padding:0;border-bottom:1px solid var(--border)">
-          <div class="tab active" onclick="qiSetTab('formatter',this)">OQL Formatter</div>
-          <div class="tab" onclick="qiSetTab('translator',this)">OQL &harr; SQL Translator</div>
-          <div class="tab" onclick="qiSetTab('explain',this)">SQL Explain</div>
-          <div class="tab" onclick="qiSetTab('schema',this)">Schema Visualizer</div>
+          <button type="button" class="tab active" data-help-key="query-intelligence-formatter" onclick="qiSetTab('formatter',this)">OQL Formatter</button>
+          <button type="button" class="tab" data-help-key="query-intelligence-translator" onclick="qiSetTab('translator',this)">OQL &harr; SQL Translator</button>
+          <button type="button" class="tab" data-help-key="query-intelligence-explain" onclick="qiSetTab('explain',this)">SQL Explain</button>
+          <button type="button" class="tab" data-help-key="query-intelligence-schema" onclick="qiSetTab('schema',this)">Schema Visualizer</button>
         </div>
 
         <!-- FORMATTER TAB -->
@@ -820,6 +891,10 @@
 
         <!-- TRANSLATOR TAB -->
         <div id="qi-tab-translator" style="display:none;flex-direction:column;flex:1;height:calc(100% - 40px)">
+          <div class="notice notice-warning" style="margin-bottom:var(--sp-3)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;width:16px;height:16px"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <div style="font-size:0.85rem"><strong>Approximate translation.</strong> This performs token-level substitution (entity paths, CAST types, system tokens) but does <strong>not</strong> translate association-to-JOIN structure. Always verify the result before running it against a database.</div>
+          </div>
           <div id="sql-split" style="display:grid;grid-template-columns:1fr 1fr;flex:1;overflow:hidden">
             <div class="json-pane">
               <div class="json-pane-header">
@@ -865,7 +940,7 @@
             <div class="form-label">PostgreSQL EXPLAIN Output</div>
             <textarea class="code-area" id="sql-explain-input" rows="8" placeholder="Paste EXPLAIN (or EXPLAIN ANALYZE) text here..."></textarea>
           </div>
-          <button class="btn btn-primary" onclick="visualizeSqlExplain()">Visualize Query Plan</button>
+          <button class="btn btn-primary btn-sm" onclick="visualizeSqlExplain()">Visualize Query Plan</button>
           <div id="sql-explain-result" style="margin-top:var(--sp-4);display:none;background:var(--bg-elevated);padding:var(--sp-4);border-radius:var(--r-md);border:1px solid var(--border);flex:1;overflow:auto;"></div>
         </div>
         
@@ -893,8 +968,8 @@
      <!-- JWT DECODER -->
     <div class="tool-panel" id="panel-jwt-decoder">
       <div class="tool-header">
-        <div class="tool-header-icon" style="background:#271f2d"><svg viewBox="0 0 24 24" fill="none" stroke="#c792ea" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">JWT Token Decoder</div><div class="tool-header-desc">Decode and inspect JWT tokens locally &mdash; no data sent externally</div></div>
+        <div class="tool-header-icon" style="background:var(--purple-subtle)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--purple)" stroke-width="2"><use href="#icon-shield"></use></svg></div>
+        <div class="tool-header-info"><div class="tool-header-title">JWT Decoder</div><div class="tool-header-desc">Decode and inspect JWT tokens locally &mdash; no data sent externally</div></div>
       </div>
       <div class="tool-body">
         <div class="form-group" style="margin-bottom:var(--sp-4)">
@@ -912,17 +987,67 @@
         </div>
       </div>
     </div>
+    <!-- SAML / OIDC DEBUGGER -->
+    <div class="tool-panel" id="panel-saml-debugger">
+      <div class="tool-header">
+        <div class="tool-header-icon" style="background:var(--purple-subtle)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--purple)" stroke-width="2"><path d="M9 12l2 2 4-4"/><path d="M12 3l7 4v5c0 4.5-3 8-7 9-4-1-7-4.5-7-9V7z"/></svg></div>
+        <div class="tool-header-info"><div class="tool-header-title">SAML / OIDC Debugger</div><div class="tool-header-desc">Decode SAML responses and OIDC id_tokens locally &mdash; inspect assertions, claims and validity</div></div>
+        <div class="tool-header-actions">
+          <button class="btn btn-primary btn-sm" onclick="samlDecodeActive()">Decode</button>
+        </div>
+      </div>
+      <div class="tool-body" style="padding-top:0">
+        <div class="tabs" style="margin-bottom:var(--sp-3);padding:0;border-bottom:1px solid var(--border)">
+          <button type="button" class="tab active" onclick="samlSetTab('saml',this)">SAML Response / Request</button>
+          <button type="button" class="tab" onclick="samlSetTab('oidc',this)">OIDC id_token (JWT)</button>
+        </div>
+
+        <!-- SAML TAB -->
+        <div id="saml-tab-saml">
+          <div class="notice notice-info" style="margin-bottom:var(--sp-3)">
+            Paste a Base64 <code>SAMLResponse</code> or <code>SAMLRequest</code> (from the browser DevTools Network tab, form POST body, or a redirect URL parameter). URL-encoded and DEFLATE-compressed (Redirect binding) values are handled automatically. Everything is decoded in your browser &mdash; nothing is sent anywhere.
+          </div>
+          <div class="form-group" style="margin-bottom:var(--sp-3)">
+            <div class="form-label">SAMLResponse / SAMLRequest (Base64)</div>
+            <textarea class="code-area" id="saml-input" rows="4" placeholder="PHNhbWxwOlJlc3BvbnNl... or URL-encoded / deflated value"></textarea>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-4)">
+            <div style="display:flex;flex-direction:column;min-height:0">
+              <div class="form-label">Formatted XML</div>
+              <pre id="saml-xml-output" class="code-area" style="flex:1;min-height:280px;overflow:auto;background:var(--bg-elevated);font-size:0.8rem;white-space:pre;margin:0">Decoded XML will appear here...</pre>
+            </div>
+            <div style="display:flex;flex-direction:column;min-height:0">
+              <div class="form-label">Assertion Summary</div>
+              <div id="saml-summary" style="flex:1;min-height:280px;overflow:auto;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-3)"><div style="color:var(--text-muted)">Issuer, subject, audience, validity window and attributes will appear here...</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- OIDC TAB -->
+        <div id="saml-tab-oidc" style="display:none">
+          <div class="notice notice-info" style="margin-bottom:var(--sp-3)">
+            Paste an OIDC <code>id_token</code> (a JWT). It is decoded locally with OIDC-specific claim interpretation (<code>iss</code>, <code>aud</code>, <code>nonce</code>, <code>exp</code>, <code>at_hash</code>…). For generic JWTs use the dedicated JWT Decoder.
+          </div>
+          <div class="form-group" style="margin-bottom:var(--sp-3)">
+            <div class="form-label">id_token (JWT)</div>
+            <textarea class="code-area" id="saml-oidc-input" rows="4" placeholder="eyJhbGciOiJSUzI1NiIsImtpZCI6..."></textarea>
+          </div>
+          <div id="saml-oidc-output" style="background:var(--bg-base);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-3)"><div style="color:var(--text-muted)">Decoded header and claims will appear here...</div></div>
+        </div>
+      </div>
+    </div>
+
     <!-- REGEX TESTER (Mendix Mode) -->
     <div class="tool-panel" id="panel-regex-tester">
       <div class="tool-header">
-        <div class="tool-header-icon" style="background:#2d2613"><svg viewBox="0 0 24 24" fill="none" stroke="var(--warning)" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">Java Regex Tester (Mendix Mode)</div><div class="tool-header-desc">Test regular expressions behaving like Java Engine in Mendix</div></div>
+        <div class="tool-header-icon" style="background:var(--warning-subtle)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--warning)" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div>
+        <div class="tool-header-info"><div class="tool-header-title">Java Regex Tester (Mendix)</div><div class="tool-header-desc">Test regular expressions behaving like Java Engine in Mendix</div></div>
       </div>
-      <div class="tool-body" style="display:grid;grid-template-columns:1fr 300px;gap:var(--sp-4);flex:1;overflow:hidden">
+      <div class="tool-body rt-body-grid">
         <div style="display:flex;flex-direction:column;gap:var(--sp-3);overflow-y:auto;padding-right:var(--sp-2)">
           <div class="notice notice-warning" style="margin-bottom:0">
             <div>
-              <strong>Mendix uses Java regular expressions.</strong> This tool simulates Java <code>java.util.regex</code> behaviour. Note: Mendix <code>isMatch()</code> implicitly anchors to full string (like <code>^</code> and <code>$</code>). <br><span style="font-size:.72rem;opacity:.8">âš  Java-only features not supported in JS: possessive quantifiers (<code>a++</code>), <code>(?x)</code> verbose mode. Use <code>s</code> flag instead of <code>(?s)</code>.</span>
+              <strong>Mendix uses Java regular expressions.</strong> This tool simulates Java <code>java.util.regex</code> behaviour. Note: Mendix <code>isMatch()</code> implicitly anchors to full string (like <code>^</code> and <code>$</code>). <br><span style="font-size:.75rem;opacity:.8">&#9888; Java-only features not supported in JS: possessive quantifiers (<code>a++</code>), <code>(?x)</code> verbose mode. Use <code>s</code> flag instead of <code>(?s)</code>.</span>
             </div>
           </div>
           <div class="regex-input-wrapper">
@@ -959,7 +1084,7 @@
     <div class="tool-panel" id="panel-timestamp">
       <div class="tool-header">
         <div class="tool-header-icon" style="background:var(--accent-subtle)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">Timestamp &amp; Date Converter</div><div class="tool-header-desc">Convert epoch, ISO 8601 and human-readable dates &mdash; click any result to copy</div></div>
+        <div class="tool-header-info"><div class="tool-header-title">Timestamp Converter</div><div class="tool-header-desc">Convert epoch, ISO 8601 and human-readable dates &mdash; click any result to copy</div></div>
         <div class="tool-header-actions"><button class="btn btn-secondary btn-sm" id="ts-btn-now">Set to Now</button></div>
       </div>
       <div class="tool-body">
@@ -976,14 +1101,65 @@
           <button class="btn btn-primary btn-sm" id="ts-btn-diff" style="align-self:flex-end">Calculate</button>
         </div>
         <div id="ts-diff-result" class="ts-grid" style="display:none"></div>
+
+        <div class="sep"></div>
+        <h4 style="font-size:.8rem;margin-bottom:var(--sp-2)">Scheduled Event Preview</h4>
+        <div class="notice notice-info" style="margin-bottom:var(--sp-3);font-size:0.82rem">
+          Mendix Cloud runs scheduled events in <strong>UTC</strong>, but you usually think in local time. Preview the next runs side-by-side to avoid off-by-one-day and Daylight Saving surprises.
+        </div>
+        <div class="form-row" style="margin-bottom:var(--sp-3);flex-wrap:wrap;gap:var(--sp-3);align-items:flex-end">
+          <div class="form-group">
+            <div class="form-label">Recurrence</div>
+            <select class="select" id="ts-sched-recur" style="width:150px">
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="hourly">Every N hours</option>
+              <option value="minutes">Every N minutes</option>
+            </select>
+          </div>
+          <div class="form-group" id="ts-sched-time-group">
+            <div class="form-label">Time (HH:MM)</div>
+            <input class="input input-mono" id="ts-sched-time" value="03:00" style="width:100px">
+          </div>
+          <div class="form-group" id="ts-sched-weekday-group" style="display:none">
+            <div class="form-label">Weekday</div>
+            <select class="select" id="ts-sched-weekday" style="width:130px">
+              <option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option>
+              <option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option><option value="0">Sunday</option>
+            </select>
+          </div>
+          <div class="form-group" id="ts-sched-interval-group" style="display:none">
+            <div class="form-label">Interval (N)</div>
+            <input type="number" class="input input-mono" id="ts-sched-interval" value="6" min="1" style="width:90px">
+          </div>
+          <div class="form-group">
+            <div class="form-label">Configured in</div>
+            <select class="select" id="ts-sched-tz" style="width:130px">
+              <option value="utc">UTC</option>
+              <option value="local">Local time</option>
+            </select>
+          </div>
+          <button class="btn btn-primary btn-sm" id="ts-btn-sched" style="align-self:flex-end">Preview Runs</button>
+        </div>
+        <div id="ts-sched-result" style="display:none;overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:0.82rem">
+            <thead><tr style="text-align:left;color:var(--text-muted);background:var(--bg-elevated)">
+              <th style="padding:6px 10px">#</th>
+              <th style="padding:6px 10px">UTC (server)</th>
+              <th style="padding:6px 10px">Local (your timezone)</th>
+              <th style="padding:6px 10px">In</th>
+            </tr></thead>
+            <tbody id="ts-sched-body"></tbody>
+          </table>
+        </div>
       </div>
     </div>
 
     <!-- TEXT DIFF -->
     <div class="tool-panel" id="panel-text-diff">
       <div class="tool-header">
-        <div class="tool-header-icon" style="background:#1f2d1f"><svg viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">Text Diff Tool</div><div class="tool-header-desc">Compare two text blocks side-by-side with highlighted differences</div></div>
+        <div class="tool-header-icon" style="background:var(--success-subtle)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></div>
+        <div class="tool-header-info"><div class="tool-header-title">Text Diff</div><div class="tool-header-desc">Compare two text blocks side-by-side with highlighted differences</div></div>
       </div>
       <div class="tool-body no-pad" style="display:grid;grid-template-rows:auto 1fr;height:100%">
         <div style="display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--border)">
@@ -1000,17 +1176,17 @@
     <!-- ENCODER -->
     <div class="tool-panel" id="panel-encoder">
       <div class="tool-header">
-        <div class="tool-header-icon" style="background:#1f2820"><svg viewBox="0 0 24 24" fill="none" stroke="#7ee8a2" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">Base64 / URL / HTML Encoder-Decoder</div><div class="tool-header-desc">Encode and decode data in various formats</div></div>
+        <div class="tool-header-icon" style="background:color-mix(in srgb, #2ecc71 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#2ecc71" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
+        <div class="tool-header-info"><div class="tool-header-title">Base64 / URL Encoder</div><div class="tool-header-desc">Encode and decode data in various formats</div></div>
       </div>
       <div class="tool-body">
         <div class="tabs" style="margin-bottom:var(--sp-4);padding:0;border-bottom:1px solid var(--border)">
-          <div class="tab active" onclick="encSetMode('base64',this)">Base64</div>
-          <div class="tab" onclick="encSetMode('url',this)">URL Encode</div>
-          <div class="tab" onclick="encSetMode('html',this)">HTML Entities</div>
-          <div class="tab" onclick="encSetMode('hex',this)">Hexadecimal</div>
+          <button type="button" class="tab active" onclick="encSetMode('base64',this)">Base64</button>
+          <button type="button" class="tab" onclick="encSetMode('url',this)">URL Encode</button>
+          <button type="button" class="tab" onclick="encSetMode('html',this)">HTML Entities</button>
+          <button type="button" class="tab" onclick="encSetMode('hex',this)">Hexadecimal</button>
         </div>
-        <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:var(--sp-3);height:calc(100% - 60px)">
+        <div class="encoder-grid" style="height:calc(100% - 60px)">
           <div class="form-group"><div class="form-label">Input</div><textarea class="code-area" id="enc-input" style="height:calc(100% - 26px)" placeholder="Enter text..."></textarea></div>
           <div style="display:flex;flex-direction:column;gap:var(--sp-2);align-items:center;justify-content:center;padding-top:26px">
             <button class="btn btn-primary" onclick="encEncode()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>Encode</button>
@@ -1027,8 +1203,8 @@
     <!-- SQL FORMATTER -->
     <div class="tool-panel" id="panel-sql-formatter">
       <div class="tool-header">
-        <div class="tool-header-icon" style="background:#1a1f2d"><svg viewBox="0 0 24 24" fill="none" stroke="#7c85f3" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">SQL Query Formatter</div><div class="tool-header-desc">Format and highlight SQL queries generated by Mendix ORM / ConnectionBus</div></div>
+        <div class="tool-header-icon" style="background:color-mix(in srgb, #7c85f3 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#7c85f3" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></div>
+        <div class="tool-header-info"><div class="tool-header-title">SQL Formatter</div><div class="tool-header-desc">Format and highlight SQL queries generated by Mendix ORM / ConnectionBus</div></div>
         <div class="tool-header-actions">
           <div class="btn-group">
             <button class="btn btn-secondary btn-sm active" onclick="uiSetView('sql-split', 'split', this)">Split</button>
@@ -1053,8 +1229,8 @@
     <!-- ODATA BUILDER -->
     <div class="tool-panel" id="panel-odata-builder">
       <div class="tool-header">
-        <div class="tool-header-icon" style="background:#1f2820"><svg viewBox="0 0 24 24" fill="none" stroke="#7ee8a2" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">OData Query Builder</div><div class="tool-header-desc">Build OData v3/v4 queries for Mendix Published OData Services</div></div>
+        <div class="tool-header-icon" style="background:color-mix(in srgb, #2ecc71 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#2ecc71" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></div>
+        <div class="tool-header-info"><div class="tool-header-title">OData Builder</div><div class="tool-header-desc">Build OData v3/v4 queries for Mendix Published OData Services</div></div>
         <div class="tool-header-actions"><button class="btn btn-secondary btn-sm" onclick="odataCopyUrl()">Copy URL</button></div>
       </div>
       <div class="tool-body">
@@ -1084,7 +1260,7 @@
     <!-- DATA FACTORY -->
     <div class="tool-panel" id="panel-data-factory">
       <div class="tool-header">
-        <div class="tool-header-icon" style="background:#201e18"><svg viewBox="0 0 24 24" fill="none" stroke="#f39c12" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg></div>
+        <div class="tool-header-icon" style="background:color-mix(in srgb, #f39c12 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#f39c12" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg></div>
         <div class="tool-header-info"><div class="tool-header-title">Data Factory</div><div class="tool-header-desc">High-Volume Mock Data Generator for performance testing and mock servers</div></div>
       </div>
       <div class="tool-body" style="display:flex;flex-direction:column;gap:var(--sp-4);overflow-y:auto">
@@ -1127,14 +1303,16 @@
     <!-- API ECONOMICS -->
     <div class="tool-panel" id="panel-api-economics">
       <div class="tool-header">
-        <div class="tool-header-icon" style="background:#1a2b25"><svg viewBox="0 0 24 24" fill="none" stroke="#2ecc71" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">API Economics &amp; Payload Analyzer</div><div class="tool-header-desc">Analyze JSON payloads to optimize size and identify redundant fields</div></div>
+        <div class="tool-header-icon" style="background:color-mix(in srgb, #2ecc71 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#2ecc71" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></div>
+        <div class="tool-header-info"><div class="tool-header-title">API Economics</div><div class="tool-header-desc">Analyze JSON payloads to optimize size and identify redundant fields</div></div>
+        <div class="tool-header-actions">
+          <button class="btn btn-primary btn-sm" onclick="apiEconAnalyze()">Analyze Payload</button>
+        </div>
       </div>
       <div class="tool-body" style="display:flex;gap:var(--sp-4)">
         <div style="flex:1;display:flex;flex-direction:column">
            <div class="form-label">Paste JSON Response / Payload</div>
            <textarea class="code-area" id="api-econ-input" style="flex:1" placeholder="Paste your API JSON response here..."></textarea>
-           <button class="btn btn-primary" style="margin-top:var(--sp-3)" onclick="apiEconAnalyze()">Analyze Payload</button>
         </div>
         <div style="flex:1;display:flex;flex-direction:column;overflow-y:auto">
            <div class="form-label">Analysis Results</div>
@@ -1148,10 +1326,14 @@
     <!-- PERFORMANCE LAB -->
     <div class="tool-panel" id="panel-perf-lab">
       <div class="tool-header">
-        <div class="tool-header-icon" style="background:#2b1928"><svg viewBox="0 0 24 24" fill="none" stroke="#e84393" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></div>
+        <div class="tool-header-icon" style="background:color-mix(in srgb, #e84393 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#e84393" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></div>
         <div class="tool-header-info"><div class="tool-header-title">Performance Lab</div><div class="tool-header-desc">Simulate concurrent load on endpoints with latency tracking</div></div>
+        <div class="tool-header-actions">
+          <button class="btn btn-danger btn-sm" id="pl-btn-stop" onclick="plStop()" style="display:none">Stop</button>
+          <button class="btn btn-primary btn-sm" id="pl-btn-start" onclick="plStart()">Start Load Test</button>
+        </div>
       </div>
-      <div class="tool-body" style="display:flex;gap:var(--sp-4)">
+      <div class="tool-body two-col-body">
         <div style="flex:1;display:flex;flex-direction:column;gap:var(--sp-3)">
            <div style="display:flex;justify-content:space-between;align-items:center">
              <div style="font-weight:600;color:var(--text-primary)">Request Configuration</div>
@@ -1207,8 +1389,6 @@
            </div>
 
            <div style="display:flex;gap:var(--sp-3);margin-top:var(--sp-3)">
-             <button class="btn btn-primary" id="pl-btn-start" onclick="plStart()">Start Load Test</button>
-             <button class="btn btn-secondary" id="pl-btn-stop" onclick="plStop()" style="display:none;background:var(--danger)">Stop</button>
              <div id="pl-status" style="display:flex;align-items:center;color:var(--text-muted);font-weight:600"></div>
            </div>
         </div>
@@ -1265,8 +1445,13 @@
     <!-- MOCK SERVER -->
     <div class="tool-panel" id="panel-mock-server">
       <div class="tool-header">
-        <div class="tool-header-icon" style="background:#2d1f11"><svg viewBox="0 0 24 24" fill="none" stroke="#e67e22" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg></div>
+        <div class="tool-header-icon" style="background:color-mix(in srgb, #e67e22 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#e67e22" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg></div>
         <div class="tool-header-info"><div class="tool-header-title">Mock Server &amp; Chaos</div><div class="tool-header-desc">Simulate API endpoints with custom latency and chaos engineering</div></div>
+        <div class="tool-header-actions">
+          <button class="btn btn-ghost btn-sm" onclick="msTrigger()">Trigger Manual Request</button>
+          <button class="btn btn-danger btn-sm" onclick="msStop()">Stop</button>
+          <button class="btn btn-primary btn-sm" onclick="msStart()">Activate Responder</button>
+        </div>
       </div>
       <div class="tool-body" style="display:flex;gap:var(--sp-4)">
         <div style="flex:1;display:flex;flex-direction:column">
@@ -1293,11 +1478,6 @@
            <label style="display:flex;align-items:center;gap:8px;margin-top:var(--sp-3);cursor:pointer;color:var(--warning)">
              <input type="checkbox" id="ms-chaos"> Enable Chaos Monkey (Random 500s and huge latency spikes)
            </label>
-           <div style="margin-top:var(--sp-4);display:flex;gap:var(--sp-3)">
-             <button class="btn btn-primary" onclick="msStart()">Activate Responder</button>
-             <button class="btn btn-secondary" onclick="msStop()">Stop</button>
-             <button class="btn btn-ghost" style="margin-left:auto" onclick="msTrigger()">Trigger Manual Request</button>
-           </div>
         </div>
         <div style="flex:1;display:flex;flex-direction:column;overflow-y:auto">
            <div class="form-label">Server Console</div>
@@ -1311,39 +1491,20 @@
     <!-- WASM PROFILER -->
     <div class="tool-panel" id="panel-wasm-profiler">
       <div class="tool-header">
-        <div class="tool-header-icon" style="background:#2b2015"><svg viewBox="0 0 24 24" fill="none" stroke="#f1c40f" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></div>
+        <div class="tool-header-icon" style="background:color-mix(in srgb, #f1c40f 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#f1c40f" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></div>
         <div class="tool-header-info"><div class="tool-header-title">WASM Profiler</div><div class="tool-header-desc">Analyze WebAssembly traces and memory usage in Mendix Client</div></div>
+        <div class="tool-header-actions">
+          <button class="btn btn-primary btn-sm" onclick="wpAnalyze()">Analyze Trace</button>
+        </div>
       </div>
       <div class="tool-body" style="display:flex;gap:var(--sp-4)">
         <div style="flex:1;display:flex;flex-direction:column">
            <div class="form-label">Paste WASM Call Trace</div>
            <textarea class="code-area" id="wp-input" style="flex:1" placeholder="WASM Instruction Trace..."></textarea>
-           <button class="btn btn-primary" style="margin-top:var(--sp-3)" onclick="wpAnalyze()">Analyze Trace</button>
         </div>
         <div style="flex:1;display:flex;flex-direction:column;overflow-y:auto">
            <div class="form-label">Profiler Output</div>
            <div id="wp-results" style="flex:1;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-4);display:flex;flex-direction:column">
-              <div style="color:var(--text-muted)">Analysis will appear here...</div>
-           </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- MEMORY INSPECTOR -->
-    <div class="tool-panel" id="panel-memory-inspector">
-      <div class="tool-header">
-        <div class="tool-header-icon" style="background:#1d1829"><svg viewBox="0 0 24 24" fill="none" stroke="#9b59b6" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">Memory Inspector</div><div class="tool-header-desc">Analyze heap dumps and garbage collector logs</div></div>
-      </div>
-      <div class="tool-body" style="display:flex;gap:var(--sp-4)">
-        <div style="flex:1;display:flex;flex-direction:column">
-           <div class="form-label">Paste GC Logs / Heap Histogram</div>
-           <textarea class="code-area" id="mi-input" style="flex:1" placeholder="class name  [instances]  [bytes]..."></textarea>
-           <button class="btn btn-primary" style="margin-top:var(--sp-3)" onclick="miAnalyze()">Run Inspector</button>
-        </div>
-        <div style="flex:1;display:flex;flex-direction:column;overflow-y:auto">
-           <div class="form-label">Analysis Output</div>
-           <div id="mi-results" style="flex:1;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-4);display:flex;flex-direction:column">
               <div style="color:var(--text-muted)">Analysis will appear here...</div>
            </div>
         </div>
@@ -1416,7 +1577,7 @@
         }
       </style>
       <div class="tool-header">
-        <div class="tool-header-icon" style="background:#1a252f"><svg viewBox="0 0 24 24" fill="none" stroke="#bdc3c7" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg></div>
+        <div class="tool-header-icon" style="background:color-mix(in srgb, #7f8c8d 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#7f8c8d" stroke-width="2"><use href="#icon-doc-log-code"></use></svg></div>
         <div class="tool-header-info"><div class="tool-header-title">Developer Studio</div><div class="tool-header-desc">Automatic local Mendix project inspector</div></div>
       </div>
       <div class="tool-body" style="display:flex; flex-direction:column; height:calc(100% - 60px); overflow-y:auto; padding:var(--sp-4);">
@@ -1431,7 +1592,7 @@
 
            <h3 style="margin-top:0; color:var(--text-primary)">Waiting for local Mendix application...</h3>
            <p style="color:var(--text-secondary); font-size:0.9rem; margin-bottom:var(--sp-5); line-height:1.6">
-             Start your application in **Mendix Studio Pro**. The tool will automatically connect and load the dashboard once the runtime is active.
+             Start your application in <strong>Mendix Studio Pro</strong>. The tool will automatically connect and load the dashboard once the runtime is active.
            </p>
 
            <div style="display:flex; flex-direction:column; gap:var(--sp-3); width:100%; text-align:left; margin-bottom:var(--sp-4); background:var(--bg-elevated); padding:var(--sp-3); border-radius:var(--r-md); border:1px solid var(--border)">
@@ -1535,7 +1696,7 @@
                 </div>
                 <h5 style="margin:var(--sp-3) 0 var(--sp-2) 0; font-size:0.85rem; color:var(--text-primary)">Custom Widgets (MPKs)</h5>
                 <div id="ds-widgets-list" style="display:flex; flex-wrap:wrap; gap:var(--sp-2); max-height: 150px; overflow-y: auto;">
-                  <span style="color:var(--text-muted); font-size:0.8rem">Loading...</span>
+                  <span style="color:var(--text-muted); font-size:0.8rem"><span class="spinner-sm"></span>Loading...</span>
                 </div>
               </div>
 
@@ -1572,7 +1733,7 @@
               <div class="card" style="padding:var(--sp-4)">
                 <h4 style="margin:0 0 var(--sp-3) 0; color:var(--text-primary); border-bottom:1px solid var(--border); padding-bottom:var(--sp-2)">Java Code Quality</h4>
                 <div id="ds-java-issues-list" style="display:flex; flex-direction:column; gap:var(--sp-2); font-size:0.85rem; max-height: 200px; overflow-y: auto;">
-                  <span style="color:var(--text-muted)">Loading...</span>
+                  <span style="color:var(--text-muted)"><span class="spinner-sm"></span>Loading...</span>
                 </div>
               </div>
 
@@ -1610,8 +1771,13 @@
     <!-- ARCHITECTURE -->
     <div class="tool-panel" id="panel-architecture">
       <div class="tool-header">
-        <div class="tool-header-icon" style="background:#1e2730"><svg viewBox="0 0 24 24" fill="none" stroke="#5cb85c" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg></div>
+        <div class="tool-header-icon" style="background:color-mix(in srgb, #5cb85c 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#5cb85c" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg></div>
         <div class="tool-header-info"><div class="tool-header-title">Domain Model &amp; Architecture</div><div class="tool-header-desc">Generate Class Diagrams (Mermaid) from JSON or pseudocode</div></div>
+        <div class="tool-header-actions">
+          <button class="btn btn-secondary btn-sm" onclick="archCopyMermaid()">Copy Mermaid</button>
+          <button class="btn btn-secondary btn-sm" onclick="archDownloadSvg()">Download SVG</button>
+          <button class="btn btn-primary btn-sm" onclick="archGenerate()">Generate Diagram</button>
+        </div>
       </div>
       <div class="tool-body" style="display:flex;gap:var(--sp-4)">
         <div style="flex:1;display:flex;flex-direction:column">
@@ -1621,7 +1787,6 @@
   attr2: Integer
 
 EntityName -> OtherEntity : Association"></textarea>
-           <button class="btn btn-primary" style="margin-top:var(--sp-3)" onclick="archGenerate()">Generate Diagram</button>
         </div>
         <div style="flex:1;display:flex;flex-direction:column;overflow-y:auto">
            <div class="form-label">Architecture Visualization</div>
@@ -1636,7 +1801,7 @@ EntityName -> OtherEntity : Association"></textarea>
     <!-- HASH GENERATOR -->
     <div class="tool-panel" id="panel-hash-gen">
       <div class="tool-header">
-        <div class="tool-header-icon" style="background:#1a1a2e"><svg viewBox="0 0 24 24" fill="none" stroke="#a29bfe" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg></div>
+        <div class="tool-header-icon" style="background:color-mix(in srgb, #a29bfe 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#a29bfe" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg></div>
         <div class="tool-header-info"><div class="tool-header-title">Hash Generator</div><div class="tool-header-desc">Generate SHA-256, SHA-512, SHA-1 hashes using browser WebCrypto</div></div>
       </div>
       <div class="tool-body">
@@ -1661,7 +1826,7 @@ EntityName -> OtherEntity : Association"></textarea>
     <!-- PASSWORD GENERATOR -->
     <div class="tool-panel" id="panel-password-generator">
       <div class="tool-header">
-        <div class="tool-header-icon" style="background:#2d1e1e"><svg viewBox="0 0 24 24" fill="none" stroke="#e17055" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg></div>
+        <div class="tool-header-icon" style="background:color-mix(in srgb, #e17055 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#e17055" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg></div>
         <div class="tool-header-info"><div class="tool-header-title">Password Generator</div><div class="tool-header-desc">Generate secure random passwords locally</div></div>
       </div>
       <div class="tool-body">
@@ -1695,7 +1860,7 @@ EntityName -> OtherEntity : Association"></textarea>
     <div class="tool-panel" id="panel-http-status">
       <div class="tool-header">
         <div class="tool-header-icon" style="background:var(--info-subtle)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--info)" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">HTTP Status Code Reference</div><div class="tool-header-desc">Quick lookup for HTTP codes with Mendix context and usage notes</div></div>
+        <div class="tool-header-info"><div class="tool-header-title">HTTP Status Codes</div><div class="tool-header-desc">Quick lookup for HTTP codes with Mendix context and usage notes</div></div>
       </div>
       <div class="tool-body">
         <div class="form-row" style="margin-bottom:var(--sp-4)">
@@ -1713,32 +1878,56 @@ EntityName -> OtherEntity : Association"></textarea>
       </div>
     </div>
 
-    <!-- THREAD DUMP ANALYZER -->
+    <!-- JVM HEALTH ANALYZER (Thread Dump + GC & Memory) -->
     <div class="tool-panel" id="panel-thread-dump">
       <div class="tool-header">
         <div class="tool-header-icon" style="background:var(--danger-subtle)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">Thread Dump Analyzer</div><div class="tool-header-desc">Find blocked threads and analyze Mendix Out Of Memory issues</div></div>
+        <div class="tool-header-info"><div class="tool-header-title">JVM Health Analyzer</div><div class="tool-header-desc">Thread dumps, GC logs and heap histograms &mdash; find blocked threads and memory leaks</div></div>
+        <div class="tool-header-actions">
+          <button class="btn btn-primary btn-sm" id="jvm-analyze-btn" onclick="jvmAnalyzeActive()">Analyze Thread Dump</button>
+        </div>
       </div>
-      <div class="tool-body">
-        <div class="notice notice-warning" style="margin-bottom:var(--sp-3)">
-          <strong>How to get a Thread Dump:</strong><br/>
-          &bull; <strong>Local Studio Pro:</strong> Find the Java PID and run <code>jstack &lt;PID&gt; &gt; dump.txt</code> (requires JDK), or use JVisualVM.<br/>
-          &bull; <strong>Red Hat Server (m2ee-tools):</strong> Open the <code>m2ee</code> interactive console and run <code>show_all_thread_stack_traces</code>.
+      <div class="tool-body" style="padding-top:0">
+        <div class="tabs" style="margin-bottom:var(--sp-3);padding:0;border-bottom:1px solid var(--border)">
+          <button type="button" class="tab active" data-help-key="thread-dump" onclick="jvmSetTab('threads',this)">Thread Dump</button>
+          <button type="button" class="tab" data-help-key="memory-inspector" onclick="jvmSetTab('memory',this)">GC &amp; Memory</button>
         </div>
-        <div class="form-group" style="margin-bottom:var(--sp-3)">
-          <div class="form-label">Paste Thread Dump</div>
-          <textarea class="code-area" id="thread-dump-input" rows="8" placeholder="Paste your thread dump here, or drag & drop a file..."></textarea>
+
+        <!-- THREAD DUMP TAB -->
+        <div id="jvm-tab-threads">
+          <div class="notice notice-warning" style="margin-bottom:var(--sp-3)">
+            <strong>How to get a Thread Dump:</strong><br/>
+            &bull; <strong>Local Studio Pro:</strong> Find the Java PID and run <code>jstack &lt;PID&gt; &gt; dump.txt</code> (requires JDK), or use JVisualVM.<br/>
+            &bull; <strong>Red Hat Server (m2ee-tools):</strong> Open the <code>m2ee</code> interactive console and run <code>show_all_thread_stack_traces</code>.
+          </div>
+          <div class="form-group" style="margin-bottom:var(--sp-3)">
+            <div class="form-label">Paste Thread Dump</div>
+            <textarea class="code-area" id="thread-dump-input" rows="8" placeholder="Paste your thread dump here, or drag & drop a file..."></textarea>
+          </div>
+          <div id="thread-dump-result" style="margin-top:var(--sp-4);display:none;"></div>
         </div>
-        <button class="btn btn-primary" onclick="analyzeThreadDump()">Analyze Thread Dump</button>
-        <div id="thread-dump-result" style="margin-top:var(--sp-4);display:none;"></div>
+
+        <!-- GC & MEMORY TAB -->
+        <div id="jvm-tab-memory" style="display:none;gap:var(--sp-4);flex:1;min-height:0">
+          <div style="flex:1;display:flex;flex-direction:column">
+            <div class="form-label">Paste GC Logs / Heap Histogram</div>
+            <textarea class="code-area" id="mi-input" style="flex:1;min-height:220px" placeholder="class name  [instances]  [bytes]..."></textarea>
+          </div>
+          <div style="flex:1;display:flex;flex-direction:column;overflow-y:auto">
+            <div class="form-label">Analysis Output</div>
+            <div id="mi-results" style="flex:1;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-4);display:flex;flex-direction:column">
+              <div style="color:var(--text-muted)">Analysis will appear here...</div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
     <!-- MARKDOWN PREVIEW -->
     <div class="tool-panel" id="panel-md-preview">
       <div class="tool-header">
-        <div class="tool-header-icon" style="background:#1f2020"><svg viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">Markdown Preview &amp; Table Generator</div><div class="tool-header-desc">Write and preview Markdown with live rendering &mdash; export to HTML or generate tables</div></div>
+        <div class="tool-header-icon" style="background:color-mix(in srgb, #95a5a6 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#95a5a6" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+        <div class="tool-header-info"><div class="tool-header-title">Markdown &amp; Table Generator</div><div class="tool-header-desc">Write and preview Markdown with live rendering &mdash; export to HTML or generate tables</div></div>
         <div class="tool-header-actions" id="md-editor-actions">
           <div class="btn-group">
             <button class="btn btn-secondary btn-sm active" onclick="uiSetView('md-split', 'split', this)">Split</button>
@@ -1753,8 +1942,8 @@ EntityName -> OtherEntity : Association"></textarea>
       </div>
       <div class="tool-body" style="padding-top:0">
         <div class="tabs" style="margin-bottom:var(--sp-3);padding:0;border-bottom:1px solid var(--border)">
-          <div class="tab active" onclick="mdSetTab('editor',this)">Markdown Editor</div>
-          <div class="tab" onclick="mdSetTab('table',this)">Table Generator</div>
+          <button type="button" class="tab active" onclick="mdSetTab('editor',this)">Markdown Editor</button>
+          <button type="button" class="tab" onclick="mdSetTab('table',this)">Table Generator</button>
         </div>
 
         <!-- EDITOR TAB -->
@@ -1762,7 +1951,7 @@ EntityName -> OtherEntity : Association"></textarea>
           <div id="md-split" style="display:grid;grid-template-columns:1fr 1fr;flex:1;overflow:hidden">
             <div class="json-pane" id="md-editor-pane">
               <div class="json-pane-header"><h4>Markdown</h4><button class="btn btn-ghost btn-sm" onclick="document.getElementById('md-input').value='';mdRender()">Clear</button></div>
-              <div class="json-pane-body"><textarea class="json-input-area" id="md-input" placeholder="# Hello World&#10;&#10;Start writing markdown..." oninput="mdRender()"></textarea></div>
+              <div class="json-pane-body" style="position:relative;" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="mdHandleDrop(event)"><textarea class="json-input-area" id="md-input" placeholder="# Hello World&#10;&#10;Start writing markdown...&#10;&#10;(or drop a .md file here)" oninput="mdRender()"></textarea></div>
             </div>
             <div class="json-pane" id="md-preview-pane">
               <div class="json-pane-header"><h4>Preview</h4><button class="btn btn-ghost btn-sm" onclick="copyToClipboard(document.getElementById('md-preview-output').innerHTML)">Copy HTML</button></div>
@@ -1778,7 +1967,7 @@ EntityName -> OtherEntity : Association"></textarea>
              <button class="btn btn-secondary btn-sm" onclick="mdTableAddCol()">+ Add Column</button>
              <button class="btn btn-secondary btn-sm" onclick="mdTableReset()">Reset 3x3</button>
              <div style="width:1px;height:20px;background:var(--border);margin:0 10px;"></div>
-             <span style="font-size:0.85rem;color:var(--text-secondary)">Tip: Click column headers to align (Left/Center/Right). Paste TSV/CSV from Excel anywhere.</span>
+             <span style="font-size:0.85rem;color:var(--text-secondary)">Tip: Click a header to rename it, use its ⇤ / ↔ / ⇥ icon to align the column. Paste TSV/CSV from Excel anywhere.</span>
           </div>
           <div class="json-pane-body" style="flex:1;overflow:auto;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--r-md);margin-bottom:var(--sp-3)">
              <table id="md-table-grid" class="md-table-generator" style="width:100%;border-collapse:collapse;min-width:400px;background:var(--bg-surface)">
@@ -1796,8 +1985,8 @@ EntityName -> OtherEntity : Association"></textarea>
     <!-- NGINX LOG ANALYZER -->
     <div class="tool-panel" id="panel-nginx-log">
       <div class="tool-header">
-        <div class="tool-header-icon" style="background:#2ea043;color:white"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">Nginx Log Viewer & Analyzer</div><div class="tool-header-desc">Analyze and View Nginx access & error logs (search, filtering, top IPs, URLs, status codes)</div></div>
+        <div class="tool-header-icon" style="background:var(--success-subtle);color:var(--success)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div>
+        <div class="tool-header-info"><div class="tool-header-title">Nginx Log Analyzer</div><div class="tool-header-desc">Analyze and View Nginx access & error logs (search, filtering, top IPs, URLs, status codes)</div></div>
         <div class="tool-header-actions">
           <button class="btn btn-secondary btn-sm" onclick="nginxClearData()" title="Clear logs and memory"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg> Clear</button>
           <button class="btn btn-secondary btn-sm" id="nginx-send-anon-btn" style="display:none" onclick="nginxSendToAnonymizer()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Anonymize in Tool</button>
@@ -1806,8 +1995,8 @@ EntityName -> OtherEntity : Association"></textarea>
       </div>
       <div class="tool-body" style="display:flex;flex-direction:column;gap:var(--sp-4); overflow:hidden; padding-bottom:0;">
         <div class="tabs" style="display:flex;gap:16px;border-bottom:1px solid var(--border);margin-bottom:-8px;flex-shrink:0;">
-          <div class="tab active" onclick="nginxSwitchTab('access')" id="nx-tab-access" style="cursor:pointer;padding:8px;border-bottom:2px solid var(--primary);font-weight:bold;color:var(--text)">Access Log</div>
-          <div class="tab" onclick="nginxSwitchTab('error')" id="nx-tab-error" style="cursor:pointer;padding:8px;border-bottom:2px solid transparent;color:var(--text-muted)">Error Log</div>
+          <button type="button" class="tab active" onclick="nginxSwitchTab('access')" id="nx-tab-access" style="cursor:pointer;padding:8px;border-bottom:2px solid var(--primary);font-weight:bold;color:var(--text)">Access Log</button>
+          <button type="button" class="tab" onclick="nginxSwitchTab('error')" id="nx-tab-error" style="cursor:pointer;padding:8px;border-bottom:2px solid transparent;color:var(--text-muted)">Error Log</button>
         </div>
         
         <div id="nx-content-access" style="display:flex;flex-direction:column;gap:var(--sp-4); flex:1; min-height:0;">
@@ -1816,7 +2005,7 @@ EntityName -> OtherEntity : Association"></textarea>
             <div style="position:relative; height:150px; margin-bottom:var(--sp-2);">
               <textarea class="textarea" id="nginx-log-input" style="height:100%; width:100%; resize:none;" placeholder=" "></textarea>
               <div class="empty-state-overlay">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><use href="#icon-doc-plain"></use></svg>
                 <p style="margin:0">Paste text or drag &amp; drop a log file here</p>
                 <div style="margin-top:var(--sp-2); display:flex; gap:var(--sp-2); pointer-events:auto;">
                   <label class="btn btn-secondary btn-sm" for="nginx-file-input" style="cursor:pointer">Browse Files</label>
@@ -1833,8 +2022,8 @@ EntityName -> OtherEntity : Association"></textarea>
         </div>
         
         <div id="nginx-results" style="display:none;flex-direction:column;gap:var(--sp-4); flex:1; min-height:0;">
-          <div id="log-toolbar" style="flex-shrink:0;">
-            <div id="log-toolbar-row1">
+          <div class="log-toolbar" style="flex-shrink:0;">
+            <div class="log-toolbar-row1">
               <input class="input input-mono" id="nx-access-search" placeholder="Search IP, URL, Method..." oninput="nginxApplyStreamFilters('access', 800)">
               <div class="log-level-filters">
                 <span class="level-filter-btn active" style="background:rgba(46,160,67,0.15);color:#2ea043;border-color:#2ea043" data-val="2" onclick="nginxToggleStatusClass(2, this)">2xx</span>
@@ -1843,8 +2032,8 @@ EntityName -> OtherEntity : Association"></textarea>
                 <span class="level-filter-btn active" style="background:rgba(231,76,60,0.15);color:#e74c3c;border-color:#e74c3c" data-val="5" onclick="nginxToggleStatusClass(5, this)">5xx</span>
               </div>
             </div>
-            <div id="log-toolbar-row2" style="margin-top:4px">
-              <span style="font-size:.72rem;color:var(--text-muted)">Time:</span>
+            <div class="log-toolbar-row2" style="margin-top:4px">
+              <span style="font-size:.75rem;color:var(--text-muted)">Time:</span>
               <input class="input input-mono" id="nx-access-time-from" placeholder="09:00:00" oninput="nginxApplyStreamFilters('access', 800)" style="width:90px">
               <span style="color:var(--text-muted)">&#8594;</span>
               <input class="input input-mono" id="nx-access-time-to" placeholder="10:00:00" oninput="nginxApplyStreamFilters('access', 800)" style="width:90px">
@@ -1852,8 +2041,8 @@ EntityName -> OtherEntity : Association"></textarea>
             </div>
           </div>
           <div class="tabs" style="margin-bottom:0;padding:0;border-bottom:1px solid var(--border); flex-shrink:0;">
-            <div class="tab active" onclick="nginxSetView('access', 'analyzer', this)" id="nx-access-tab-analyzer">Analyzer</div>
-            <div class="tab" onclick="nginxSetView('access', 'stream', this)" id="nx-access-tab-stream">Log Stream</div>
+            <button type="button" class="tab active" onclick="nginxSetView('access', 'analyzer', this)" id="nx-access-tab-analyzer">Analyzer</button>
+            <button type="button" class="tab" onclick="nginxSetView('access', 'stream', this)" id="nx-access-tab-stream">Log Stream</button>
           </div>
           <div id="nx-access-view-analyzer" style="display:flex;flex-direction:column;gap:var(--sp-4); flex:1; overflow-y:auto; padding-right:8px; padding-bottom:16px;">
           <!-- Filters UI -->
@@ -1865,12 +2054,12 @@ EntityName -> OtherEntity : Association"></textarea>
           
           <!-- General Stats -->
           <div class="grid-3" id="nginx-stats-grid">
-            <div class="stat-item"><div class="stat-label">Total Requests</div><div class="stat-value" id="nx-total-reqs">0</div></div>
-            <div class="stat-item"><div class="stat-label">Unique IPs</div><div class="stat-value" id="nx-unique-ips">0</div></div>
-            <div class="stat-item"><div class="stat-label">Total Bandwidth</div><div class="stat-value" id="nx-bandwidth">0 B</div></div>
-            <div class="stat-item"><div class="stat-label">Errors (4xx, 5xx)</div><div class="stat-value" id="nx-errors" style="color:var(--danger)">0</div></div>
-            <div class="stat-item"><div class="stat-label">Most Active Hour</div><div class="stat-value" id="nx-active-hour">-</div></div>
-            <div class="stat-item"><div class="stat-label">Parsed Successfully</div><div class="stat-value" id="nx-success-rate">0%</div></div>
+            <div class="stat-item stat-item-info"><div class="stat-label">Total Requests</div><div class="stat-value" id="nx-total-reqs">0</div></div>
+            <div class="stat-item stat-item-accent"><div class="stat-label">Unique IPs</div><div class="stat-value" id="nx-unique-ips">0</div></div>
+            <div class="stat-item stat-item-success"><div class="stat-label">Total Bandwidth</div><div class="stat-value" id="nx-bandwidth">0 B</div></div>
+            <div class="stat-item stat-item-danger"><div class="stat-label">Errors (4xx, 5xx)</div><div class="stat-value" id="nx-errors" style="color:var(--danger)">0</div></div>
+            <div class="stat-item stat-item-warning"><div class="stat-label">Most Active Hour</div><div class="stat-value" id="nx-active-hour">-</div></div>
+            <div class="stat-item stat-item-success"><div class="stat-label">Parsed Successfully</div><div class="stat-value" id="nx-success-rate">0%</div></div>
           </div>
           
           <!-- Charts -->
@@ -2001,7 +2190,7 @@ EntityName -> OtherEntity : Association"></textarea>
               <div style="position:relative; height:150px;">
                 <textarea class="textarea" id="nginx-error-log-input" style="height:100%; width:100%; resize:none;" placeholder=" "></textarea>
                 <div class="empty-state-overlay">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><use href="#icon-doc-plain"></use></svg>
                   <p style="margin:0">Paste text or drag &amp; drop an error log file here</p>
                   <div style="margin-top:var(--sp-2); display:flex; gap:var(--sp-2); pointer-events:auto;">
                     <label class="btn btn-secondary btn-sm" for="nginx-error-file-input" style="cursor:pointer">Browse Files</label>
@@ -2019,8 +2208,8 @@ EntityName -> OtherEntity : Association"></textarea>
           </div>
           
           <div id="nginx-error-results" style="display:none;flex-direction:column;gap:var(--sp-4); flex:1; min-height:0;">
-            <div id="log-toolbar" style="flex-shrink:0;">
-              <div id="log-toolbar-row1">
+            <div class="log-toolbar" style="flex-shrink:0;">
+              <div class="log-toolbar-row1">
                 <input class="input input-mono" id="nx-error-search" placeholder="Search Message, IP..." oninput="nginxApplyStreamFilters('error', 800)">
                 <div class="log-level-filters">
                   <span class="level-filter-btn active" style="background:rgba(52,152,219,0.15);color:#3498db;border-color:#3498db" data-val="info" onclick="nginxToggleErrorLevel('info', this)">INFO</span>
@@ -2032,8 +2221,8 @@ EntityName -> OtherEntity : Association"></textarea>
                   <span class="level-filter-btn active" style="background:rgba(192,57,43,0.15);color:#c0392b;border-color:#c0392b" data-val="emerg" onclick="nginxToggleErrorLevel('emerg', this)">EMERG</span>
                 </div>
               </div>
-              <div id="log-toolbar-row2" style="margin-top:4px">
-                <span style="font-size:.72rem;color:var(--text-muted)">Time:</span>
+              <div class="log-toolbar-row2" style="margin-top:4px">
+                <span style="font-size:.75rem;color:var(--text-muted)">Time:</span>
                 <input class="input input-mono" id="nx-error-time-from" placeholder="09:00:00" oninput="nginxApplyStreamFilters('error', 800)" style="width:90px">
                 <span style="color:var(--text-muted)">&#8594;</span>
                 <input class="input input-mono" id="nx-error-time-to" placeholder="10:00:00" oninput="nginxApplyStreamFilters('error', 800)" style="width:90px">
@@ -2041,8 +2230,8 @@ EntityName -> OtherEntity : Association"></textarea>
               </div>
             </div>
             <div class="tabs" style="margin-bottom:0;padding:0;border-bottom:1px solid var(--border); flex-shrink:0;">
-              <div class="tab active" onclick="nginxSetView('error', 'analyzer', this)" id="nx-error-tab-analyzer">Analyzer</div>
-              <div class="tab" onclick="nginxSetView('error', 'stream', this)" id="nx-error-tab-stream">Log Stream</div>
+              <button type="button" class="tab active" onclick="nginxSetView('error', 'analyzer', this)" id="nx-error-tab-analyzer">Analyzer</button>
+              <button type="button" class="tab" onclick="nginxSetView('error', 'stream', this)" id="nx-error-tab-stream">Log Stream</button>
             </div>
             <div id="nx-error-view-analyzer" style="display:flex;flex-direction:column;gap:var(--sp-4); flex:1; overflow-y:auto; padding-right:8px; padding-bottom:16px;">
             <!-- Error Log Stats -->
@@ -2050,7 +2239,7 @@ EntityName -> OtherEntity : Association"></textarea>
               <div class="stat-item"><div class="stat-label">Total Errors</div><div class="stat-value" id="nx-err-total">0</div></div>
               <div class="stat-item"><div class="stat-label">Unique Levels</div><div class="stat-value" id="nx-err-levels">0</div></div>
               <div class="stat-item"><div class="stat-label">Unique Clients</div><div class="stat-value" id="nx-err-clients">0</div></div>
-              <div class="stat-item"><div class="stat-label">Most Active Hour</div><div class="stat-value" id="nx-err-active-hour">-</div></div>
+              <div class="stat-item stat-item-warning"><div class="stat-label">Most Active Hour</div><div class="stat-value" id="nx-err-active-hour">-</div></div>
             </div>
             
             <!-- Error Charts -->
@@ -2116,6 +2305,59 @@ EntityName -> OtherEntity : Association"></textarea>
       </div>
     </div>
 
+    <!-- MENDIX CLIENT TRAFFIC ANALYZER (HAR) -->
+    <div class="tool-panel" id="panel-har-analyzer">
+      <div class="tool-header">
+        <div class="tool-header-icon" style="background:color-mix(in srgb, #3498db 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#3498db" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="5" width="3" height="13"/></svg></div>
+        <div class="tool-header-info"><div class="tool-header-title">Mendix Client Traffic Analyzer</div><div class="tool-header-desc">Decode a browser HAR into named Mendix operations &mdash; spot client-side N+1 and chatty microflows</div></div>
+        <div class="tool-header-actions">
+          <button class="btn btn-secondary btn-sm" onclick="harReset()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Clear</button>
+          <label class="btn btn-primary btn-sm" for="har-file-input"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Load HAR File</label>
+          <input type="file" id="har-file-input" style="display:none" accept=".har,.json" onchange="harLoadFile(this.files)">
+        </div>
+      </div>
+      <div class="tool-body">
+        <div id="har-empty" class="drag-drop-zone" style="display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;text-align:center;gap:var(--sp-2);border:2px dashed var(--border);border-radius:var(--r-md);min-height:300px" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="harHandleDrop(event)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:48px;height:48px;opacity:0.3"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="5" width="3" height="13"/></svg>
+          <p style="font-weight:600">Drop a .har file here or use "Load HAR File"</p>
+          <p style="font-size:0.78rem;color:var(--text-muted);max-width:520px">In DevTools &rarr; Network, enable "Preserve log", reproduce the slow interaction, then right-click &rarr; "Save all as HAR with content".<br><strong>Note:</strong> HAR files contain cookies and tokens &mdash; everything is parsed locally and never uploaded. Use the Log &amp; Text Anonymizer before sharing a HAR externally.</p>
+        </div>
+
+        <div id="har-results" style="display:none;flex-direction:column;gap:var(--sp-4);flex:1;min-height:0">
+          <div class="grid-4">
+            <div class="stat-item stat-item-info"><div class="stat-label">Total Requests</div><div class="stat-value" id="har-stat-total">0</div></div>
+            <div class="stat-item stat-item-accent"><div class="stat-label">Mendix XAS Operations</div><div class="stat-value" id="har-stat-xas">0</div></div>
+            <div class="stat-item stat-item-warning"><div class="stat-label">XAS Time (total)</div><div class="stat-value" id="har-stat-time">0 s</div></div>
+            <div class="stat-item stat-item-success"><div class="stat-label">XAS Transferred</div><div class="stat-value" id="har-stat-bytes">0 B</div></div>
+          </div>
+
+          <div id="har-detections"></div>
+
+          <div class="card">
+            <div class="card-header"><span style="font-weight:600">Operations (grouped by microflow / XPath, slowest first)</span></div>
+            <div class="card-body" style="padding:0;overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;font-size:0.82rem">
+                <thead><tr style="text-align:left;color:var(--text-muted);background:var(--bg-elevated)">
+                  <th style="padding:8px 10px">Action</th>
+                  <th style="padding:8px 10px">Microflow / XPath</th>
+                  <th style="padding:8px 10px;text-align:right">Count</th>
+                  <th style="padding:8px 10px;text-align:right">Total</th>
+                  <th style="padding:8px 10px;text-align:right">Avg</th>
+                  <th style="padding:8px 10px;text-align:right">Bytes</th>
+                </tr></thead>
+                <tbody id="har-agg-body"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><span style="font-weight:600">Chronological XAS Calls</span><span id="har-timeline-note" style="font-size:0.75rem;color:var(--text-muted);margin-left:auto"></span></div>
+            <div class="card-body" style="padding:0;max-height:280px;overflow-y:auto" id="har-timeline"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- METRICS & TELEMETRY -->
     <div class="tool-panel" id="panel-telemetry-monitor">
       <div class="tool-header">
@@ -2143,7 +2385,7 @@ EntityName -> OtherEntity : Association"></textarea>
             </span>
             <div style="display:flex;align-items:center;gap:var(--sp-2)">
               <span id="tm-connection-card-summary" style="font-size:0.75rem;color:var(--text-muted);font-weight:normal"></span>
-              <button class="btn btn-secondary btn-xs" id="tm-connection-toggle-btn" style="padding:2px 6px;font-size:0.7rem;line-height:1" onclick="event.stopPropagation(); tmToggleConnectionCard()">Collapse</button>
+              <button class="btn btn-secondary btn-xs" id="tm-connection-toggle-btn" onclick="event.stopPropagation(); tmToggleConnectionCard()">Collapse</button>
             </div>
           </div>
           <div class="card-body" id="tm-connection-card-body" style="display:flex;flex-direction:column;gap:var(--sp-3)">
@@ -2256,10 +2498,10 @@ EntityName -> OtherEntity : Association"></textarea>
 
         <!-- TABS -->
         <div class="tabs" style="margin-bottom:0;padding:0;border-bottom:1px solid var(--border)">
-          <div class="tab" id="tm-tab-dashboard-btn" style="display:none" onclick="tmSetTab('dashboard')">Live Dashboard</div>
-          <div class="tab" id="tm-tab-postgres-btn" style="display:none" onclick="tmSetTab('postgres')">PostgreSQL Stats</div>
-          <div class="tab" id="tm-tab-traces-btn" style="display:none" onclick="tmSetTab('traces')">OTLP Traces (Waterfall)</div>
-          <div class="tab active" id="tm-tab-guide-btn" onclick="tmSetTab('guide')">Mendix Config Guide</div>
+          <button type="button" class="tab" id="tm-tab-dashboard-btn" style="display:none" onclick="tmSetTab('dashboard')">Live Dashboard</button>
+          <button type="button" class="tab" id="tm-tab-postgres-btn" style="display:none" onclick="tmSetTab('postgres')">PostgreSQL Stats</button>
+          <button type="button" class="tab" id="tm-tab-traces-btn" style="display:none" onclick="tmSetTab('traces')">OTLP Traces (Waterfall)</button>
+          <button type="button" class="tab active" id="tm-tab-guide-btn" onclick="tmSetTab('guide')">Mendix Config Guide</button>
         </div>
       </div>
 
@@ -2269,131 +2511,140 @@ EntityName -> OtherEntity : Association"></textarea>
         <div id="tm-tab-dashboard" style="display:none;flex-direction:column;gap:var(--sp-3)">
           <!-- Metrics Quick Cards -->
           <div class="grid-4" id="tm-cards-grid">
-            <div class="stat-item" style="border-left:4px solid var(--info)">
+            <div class="stat-item stat-item-info" id="tm-card-heap-box">
               <div class="stat-label">JVM Heap Usage</div>
               <div class="stat-value" id="tm-card-heap">0 MB / 0 MB</div>
               <div style="font-size:0.7rem;color:var(--text-muted);margin-top:2px" id="tm-card-heap-pct">0% used</div>
             </div>
-            <div class="stat-item" style="border-left:4px solid var(--success)">
+            <div class="stat-item stat-item-success" id="tm-card-threads-box">
               <div class="stat-label">Jetty Active Threads</div>
               <div class="stat-value" id="tm-card-threads">0 / 0</div>
               <div style="font-size:0.7rem;color:var(--text-muted);margin-top:2px">Concurrent active workers</div>
             </div>
-            <div class="stat-item" style="border-left:4px solid var(--accent)">
+            <div class="stat-item stat-item-accent">
               <div class="stat-label">Request Rate</div>
               <div class="stat-value" id="tm-card-reqs">0 req/s</div>
               <div style="font-size:0.7rem;color:var(--text-muted);margin-top:2px" id="tm-card-latency">Avg latency: 0 ms</div>
             </div>
-            <div class="stat-item" style="border-left:4px solid var(--warning)">
+            <div class="stat-item stat-item-warning">
               <div class="stat-label">Database Queries</div>
               <div class="stat-value" id="tm-card-db">0 / s</div>
               <div style="font-size:0.7rem;color:var(--text-muted);margin-top:2px" id="tm-card-db-breakdown">S:0 I:0 U:0 D:0</div>
             </div>
           </div>
 
-          <!-- Charts Area -->
-          <div class="grid-2">
+          <!-- Charts Area — grouped into collapsible sections (state persisted per group) -->
+          <details class="tm-chart-group" data-group-id="jvm" open>
+            <summary>JVM &amp; Memory</summary>
+            <div class="grid-2">
+              <div class="card" style="padding:var(--sp-3);background:var(--bg-card)">
+                <span style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--sp-2)">JVM Memory Usage (Heap vs Non-Heap)</span>
+                <div style="height:220px;position:relative">
+                  <canvas id="tm-chart-memory"></canvas>
+                </div>
+              </div>
+              <div class="card" style="padding:var(--sp-3);background:var(--bg-card)">
+                <span style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--sp-2)">CPU Load &amp; Jetpool Threads</span>
+                <div style="height:220px;position:relative">
+                  <canvas id="tm-chart-cpu-threads"></canvas>
+                </div>
+              </div>
+            </div>
+            <div class="grid-3">
+              <div class="card" style="padding:var(--sp-3);background:var(--bg-card)">
+                <span style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--sp-2)">JVM Garbage Collection Logs</span>
+                <div style="height:180px;position:relative">
+                  <canvas id="tm-chart-gc"></canvas>
+                </div>
+              </div>
+              <div class="card" style="padding:var(--sp-3);background:var(--bg-card)">
+                <span style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--sp-2)">JVM Thread States Breakdown</span>
+                <div style="height:180px;position:relative">
+                  <canvas id="tm-chart-threadstates"></canvas>
+                </div>
+              </div>
+              <div class="card" style="padding:var(--sp-3);background:var(--bg-card)">
+                <span style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--sp-2)">JVM Off-Heap Buffers & Allocation</span>
+                <div style="height:180px;position:relative">
+                  <canvas id="tm-chart-jvmextra"></canvas>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <details class="tm-chart-group" data-group-id="http" open>
+            <summary>HTTP, Sessions &amp; Network</summary>
+            <div class="grid-2">
+              <div class="card" style="padding:var(--sp-3);background:var(--bg-card)">
+                <span style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--sp-2)">Request Throughput &amp; Latency</span>
+                <div style="height:200px;position:relative">
+                  <canvas id="tm-chart-requests"></canvas>
+                </div>
+              </div>
+              <div class="card" style="padding:var(--sp-3);background:var(--bg-card)">
+                <span style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--sp-2)">HTTP Server Connections (Jetty)</span>
+                <div style="height:200px;position:relative">
+                  <canvas id="tm-chart-httpconns"></canvas>
+                </div>
+              </div>
+            </div>
+            <div class="grid-2">
+              <div class="card" style="padding:var(--sp-3);background:var(--bg-card)">
+                <span style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--sp-2)">Active User Sessions</span>
+                <div style="height:200px;position:relative">
+                  <canvas id="tm-chart-sessions"></canvas>
+                </div>
+              </div>
+              <div class="card" style="padding:var(--sp-3);background:var(--bg-card)">
+                <span style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--sp-2)">Network Traffic Rate (KB/s)</span>
+                <div style="height:200px;position:relative">
+                  <canvas id="tm-chart-network"></canvas>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <details class="tm-chart-group" data-group-id="database" open>
+            <summary>Database</summary>
+            <div class="grid-2">
+              <div class="card" style="padding:var(--sp-3);background:var(--bg-card)">
+                <span style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--sp-2)">Database Transactions Rate</span>
+                <div style="height:200px;position:relative">
+                  <canvas id="tm-chart-db"></canvas>
+                </div>
+              </div>
+              <div class="card" style="padding:var(--sp-3);background:var(--bg-card)">
+                <span style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--sp-2)">Database Connection Pool (commons_pool2)</span>
+                <div style="height:200px;position:relative">
+                  <canvas id="tm-chart-dbpool"></canvas>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <details class="tm-chart-group" data-group-id="tasks" open>
+            <summary>Task Queues &amp; Background Jobs</summary>
+            <div class="grid-2">
+              <div class="card" style="padding:var(--sp-3);background:var(--bg-card)">
+                <span style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--sp-2)">Task Queues (Active Threads)</span>
+                <div style="height:200px;position:relative">
+                  <canvas id="tm-chart-taskqueues"></canvas>
+                </div>
+              </div>
+              <div class="card" style="padding:var(--sp-3);background:var(--bg-card)">
+                <span style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--sp-2)">Task Queue Wait Times (Max Seconds)</span>
+                <div style="height:200px;position:relative">
+                  <canvas id="tm-chart-taskwaits"></canvas>
+                </div>
+              </div>
+            </div>
             <div class="card" style="padding:var(--sp-3);background:var(--bg-card)">
-              <span style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--sp-2)">JVM Memory Usage (Heap vs Non-Heap)</span>
+              <span style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--sp-2)">Background Task Execution Times (Max Seconds)</span>
               <div style="height:220px;position:relative">
-                <canvas id="tm-chart-memory"></canvas>
+                <canvas id="tm-chart-tasks"></canvas>
               </div>
             </div>
-            <div class="card" style="padding:var(--sp-3);background:var(--bg-card)">
-              <span style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--sp-2)">CPU Load &amp; Jetpool Threads</span>
-              <div style="height:220px;position:relative">
-                <canvas id="tm-chart-cpu-threads"></canvas>
-              </div>
-            </div>
-          </div>
-
-          <div class="grid-3">
-            <div class="card" style="padding:var(--sp-3);background:var(--bg-card)">
-              <span style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--sp-2)">Database Transactions Rate</span>
-              <div style="height:180px;position:relative">
-                <canvas id="tm-chart-db"></canvas>
-              </div>
-            </div>
-            <div class="card" style="padding:var(--sp-3);background:var(--bg-card)">
-              <span style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--sp-2)">Request Throughput &amp; Latency</span>
-              <div style="height:180px;position:relative">
-                <canvas id="tm-chart-requests"></canvas>
-              </div>
-            </div>
-            <div class="card" style="padding:var(--sp-3);background:var(--bg-card)">
-              <span style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--sp-2)">JVM Garbage Collection Logs</span>
-              <div style="height:180px;position:relative">
-                <canvas id="tm-chart-gc"></canvas>
-              </div>
-            </div>
-          </div>
-
-          <div class="grid-2">
-            <div class="card" style="padding:var(--sp-3);background:var(--bg-card)">
-              <span style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--sp-2)">Active User Sessions</span>
-              <div style="height:200px;position:relative">
-                <canvas id="tm-chart-sessions"></canvas>
-              </div>
-            </div>
-            <div class="card" style="padding:var(--sp-3);background:var(--bg-card)">
-              <span style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--sp-2)">Task Queues (Active Threads)</span>
-              <div style="height:200px;position:relative">
-                <canvas id="tm-chart-taskqueues"></canvas>
-              </div>
-            </div>
-          </div>
-          
-          <div class="card" style="padding:var(--sp-3);background:var(--bg-card)">
-            <span style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--sp-2)">Background Task Execution Times (Max Seconds)</span>
-            <div style="height:220px;position:relative">
-              <canvas id="tm-chart-tasks"></canvas>
-            </div>
-          </div>
-
-          <div class="grid-2">
-            <div class="card" style="padding:var(--sp-3);background:var(--bg-card)">
-              <span style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--sp-2)">Database Connection Pool (commons_pool2)</span>
-              <div style="height:200px;position:relative">
-                <canvas id="tm-chart-dbpool"></canvas>
-              </div>
-            </div>
-            <div class="card" style="padding:var(--sp-3);background:var(--bg-card)">
-              <span style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--sp-2)">HTTP Server Connections (Jetty)</span>
-              <div style="height:200px;position:relative">
-                <canvas id="tm-chart-httpconns"></canvas>
-              </div>
-            </div>
-          </div>
-
-          <div class="grid-2">
-            <div class="card" style="padding:var(--sp-3);background:var(--bg-card)">
-              <span style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--sp-2)">Network Traffic Rate (KB/s)</span>
-              <div style="height:200px;position:relative">
-                <canvas id="tm-chart-network"></canvas>
-              </div>
-            </div>
-            <div class="card" style="padding:var(--sp-3);background:var(--bg-card)">
-              <span style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--sp-2)">Task Queue Wait Times (Max Seconds)</span>
-              <div style="height:200px;position:relative">
-                <canvas id="tm-chart-taskwaits"></canvas>
-              </div>
-            </div>
-          </div>
-
-          <div class="grid-2">
-            <div class="card" style="padding:var(--sp-3);background:var(--bg-card)">
-              <span style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--sp-2)">JVM Thread States Breakdown</span>
-              <div style="height:200px;position:relative">
-                <canvas id="tm-chart-threadstates"></canvas>
-              </div>
-            </div>
-            <div class="card" style="padding:var(--sp-3);background:var(--bg-card)">
-              <span style="font-size:0.85rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:var(--sp-2)">JVM Off-Heap Buffers & Allocation</span>
-              <div style="height:200px;position:relative">
-                <canvas id="tm-chart-jvmextra"></canvas>
-              </div>
-            </div>
-          </div>
+          </details>
         </div>
 
         <!-- TAB CONTENT: POSTGRESQL STATS -->
@@ -2408,7 +2659,7 @@ EntityName -> OtherEntity : Association"></textarea>
               </span>
               <div style="display:flex;align-items:center;gap:var(--sp-2)">
                 <span id="tm-pg-status-indicator" style="font-size:0.75rem;font-weight:normal"></span>
-                <button class="btn btn-secondary btn-xs" id="tm-pg-config-toggle-btn" style="padding:2px 6px;font-size:0.7rem;line-height:1" onclick="event.stopPropagation(); tmTogglePgConfigCard()">Collapse</button>
+                <button class="btn btn-secondary btn-xs" id="tm-pg-config-toggle-btn" onclick="event.stopPropagation(); tmTogglePgConfigCard()">Collapse</button>
               </div>
             </div>
             <div class="card-body" id="tm-pg-config-card-body" style="display:flex;flex-direction:column;gap:var(--sp-3)">
@@ -2629,7 +2880,7 @@ EntityName -> OtherEntity : Association"></textarea>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;margin-right:4px;display:inline-block;vertical-align:middle"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg> Traces Explorer
             </button>
             <button class="btn btn-sm" id="tm-otel-subtab-logs" onclick="tmSetOtelSubtab('logs')" style="background:transparent;color:var(--text-secondary);border-radius:var(--r-md)">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;margin-right:4px;display:inline-block;vertical-align:middle"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Structured Logs
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;margin-right:4px;display:inline-block;vertical-align:middle"><use href="#icon-doc-plain"></use></svg> Structured Logs
             </button>
             <button class="btn btn-sm" id="tm-otel-subtab-import" onclick="tmSetOtelSubtab('import')" style="background:transparent;color:var(--text-secondary);border-radius:var(--r-md);margin-left:auto">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;margin-right:4px;display:inline-block;vertical-align:middle"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Import OTLP JSON
@@ -2710,7 +2961,7 @@ EntityName -> OtherEntity : Association"></textarea>
               <div>
                 <div style="display:flex;align-items:center;gap:12px">
                   <h4 style="margin:0;color:var(--accent)" id="tm-trace-title">Trace Details</h4>
-                  <button class="btn btn-xs btn-secondary" onclick="tmCloseSelectedTrace()" style="padding:2px 8px;font-size:0.7rem;border-radius:var(--r-sm)">Close Details</button>
+                  <button class="btn btn-xs btn-secondary" onclick="tmCloseSelectedTrace()">Close Details</button>
                 </div>
                 <span style="font-size:0.75rem;color:var(--text-secondary)" id="tm-trace-meta">Total Spans: 0 · Duration: 0ms</span>
               </div>
@@ -2808,7 +3059,7 @@ EntityName -> OtherEntity : Association"></textarea>
         <span id="http-modal-code" style="font-family:var(--font-mono);font-size:1.3rem;font-weight:800;line-height:1;margin-right:var(--sp-2)"></span>
         <span id="http-modal-title"></span>
       </div>
-      <button class="modal-close" onclick="closeHttpModal()"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      <button class="modal-close" onclick="closeHttpModal()" aria-label="Close dialog"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div class="modal-body" id="http-modal-body"></div>
   </div>
@@ -2816,7 +3067,7 @@ EntityName -> OtherEntity : Association"></textarea>
 
 <!-- HELP MODAL -->
 <div class="modal-overlay" id="help-modal" onclick="if(event.target===this)closeHelpModal()">
-  <div class="modal" style="max-width:700px; width:90%; height:auto; max-height:85vh;">
+  <div class="modal modal-md">
     <div class="modal-header">
       <div class="modal-title">
         <span style="display:flex;align-items:center;color:var(--accent);margin-right:var(--sp-2)">
@@ -2824,7 +3075,7 @@ EntityName -> OtherEntity : Association"></textarea>
         </span>
         <span id="help-modal-title">Help</span>
       </div>
-      <button class="modal-close" onclick="closeHelpModal()"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      <button class="modal-close" onclick="closeHelpModal()" aria-label="Close dialog"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div class="modal-body" id="help-modal-body" style="padding:var(--sp-4); overflow-y:auto; display:flex; flex-direction:column; gap:var(--sp-4);">
       <!-- Content populated dynamically -->
@@ -2834,13 +3085,13 @@ EntityName -> OtherEntity : Association"></textarea>
 
 <!-- LOG AGGREGATOR MODAL -->
 <div class="modal-overlay" id="log-aggregator-modal" onclick="if(event.target===this)logCloseAggregator()">
-  <div class="modal" style="max-width:960px; width:95%; height:85vh;">
+  <div class="modal modal-lg">
     <div class="modal-header">
       <div class="modal-title">
         <svg viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2.5" style="width:20px;height:20px;margin-right:var(--sp-2)"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
         <span>Error &amp; Exception Aggregator</span>
       </div>
-      <button class="modal-close" onclick="logCloseAggregator()"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      <button class="modal-close" onclick="logCloseAggregator()" aria-label="Close dialog"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div class="modal-body" style="padding:var(--sp-4); display:flex; flex-direction:column; gap:var(--sp-3); overflow:hidden; height:calc(100% - 60px);">
       <div style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:var(--sp-1)">
@@ -2890,13 +3141,13 @@ EntityName -> OtherEntity : Association"></textarea>
 
 <!-- LOG PASTE MODAL -->
 <div class="modal-overlay" id="log-paste-modal" onclick="if(event.target===this)logClosePasteModal()">
-  <div class="modal" style="max-width:720px; width:90%; height:60vh;">
+  <div class="modal modal-md" style="height:60vh;">
     <div class="modal-header">
       <div class="modal-title">
         <svg viewBox="0 0 24 24" fill="none" stroke="var(--info)" stroke-width="2.5" style="width:20px;height:20px;margin-right:var(--sp-2)"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
         <span>Paste Mendix Logs</span>
       </div>
-      <button class="modal-close" onclick="logClosePasteModal()"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      <button class="modal-close" onclick="logClosePasteModal()" aria-label="Close dialog"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div class="modal-body" style="padding:var(--sp-4); display:flex; flex-direction:column; gap:var(--sp-3); height:calc(100% - 60px);">
       <div style="font-size:0.85rem; color:var(--text-secondary)">

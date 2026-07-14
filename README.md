@@ -18,7 +18,8 @@ The toolkit is divided into logical categories to assist you across the entire d
   ![Log Query Extractor](assets/screenshot-log-query-extractor.png)
 * **Nginx Log Analyzer**: Analyze access logs to identify top IPs, request paths, status codes, and response times, with optional IP geolocation mapping.
   ![Nginx Log Analyzer](assets/screenshot-nginx-analyzer.png)
-* **Thread Dump & GC Analyzer**: Analyze JVM thread dumps and garbage collector logs to locate blocked threads and diagnose GC pauses.
+* **Client Traffic Analyzer (HAR)**: Decode a browser HAR into named Mendix client operations (microflows, XPath retrieves) to spot client-side N+1 patterns, chatty microflows, and oversized responses that raw DevTools can't surface.
+* **JVM Health Analyzer**: Analyze JVM thread dumps, garbage collector logs, and heap histograms to locate blocked threads, diagnose GC pauses, and spot memory leaks.
 
 ### 2. Performance & Testing
 * **Performance Lab**: Simulate concurrent load on Mendix HTTP/REST endpoints with real-time latency tracking and statistics (min/avg/max and p50/p95/p99 percentiles).
@@ -33,6 +34,7 @@ The toolkit is divided into logical categories to assist you across the entire d
 * **SQL Formatter**: Format and highlight complex ORM-generated database queries.
 * **Base64 / URL Encoder**: Encode and decode strings and HTML entities locally.
 * **XML & Text Sanitizer**: Detect and clean hidden control characters, zero-width spaces, and Mojibake.
+* **Markdown Editor & Table Generator**: Write module documentation with a live HTML preview — drop a `.md` file straight onto the editor to load it. The table generator turns a range pasted from Excel, Google Sheets, or a CSV into a ready Markdown table, with per-column alignment and no hand-typed pipes.
 
 ### 4. Mendix Platform Utilities
 * **OData / XPath Query Builders**: Sandboxes to build and test queries with cheat sheets.
@@ -43,6 +45,7 @@ The toolkit is divided into logical categories to assist you across the entire d
 ### 5. Security & Utilities
 * **JWT Decoder**: Inspect JWT tokens securely without transmitting them externally.
   ![JWT Decoder](assets/screenshot-jwt-decoder.png)
+* **SAML / OIDC Debugger**: Decode SAML responses/requests (Base64, URL-encoded or DEFLATE-compressed) and OIDC id_tokens locally to debug SSO integrations — inspect assertions, claims, and validity windows without pasting tokens online.
 * **Hash / Password Generators**: Generate strong passwords and cryptographic hashes (SHA-256, SHA-512) locally.
 * **Java Regex Tester**: Evaluate regular expressions using a Java-compatible regex engine.
 * **Timestamp Converter**: Convert between Unix epochs, ISO 8601, and local timezone formats.

@@ -345,13 +345,13 @@ window.plLoadPreset = function() {
   try {
     const preset = JSON.parse(saved);
     if (preset.url) document.getElementById('pl-url').value = preset.url;
-    if (preset.method) { document.getElementById('pl-method').value = preset.method; plMethodChanged(); }
+    if (preset.method) { document.getElementById('pl-method').value = preset.method; window.plMethodChanged(); }
     if (preset.headers) document.getElementById('pl-headers').value = preset.headers;
     if (preset.body) document.getElementById('pl-body').value = preset.body;
     if (preset.conc) document.getElementById('pl-concurrency').value = preset.conc;
     if (preset.count) document.getElementById('pl-count').value = preset.count;
     if (preset.engine && document.getElementById('pl-engine')) document.getElementById('pl-engine').value = preset.engine;
-    plCheckConcurrency();
+    window.plCheckConcurrency();
   } catch(e) {
     alert('Failed to load preset');
   }
@@ -378,10 +378,5 @@ window.plStart = plStart;
 window.plStop = plStop;
 window.plFinish = plFinish;
 window.plUpdateUI = plUpdateUI;
-window.plMethodChanged = window.plMethodChanged;
-window.plCheckConcurrency = window.plCheckConcurrency;
-window.plSavePreset = window.plSavePreset;
-window.plLoadPreset = window.plLoadPreset;
-window.plExportCSV = window.plExportCSV;
 
 export function init() {}

@@ -29,24 +29,25 @@ const TOOLS = [
   {id:'home',         label:'Home',                       desc:'All tools overview',                                                              color:'var(--accent)',   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>', section:''},
   {id:'log-viewer',   label:'Mendix Log Viewer',           desc:'Browse, filter and search Mendix log files with time-range filtering',            color:'var(--info)',     icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>', section:'Diagnostics & Logs'},
   {id:'log-query-extractor', label:'Log Query Extractor',  desc:'Extract, parse and correlate executed SQL queries and XPath from Mendix TRACE logs', color:'#3498db', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12h18"/><path d="M3 19h18"/></svg>', section:'Diagnostics & Logs'},
-  {id:'log-anonymizer', label:'Log & Text Anonymizer',             desc:'Anonymize sensitive data (emails, IPs, UUIDs, custom keywords) from arbitrary text and logs', color:'#e74c3c', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>', section:'Diagnostics & Logs'},
+  {id:'log-anonymizer', label:'Log & Text Anonymizer',             desc:'Anonymize sensitive data (emails, IPs, UUIDs, custom keywords) from arbitrary text and logs', color:'#e74c3c', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>', section:'Diagnostics & Logs'},
   {id:'nginx-log',    label:'Nginx Log Analyzer',          desc:'Analyze Nginx access logs to find top IPs, URLs, errors, and fetch GeoIP',       color:'#2ea043',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>', section:'Diagnostics & Logs'},
   {id:'telemetry-monitor', label:'Metrics & Telemetry',     desc:'Visualize Mendix Prometheus metrics and explore OpenTelemetry traces/logs locally or from cloud endpoints', color:'#ff9f43', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>', section:'Diagnostics & Logs'},
+  {id:'har-analyzer', label:'Client Traffic (HAR)',         desc:'Decode a browser HAR into named Mendix operations to spot client-side N+1 and chatty microflows', color:'#3498db', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="5" width="3" height="13"/></svg>', section:'Diagnostics & Logs'},
   {id:'http-status',  label:'HTTP Status Codes',           desc:'Reference for HTTP status codes with Mendix context',                            color:'var(--info)',     icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>', section:'Diagnostics & Logs'},
-  {id:'thread-dump',  label:'Thread Dump & GC Analyzer',   desc:'Analyze Mendix OOM, thread dumps to find blocked threads and GC pauses',         color:'var(--danger)',   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>', section:'Diagnostics & Logs'},
+  {id:'thread-dump',  label:'JVM Health Analyzer',   desc:'Thread dumps, GC logs and heap histograms — find blocked threads and memory leaks',         color:'var(--danger)',   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>', section:'Diagnostics & Logs'},
   {id:'json-formatter',label:'JSON Formatter',             desc:'Format, validate and explore JSON with interactive tree view',                    color:'var(--success)',  icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',          section:'Data & Format'},
   {id:'xml-formatter', label:'XML Formatter',              desc:'Format, validate and explore XML with interactive tree view',                     color:'var(--info)',     icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13l3 3-3 3M16 19h-4"/></svg>',    section:'Data & Format'},
   {id:'char-sanitizer',label:'XML & Text Sanitizer',       desc:'Detect and fix hidden control characters, zero-width spaces, invalid XML tokens, and Mojibake', color:'#e67e22', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>', section:'Data & Format'},
   {id:'sql-formatter', label:'SQL Formatter',              desc:'Format and syntax-highlight SQL queries from Mendix ORM',                        color:'#7c85f3',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>', section:'Data & Format'},
   {id:'text-diff',     label:'Text Diff',                  desc:'Compare two text blocks with highlighted differences',                           color:'var(--success)',  icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>',        section:'Data & Format'},
-  {id:'encoder',       label:'Base64 / URL Encoder',       desc:'Encode and decode Base64, URL, and HTML entities',                              color:'#7ee8a2',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>',        section:'Data & Format'},
-  {id:'md-preview',    label:'Markdown & Table Generator', desc:'Write and preview Markdown documentation and generate markdown tables',          color:'#ccc',            icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',            section:'Data & Format'},
-  {id:'xpath-builder', label:'XPath Formatter',  desc:'Format and build XPath queries with cheat sheet and templates',                  color:'var(--accent)',   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>',        section:'Mendix Platform'},
-  {id:'query-intelligence', label:'Query Intelligence',    desc:'Consolidated OQL/SQL Analyzer, Visualizer, Index Advisor & N+1 Detector',        color:'#3498db',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"/></svg>', section:'Mendix Platform'},
-  {id:'odata-builder', label:'OData Builder',              desc:'Build OData queries for Published OData Services',                              color:'#7ee8a2',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>',        section:'Mendix Platform'},
+  {id:'encoder',       label:'Base64 / URL Encoder',       desc:'Encode and decode Base64, URL, and HTML entities',                              color:'#2ecc71',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>',        section:'Data & Format'},
+  {id:'md-preview',    label:'Markdown & Table Generator', desc:'Write and preview Markdown documentation and generate markdown tables',          color:'#95a5a6',            icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',            section:'Data & Format'},
+  {id:'xpath-builder', label:'XPath Formatter',  desc:'Format and lint XPath queries with cheat sheet and templates',                  color:'var(--accent)',   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>',        section:'Mendix Platform'},
+  {id:'query-intelligence', label:'Query Intelligence Suite', desc:'Consolidated OQL/SQL Analyzer, Visualizer, Index Advisor & N+1 Detector',        color:'#3498db',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"/></svg>', section:'Mendix Platform'},
+  {id:'odata-builder', label:'OData Builder',              desc:'Build OData queries for Published OData Services',                              color:'#2ecc71',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',        section:'Mendix Platform'},
 
   {id:'architecture',  label:'Domain Model & Architecture',desc:'Generate Class Diagrams (Mermaid) from JSON or pseudocode',                     color:'#5cb85c',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>', section:'Mendix Platform'},
-  {id:'dev-studio',    label:'Developer Studio',           desc:'Connect and sync with local Mendix Studio Pro',                                 color:'#bdc3c7',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>', section:'Mendix Platform'},
+  {id:'dev-studio',    label:'Developer Studio',           desc:'Connect and sync with local Mendix Studio Pro',                                 color:'#7f8c8d',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>', section:'Mendix Platform'},
   
   {id:'perf-lab',      label:'Performance Lab',            desc:'Simulate concurrent load on endpoints with latency tracking',                   color:'#e84393',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>',        section:'Performance & Testing'},
 
@@ -55,10 +56,11 @@ const TOOLS = [
   {id:'data-factory',  label:'Data Factory',               desc:'High-Volume Mock Data Generator for performance testing and mock servers',      color:'#f39c12',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>', section:'Data & Format'},
 
   {id:'api-economics', label:'API Economics',              desc:'Analyze JSON payloads to optimize size and identify redundant fields',          color:'#2ecc71',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>', section:'Analytics & Estimation'},
-  {id:'memory-inspector',label:'Memory Inspector',          desc:'Analyze heap dumps and garbage collector logs',                                 color:'#9b59b6',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>', section:'Analytics & Estimation'},
-  {id:'wasm-profiler', label:'WASM Profiler',              desc:'Analyze WebAssembly traces and memory usage in Mendix Client',                  color:'#f1c40f',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg>', section:'Analytics & Estimation'},
+  // WASM Profiler is a niche tool: hidden from sidebar/home, still reachable via Ctrl+K search
+  {id:'wasm-profiler', label:'WASM Profiler',              desc:'Analyze WebAssembly traces and memory usage in Mendix Client',                  color:'#f1c40f',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg>', section:'Analytics & Estimation', hidden:true},
 
   {id:'jwt-decoder',   label:'JWT Decoder',                desc:'Decode JWT tokens locally \u2013 private, nothing sent externally',             color:'#c792ea',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>', section:'Security & Tokens'},
+  {id:'saml-debugger', label:'SAML / OIDC Debugger',       desc:'Decode SAML responses and OIDC id_tokens \u2013 inspect assertions, claims and validity locally', color:'#9b59b6', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><path d="M12 3l7 4v5c0 4.5-3 8-7 9-4-1-7-4.5-7-9V7z"/></svg>', section:'Security & Tokens'},
   {id:'hash-gen',      label:'Hash Generator',             desc:'Generate SHA-256, SHA-512, SHA-1 hashes in-browser',                           color:'#a29bfe',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>',             section:'Security & Tokens'},
   {id:'password-generator',label:'Password Generator',    desc:'Generate strong random passwords with customizable parameters',                  color:'#e17055',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>', section:'Security & Tokens'},
   {id:'regex-tester',  label:'Java Regex Tester (Mendix)', desc:'Test regular expressions behaving like Java Engine in Mendix',                 color:'var(--warning)',  icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',            section:'Utilities'},
@@ -112,6 +114,7 @@ function updateSidebarFavorites() {
         star.className = 'sidebar-fav-star';
         star.innerHTML = '★';
         star.title = 'Favorite';
+        star.setAttribute('aria-hidden', 'true');
         const badge = item.querySelector('.nav-badge');
         if (badge) {
           item.insertBefore(star, badge);
@@ -136,6 +139,7 @@ function updateFavoritesUI(toolId) {
       btn.classList.toggle('active', active);
       btn.innerHTML = active ? '★' : '☆';
       btn.title = active ? 'Remove from favorites' : 'Add to favorites';
+      btn.setAttribute('aria-label', btn.title);
     }
   }
 
@@ -150,15 +154,20 @@ function updateFavoritesUI(toolId) {
 // NAVIGATION
 // ============================================================
 async function navigate(toolId, navEl) {
+  // Guard: a stale mt-last-tool may reference a removed/merged panel
+  if (toolId !== 'home' && !document.getElementById('panel-' + toolId)) {
+    toolId = 'home';
+    navEl = null;
+  }
   document.querySelectorAll('.tool-panel').forEach(p => p.classList.remove('active'));
   const panel = document.getElementById('panel-' + toolId);
   if (panel) panel.classList.add('active');
-  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  if (navEl) navEl.classList.add('active');
-  else { const el = document.querySelector('.nav-item[data-tool="'+toolId+'"]'); if (el) el.classList.add('active'); }
+  document.querySelectorAll('.nav-item').forEach(n => { n.classList.remove('active'); n.removeAttribute('aria-current'); });
+  if (navEl) { navEl.classList.add('active'); navEl.setAttribute('aria-current', 'page'); }
+  else { const el = document.querySelector('.nav-item[data-tool="'+toolId+'"]'); if (el) { el.classList.add('active'); el.setAttribute('aria-current', 'page'); } }
   const tool = TOOLS.find(t => t.id === toolId) || {label: toolId, section: ''};
   document.getElementById('topbar-title').textContent = tool.label;
-  document.getElementById('topbar-subtitle').textContent = tool.section ? tool.section + ' \u00B7 MxDev Swiss Tool' : 'MxDev Swiss Tool v1.0';
+  document.getElementById('topbar-subtitle').textContent = tool.section ? tool.section + ' \u00B7 MxDev Swiss Tool' : 'MxDev Swiss Tool v1.3.0';
   const previousTool = currentTool;
   currentTool = toolId;
   window.currentTool = currentTool;
@@ -195,6 +204,7 @@ async function navigate(toolId, navEl) {
       let favBtn = titleEl.querySelector('.header-fav-btn');
       if (!favBtn) {
         favBtn = document.createElement('button');
+        favBtn.type = 'button';
         favBtn.className = 'header-fav-btn';
         favBtn.id = 'header-fav-btn';
         favBtn.onclick = () => toggleFavorite(toolId);
@@ -204,6 +214,7 @@ async function navigate(toolId, navEl) {
       favBtn.classList.toggle('active', active);
       favBtn.innerHTML = active ? '★' : '☆';
       favBtn.title = active ? 'Remove from favorites' : 'Add to favorites';
+      favBtn.setAttribute('aria-label', favBtn.title);
     }
   }
   
@@ -230,6 +241,10 @@ function toggleTheme() {
   html.setAttribute('data-theme', dark ? 'light' : 'dark');
   document.getElementById('theme-label').textContent = dark ? 'Dark Mode' : 'Light Mode';
   try { localStorage.setItem('mt-theme', dark ? 'light' : 'dark'); } catch(e){}
+  // Keep Mermaid diagrams in sync with the active theme (applies to new renders)
+  if (window.mermaid) {
+    window.mermaid.initialize({ startOnLoad: false, theme: dark ? 'default' : 'dark' });
+  }
 }
 
 function createHomeCard(tool) {
@@ -240,7 +255,7 @@ function createHomeCard(tool) {
   const active = isFavorite(tool.id);
   
   card.innerHTML =
-    '<button class="card-fav-btn' + (active ? ' active' : '') + '" title="' + (active ? 'Remove from favorites' : 'Add to favorites') + '" style="position:absolute;top:16px;right:16px;background:none;border:none;color:var(--text-muted);font-size:1.2rem;cursor:pointer;z-index:2;">' +
+    '<button type="button" class="card-fav-btn' + (active ? ' active' : '') + '" title="' + (active ? 'Remove from favorites' : 'Add to favorites') + '" aria-label="' + (active ? 'Remove from favorites' : 'Add to favorites') + '" style="position:absolute;top:16px;right:16px;background:none;border:none;color:var(--text-muted);font-size:1.2rem;cursor:pointer;z-index:2;">' +
       (active ? '<span style="color:var(--accent)">★</span>' : '☆') +
     '</button>' +
     '<div class="home-tool-icon" style="background:var(--bg-elevated); width:50px;height:50px;border-radius:12px;display:flex;align-items:center;justify-content:center;margin-bottom:16px;border:1px solid ' + tool.color + '33">' +
@@ -280,13 +295,18 @@ function buildHomeGrid() {
     container.appendChild(favGrid);
   }
 
-  // Collect sections in order of first appearance
+  // Fixed section order — must match the sidebar so both build the same mental map
+  const SECTION_ORDER = ['Diagnostics & Logs', 'Performance & Testing', 'Data & Format', 'Mendix Platform', 'Analytics & Estimation', 'Security & Tokens', 'Utilities'];
   const sections = [];
   const bySection = {};
-  TOOLS.filter(t => t.id !== 'home').forEach(tool => {
+  TOOLS.filter(t => t.id !== 'home' && !t.hidden).forEach(tool => {
     const sec = tool.section || 'Other';
     if (!bySection[sec]) { bySection[sec] = []; sections.push(sec); }
     bySection[sec].push(tool);
+  });
+  sections.sort((a, b) => {
+    const ia = SECTION_ORDER.indexOf(a), ib = SECTION_ORDER.indexOf(b);
+    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
   });
 
   sections.forEach(sec => {
@@ -313,6 +333,7 @@ import * as dataFactory from './tools/data-factory.js';
 import * as devStudio from './tools/dev-studio.js';
 import * as diff from './tools/diff.js';
 import * as encoder from './tools/encoder.js';
+import * as harAnalyzer from './tools/har-analyzer.js';
 import * as hash from './tools/hash.js';
 import * as httpCodes from './tools/http-codes.js';
 import * as json from './tools/json.js';
@@ -328,6 +349,7 @@ import * as nginx from './tools/nginx.js';
 import * as odata from './tools/odata.js';
 import * as perfLab from './tools/perf-lab.js';
 import * as regex from './tools/regex.js';
+import * as samlDebugger from './tools/saml-debugger.js';
 import * as sql from './tools/sql.js';
 import * as telemetryMonitor from './tools/telemetry-monitor.js';
 import * as timestamp from './tools/timestamp.js';
@@ -345,6 +367,7 @@ const toolModules = {
   'diff': diff,
   'text-diff': diff,
   'encoder': encoder,
+  'har-analyzer': harAnalyzer,
   'hash': hash,
   'hash-gen': hash,
   'http-codes': httpCodes,
@@ -371,6 +394,7 @@ const toolModules = {
   'perf-lab': perfLab,
   'regex': regex,
   'regex-tester': regex,
+  'saml-debugger': samlDebugger,
   'sql': sql,
   'sql-formatter': sql,
   'telemetry-monitor': telemetryMonitor,
@@ -389,13 +413,30 @@ import './tools-help.js';
 import './components/virtual-viewer.js';
 
 function initCore() {
+  // Reflect restored theme (set in index.html head) in the toggle label
+  const themeLabel = document.getElementById('theme-label');
+  if (themeLabel && document.documentElement.getAttribute('data-theme') === 'light') {
+    themeLabel.textContent = 'Dark Mode';
+  }
   updateSidebarFavorites();
   buildHomeGrid();
   initCommandPalette(TOOLS, navigate);
-  
+  setupResponsiveSidebar();
+
   // Start global bridge status monitor
   checkBridgeStatus();
   setInterval(checkBridgeStatus, 5000);
+}
+
+// Auto-collapse the sidebar on narrow viewports, reusing the existing
+// manual toggleSidebar()/.collapsed mechanism instead of a separate layout.
+function setupResponsiveSidebar() {
+  const mq = window.matchMedia('(max-width: 900px)');
+  const applyState = (e) => {
+    document.getElementById('app').classList.toggle('collapsed', e.matches);
+  };
+  mq.addEventListener('change', applyState);
+  applyState(mq);
 }
 
 async function checkBridgeStatus() {
@@ -444,8 +485,9 @@ window.uiSetView = function(splitId, viewMode, btn) {
   if (btn) {
     const group = btn.closest('.btn-group');
     if (group) {
-      group.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
+      group.querySelectorAll('.btn').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
       btn.classList.add('active');
+      btn.setAttribute('aria-pressed', 'true');
     }
   }
 

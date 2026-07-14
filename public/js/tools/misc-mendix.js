@@ -26,8 +26,8 @@ function formatXPathClick() {
 }
 
 function qiSetTab(tabId, el) {
-  document.querySelectorAll('#panel-query-intelligence .tabs .tab').forEach(t => t.classList.remove('active'));
-  if (el) el.classList.add('active');
+  document.querySelectorAll('#panel-query-intelligence .tabs .tab').forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected', 'false'); });
+  if (el) { el.classList.add('active'); el.setAttribute('aria-selected', 'true'); }
   
   const tabs = ['formatter', 'translator', 'explain', 'schema'];
   tabs.forEach(t => {
@@ -295,6 +295,27 @@ function translateOqlSql() {
   }
   
   out.value = val;
+}
+
+// JVM Health Analyzer: tab switching between Thread Dump and GC & Memory
+function jvmSetTab(tab, el) {
+  const panel = document.getElementById('panel-thread-dump');
+  if (!panel) return;
+  panel.querySelectorAll('.tabs .tab').forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected', 'false'); });
+  if (el) { el.classList.add('active'); el.setAttribute('aria-selected', 'true'); }
+  document.getElementById('jvm-tab-threads').style.display = tab === 'threads' ? 'block' : 'none';
+  document.getElementById('jvm-tab-memory').style.display = tab === 'memory' ? 'flex' : 'none';
+  const btn = document.getElementById('jvm-analyze-btn');
+  if (btn) btn.textContent = tab === 'memory' ? 'Analyze Memory Data' : 'Analyze Thread Dump';
+}
+
+function jvmAnalyzeActive() {
+  const memTab = document.getElementById('jvm-tab-memory');
+  if (memTab && memTab.style.display !== 'none') {
+    if (window.miAnalyze) window.miAnalyze();
+  } else {
+    analyzeThreadDump();
+  }
 }
 
 function analyzeThreadDump() {
@@ -693,6 +714,8 @@ window.qiExtractSchema = qiExtractSchema;
 window.formatOql = formatOql;
 window.translateOqlSql = translateOqlSql;
 window.analyzeThreadDump = analyzeThreadDump;
+window.jvmSetTab = jvmSetTab;
+window.jvmAnalyzeActive = jvmAnalyzeActive;
 window.visualizeSqlExplain = visualizeSqlExplain;
 window.regexTestMendixMode = regexTestMendixMode;
 window.generatePassword = generatePassword;

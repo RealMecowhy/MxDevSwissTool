@@ -26,7 +26,7 @@ function renderJsonTree(val, depth) {
   if (Array.isArray(val)) {
     if (!val.length) return '<span class="jt-null">[]</span>';
     const id='jtn'+Math.random().toString(36).slice(2);
-    return '<span class="jt-collapse" data-target="'+id+'">â–Ľ</span>[' +
+    return '<span class="jt-collapse" data-target="'+id+'">▼</span>[' +
       '<span id="'+id+'-placeholder" class="jt-placeholder" style="display:none">... ]</span>' +
       '<span id="'+id+'" class="jt-children">\n' +
       val.map((v,idx)=>ni+renderJsonTree(v,depth+1)+(idx<val.length-1?',':'')).join('\n') +
@@ -35,7 +35,7 @@ function renderJsonTree(val, depth) {
   if (typeof val==='object') {
     const keys=Object.keys(val); if (!keys.length) return '<span class="jt-null">{}</span>';
     const id='jtn'+Math.random().toString(36).slice(2);
-    return '<span class="jt-collapse" data-target="'+id+'">â–Ľ</span>{' +
+    return '<span class="jt-collapse" data-target="'+id+'">▼</span>{' +
       '<span id="'+id+'-placeholder" class="jt-placeholder" style="display:none">... }</span>' +
       '<span id="'+id+'" class="jt-children">\n' +
       keys.map((k,idx)=>ni+'<span class="jt-key">"'+escHtml(k)+'"</span>: '+renderJsonTree(val[k],depth+1)+(idx<keys.length-1?',':'')).join('\n') +
@@ -53,7 +53,7 @@ function addJsonToggleListeners() {
         const isCollapsed = t.style.display === 'none';
         t.style.display = isCollapsed ? '' : 'none';
         if (p) p.style.display = isCollapsed ? 'none' : 'inline';
-        this.textContent = isCollapsed ? 'â–Ľ' : 'â–¶';
+        this.textContent = isCollapsed ? '▼' : '▶';
       }
     };
   });
@@ -76,7 +76,7 @@ function jsonExpandAll() {
     if (p) p.style.display = 'none';
   });
   document.querySelectorAll('.jt-collapse').forEach(e => {
-    e.textContent = 'â–Ľ';
+    e.textContent = '▼';
   });
 }
 function jsonCollapseAll() {
@@ -89,7 +89,7 @@ function jsonCollapseAll() {
   });
   document.querySelectorAll('.jt-collapse').forEach((e, i) => {
     if (i > 0) {
-      e.textContent = 'â–¶';
+      e.textContent = '▶';
     }
   });
 }

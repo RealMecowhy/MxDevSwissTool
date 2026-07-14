@@ -1,7 +1,8 @@
 // LOG VIEWER
 // ============================================================
 let logAllEntries = [], logFilteredEntries = [];
-let logActiveLevels = new Set(['TRACE','DEBUG','INFO','WARN','WARNING','ERROR','CRITICAL']);
+// Parser normalizes WARNING -> WARN, so the filter set only needs WARN
+let logActiveLevels = new Set(['TRACE','DEBUG','INFO','WARN','ERROR','CRITICAL']);
 // ── Log format patterns ────────────────────────────────────
 // Pattern 1 (Mendix Cloud):
 //   2026-07-01T14:51:09.591808 [runtime-container/v7f5t]  ERROR - Connector: message
@@ -24,26 +25,40 @@ function logIsContinuation(line) {
     || /^\.\.\. \d+ more/.test(line.trim()); // truncated stack
 }
 
+// Reads a file as text, transparently gunzipping .gz archives (Mendix Cloud log downloads)
+async function logReadFileText(f) {
+  if (f.name.toLowerCase().endsWith('.gz')) {
+    if (typeof DecompressionStream === 'undefined') {
+      throw new Error('This browser does not support gzip decompression (DecompressionStream)');
+    }
+    const stream = f.stream().pipeThrough(new DecompressionStream('gzip'));
+    return await new Response(stream).text();
+  }
+  return await f.text();
+}
 function logLoadFiles(files) {
   showLoader('Reading files...');
-  Array.from(files).forEach(f => { 
-    const r = new FileReader(); 
-    r.onload = e => {
-      showLoader('Parsing ' + f.name + '...');
-      setTimeout(() => {
-        logParseContent(e.target.result, f.name);
-        hideLoader();
-      }, 50);
-    }; 
-    r.readAsText(f); 
-  });
+  (async () => {
+    // Sequential to keep file order deterministic before the timestamp merge-sort
+    for (const f of Array.from(files)) {
+      try {
+        showLoader('Parsing ' + f.name + '...');
+        const text = await logReadFileText(f);
+        logParseContent(text, f.name);
+      } catch (err) {
+        console.error('Failed to load ' + f.name, err);
+        alert('Could not read "' + f.name + '": ' + err.message);
+      }
+    }
+    hideLoader();
+  })();
 }
 function logHandleDrop(e) {
   e.preventDefault();
   document.getElementById('log-container').classList.remove('drag-over');
   const files = Array.from(e.dataTransfer.files).filter(f => {
     const fn = f.name.toLowerCase();
-    return fn.endsWith('.log') || fn.endsWith('.txt') || fn.endsWith('.csv') || f.type === 'text/plain' || f.type === 'text/csv' || f.type === '';
+    return fn.endsWith('.log') || fn.endsWith('.txt') || fn.endsWith('.csv') || fn.endsWith('.gz') || f.type === 'text/plain' || f.type === 'text/csv' || f.type === '';
   });
   if (files.length) logLoadFiles(files);
 }
@@ -218,6 +233,21 @@ function logParseContent(text, filename) {
   }
 
   logAllEntries = [...logAllEntries, ...entries];
+
+  // When logs come from multiple files, merge them chronologically so an
+  // incident spanning several files reads as one timeline. Entries without a
+  // parseable full timestamp keep their relative order (stable sort).
+  const distinctFiles = new Set(logAllEntries.map(e => e.file));
+  if (distinctFiles.size > 1) {
+    logAllEntries.forEach(e => {
+      if (e._t === undefined) {
+        const t = Date.parse(e.ts);
+        e._t = isNaN(t) ? null : t;
+      }
+    });
+    logAllEntries.sort((a, b) => (a._t !== null && b._t !== null) ? a._t - b._t : 0);
+  }
+
   logBuildDateFilter();
   logApplyFilters();
   document.getElementById('log-stats').style.display = 'flex';
@@ -698,8 +728,8 @@ function logClearSignatureFilter() {
 // ============================================================
 
 function logSetTab(tabId, el) {
-  document.querySelectorAll('#panel-log-viewer .tabs .tab').forEach(t => t.classList.remove('active'));
-  if (el) el.classList.add('active');
+  document.querySelectorAll('#panel-log-viewer .tabs .tab').forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected', 'false'); });
+  if (el) { el.classList.add('active'); el.setAttribute('aria-selected', 'true'); }
   
   const tabs = ['stream', 'correlation', 'sequence', 'gantt'];
   tabs.forEach(t => {

@@ -15,9 +15,9 @@ const TOOLS_HELP = {
     `,
     howToUse: `
       <ol>
-        <li>Drag and drop the log file (e.g., <code>.txt</code>, <code>.log</code>, <code>.csv</code>) directly into the browser window or paste raw log text into the input field.</li>
-        <li>Use the filters in the sidebar: enter a phrase (e.g., Microflow name), select log level (DEBUG, INFO, WARNING, ERROR, CRITICAL) or filter by a specific logger name (e.g., <code>ConnectionBus</code>).</li>
-        <li>Search for specific time intervals by moving the time slider or entering the time.</li>
+        <li>Drag and drop the log file (e.g., <code>.txt</code>, <code>.log</code>, <code>.csv</code>, or gzipped <code>.gz</code> archives from Mendix Cloud) directly into the browser window or paste raw log text into the input field. Multiple files are merged into one chronological timeline.</li>
+        <li>Use the filters in the toolbar: enter a phrase (e.g., Microflow name), toggle log levels (TRACE, DEBUG, INFO, WARN, ERROR, CRITICAL) or filter by a specific logger name (e.g., <code>ConnectionBus</code>).</li>
+        <li>Narrow down to a specific time window by entering a From / To time (e.g., <code>09:00:00</code> &rarr; <code>10:00:00</code>) and optionally selecting a date.</li>
         <li>Click <strong>Aggregate Errors</strong> in the top right corner of the module bar to open a modal with a summary of unique errors and their occurrence statistics (useful for locating error loops).</li>
       </ol>
     `,
@@ -102,14 +102,15 @@ const TOOLS_HELP = {
     howToUse: `
       <ol>
         <li>Load the exported CSV or TXT log file into the tool.</li>
-        <li>The tool will automatically group related log entries and extract all SQL queries. They will be listed on the left, displaying their type, transaction connection, execution duration, and estimated cost.</li>
+        <li>The tool will automatically group related log entries and extract all SQL queries. They will be listed on the left, displaying their type, transaction connection, execution duration, and estimated cost. Click the <strong>Time / Duration / Cost / Rows</strong> column headers to sort.</li>
+        <li>Statements executed multiple times with different parameters get a <strong>&times;N</strong> badge &mdash; use the <strong>Duplicates only (N+1)</strong> filter to instantly spot N+1 query patterns.</li>
         <li>Select a query from the list to see its details neatly grouped on the right:
           <ul>
             <li><strong>Runnable SQL:</strong> The final SQL statement with all <code>?</code> parameters substituted correctly.</li>
             <li><strong>Source XPath/OQL:</strong> The original Mendix queries that generated the SQL, including intermediate OQL translation.</li>
             <li><strong>Parameters:</strong> A table listing the raw values bound to the SQL query.</li>
             <li><strong>Result Data:</strong> The raw output rows returned by the database.</li>
-            <li><strong>Query Plan:</strong> The PostgreSQL execution plan in JSON format.</li>
+            <li><strong>Query Plan:</strong> The PostgreSQL execution plan in JSON format. Click <strong>Visualize Plan</strong> to open it in the Query Intelligence Explain visualizer with index suggestions.</li>
           </ul>
         </li>
       </ol>
@@ -148,6 +149,35 @@ const TOOLS_HELP = {
       </ul>
     `
   },
+  'har-analyzer': {
+    title: 'Mendix Client Traffic Analyzer (HAR)',
+    description: 'Decodes a browser HAR capture into named Mendix operations. Chrome DevTools shows dozens of identical <code>POST /xas/</code> requests; this tool parses their bodies and groups them by the actual microflow name or XPath retrieve, so you can see <em>what</em> the client did, how many times, and how much it transferred. Ideal for diagnosing a slow or "chatty" page from a HAR a tester sent you — without sitting at their browser.',
+    howToGet: `
+      <ol>
+        <li>Open the page in Chrome/Edge/Firefox and press <strong>F12</strong> to open DevTools, then go to the <strong>Network</strong> tab.</li>
+        <li>Enable <strong>Preserve log</strong> and click the clear (🚫) button to start fresh.</li>
+        <li>Reproduce the slow interaction (open the page, click the button, etc.).</li>
+        <li>Right-click anywhere in the request list and choose <strong>Save all as HAR with content</strong> (or the download icon).</li>
+      </ol>
+      <p style="margin-top:var(--sp-2)"><strong>⚠ Privacy:</strong> a HAR contains cookies, auth headers and tokens. This tool parses it entirely in your browser and never uploads it — but if you need to share the HAR, scrub it in the Log &amp; Text Anonymizer first.</p>
+    `,
+    howToUse: `
+      <ol>
+        <li>Drag the <code>.har</code> file onto the tool or use <strong>Load HAR File</strong>.</li>
+        <li>Review the summary cards (total requests vs. Mendix XAS operations, total XAS time and transfer).</li>
+        <li>The <strong>Operations</strong> table groups every XAS call by microflow / XPath, slowest first, with call counts. The <strong>Detections</strong> panel flags client-side N+1 (the same retrieve repeated many times) and oversized responses.</li>
+        <li>For a retrieve operation, click <strong>↗ XPath</strong> to send the query straight to the XPath Formatter for linting.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>Client-side N+1:</strong> the same <code>retrieve_by_xpath</code> firing dozens of times usually means a data grid or list view is fetching row-by-row instead of over an association. Fix it in the page/widget configuration or by retrieving over an association.</li>
+        <li><strong>Chatty microflows:</strong> a microflow invoked many times per page load often indicates an on-change or refresh loop. Consider debouncing or consolidating the calls.</li>
+        <li><strong>Large responses:</strong> a single XAS response over 1&nbsp;MB points to an unbounded retrieve or a grid without paging — add a limit or amount.</li>
+        <li><strong>Note:</strong> exact action names depend on the Mendix client version; when a request body cannot be decoded it is grouped under the generic <code>xas</code> action.</li>
+      </ul>
+    `
+  },
   'telemetry-monitor': {
     title: 'Metrics & Telemetry',
     description: 'Advanced console for monitoring performance metrics (Prometheus) and logs/traces (OpenTelemetry) generated by the Mendix application engine. Enables bottleneck diagnostics on Waterfall charts.',
@@ -171,9 +201,10 @@ const TOOLS_HELP = {
     `,
     howToUse: `
       <ol>
-        <li>Select the operating mode in the toolbar: <em>Local Agent Mode</em> (NodeJS bridge) or <em>Direct Prometheus Mode</em> (provide Cloud URL and API Key).</li>
-        <li>Click <strong>Connect Agent</strong> / <strong>Start Scraping</strong>. Charts for JVM memory usage, database connection pool, and request counts will start updating live.</li>
-        <li>Go to the <strong>Traces & Logs</strong> tab to see waterfall charts of Microflow / SQL executions. Click on individual chart bars to see details.</li>
+        <li>Pick a <strong>Connection Profile</strong> in the Connection Settings card: <em>Local Agent Prometheus</em> or <em>Local Agent OpenTelemetry</em> (both via the NodeJS bridge), or <em>Direct Prometheus</em> (provide the Prometheus URL and optional API key).</li>
+        <li>Click <strong>Connect Agent</strong> (agent profiles) or <strong>Fetch Metrics</strong> (direct mode). Charts for JVM memory usage, database connection pool, and request counts will start updating live.</li>
+        <li>Go to the <strong>OTLP Traces (Waterfall)</strong> tab to see waterfall charts of Microflow / SQL executions. Click on individual spans to see details.</li>
+        <li>No running Mendix app at hand? Click <strong>Start Sandbox</strong> to explore the dashboard with simulated data.</li>
       </ol>
     `,
     interpretation: `
@@ -337,8 +368,9 @@ const TOOLS_HELP = {
     howToGet: 'Obtain Base64 strings from API headers (like Basic Auth) or URL parameters that need decoding.',
     howToUse: `
       <ol>
-        <li>Type or paste text into a chosen input field (Plain Text, Base64, or URL Encoded).</li>
-        <li>The tool will automatically recalculate values in all other fields in real-time.</li>
+        <li>Select the encoding mode tab: <strong>Base64</strong>, <strong>URL Encode</strong>, <strong>HTML Entities</strong>, or <strong>Hexadecimal</strong>.</li>
+        <li>Paste your text into the <strong>Input</strong> field and click <strong>Encode</strong> or <strong>Decode</strong>.</li>
+        <li>Use <strong>Swap</strong> to move the output back to the input (handy for chained conversions), and <strong>Copy</strong> to grab the result.</li>
       </ol>
     `,
     interpretation: `
@@ -351,18 +383,20 @@ const TOOLS_HELP = {
   'md-preview': {
     title: 'Markdown Editor & Table Generator',
     description: 'Interactive Markdown technical documentation editor with live HTML preview. Also includes a Markdown table generator, making it easy to create readable tables without manually typing vertical bars (pipes).',
-    howToGet: 'Paste existing documentation or start writing from scratch in the editor.',
+    howToGet: 'Drag a <code>.md</code> file straight onto the editor, paste existing documentation, or start writing from scratch.',
     howToUse: `
       <ol>
         <li>Type text in Markdown format in the left editor panel. On the right side, you will instantly see the rendered preview of the document.</li>
-        <li><strong>Table Generator:</strong> Enter the number of rows and columns in the helper form, fill in headers and cells, and the tool will output ready Markdown table code that you can paste into your <code>.md</code> file.</li>
-        <li>You can copy the resulting HTML code of the rendered document using the <em>Copy HTML</em> button.</li>
+        <li><strong>Loading a file:</strong> Drop a <code>.md</code>, <code>.markdown</code>, <code>.mdx</code> or <code>.txt</code> file anywhere on the editor panel to load it. Other file types are rejected so a stray image cannot overwrite your text.</li>
+        <li><strong>Table Generator:</strong> Build the table in the editable grid &mdash; <em>+ Add Row</em> / <em>+ Add Column</em> to grow it, <em>Reset 3x3</em> to start over. Click any header to rename it, and use its ⇤ / ↔ / ⇥ icon to switch the column between left, center and right alignment.</li>
+        <li><strong>Import from Excel:</strong> Copy a range in Excel, Google Sheets or a CSV file and paste it into the grid. The table grows to fit the pasted data, starting from the cell you paste into.</li>
+        <li>Copy the ready Markdown table with <em>Copy Markdown</em>, or export the rendered document with <em>Export HTML</em> / <em>Copy HTML</em>.</li>
       </ol>
     `,
     interpretation: `
       <ul>
         <li><strong>For beginners:</strong> Markdown is the standard way developers write documentation. Use this to format text easily without needing Word.</li>
-        <li><strong>Tables:</strong> Generating markdown tables manually is painful. Use the generator to create structured release notes quickly!</li>
+        <li><strong>Tables:</strong> Generating markdown tables manually is painful. Paste your data from a spreadsheet instead of typing pipes by hand &mdash; ideal for structured release notes.</li>
       </ul>
     `
   },
@@ -425,8 +459,9 @@ const TOOLS_HELP = {
     `,
     interpretation: `
       <ul>
+        <li><strong>Approximate translation:</strong> This tool performs token-level substitution (entity paths <code>Module.Entity</code> &harr; <code>module$entity</code>, CAST type names, and system tokens like <code>[%CurrentDateTime%]</code>). It does <strong>not</strong> convert Mendix association traversals into SQL JOINs. Always review the output before running it against a real database.</li>
         <li><strong>For beginners:</strong> Helps bridge the gap between database admin tools (SQL) and Mendix logic (OQL).</li>
-        <li><strong>Migration:</strong> Essential when migrating pure SQL queries into Mendix OQL reporting datasets.</li>
+        <li><strong>Migration:</strong> Useful as a starting point when migrating pure SQL queries into Mendix OQL reporting datasets.</li>
       </ul>
     `
   },
@@ -485,7 +520,7 @@ const TOOLS_HELP = {
   },
   'odata-builder': {
     title: 'OData Query Builder',
-    description: 'Convenient OData query generator (v3/v4 standard) for communicating with Mendix Published OData Services. Helps graphically select filters, sorting, and pagination, eliminating syntax errors in URLs.',
+    description: 'Convenient OData query generator (v3/v4 standard) for communicating with Mendix Published OData Services. Structured form fields for filters, sorting, and pagination eliminate syntax errors in hand-written URLs.',
     howToGet: 'Get the base URL of the OData service published in your Mendix application (e.g., <code>https://myapp.mendixcloud.com/odata/v1/</code>) and familiarize yourself with the entity names in the service.',
     howToUse: `
       <ol>
@@ -505,29 +540,40 @@ const TOOLS_HELP = {
   'architecture': {
     title: 'Domain Model & Architecture Diagrammer',
     description: 'Tool for rapid visualization of architecture and database relationships using text code and Mermaid diagrams. Allows you to instantly draw a Domain Model without using heavy graphic tools.',
-    howToGet: 'Define relationships in text format, e.g., <code>Customer [1] -- [*] Order</code> or describe entities verbally.',
+    howToGet: `
+      <p>Describe entities and relationships in simple pseudo-code (or paste a JSON schema with <code>entities</code> / <code>associations</code>):</p>
+      <pre style="background:var(--bg-elevated);padding:var(--sp-2);border-radius:var(--r-sm);font-size:0.78rem">Customer
+  Name: String
+  Email: String
+
+Order
+  Total: Decimal
+
+Customer [1] -- [*] Order : places</pre>
+      <p>Supported relation forms: <code>A -> B : label</code> and <code>A [1] -- [*] B : label</code> (cardinalities are shown on the diagram).</p>
+    `,
     howToUse: `
       <ol>
-        <li>Use the text editor on the left, typing classes and their connections according to simple Mermaid syntax (or use built-in templates from helper buttons).</li>
-        <li>A dynamic, interactive class diagram will render on the right side.</li>
-        <li>You can download the diagram as a PNG / SVG code or copy the Mermaid code to paste, for example, in project documentation.</li>
+        <li>Type entities and their connections in the text editor on the left, then click <strong>Generate Diagram</strong>.</li>
+        <li>A class diagram renders on the right side.</li>
+        <li>Use <strong>Download SVG</strong> to save the diagram as a vector file, or <strong>Copy Mermaid</strong> to paste the diagram code into project documentation (e.g., GitHub / Confluence).</li>
       </ol>
     `
   },
   'dev-studio': {
     title: 'Mendix Developer Studio Connector',
-    description: 'Local integration tool communicating directly with a running Mendix Studio Pro instance on your computer via local API (Mendix Development Port). Enables quick preview and synchronization of project information.',
+    description: 'Local inspector for a Mendix project running on your machine. Via the Observability Bridge it reads the project configuration and presents a dashboard: database settings and live metrics, user roles, request handlers, scheduled events, constants, client bundle size, and Java code quality hints.',
     howToGet: `
       <ul>
         <li>Run your project locally in Mendix Studio Pro.</li>
-        <li>Ensure the developer port (usually 8080 or diagnostic console port) is active and accessible locally.</li>
+        <li>Make sure the local bridge is running (<code>Start-MxDevSwissTool.bat</code> or <code>node server/mendix-observability-bridge.js</code>) &mdash; the topbar indicator should show <strong>Bridge Online</strong>.</li>
       </ul>
     `,
     howToUse: `
       <ol>
-        <li>Enter the local address (e.g., <code>http://localhost:8080</code>) into the text field.</li>
-        <li>Click <strong>Connect</strong>.</li>
-        <li>The tool will fetch basic information about the project run status, Runtime version, and loaded modules.</li>
+        <li>The tool automatically detects running Mendix projects &mdash; pick one from the <strong>Detected Mendix Projects</strong> list, or type the project root path manually (e.g., <code>C:\\Mendix_Projects\\MyApp</code>).</li>
+        <li>Click <strong>Connect to Application</strong>.</li>
+        <li>The dashboard loads: application &amp; database configuration, live PostgreSQL metrics, security roles, request handlers, scheduled events, and application constants.</li>
       </ol>
     `
   },
@@ -676,14 +722,41 @@ const TOOLS_HELP = {
       </ol>
     `
   },
-  'hash-gen': {
-    title: 'Hash Generator',
-    description: 'Local generator of checksums and cryptographic hashes. Supports popular algorithms: MD5, SHA-1, SHA-256, and SHA-512. Useful for verifying file integrity, generating unique object keys, or testing authorization mechanisms in Mendix.',
-    howToGet: 'Type the text string, or provide a file if you need to verify its integrity.',
+  'saml-debugger': {
+    title: 'SAML / OIDC Debugger',
+    description: 'Decodes and inspects SAML Responses/Requests and OIDC id_tokens entirely in your browser. Essential for debugging Single Sign-On (SSO) integrations in Mendix (the SAML SSO and OIDC/OpenID Connect modules) where you must never paste real tokens into public online decoders.',
+    howToGet: `
+      <ul>
+        <li><strong>SAML:</strong> In Chrome/Firefox DevTools open the <strong>Network</strong> tab, enable "Preserve log", and perform a login. Find the POST to your app's ACS endpoint (e.g. <code>/SSO/assertion</code>) and copy the <code>SAMLResponse</code> form field. For the Redirect binding, copy the <code>SAMLRequest</code>/<code>SAMLResponse</code> query parameter from the URL &mdash; URL-encoding and DEFLATE compression are handled automatically.</li>
+        <li><strong>OIDC:</strong> Copy the <code>id_token</code> from the token response, or from the Mendix OIDC module logs / browser session. It is a JWT (three dot-separated parts).</li>
+      </ul>
+    `,
     howToUse: `
       <ol>
-        <li>Enter text in the input field.</li>
+        <li>Choose the <strong>SAML Response / Request</strong> or <strong>OIDC id_token</strong> tab.</li>
+        <li>Paste the value and click <strong>Decode</strong>.</li>
+        <li><strong>SAML:</strong> Review the formatted XML on the left and the parsed summary on the right &mdash; issuer, subject (NameID), audience, the validity window (NotBefore / NotOnOrAfter with live status), attributes, and whether a signature is present.</li>
+        <li><strong>OIDC:</strong> Review the decoded header and claims with inline explanations and expiry status.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>"not valid yet" / "expired":</strong> The most common SSO failure is clock skew between the IdP and the Mendix server. If NotBefore is in the future or NotOnOrAfter is in the past by a few minutes, sync the server clocks (NTP).</li>
+        <li><strong>Audience mismatch:</strong> The <code>Audience</code> (SAML) or <code>aud</code> (OIDC) must match your app's Entity ID / client_id exactly. A mismatch is rejected even when everything else is valid.</li>
+        <li><strong>No signature found:</strong> Mendix's SAML module requires signed assertions/responses by default. If no <code>ds:Signature</code> is present, check the IdP signing configuration.</li>
+        <li><strong>Security note:</strong> This tool decodes and inspects only &mdash; it does <strong>not</strong> cryptographically verify the signature. Never trust an assertion based on decoding alone; signature validation happens in the Mendix runtime.</li>
+      </ul>
+    `
+  },
+  'hash-gen': {
+    title: 'Hash Generator',
+    description: 'Local generator of checksums and cryptographic hashes. Supports SHA-256, SHA-512, and SHA-1 (MD5 is deprecated and not available in browser WebCrypto). Useful for verifying file integrity, generating unique object keys, or testing authorization mechanisms in Mendix.',
+    howToGet: 'Type the text string, or drag &amp; drop a file onto the input if you need to verify its integrity.',
+    howToUse: `
+      <ol>
+        <li>Enter text in the input field, or drop a file onto it to hash the file contents.</li>
         <li>Hashes for all available cryptographic algorithms will be generated and displayed automatically below.</li>
+        <li>Optionally paste an expected hash into the <strong>Compare Hash</strong> field &mdash; the tool marks the matching algorithm with <strong>MATCH</strong> / <strong>MISMATCH</strong>.</li>
       </ol>
     `,
     interpretation: `
@@ -691,18 +764,6 @@ const TOOLS_HELP = {
         <li><strong>For beginners:</strong> Hashing is a one-way street. It turns any text into a fixed-length string. If even one letter changes, the hash changes completely. Useful for verifying file integrity.</li>
         <li><strong>Security:</strong> MD5 and SHA-1 are considered broken for security purposes. Always use SHA-256 or SHA-512 for hashing sensitive data like passwords or tokens.</li>
       </ul>
-    `
-  },
-  'password-generator': {
-    title: 'Password Generator',
-    description: 'Generator of strong, secure, and random passwords. Facilitates creating passwords for system accounts, database administrators, or technical accounts in Mendix Cloud.',
-    howToGet: 'The generator works fully locally and randomly. It does not require input data.',
-    howToUse: `
-      <ol>
-        <li>Set the password length using the slider.</li>
-        <li>Check options defining what characters the password should contain (uppercase, lowercase, numbers, special characters).</li>
-        <li>Click the <strong>Generate Password</strong> button and copy the generated secure string.</li>
-      </ol>
     `
   },
   'regex-tester': {
@@ -732,7 +793,14 @@ const TOOLS_HELP = {
       <ol>
         <li><strong>Convert to Date:</strong> Enter the timestamp value (seconds or milliseconds). The tool will instantly calculate and display the calendar date.</li>
         <li><strong>Convert to Timestamp:</strong> Select a date and time from the calendar to generate the corresponding Unix Epoch timestamp.</li>
+        <li><strong>Scheduled Event Preview:</strong> Enter a recurrence (daily / weekly / every N hours or minutes) and whether it is configured in UTC or local time. The tool lists the next 10 runs in both UTC and your local timezone, flagging Daylight Saving shifts.</li>
       </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>UTC vs local:</strong> Mendix Cloud executes scheduled events in UTC. A "daily at 03:00" event configured as UTC fires at a different local wall-clock time depending on your timezone &mdash; use the preview to confirm it runs when the business expects.</li>
+        <li><strong>DST shift flag:</strong> When a local-time run crosses a Daylight Saving boundary, the preview marks it. A "23:00 local" report can drift by an hour twice a year if the schedule is pinned to UTC.</li>
+      </ul>
     `
   },
   'log-anonymizer': {
@@ -741,9 +809,9 @@ const TOOLS_HELP = {
     howToGet: 'Simply paste your Mendix log file content or drag and drop the log file into the tool.',
     howToUse: `
       <ol>
-        <li>Select the types of data you want to anonymize (UUIDs, IP addresses, Emails, Mendix IDs, MAC Addresses, Credit Cards, Auth Tokens).</li>
+        <li>Select the types of data you want to anonymize (UUIDs, IP addresses, Emails, Mendix IDs, MAC Addresses, Credit Cards, Auth Tokens including AWS access keys, generic API keys, passwords embedded in URLs, and <code>Set-Cookie</code>/<code>Cookie</code> headers).</li>
         <li>Check "Consistent Masking (Pseudonymization)" to securely map identical values to the same pseudonym across the entire log (e.g. replacing the same email with [EMAIL-1] everywhere) to maintain traceability.</li>
-        <li>You can also provide custom keywords (e.g., your company name or secret project names) to be redacted.</li>
+        <li>You can also provide custom keywords (e.g., your company name or secret project names) to be redacted, and custom regex patterns (one per line, e.g. <code>ORD-\\d{6}</code>) for internal identifier formats the built-in rules don't know.</li>
         <li>Click Run or enable Auto-run to see the cleaned logs instantly.</li>
       </ol>
     `,
@@ -752,6 +820,7 @@ const TOOLS_HELP = {
         <li><strong>Enterprise standard:</strong> Never share raw logs publicly! This tool prevents Data Loss (DLP) by scrubbing personal, authentication, and network data locally in your browser.</li>
         <li><strong>Consistent Masking:</strong> Enables tracking a user session without knowing their actual identity.</li>
         <li><strong>Custom Keywords:</strong> Use this to hide proprietary table names or module names that might reveal your business logic.</li>
+        <li><strong>Not exhaustive:</strong> The pattern list above covers the most common secret formats but cannot catch every possible secret shape (e.g. custom-formatted internal tokens). Always review the anonymized output yourself before sharing it externally, and add custom keywords for anything the built-in patterns might miss.</li>
       </ul>
     `
   },
@@ -780,32 +849,22 @@ const TOOLS_HELP = {
 // ============================================================
 
 function showActiveToolHelp() {
-  let toolId = typeof currentTool !== 'undefined' ? currentTool : 'home';
+  let toolId = typeof window.currentTool !== 'undefined' ? window.currentTool : 'home';
   if (toolId === 'home') return;
 
   if (toolId === 'log-viewer') {
     const activeTab = document.querySelector('#panel-log-viewer .tabs .tab.active');
-    if (activeTab) {
-      if (activeTab.innerText.includes('Stream')) toolId = 'log-viewer-stream';
-      else if (activeTab.innerText.includes('Correlation')) toolId = 'log-viewer-correlation';
-      else if (activeTab.innerText.includes('Sequence')) toolId = 'log-viewer-sequence';
-      else if (activeTab.innerText.includes('Gantt')) toolId = 'log-viewer-gantt';
-      else toolId = 'log-viewer-stream';
-    } else {
-      toolId = 'log-viewer-stream';
-    }
+    toolId = (activeTab && activeTab.dataset.helpKey) || 'log-viewer-stream';
   }
 
   if (toolId === 'query-intelligence') {
     const activeTab = document.querySelector('#panel-query-intelligence .tabs .tab.active');
-    if (activeTab) {
-      if (activeTab.innerText.includes('Formatter')) toolId = 'query-intelligence-formatter';
-      else if (activeTab.innerText.includes('Translator')) toolId = 'query-intelligence-translator';
-      else if (activeTab.innerText.includes('Explain')) toolId = 'query-intelligence-explain';
-      else if (activeTab.innerText.includes('Visualizer')) toolId = 'query-intelligence-schema';
-    } else {
-      toolId = 'query-intelligence-formatter';
-    }
+    toolId = (activeTab && activeTab.dataset.helpKey) || 'query-intelligence-formatter';
+  }
+
+  if (toolId === 'thread-dump') {
+    const activeTab = document.querySelector('#panel-thread-dump .tabs .tab.active');
+    toolId = (activeTab && activeTab.dataset.helpKey) || 'thread-dump';
   }
 
   const helpData = TOOLS_HELP[toolId];

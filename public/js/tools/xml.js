@@ -114,7 +114,7 @@ function renderXmlTree(node, depth) {
     const id = 'xmln' + Math.random().toString(36).slice(2);
     const openingTag = brO + '<span class="xml-tag">' + name + '</span>' + attrs + brC;
     const closingTag = brE + '<span class="xml-tag">' + name + '</span>' + brC;
-    return '<span class="jt-collapse" data-target="' + id + '">â–Ľ</span>' + openingTag +
+    return '<span class="jt-collapse" data-target="' + id + '">▼</span>' + openingTag +
       '<span id="' + id + '-placeholder" class="jt-placeholder" style="display:none">... ' + closingTag + '</span>' +
       '<span id="' + id + '" class="jt-children">\n' +
       children.map(c => ni + renderXmlTree(c, depth + 1)).filter(s => s.trim() !== '').join('\n') +
@@ -167,7 +167,7 @@ function addXmlToggleListeners() {
         const isCollapsed = t.style.display === 'none';
         t.style.display = isCollapsed ? '' : 'none';
         if (p) p.style.display = isCollapsed ? 'none' : 'inline';
-        this.textContent = isCollapsed ? 'â–Ľ' : 'â–¶';
+        this.textContent = isCollapsed ? '▼' : '▶';
       }
     };
   });
@@ -196,7 +196,7 @@ function xmlExpandAll() {
     if (p) p.style.display = 'none';
   });
   document.querySelectorAll('#xml-tree-output .jt-collapse').forEach(e => {
-    e.textContent = 'â–Ľ';
+    e.textContent = '▼';
   });
 }
 
@@ -210,7 +210,7 @@ function xmlCollapseAll() {
   });
   document.querySelectorAll('#xml-tree-output .jt-collapse').forEach((e, i) => {
     if (i > 0) {
-      e.textContent = 'â–¶';
+      e.textContent = '▶';
     }
   });
 }

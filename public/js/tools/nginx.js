@@ -9,17 +9,20 @@ window.nginxActiveTab = 'access';
 function nginxSwitchTab(tab) {
   window.nginxActiveTab = tab;
   document.getElementById('nx-tab-access').classList.remove('active');
+  document.getElementById('nx-tab-access').setAttribute('aria-selected', 'false');
   document.getElementById('nx-tab-access').style.borderBottomColor = 'transparent';
   document.getElementById('nx-tab-access').style.color = 'var(--text-muted)';
-  
+
   document.getElementById('nx-tab-error').classList.remove('active');
+  document.getElementById('nx-tab-error').setAttribute('aria-selected', 'false');
   document.getElementById('nx-tab-error').style.borderBottomColor = 'transparent';
   document.getElementById('nx-tab-error').style.color = 'var(--text-muted)';
-  
+
   document.getElementById('nx-content-access').style.display = 'none';
   document.getElementById('nx-content-error').style.display = 'none';
-  
+
   document.getElementById('nx-tab-' + tab).classList.add('active');
+  document.getElementById('nx-tab-' + tab).setAttribute('aria-selected', 'true');
   document.getElementById('nx-tab-' + tab).style.borderBottomColor = 'var(--primary)';
   document.getElementById('nx-tab-' + tab).style.color = 'var(--text)';
   document.getElementById('nx-content-' + tab).style.display = 'flex';
@@ -420,24 +423,25 @@ async function nginxAggregateAndRender() {
 
   if (sortedHours.length > 0) {
     const maxVal = Math.max(...sortedHours.map(h => h[1]));
+    const singleBucket = sortedHours.length === 1;
     let timeChartHtml = '';
     let xAxisHtml = '';
     const labelStep = Math.max(1, Math.ceil(sortedHours.length / 6));
-    
+
     sortedHours.forEach(([hour, count], i) => {
       const hPercent = Math.max(2, (count / maxVal) * 100);
       timeChartHtml += `
-        <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;height:100%;justify-content:flex-end;position:relative;cursor:pointer" onclick="nginxSetFilter('hour', '${hour}')">
+        <div style="flex:1;${singleBucket ? 'max-width:80px;' : ''}display:flex;flex-direction:column;align-items:center;gap:2px;height:100%;justify-content:flex-end;position:relative;cursor:pointer" onclick="nginxSetFilter('hour', '${hour}')">
           <div style="width:100%;background:var(--accent);height:${hPercent}%;border-radius:2px 2px 0 0;opacity:0.8;transition:opacity 0.2s" onmouseover="this.style.opacity=1; this.nextElementSibling.style.display='block'" onmouseout="this.style.opacity=0.8; this.nextElementSibling.style.display='none'"></div>
           <div style="display:none; position:absolute; bottom:calc(100% + 5px); left:50%; transform:translateX(-50%); background:var(--bg-elevated); border:1px solid var(--border); padding:6px 10px; border-radius:6px; font-size:0.75rem; color:var(--text); white-space:nowrap; z-index:10; pointer-events:none; box-shadow:0 4px 12px rgba(0,0,0,0.5)">
-            <strong style="color:var(--accent)">${hour}</strong><br/>${count} requests<br/><span style="color:var(--text-muted);font-size:0.65rem">Click to filter by this hour</span>
+            <strong style="color:var(--accent)">${hour}</strong><br/>${count} requests<br/><span style="color:var(--text-muted);font-size:0.72rem">Click to filter by this hour</span>
           </div>
         </div>
       `;
       
       const showLabel = (i % labelStep === 0) || (i === sortedHours.length - 1);
       const shortHour = hour.split(' ')[1] ? hour.split(' ')[1] + ':00' : hour;
-      xAxisHtml += `<div style="flex:1; text-align:center; overflow:visible; position:relative; min-width:0;">
+      xAxisHtml += `<div style="flex:1;${singleBucket ? ' max-width:80px;' : ''} text-align:center; overflow:visible; position:relative; min-width:0;">
         ${showLabel ? `<span style="font-size:0.7rem; color:var(--text-muted); position:absolute; left:50%; transform:translateX(-50%); white-space:nowrap;">${shortHour}</span>` : ''}
       </div>`;
     });
@@ -450,10 +454,10 @@ async function nginxAggregateAndRender() {
           <span>0</span>
         </div>
         <div style="flex:1; display:flex; flex-direction:column; min-width:0;">
-          <div style="flex:1; display:flex; align-items:flex-end; gap:2px; border-bottom:1px solid var(--border); border-left:1px solid var(--border); padding-left:4px; padding-bottom:0; z-index:1">
+          <div style="flex:1; display:flex; align-items:flex-end; ${singleBucket ? 'justify-content:center;' : ''} gap:2px; border-bottom:1px solid var(--border); border-left:1px solid var(--border); padding-left:4px; padding-bottom:0; z-index:1">
              ${timeChartHtml}
           </div>
-          <div style="display:flex; gap:2px; padding-top:4px; padding-left:4px; margin-bottom:16px;">
+          <div style="display:flex; ${singleBucket ? 'justify-content:center;' : ''} gap:2px; padding-top:4px; padding-left:4px; margin-bottom:16px;">
              ${xAxisHtml}
           </div>
         </div>
@@ -574,7 +578,7 @@ function nginxSendToAnonymizer() {
 }
 
 window.addEventListener('popstate', function(e) {
-  if (typeof currentTool !== 'undefined' && currentTool === 'nginx-log') {
+  if (typeof window.currentTool !== 'undefined' && window.currentTool === 'nginx-log') {
     if (e.state && e.state.nginxFilterState) {
       window.nginxFilter = { ...e.state.nginxFilterState };
       showLoader('Filtering...');
@@ -824,8 +828,11 @@ window.nxStreamState = {
 
 function nginxSetView(type, view, el) {
   document.getElementById(`nx-${type}-tab-analyzer`).classList.remove('active');
+  document.getElementById(`nx-${type}-tab-analyzer`).setAttribute('aria-selected', 'false');
   document.getElementById(`nx-${type}-tab-stream`).classList.remove('active');
+  document.getElementById(`nx-${type}-tab-stream`).setAttribute('aria-selected', 'false');
   el.classList.add('active');
+  el.setAttribute('aria-selected', 'true');
   
   document.getElementById(`nx-${type}-view-analyzer`).style.display = 'none';
   document.getElementById(`nx-${type}-view-stream`).style.display = 'none';

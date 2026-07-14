@@ -10,7 +10,6 @@ const CS_MOJIBAKE_MAP = {
   'Ä™': { rep: 'ę', desc: 'ę (UTF-8 as CP1250)' },
   'Ä˜': { rep: 'Ę', desc: 'Ę (UTF-8 as CP1250)' },
   'Ä\u0098': { rep: 'Ę', desc: 'Ę (UTF-8 as CP1250)' },
-  'Ä˜': { rep: 'Ę', desc: 'Ę (UTF-8 as CP1250)' },
   'Å‚': { rep: 'ł', desc: 'ł (UTF-8 as CP1250)' },
   'Å ': { rep: 'Ł', desc: 'Ł (UTF-8 as CP1250)' },
   'Å\u0081': { rep: 'Ł', desc: 'Ł (UTF-8 as CP1250)' },
@@ -74,7 +73,7 @@ function sanitizeSwitchTab(tabId) {
   tabs.forEach(t => {
     const tabEl = document.getElementById('cs-tab-' + t);
     const panelEl = document.getElementById('cs-panel-' + t);
-    if (tabEl) tabEl.classList.toggle('active', t === tabId);
+    if (tabEl) { tabEl.classList.toggle('active', t === tabId); tabEl.setAttribute('aria-selected', String(t === tabId)); }
     if (panelEl) {
       panelEl.style.display = (t === tabId) ? 'flex' : 'none';
     }

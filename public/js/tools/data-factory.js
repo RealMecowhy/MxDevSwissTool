@@ -170,7 +170,7 @@ function dfGenerate() {
           result += '<?xml version="1.0" encoding="UTF-8"?>\n<Data>\n';
         }
 
-        function processNextChunk() {
+        var processNextChunk = function() {
           var end = Math.min(start + chunkSize, count);
           
           for (var i = start; i < end; i++) {
@@ -220,8 +220,8 @@ function dfGenerate() {
               self.postMessage({ type: 'complete', result: result });
             }, 0);
           }
-        }
-        
+        };
+
         processNextChunk();
       } catch (err) {
         self.postMessage({ type: 'error', error: err.message });

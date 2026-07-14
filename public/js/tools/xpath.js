@@ -1,7 +1,25 @@
 // XPATH BUILDER
 // ============================================================
+let xpathCheatsheetWired = false;
 function initXpath() {
-  // Initialization logic removed as elements were deleted from UI
+  // Cheat sheet: click any snippet to copy it (single delegated listener)
+  const sheet = document.getElementById('xpath-cheatsheet');
+  if (!sheet || xpathCheatsheetWired) return;
+  xpathCheatsheetWired = true;
+  sheet.addEventListener('click', (e) => {
+    const item = e.target.closest('.xcs-item');
+    if (!item) return;
+    const snippet = item.getAttribute('data-snippet');
+    if (!snippet) return;
+    window.copyToClipboard(snippet);
+    const codeEl = item.querySelector('code');
+    if (codeEl && !item.dataset.flashing) {
+      item.dataset.flashing = '1';
+      const original = codeEl.textContent;
+      codeEl.textContent = '✓ Copied';
+      setTimeout(() => { codeEl.textContent = original; delete item.dataset.flashing; }, 900);
+    }
+  });
 }
 function xpathAnalyze() {
   const val = document.getElementById('xpath-input').value.trim();
@@ -63,4 +81,4 @@ function xpathAnalyze() {
 window.initXpath = initXpath;
 window.xpathAnalyze = xpathAnalyze;
 
-export function init() {}
+export function init() { initXpath(); }

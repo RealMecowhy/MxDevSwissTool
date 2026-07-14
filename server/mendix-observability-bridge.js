@@ -1061,13 +1061,13 @@ const server = http.createServer((req, res) => {
           const conc = Math.min(parseInt(config.concurrency) || 1, 50);
           const count = Math.min(parseInt(config.count) || 1, 5000);
 
+          if (!targetUrl) return sendError(req, res, 'Missing url', 400);
+
           const targetHost = new URL(targetUrl).hostname;
           const isPrivateOrLocal = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(targetHost);
           if (!isPrivateOrLocal && process.env.MXDEV_ALLOW_EXTERNAL_PERFTEST !== 'true') {
             return sendError(req, res, 'Perf Lab domyślnie działa tylko na adresach lokalnych/prywatnych. Ustaw zmienną środowiskową MXDEV_ALLOW_EXTERNAL_PERFTEST=true, aby testować cele zewnętrzne.', 403);
           }
-          
-          if (!targetUrl) return sendError(req, res, 'Missing url', 400);
 
           const fetchOpts = { method, headers };
           if (payload && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {

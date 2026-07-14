@@ -127,9 +127,9 @@ function tmSetTab(tabId) {
   tmActiveTab = tabId;
   
   // Update tab buttons
-  document.querySelectorAll('#panel-telemetry-monitor .tab').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('#panel-telemetry-monitor .tab').forEach(el => { el.classList.remove('active'); el.setAttribute('aria-selected', 'false'); });
   const btn = document.getElementById(`tm-tab-${tabId}-btn`);
-  if (btn) btn.classList.add('active');
+  if (btn) { btn.classList.add('active'); btn.setAttribute('aria-selected', 'true'); }
 
   // Update tab views
   document.getElementById('tm-tab-dashboard').style.display = (tabId === 'dashboard') ? 'flex' : 'none';
@@ -677,6 +677,20 @@ function tmProcessParsedMetrics(parsed) {
   const heapPct = heapMax > 0 ? Math.round((heapUsed / heapMax) * 100) : 0;
   document.getElementById('tm-card-heap-pct').textContent = `${heapPct}% used`;
   document.getElementById('tm-card-threads').textContent = `${threadsActive} / ${threadsMax}`;
+
+  // Threshold highlighting: heap and thread-pool saturation are the signals
+  // that most reliably precede a Mendix runtime falling over.
+  const heapBox = document.getElementById('tm-card-heap-box');
+  if (heapBox) {
+    heapBox.classList.toggle('stat-alert-danger', heapMax > 0 && heapPct >= 85);
+    heapBox.classList.toggle('stat-alert-warn', heapMax > 0 && heapPct >= 70 && heapPct < 85);
+  }
+  const threadsBox = document.getElementById('tm-card-threads-box');
+  if (threadsBox) {
+    const thrRatio = threadsMax > 0 ? threadsActive / threadsMax : 0;
+    threadsBox.classList.toggle('stat-alert-danger', thrRatio >= 0.9);
+    threadsBox.classList.toggle('stat-alert-warn', thrRatio >= 0.75 && thrRatio < 0.9);
+  }
   document.getElementById('tm-card-reqs').textContent = `${reqsRate.toFixed(1)} req/s`;
   document.getElementById('tm-card-latency').textContent = `Avg latency: ${Math.round(avgLatency)} ms`;
   
@@ -2043,6 +2057,10 @@ function tmResetData() {
   setText('tm-card-threads', '0 / 0');
   setText('tm-card-reqs', '0 req/s');
   setText('tm-card-db', '0 / s');
+  ['tm-card-heap-box', 'tm-card-threads-box'].forEach(id => {
+    const box = document.getElementById(id);
+    if (box) box.classList.remove('stat-alert-warn', 'stat-alert-danger');
+  });
   
   // Reset Postgres Stats cards & tables
   setText('tm-pg-card-conns', '0 / 0');
@@ -2737,7 +2755,7 @@ function tmRenderOtelLogsTable() {
     else if (l.severity === 'DEBUG') levelColor = 'var(--success)';
     
     const traceBadge = l.traceId 
-      ? `<span onclick="event.stopPropagation(); tmSelectTrace('${l.traceId}'); tmSetOtelSubtab('traces')" style="background:rgba(52,152,219,0.2);color:var(--info);padding:2px 6px;border-radius:4px;font-family:var(--font-mono);font-size:0.65rem;cursor:pointer;border:1px solid rgba(52,152,219,0.3)">${l.traceId.substring(0, 8)}...</span>` 
+      ? `<span onclick="event.stopPropagation(); tmSelectTrace('${l.traceId}'); tmSetOtelSubtab('traces')" style="background:rgba(52,152,219,0.2);color:var(--info);padding:2px 6px;border-radius:4px;font-family:var(--font-mono);font-size:0.72rem;cursor:pointer;border:1px solid rgba(52,152,219,0.3)">${l.traceId.substring(0, 8)}...</span>` 
       : '—';
       
     html += `
@@ -2847,8 +2865,30 @@ window.tmRenderOtelLogsTable = tmRenderOtelLogsTable;
 window.tmSelectTrace = tmSelectTrace;
 window.tmCloseSelectedTrace = tmCloseSelectedTrace;
 
+// Collapsible chart groups: restore per-group open/closed state and persist changes.
+// Charts inside a re-opened <details> need a resize kick to pick up their size.
+let tmChartGroupsWired = false;
+function tmInitChartGroups() {
+  if (tmChartGroupsWired) return;
+  const groups = document.querySelectorAll('#tm-tab-dashboard .tm-chart-group');
+  if (!groups.length) return;
+  tmChartGroupsWired = true;
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem('tm-chart-groups') || '{}'); } catch (e) {}
+  groups.forEach(g => {
+    const id = g.getAttribute('data-group-id');
+    if (saved[id] === false) g.removeAttribute('open');
+    g.addEventListener('toggle', () => {
+      saved[id] = g.open;
+      try { localStorage.setItem('tm-chart-groups', JSON.stringify(saved)); } catch (e) {}
+      if (g.open) window.dispatchEvent(new Event('resize'));
+    });
+  });
+}
+
 export function init() {
   if (document.getElementById('tm-conn-profile')) {
     tmChangeConnectionProfile();
   }
+  tmInitChartGroups();
 }
