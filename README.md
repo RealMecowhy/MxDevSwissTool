@@ -19,7 +19,12 @@ The toolkit is divided into logical categories to assist you across the entire d
 * **Nginx Log Analyzer**: Analyze access logs to identify top IPs, request paths, status codes, and response times, with optional IP geolocation mapping.
   ![Nginx Log Analyzer](assets/screenshot-nginx-analyzer.png)
 * **Client Traffic Analyzer (HAR)**: Decode a browser HAR into named Mendix client operations (microflows, XPath retrieves) to spot client-side N+1 patterns, chatty microflows, and oversized responses that raw DevTools can't surface.
+  ![Client Traffic Analyzer](assets/screenshot-har-analyzer.png)
+* **Metrics & Telemetry**: Visualize Mendix Prometheus metrics (heap, threads, request rate, database queries) as live dashboards and explore OpenTelemetry traces/logs, locally or from cloud endpoints. Includes a sandbox mode for exploring without a running app.
+  ![Metrics & Telemetry](assets/screenshot-telemetry.png)
 * **JVM Health Analyzer**: Analyze JVM thread dumps, garbage collector logs, and heap histograms to locate blocked threads, diagnose GC pauses, and spot memory leaks.
+  ![JVM Health Analyzer](assets/screenshot-thread-dump.png)
+* **HTTP Status Codes**: A searchable status code reference with Mendix-specific context.
 
 ### 2. Performance & Testing
 * **Performance Lab**: Simulate concurrent load on Mendix HTTP/REST endpoints with real-time latency tracking and statistics (min/avg/max and p50/p95/p99 percentiles).
@@ -34,23 +39,28 @@ The toolkit is divided into logical categories to assist you across the entire d
 * **SQL Formatter**: Format and highlight complex ORM-generated database queries.
 * **Base64 / URL Encoder**: Encode and decode strings and HTML entities locally.
 * **XML & Text Sanitizer**: Detect and clean hidden control characters, zero-width spaces, and Mojibake.
+* **XPath Formatter (Linter)**: Format Mendix XPath constraints and lint them for index-blocking patterns before they hit the database.
+  ![XPath Formatter](assets/screenshot-xpath-builder.png)
+* **Text Diff**: Compare two text blocks or code side-by-side with differences highlighted.
+  ![Text Diff](assets/screenshot-text-diff.png)
 * **Markdown Editor & Table Generator**: Write module documentation with a live HTML preview — drop a `.md` file straight onto the editor to load it. The table generator turns a range pasted from Excel, Google Sheets, or a CSV into a ready Markdown table, with per-column alignment and no hand-typed pipes.
 
 ### 4. Mendix Platform Utilities
-* **OData / XPath Query Builders**: Sandboxes to build, format, and lint queries before they hit the database.
-  ![XPath Builder](assets/screenshot-xpath-builder.png)
+* **Query Intelligence Suite**: A consolidated query workbench — OQL formatter, OQL ↔ SQL translator, PostgreSQL EXPLAIN plan visualizer with index suggestions, and a schema visualizer that draws entities and associations from an OQL query.
+  ![Query Intelligence Suite](assets/screenshot-query-intelligence.png)
+* **OData Query Builder**: Build correct OData v3/v4 queries for Published OData Services without hand-crafting URLs.
 * **Domain Model & Architecture Visualizer**: Generate Mermaid.js class diagrams from Domain Model JSON schemas or pseudocode.
-* **OQL / XPath Formatters**: Format and structure database and retrieve constraints.
+* **Developer Studio**: A dashboard for your locally running Studio Pro project via the Observability Bridge — configuration, user roles, request handlers, scheduled events, constants, and client bundle size.
+* **API Economics**: Analyze JSON payloads to cut response size and spot redundant fields.
 
 ### 5. Security & Utilities
 * **JWT Decoder**: Inspect JWT tokens securely without transmitting them externally.
   ![JWT Decoder](assets/screenshot-jwt-decoder.png)
 * **SAML / OIDC Debugger**: Decode SAML responses/requests (Base64, URL-encoded or DEFLATE-compressed) and OIDC id_tokens locally to debug SSO integrations — inspect assertions, claims, and validity windows without pasting tokens online.
+  ![SAML / OIDC Debugger](assets/screenshot-saml-debugger.png)
 * **Hash / Password Generators**: Generate strong passwords and cryptographic hashes (SHA-256, SHA-512) locally.
-* **Java Regex Tester**: Evaluate regular expressions using a Java-compatible regex engine.
+* **Java Regex Tester (Mendix)**: Evaluate regular expressions against the Java regex engine — exactly how Mendix validates them at runtime.
 * **Timestamp Converter**: Convert between Unix epochs, ISO 8601, and local timezone formats.
-* **Diff / Text Compare**: Compare two text blocks or code side-by-side with differences highlighted.
-  ![Text Diff](assets/screenshot-text-diff.png)
 
 ---
 

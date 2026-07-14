@@ -238,7 +238,6 @@ const TOOLS_HELP = {
     description: 'Used to analyze Java Virtual Machine (JVM) Thread Dumps of a Mendix application and Garbage Collector logs. Helps in diagnosing application hang issues (Deadlock / Thread Starvation) and high CPU usage.',
     howToGet: `
       <ul>
-        <li><strong>Mendix Cloud:</strong> Go to Mendix Portal → *Environments* → select environment → *Details* tab → *Logs* → click *Download Thread Dump*.</li>
         <li><strong>Local (Studio Pro):</strong> In the bottom Mendix console, click <em>Advanced</em> → <em>Create thread dump</em>.</li>
         <li><strong>Custom Linux Server:</strong> Log in to the server and execute a dump using the JDK tool: <code>jstack [PID_java_process] > thread_dump.txt</code>.</li>
       </ul>
