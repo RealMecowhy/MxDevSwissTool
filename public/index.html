@@ -87,7 +87,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.3.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.4.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -241,7 +241,7 @@
 <!-- MAIN -->
 <main id="main">
   <div id="topbar">
-    <div><div id="topbar-title">Home</div><div id="topbar-subtitle">MxDev Swiss Tool v1.3.0</div></div>
+    <div><div id="topbar-title">Home</div><div id="topbar-subtitle">MxDev Swiss Tool v1.4.0</div></div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -784,7 +784,7 @@
     <div class="tool-panel" id="panel-xpath-builder">
       <div class="tool-header">
         <div class="tool-header-icon" style="background:color-mix(in srgb, #58a6ff 15%, transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg></div>
-        <div class="tool-header-info"><div class="tool-header-title">XPath Formatter</div><div class="tool-header-desc">Format and lint Mendix XPath queries &mdash; with system-token cheat sheet and templates</div></div>
+        <div class="tool-header-info"><div class="tool-header-title">XPath Formatter</div><div class="tool-header-desc">Format and lint Mendix XPath queries &mdash; spot index-blocking patterns and costly joins</div></div>
       </div>
       <div class="xpath-editor">
         <div class="card">
@@ -814,50 +814,6 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
           <div id="xpath-linter-text" style="display:flex;flex-direction:column;gap:4px"></div>
         </div>
-
-        <!-- XPATH CHEAT SHEET -->
-        <div class="card" id="xpath-cheatsheet" style="margin-top:var(--sp-3)">
-          <div class="card-header">
-            <h4 style="flex:1;margin:0;font-size:0.75rem;color:var(--text-secondary)">XPath Cheat Sheet &mdash; click any snippet to copy</h4>
-          </div>
-          <div class="card-body" style="display:flex;flex-direction:column;gap:var(--sp-4)">
-            <div>
-              <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:var(--sp-2)">System Variables</div>
-              <div class="xcs-grid">
-                <button type="button" class="xcs-item" data-snippet="[%CurrentUser%]"><code>[%CurrentUser%]</code><span>Logged-in user object</span></button>
-                <button type="button" class="xcs-item" data-snippet="[%CurrentObject%]"><code>[%CurrentObject%]</code><span>Object in current context</span></button>
-                <button type="button" class="xcs-item" data-snippet="[%CurrentDateTime%]"><code>[%CurrentDateTime%]</code><span>Current date and time</span></button>
-                <button type="button" class="xcs-item" data-snippet="[%BeginOfCurrentDay%]"><code>[%BeginOfCurrentDay%]</code><span>Today 00:00:00</span></button>
-                <button type="button" class="xcs-item" data-snippet="[%EndOfCurrentDay%]"><code>[%EndOfCurrentDay%]</code><span>Today 23:59:59</span></button>
-                <button type="button" class="xcs-item" data-snippet="[%BeginOfCurrentWeek%]"><code>[%BeginOfCurrentWeek%]</code><span>Start of this week</span></button>
-                <button type="button" class="xcs-item" data-snippet="[%BeginOfCurrentMonth%]"><code>[%BeginOfCurrentMonth%]</code><span>Start of this month</span></button>
-                <button type="button" class="xcs-item" data-snippet="[%DayLength%]"><code>[%DayLength%]</code><span>Milliseconds in a day (for date math)</span></button>
-                <button type="button" class="xcs-item" data-snippet="[%UserRole_Administrator%]"><code>[%UserRole_Administrator%]</code><span>User role token (per role name)</span></button>
-              </div>
-            </div>
-            <div>
-              <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:var(--sp-2)">Functions &amp; Operators</div>
-              <div class="xcs-grid">
-                <button type="button" class="xcs-item" data-snippet="starts-with(Name, 'A')"><code>starts-with(Attr, 'x')</code><span>Prefix match (index-friendly)</span></button>
-                <button type="button" class="xcs-item" data-snippet="contains(Name, 'test')"><code>contains(Attr, 'x')</code><span>Substring match (&#9888; table scan)</span></button>
-                <button type="button" class="xcs-item" data-snippet="not(Status = 'Done')"><code>not(...)</code><span>Negation (&#9888; may skip indexes)</span></button>
-                <button type="button" class="xcs-item" data-snippet="[Attr = empty]"><code>[Attr = empty]</code><span>NULL check (also != empty)</span></button>
-                <button type="button" class="xcs-item" data-snippet="[reversed(Module.Order_Customer)/Module.Order/Total > 100]"><code>reversed(...)</code><span>Traverse association backwards</span></button>
-                <button type="button" class="xcs-item" data-snippet="[Module.Order_Customer/Module.Customer/Name = 'Acme']"><code>Path/Entity/Attr</code><span>Association traversal (= SQL JOIN)</span></button>
-              </div>
-            </div>
-            <div>
-              <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:var(--sp-2)">Ready Templates</div>
-              <div class="xcs-grid">
-                <button type="button" class="xcs-item" data-snippet="[System.owner = '[%CurrentUser%]']"><code>Owned by me</code><span>[System.owner = '[%CurrentUser%]']</span></button>
-                <button type="button" class="xcs-item" data-snippet="[CreatedDate >= [%BeginOfCurrentDay%] - 7 * [%DayLength%]]"><code>Last 7 days</code><span>[CreatedDate &gt;= [%BeginOfCurrentDay%] - 7 * [%DayLength%]]</span></button>
-                <button type="button" class="xcs-item" data-snippet="[CreatedDate >= [%BeginOfCurrentMonth%]]"><code>This month</code><span>[CreatedDate &gt;= [%BeginOfCurrentMonth%]]</span></button>
-                <button type="button" class="xcs-item" data-snippet="[Status = 'Active' and Priority = 'High']"><code>AND filter</code><span>[Status = 'Active' and Priority = 'High']</span></button>
-              </div>
-            </div>
-          </div>
-        </div>
-
       </div>
     </div>
 

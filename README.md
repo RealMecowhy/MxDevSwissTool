@@ -37,7 +37,7 @@ The toolkit is divided into logical categories to assist you across the entire d
 * **Markdown Editor & Table Generator**: Write module documentation with a live HTML preview — drop a `.md` file straight onto the editor to load it. The table generator turns a range pasted from Excel, Google Sheets, or a CSV into a ready Markdown table, with per-column alignment and no hand-typed pipes.
 
 ### 4. Mendix Platform Utilities
-* **OData / XPath Query Builders**: Sandboxes to build and test queries with cheat sheets.
+* **OData / XPath Query Builders**: Sandboxes to build, format, and lint queries before they hit the database.
   ![XPath Builder](assets/screenshot-xpath-builder.png)
 * **Domain Model & Architecture Visualizer**: Generate Mermaid.js class diagrams from Domain Model JSON schemas or pseudocode.
 * **OQL / XPath Formatters**: Format and structure database and retrieve constraints.

@@ -402,13 +402,13 @@ const TOOLS_HELP = {
   },
   'xpath-builder': {
     title: 'XPath Formatter',
-    description: 'Tool assisting in writing, formatting, and validating XPath queries in the Mendix standard. Includes a handy cheat sheet with the most popular system tokens (e.g., current user, date operations) and query templates.',
+    description: 'Tool assisting in writing, formatting, and validating XPath queries in the Mendix standard. Formats complex constraints into a readable tree and flags patterns that hurt database performance.',
     howToGet: 'Get the XPath query directly from the properties of a <em>Retrieve</em> action from the database in Mendix Studio Pro or from entity Access Rules.',
     howToUse: `
       <ol>
         <li>Paste your XPath query into the editor window.</li>
         <li>Click <strong>Format</strong>. A complex, multi-line query with multiple logical operators will be formatted into a readable indentation tree.</li>
-        <li>Use the <strong>XPath Cheat Sheet</strong> section at the bottom of the screen to quickly copy special Mendix platform variables like <code>[%CurrentUser%]</code> or <code>[reversed()]</code> operators for associations.</li>
+        <li>Review the analysis and linter notices below the editor &mdash; they point out index-blocking functions, negations, and deep association hops before they reach production.</li>
       </ol>
     `,
     interpretation: `
