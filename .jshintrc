@@ -2,12 +2,31 @@
   "esversion": 2022,
   "undef": true,
   "browser": true,
-  "node": true,
   "devel": true,
   "worker": true,
+  "sub": true,
+  "laxbreak": true,
+  "loopfunc": true,
   "globals": {
     "crypto": false,
     "mermaid": false,
-    "Chart": false
+    "Chart": false,
+    "DecompressionStream": false,
+    "escape": false,
+    "unescape": false,
+    "escHtml": false,
+    "escRegex": false,
+    "copyToClipboard": false,
+    "downloadText": false,
+    "logParseContent": false,
+    "jsonFormat": false,
+    "xmlFormat": false,
+    "sqlFormat": false,
+    "xpathAnalyze": false,
+    "formatBytes": false,
+    "showLoader": false,
+    "hideLoader": false,
+    "navigate": false,
+    "VirtualTextViewer": false
   }
 }

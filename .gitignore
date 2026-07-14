@@ -2,7 +2,23 @@ node_modules/
 dist/
 _local_assets/
 .agents/
+.claude/
 .env
 .DS_Store
 *.zip
 .bridge-token
+
+# Dev-only scripts and fixtures. Kept locally, never shipped to end users:
+# the repo is what people download, so it holds only what is needed to run the app.
+scripts/analyze.js
+scripts/apply_help_updates.js
+scripts/fix_encoding.js
+scripts/generate-missing-data.js
+scripts/generate-screenshots.js
+scripts/generate-showcase-data.js
+scripts/generate_logo.js
+scripts/scratch_debug.js
+scripts/translate_all.js
+scripts/update_help.js
+scripts/update_icons.js
+scripts/sample_logs.txt

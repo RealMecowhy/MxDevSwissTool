@@ -4,11 +4,14 @@
   "description": "",
   "main": "server/mendix-observability-bridge.js",
   "scripts": {
+    "prestart": "node scripts/sync-app-version.js",
     "start": "node server/mendix-observability-bridge.js",
     "dev": "vite",
+    "prebuild": "node scripts/sync-sw-version.js && node scripts/sync-app-version.js",
     "build": "vite build",
+    "postbuild": "node scripts/copy-vendor.js",
     "preview": "vite preview",
-    "lint": "jshint public/js server --config .jshintrc",
+    "lint": "jshint public/js --config .jshintrc && jshint server --config server/.jshintrc",
     "test": "node scripts/smoke-test.js"
   },
   "keywords": [],

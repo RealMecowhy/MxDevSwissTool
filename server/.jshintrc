@@ -1,0 +1,9 @@
+{
+  "esversion": 2022,
+  "undef": true,
+  "node": true,
+  "devel": true,
+  "globals": {
+    "fetch": false
+  }
+}
