@@ -250,7 +250,10 @@ function nginxClearData() {
   history.replaceState({ nginxFilterState: { ...window.nginxFilter } }, "");
   document.getElementById('nginx-log-input').value = '';
   document.getElementById('nginx-results').style.display = 'none';
-  document.getElementById('nginx-input-card').style.display = 'flex';
+  // Revert to the card's stylesheet display (block). Forcing 'flex' here laid the
+  // card's children out in a row — harmless on the access card (one child) but it
+  // broke the error card, whose geo-IP toggle is a second direct child.
+  document.getElementById('nginx-input-card').style.display = '';
   document.getElementById('nginx-send-anon-btn').style.display = 'none';
   const fileInput = document.getElementById('nginx-file-input');
   if (fileInput) fileInput.value = '';
@@ -259,7 +262,7 @@ function nginxClearData() {
   window.nginxErrorParsedLogs = [];
   document.getElementById('nginx-error-log-input').value = '';
   document.getElementById('nginx-error-results').style.display = 'none';
-  document.getElementById('nginx-error-input-card').style.display = 'flex';
+  document.getElementById('nginx-error-input-card').style.display = '';
   const errorFileInput = document.getElementById('nginx-error-file-input');
   if (errorFileInput) errorFileInput.value = '';
 }
