@@ -5,10 +5,9 @@ let extractedQueries = [];
 let lqeLastFiltered = [];
 let lqeSkippedLines = 0;
 let lqeSourceFormat = null; // 'csv' (Studio Pro export) | 'live' (Mendix Cloud download)
+let lqeWorker = null;
+const LQE_WORKER_THRESHOLD = 2 * 1024 * 1024; // parse in a Web Worker above 2 MB
 
-// Mendix Cloud live-log line: TIMESTAMP [runtime-container/pod] LEVEL - Node: message
-// (same shape as LOG_PAT_CLOUD in the Log Viewer; a shared parser module lands in wave 2)
-const LQE_PAT_CLOUD = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+\[[^\]]+\]\s+(TRACE|DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL)\s+-\s+([^:\n]+?):\s*(.*)$/i;
 // ConnectionBus_Queries WARNING — logged at default log levels when a query exceeds
 // the runtime slow-query threshold, so it works on production without TRACE.
 const LQE_SLOW_QUERY = /^Query executed in (?:(\d+) seconds? and )?(\d+) milliseconds?:\s*([\s\S]+)/i;
@@ -72,137 +71,79 @@ window.lqeLoadFile = function(files) {
   reader.readAsText(file);
 };
 
-// Peeks at the first lines to tell a Studio Pro CSV export from a Mendix Cloud live log
-function lqeDetectFormat(rawLines) {
-  for (let i = 0; i < rawLines.length && i < 50; i++) {
-    const line = rawLines[i].replace(/\r$/, '');
-    if (!line.trim()) continue;
-    if (line.startsWith('Type,TimeStamp,LogNode,Message') || line.startsWith('"Type","TimeStamp","LogNode","Message"')) return 'csv';
-    if (LQE_PAT_CLOUD.test(line)) return 'live';
-  }
-  return 'csv';
-}
-
-// Live logs carry the SQL@ protocol under different nodes than the CSV export handles;
-// until the shared parser (wave 2), only slow-query warnings are ingested from them.
-// The SQL of a warning can span multiple lines — it continues until the next log-patterned line.
-function lqeLiveSlowRecords(rawLines) {
-  const records = [];
-  let current = null;
-  for (const raw of rawLines) {
-    const line = raw.replace(/\r$/, '');
-    const m = line.match(LQE_PAT_CLOUD);
-    if (m) {
-      current = null;
-      if (m[3].trim() === 'ConnectionBus_Queries' && /^WARN/i.test(m[2])) {
-        current = { type: 'WARNING', timestamp: m[1], logNode: 'ConnectionBus_Queries', message: m[4], cause: '' };
-        records.push(current);
-      }
-    } else if (current && line.trim()) {
-      current.message += '\n' + line;
-    }
-  }
-  return records;
-}
-
+// Parsing pipeline (wave 2). Both the Studio Pro CSV export and the Mendix Cloud live log
+// are normalized to a common record model by the shared parser (mendix-log-parser.js).
+// Files above the threshold parse in a Web Worker so the UI never freezes on large TRACE
+// logs; smaller ones parse inline to skip the worker spin-up cost.
 function parseLogContent(text) {
-  if (window.showLoader) window.showLoader('Parsing queries...', 50);
-
-  const rawLines = text.split('\n');
+  if (window.showLoader) window.showLoader('Parsing queries...', 5);
   lqeSkippedLines = 0;
-  lqeSourceFormat = lqeDetectFormat(rawLines);
 
-  if (lqeSourceFormat === 'live') {
-    extractQueriesFromRecords(lqeLiveSlowRecords(rawLines));
+  if (text.length >= LQE_WORKER_THRESHOLD && typeof Worker !== 'undefined' && window.createMendixLogParser) {
+    lqeParseInWorker(text);
+  } else {
+    // Defer so the loader paints before a synchronous parse blocks the thread
+    setTimeout(() => {
+      try {
+        lqeApplyParseResult(window.createMendixLogParser().parse(text));
+      } catch (err) {
+        console.error('LQE parse failed:', err);
+        if (window.hideLoader) window.hideLoader();
+        alert('Could not parse this log: ' + err.message);
+      }
+    }, 20);
+  }
+}
+
+function lqeApplyParseResult(res) {
+  lqeSourceFormat = res.format;
+  lqeSkippedLines = res.skipped || 0;
+  extractQueriesFromRecords(res.records);
+}
+
+// Builds a Web Worker straight from the shared parser's own source. createMendixLogParser
+// is a self-contained factory, so .toString() is a complete, serializable program — no
+// bundler/worker-file plumbing needed (works in the single-file production build too).
+// Falls back to the main thread if the worker can't start or errors mid-parse.
+function lqeParseInWorker(text) {
+  if (lqeWorker) { lqeWorker.terminate(); lqeWorker = null; }
+  let worker;
+  try {
+    const code = window.createMendixLogParser.toString() + '\n' +
+      'self.onmessage = function(e) {\n' +
+      '  var parser = createMendixLogParser();\n' +
+      '  var res = parser.parse(e.data.text, function(pct, phase) {\n' +
+      '    self.postMessage({ type: "progress", progress: pct, phase: phase });\n' +
+      '  });\n' +
+      '  self.postMessage({ type: "complete", format: res.format, records: res.records, skipped: res.skipped });\n' +
+      '};';
+    const blob = new Blob([code], { type: 'application/javascript' });
+    worker = new Worker(URL.createObjectURL(blob));
+    lqeWorker = worker;
+  } catch (err) {
+    console.warn('LQE worker unavailable, parsing on main thread:', err);
+    lqeApplyParseResult(window.createMendixLogParser().parse(text));
     return;
   }
-
-  // Step 1: Parse CSV properly, handling multiline quoted fields
-  const csvRows = [];
-  
-  let currentLine = '';
-  let insideQuotes = false;
-  
-  for (let i = 0; i < rawLines.length; i++) {
-    let line = rawLines[i].replace(/\r$/, '');
-    currentLine += (currentLine ? '\n' : '') + line;
-    
-    // Count unescaped quotes to determine if we're inside a quoted field
-    let quoteCount = 0;
-    for (let j = 0; j < line.length; j++) {
-      if (line[j] === '"') quoteCount++;
+  worker.onmessage = function(msg) {
+    const d = msg.data;
+    if (d.type === 'progress') {
+      if (window.showLoader) window.showLoader(d.phase || ('Parsing… ' + d.progress + '%'), d.progress);
+    } else if (d.type === 'complete') {
+      worker.terminate();
+      if (lqeWorker === worker) lqeWorker = null;
+      if (window.showLoader) window.showLoader('Extracting queries…', 99);
+      // Defer so the loader repaints before extraction runs on the main thread
+      setTimeout(() => lqeApplyParseResult({ format: d.format, records: d.records, skipped: d.skipped }), 20);
     }
-    
-    if (quoteCount % 2 !== 0) {
-      insideQuotes = !insideQuotes;
-    }
-    
-    if (!insideQuotes) {
-      csvRows.push(currentLine);
-      currentLine = '';
-    }
-  }
-  if (currentLine) csvRows.push(currentLine);
-  
-  // Step 2: Parse each CSV row into structured records
-  const records = [];
-  for (const row of csvRows) {
-    // Skip header
-    if (row.startsWith('Type,TimeStamp,LogNode,Message')) continue;
-    
-    // Parse CSV fields properly
-    const fields = parseCSVRow(row);
-    if (fields.length < 4) {
-      if (row.trim()) lqeSkippedLines++;
-      continue;
-    }
-
-    records.push({
-      type: fields[0],
-      timestamp: fields[1],
-      logNode: fields[2],
-      message: fields[3],
-      cause: fields[4] || ''
-    });
-  }
-  
-  extractQueriesFromRecords(records);
-}
-
-// Proper CSV field parser that handles quoted fields with embedded commas and doubled quotes
-function parseCSVRow(row) {
-  const fields = [];
-  let i = 0;
-  
-  while (i < row.length) {
-    if (row[i] === '"') {
-      // Quoted field
-      let field = '';
-      i++; // skip opening quote
-      while (i < row.length) {
-        if (row[i] === '"' && i + 1 < row.length && row[i + 1] === '"') {
-          field += '"';
-          i += 2;
-        } else if (row[i] === '"') {
-          i++; // skip closing quote
-          break;
-        } else {
-          field += row[i];
-          i++;
-        }
-      }
-      fields.push(field);
-      if (i < row.length && row[i] === ',') i++; // skip comma
-    } else {
-      // Unquoted field
-      let end = row.indexOf(',', i);
-      if (end === -1) end = row.length;
-      fields.push(row.substring(i, end));
-      i = end + 1;
-    }
-  }
-  
-  return fields;
+  };
+  worker.onerror = function(err) {
+    console.warn('LQE worker error, parsing on main thread:', err.message || err);
+    worker.terminate();
+    if (lqeWorker === worker) lqeWorker = null;
+    lqeApplyParseResult(window.createMendixLogParser().parse(text));
+  };
+  worker.postMessage({ text: text });
 }
 
 // Detects the statement type from the leading SQL keyword
@@ -454,18 +395,23 @@ function extractQueriesFromRecords(records) {
 function lqeUpdateSkippedNote() {
   const el = document.getElementById('lqe-skipped');
   if (!el) return;
-  if (lqeSourceFormat === 'live') {
-    el.style.display = '';
-    el.textContent = ' · live log';
-    el.title = 'Mendix Cloud live-log format detected — extracted slow-query warnings (ConnectionBus_Queries). For full SQL/XPath/plan extraction load a Studio Pro CSV export with TRACE log levels.';
-  } else if (lqeSkippedLines > 0) {
-    el.style.display = '';
-    el.textContent = ' · ' + lqeSkippedLines + ' line' + (lqeSkippedLines === 1 ? '' : 's') + ' skipped';
-    el.title = lqeSkippedLines + ' CSV row(s) had fewer than 4 fields and were ignored — usually a truncated or hand-edited export.';
-  } else {
+  const parts = [];
+  if (lqeSourceFormat === 'live') parts.push('live log');
+  if (lqeSkippedLines > 0) parts.push(lqeSkippedLines + ' line' + (lqeSkippedLines === 1 ? '' : 's') + ' skipped');
+  if (parts.length === 0) {
     el.style.display = 'none';
     el.textContent = '';
+    return;
   }
+  el.style.display = '';
+  el.textContent = ' · ' + parts.join(' · ');
+  el.title =
+    (lqeSourceFormat === 'live'
+      ? 'Mendix Cloud live-log format detected — SQL is extracted where the log has it (ConnectionBus_Retrieve) along with slow-query warnings (ConnectionBus_Queries). A Studio Pro CSV export with TRACE levels gives the fullest detail. '
+      : '') +
+    (lqeSkippedLines > 0
+      ? lqeSkippedLines + ' malformed row(s) with fewer than 4 fields were ignored — usually a truncated or hand-edited export.'
+      : '');
 }
 
 function splitParams(str) {

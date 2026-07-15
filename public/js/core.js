@@ -177,7 +177,7 @@ async function navigate(toolId, navEl) {
     iconEl.style.color = tool.color || 'var(--accent)';
   }
   document.getElementById('topbar-title').textContent = tool.label;
-  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.8.0' : (tool.desc || '');
+  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.9.0' : (tool.desc || '');
   const previousTool = currentTool;
   currentTool = toolId;
   window.currentTool = currentTool;
@@ -388,6 +388,9 @@ import * as json from './tools/json.js';
 import * as jwt from './tools/jwt.js';
 import * as logAnonymizer from './tools/log-anonymizer.js';
 import * as logViewer from './tools/log-viewer.js';
+// Side-effect import: attaches window.createMendixLogParser, shared by the Log Query
+// Extractor (main thread + Web Worker) and future log-based tools.
+import './tools/mendix-log-parser.js';
 import * as logQueryExtractor from './tools/log-query-extractor.js';
 import * as markdown from './tools/markdown.js';
 import * as memoryInspector from './tools/memory-inspector.js';

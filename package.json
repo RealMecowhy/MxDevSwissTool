@@ -1,6 +1,6 @@
 {
   "name": "mxdev-swiss-tool",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "",
   "main": "server/mendix-observability-bridge.js",
   "scripts": {
@@ -12,7 +12,7 @@
     "postbuild": "node scripts/copy-vendor.js",
     "preview": "vite preview",
     "lint": "jshint public/js --config .jshintrc && jshint server --config server/.jshintrc",
-    "test": "node scripts/smoke-test.js"
+    "test": "node scripts/parser-test.js && node scripts/smoke-test.js"
   },
   "keywords": [],
   "author": "",
