@@ -47,6 +47,17 @@ window.lqeClear = function() {
   if (fileInput) fileInput.value = '';
 };
 
+window.lqeHandleDrop = function(e) {
+  e.preventDefault();
+  const zone = document.getElementById('lqe-query-list');
+  if (zone) zone.classList.remove('drag-over');
+  const files = Array.from(e.dataTransfer.files).filter(f => {
+    const fn = f.name.toLowerCase();
+    return fn.endsWith('.log') || fn.endsWith('.txt') || fn.endsWith('.csv') || f.type === 'text/plain' || f.type === 'text/csv' || f.type === '';
+  });
+  if (files.length) window.lqeLoadFile(files);
+};
+
 window.lqeLoadFile = function(files) {
   if (!files || files.length === 0) return;
   const file = files[0];

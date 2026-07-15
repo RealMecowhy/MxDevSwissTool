@@ -103,7 +103,7 @@ const TOOLS_HELP = {
     `,
     howToUse: `
       <ol>
-        <li>Load the exported CSV or TXT log file into the tool. The format is detected automatically: a Studio Pro CSV export gives full extraction; a Mendix Cloud live log currently yields slow-query warnings. If some CSV rows are malformed, a <strong>&ldquo;N lines skipped&rdquo;</strong> note appears next to the query counter.</li>
+        <li>Load the exported CSV or TXT log file into the tool &mdash; use <strong>Load TRACE Log</strong> or drag &amp; drop the file onto the query list. The format is detected automatically: a Studio Pro CSV export gives full extraction; a Mendix Cloud live log currently yields slow-query warnings. If some CSV rows are malformed, a <strong>&ldquo;N lines skipped&rdquo;</strong> note appears next to the query counter.</li>
         <li>The tool will automatically group related log entries and extract all SQL queries. They will be listed on the left, displaying their type, transaction connection, execution duration, and estimated cost. Click the <strong>Time / Duration / Cost / Rows</strong> column headers to sort.</li>
         <li>The <strong>stats bar</strong> above the list shows the total and average execution time, the slowest query (click it to jump to that query) and the number of duplicated statements &mdash; all recalculated live for the current filters.</li>
         <li>Statements executed multiple times with different parameters get a <strong>&times;N</strong> badge &mdash; use the <strong>Duplicates only (N+1)</strong> filter to instantly spot N+1 query patterns. Enable <strong>Slow only &gt; X ms</strong> to hide everything below your duration threshold.</li>

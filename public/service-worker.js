@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mxdev-swiss-tool-v1.7.0';
+const CACHE_NAME = 'mxdev-swiss-tool-v1.7.1';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

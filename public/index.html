@@ -87,7 +87,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.7.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.7.1</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -244,7 +244,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.7.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.7.1</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -441,9 +441,9 @@
               <div data-sort-key="rows" onclick="window.lqeSort('rows')" style="text-align:right;cursor:pointer" title="Click to sort by returned rows">Rows<span class="lqe-sort-arrow"></span></div>
             </div>
             <!-- Table Body -->
-            <div id="lqe-query-list" style="flex:1; overflow-y:auto; padding:0; display:flex; flex-direction:column;">
+            <div id="lqe-query-list" class="drag-drop-zone" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="window.lqeHandleDrop(event)" style="flex:1; overflow-y:auto; padding:0; display:flex; flex-direction:column;">
               <div style="padding:var(--sp-5); text-align:center; color:var(--text-muted); font-size:0.85rem;">
-                Load a Mendix log to extract queries:<br>
+                Drop a log file here or use &ldquo;Load TRACE Log&rdquo;:<br>
                 Studio Pro CSV export (TRACE) &mdash; full SQL, params &amp; plans &bull; Mendix Cloud live log (.txt/.log) &mdash; slow-query warnings.
               </div>
             </div>
