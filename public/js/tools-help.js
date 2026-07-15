@@ -565,7 +565,7 @@ Customer [1] -- [*] Order : places</pre>
     howToGet: `
       <ul>
         <li>Run your project locally in Mendix Studio Pro.</li>
-        <li>Make sure the local bridge is running (<code>Start-MxDevSwissTool.bat</code> or <code>node server/mendix-observability-bridge.js</code>) &mdash; the topbar indicator should show <strong>Bridge Online</strong>.</li>
+        <li>Make sure the local bridge is running (<code>Start-MxDevSwissTool.bat</code> or <code>node server/mendix-observability-bridge.js</code>) &mdash; the topbar indicator should show <strong>Bridge Online</strong>. If Node.js is not installed on your machine, the launcher offers to download a portable copy (no admin rights needed).</li>
         <li><strong>Live PostgreSQL metrics only:</strong> this feature requires the optional <code>pg</code> module &mdash; run <code>npm install pg</code> once in the tool directory and restart the bridge. Everything else works without it.</li>
       </ul>
     `,

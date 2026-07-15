@@ -78,8 +78,10 @@ This application is built with a strict **local-first** philosophy:
 ### 1. Default (Recommended)
 Simply double-click the `Start-MxDevSwissTool.bat` file in the project root directory. This starts the local bridge server and automatically launches the tool UI in your default browser.
 
+**No Node.js on your machine?** Not a problem — the launcher detects it and offers to download a portable `node.exe` (official nodejs.org binary, ~90 MB) into a `runtime` folder next to the launcher. No installation and **no admin rights** required, which makes it work on locked-down corporate laptops. If a proxy blocks the download, the launcher prints a short manual fallback: save [node.exe](https://nodejs.org/dist/latest-v24.x/win-x64/node.exe) into the `runtime` folder yourself.
+
 ### 2. Manual Command Line
-If running `.bat` files is blocked by security policies in your corporate environment:
+If running `.bat` files is blocked by security policies in your corporate environment (requires Node.js available on `PATH`):
 1. Open a terminal in the project directory.
 2. Start the bridge server using Node.js:
    ```bash
@@ -105,4 +107,4 @@ Everything else works without it.
 * [public/](file:///c:/Users/mikol/Documents/Antigravity_Projects/MendixTools/public) - Web frontend application interface (HTML, CSS, JS).
 * [server/](file:///c:/Users/mikol/Documents/Antigravity_Projects/MendixTools/server) - Local Node.js bridge server (`mendix-observability-bridge.js`).
 * [scripts/](file:///c:/Users/mikol/Documents/Antigravity_Projects/MendixTools/scripts) - Build and maintain utility scripts.
-* `Start-MxDevSwissTool.bat` - Quick launch script for Windows.
+* `Start-MxDevSwissTool.bat` - Quick launch script for Windows. Creates an optional `runtime/` folder if you let it download portable Node.js.
