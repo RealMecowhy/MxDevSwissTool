@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mxdev-swiss-tool-v1.5.0';
+const CACHE_NAME = 'mxdev-swiss-tool-v1.6.0';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -44,11 +44,20 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   // Only cache standard HTTP/HTTPS requests
   const isHttp = url.protocol === 'http:' || url.protocol === 'https:';
-  // Skip caching local Node bridge API endpoints
-  const isApi = url.pathname === '/detect-project' || 
-                url.pathname === '/postgres' || 
+  // Skip caching local Node bridge API endpoints. /status and /update/* must
+  // always hit the network: the update flow polls them to detect the bridge
+  // restarting with a new version, and a cached copy would report stale data.
+  const isApi = url.pathname === '/detect-project' ||
+                url.pathname === '/postgres' ||
                 url.pathname === '/m2ee' ||
-                url.pathname === '/logs';
+                url.pathname === '/logs' ||
+                url.pathname === '/status' ||
+                url.pathname === '/mock-config' ||
+                url.pathname === '/project-insights' ||
+                url.pathname === '/prometheus' ||
+                url.pathname.startsWith('/otel/') ||
+                url.pathname.startsWith('/update/') ||
+                url.pathname.startsWith('/api/');
 
   if (!isHttp || isApi) return;
 

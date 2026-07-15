@@ -4,6 +4,7 @@
   "node": true,
   "devel": true,
   "globals": {
-    "fetch": false
+    "fetch": false,
+    "AbortSignal": false
   }
 }

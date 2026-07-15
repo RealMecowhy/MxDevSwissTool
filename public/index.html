@@ -87,7 +87,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.5.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.6.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -244,7 +244,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.5.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.6.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -269,6 +269,10 @@
         <div class="home-hero">
           <h1>MxDev Swiss Tool</h1>
           <p>Your all-in-one developer toolkit for Mendix. No installation required &mdash; open in any browser. Works on restricted enterprise laptops.</p>
+          <button type="button" class="btn btn-secondary btn-sm" style="margin-top:var(--sp-4)" onclick="if(window.showWelcomeTour)window.showWelcomeTour()">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+            Welcome tour
+          </button>
         </div>
         <div class="home-grid" id="home-tools-grid"></div>
       </div>

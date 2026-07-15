@@ -174,7 +174,7 @@ async function navigate(toolId, navEl) {
     iconEl.style.color = tool.color || 'var(--accent)';
   }
   document.getElementById('topbar-title').textContent = tool.label;
-  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.5.0' : (tool.desc || '');
+  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.6.0' : (tool.desc || '');
   const previousTool = currentTool;
   currentTool = toolId;
   window.currentTool = currentTool;
@@ -413,6 +413,8 @@ const toolModules = {
 };
 
 import { initCommandPalette } from './components/command-palette.js';
+import { initUpdateChecker } from './components/update-checker.js';
+import { initWelcome } from './components/welcome.js';
 import './tools/utilities.js';
 import './tools-help.js';
 import './components/virtual-viewer.js';
@@ -431,6 +433,14 @@ function initCore() {
   // Start global bridge status monitor
   checkBridgeStatus();
   setInterval(checkBridgeStatus, 5000);
+
+  // First-run welcome tour; resolves immediately when already seen. The
+  // update check waits for it so the two modals never stack on first launch.
+  initWelcome().then(() => {
+    // Check for a newer release once the UI has settled; stays silent when
+    // offline, snoozed or already up to date.
+    setTimeout(initUpdateChecker, 4000);
+  });
 }
 
 // Auto-collapse the sidebar on narrow viewports, reusing the existing

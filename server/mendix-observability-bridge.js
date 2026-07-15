@@ -104,6 +104,172 @@ let otelMetricsCount = 0;
 let mockConfig = { status: '200 OK', payload: '{"status":"ok"}', delay: 200, chaos: false };
 
 // =========================================================================
+// SELF-UPDATE (GitHub Releases)
+// =========================================================================
+const UPDATE_REPO = 'RealMecowhy/MxDevSwissTool';
+const APP_ROOT = path.resolve(__dirname, '..');
+const UPDATE_DIR = path.join(APP_ROOT, '.update');
+let CURRENT_VERSION = '0.0.0';
+try {
+  CURRENT_VERSION = JSON.parse(fs.readFileSync(path.join(APP_ROOT, 'package.json'), 'utf8')).version || '0.0.0';
+} catch (e) {}
+
+let updateCheckCache = { at: 0, data: null };
+let updateInProgress = false;
+
+// Leftovers from a previous auto-update (downloaded zip, extracted package,
+// the updater script itself). Delayed so a still-exiting updater .bat keeps
+// its file handle until it is done.
+setTimeout(() => {
+  try { fs.rmSync(UPDATE_DIR, { recursive: true, force: true }); } catch (e) {}
+}, 10000);
+
+function compareVersions(a, b) {
+  const pa = String(a).replace(/^v/i, '').split('.').map(n => parseInt(n, 10) || 0);
+  const pb = String(b).replace(/^v/i, '').split('.').map(n => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0);
+  }
+  return 0;
+}
+
+async function checkForUpdate() {
+  if (updateCheckCache.data && Date.now() - updateCheckCache.at < 60 * 60 * 1000) {
+    return updateCheckCache.data;
+  }
+  if (typeof fetch === 'undefined') throw new Error('Node.js version too old. fetch() is required.');
+  const resp = await fetch(`https://api.github.com/repos/${UPDATE_REPO}/releases?per_page=10`, {
+    headers: { 'Accept': 'application/vnd.github+json', 'User-Agent': 'MxDevSwissTool-UpdateChecker' },
+    signal: AbortSignal.timeout(15000)
+  });
+  if (!resp.ok) throw new Error(`GitHub API returned HTTP ${resp.status}`);
+  const releases = await resp.json();
+  const newer = (Array.isArray(releases) ? releases : [])
+    .filter(r => !r.draft && !r.prerelease && compareVersions(r.tag_name, CURRENT_VERSION) > 0)
+    .sort((a, b) => compareVersions(b.tag_name, a.tag_name));
+  const latest = newer[0] || null;
+  const zipAsset = latest ? (latest.assets || []).find(a => a.name && a.name.endsWith('.zip')) : null;
+  const data = {
+    currentVersion: CURRENT_VERSION,
+    latestVersion: latest ? latest.tag_name.replace(/^v/i, '') : CURRENT_VERSION,
+    updateAvailable: !!latest,
+    releases: newer.map(r => ({
+      tag: r.tag_name,
+      name: r.name || r.tag_name,
+      publishedAt: r.published_at,
+      body: r.body || ''
+    })),
+    zipUrl: zipAsset ? zipAsset.browser_download_url : null,
+    zipName: zipAsset ? zipAsset.name : null,
+    zipSize: zipAsset ? zipAsset.size : 0,
+    releasePageUrl: latest ? latest.html_url : `https://github.com/${UPDATE_REPO}/releases`
+  };
+  updateCheckCache = { at: Date.now(), data };
+  return data;
+}
+
+function execAsync(cmd, opts) {
+  return new Promise((resolve, reject) => {
+    exec(cmd, opts, (err, stdout, stderr) => err ? reject(new Error(stderr || err.message)) : resolve(stdout));
+  });
+}
+
+async function extractZip(zipPath, destDir) {
+  // Windows 10+ ships bsdtar, which understands ZIP; PowerShell is the fallback.
+  try {
+    await execAsync(`tar -xf "${zipPath}" -C "${destDir}"`);
+  } catch (e) {
+    await execAsync(`powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Force -LiteralPath '${zipPath}' -DestinationPath '${destDir}'"`);
+  }
+}
+
+async function applyUpdate() {
+  const info = await checkForUpdate();
+  if (!info.updateAvailable) throw new Error('No update available.');
+  if (!info.zipUrl) throw new Error('The latest release has no ZIP package attached.');
+  if (process.platform !== 'win32') {
+    throw new Error('Automatic update is only supported on Windows. Please download the ZIP manually.');
+  }
+
+  fs.rmSync(UPDATE_DIR, { recursive: true, force: true });
+  const pkgDir = path.join(UPDATE_DIR, 'package');
+  fs.mkdirSync(pkgDir, { recursive: true });
+
+  console.log(`[Bridge Update] Downloading ${info.zipName} (${Math.round(info.zipSize / 1024)} KB)...`);
+  const resp = await fetch(info.zipUrl, {
+    headers: { 'User-Agent': 'MxDevSwissTool-UpdateChecker' },
+    signal: AbortSignal.timeout(300000)
+  });
+  if (!resp.ok) throw new Error(`ZIP download failed: HTTP ${resp.status}`);
+  const zipPath = path.join(UPDATE_DIR, 'update.zip');
+  fs.writeFileSync(zipPath, Buffer.from(await resp.arrayBuffer()));
+
+  console.log('[Bridge Update] Extracting package...');
+  await extractZip(zipPath, pkgDir);
+
+  // Sanity check before touching the live install
+  ['server/mendix-observability-bridge.js', 'public/index.html', 'package.json'].forEach(rel => {
+    if (!fs.existsSync(path.join(pkgDir, rel))) {
+      throw new Error(`Extracted package is incomplete (missing ${rel}). Update aborted.`);
+    }
+  });
+
+  // The release package contains no runtime/ folder and no .bridge-token, so
+  // the copy below can never touch the portable Node.js or local user files.
+  // User presets/favorites live in the browser's localStorage and are not
+  // part of the file tree at all.
+  // Delays use `ping` instead of `timeout`: timeout exits immediately when the
+  // console has no usable stdin (which is how this script gets launched), and
+  // that would let the new bridge start while the old one still holds the port.
+  const batPath = path.join(UPDATE_DIR, 'apply-update.bat');
+  const bat = [
+    '@echo off',
+    'title MxDev Swiss Tool Updater',
+    'color 0B',
+    'echo ==============================================================',
+    `echo   MxDev Swiss Tool - updating v${CURRENT_VERSION} to v${info.latestVersion}`,
+    'echo ==============================================================',
+    'echo Waiting for the old bridge to stop...',
+    'set WAIT_COUNT=0',
+    ':wait_port',
+    'ping -n 2 127.0.0.1 >nul',
+    `netstat -aon | find ":${PORT} " | find "LISTENING" >nul`,
+    'if errorlevel 1 goto :port_free',
+    'set /a WAIT_COUNT+=1',
+    'if %WAIT_COUNT% lss 30 goto :wait_port',
+    ':port_free',
+    'echo Copying new files...',
+    `robocopy "${pkgDir}" "${APP_ROOT}" /E /NFL /NDL /NJH /NJS >nul`,
+    'if errorlevel 8 goto :copy_failed',
+    'echo Closing the old bridge window...',
+    'taskkill /f /fi "WINDOWTITLE eq Mendix Observability Agent*" >nul 2>&1',
+    'echo Starting the updated bridge...',
+    `cd /d "${APP_ROOT}"`,
+    `start "Mendix Observability Agent" cmd /k ""${process.execPath}" server\\mendix-observability-bridge.js"`,
+    'echo.',
+    `echo Update to v${info.latestVersion} complete. This window will close in a few seconds.`,
+    'ping -n 6 127.0.0.1 >nul',
+    'exit',
+    ':copy_failed',
+    'echo.',
+    'echo [!] Copying files failed (robocopy error). The tool was NOT updated.',
+    `echo     You can update manually: download the ZIP from`,
+    `echo     https://github.com/${UPDATE_REPO}/releases`,
+    'echo     and unpack it over this folder.',
+    'pause',
+    'exit /b 1',
+    ''
+  ].join('\r\n');
+  fs.writeFileSync(batPath, bat);
+
+  console.log('[Bridge Update] Launching updater and shutting down so files can be replaced...');
+  // windowsHide:false so the updater console is visible to the user
+  exec(`start "MxDev Swiss Tool Updater" cmd /c "${batPath}"`, { cwd: APP_ROOT, windowsHide: false });
+  setTimeout(() => process.exit(0), 1500);
+  return { started: true, currentVersion: CURRENT_VERSION, latestVersion: info.latestVersion };
+}
+
+// =========================================================================
 // CUSTOM DECODER FOR OTLP PROTOBUF (Dependency-Free)
 // =========================================================================
 
@@ -762,6 +928,7 @@ const server = http.createServer((req, res) => {
   if (pathOnly === '/status') {
     return sendJson(req, res, {
       status: 'online',
+      version: CURRENT_VERSION,
       token: BRIDGE_TOKEN,
       logFile: logFilePath || 'Not found',
       logLinesCount: logBuffer.length,
@@ -1129,6 +1296,31 @@ const server = http.createServer((req, res) => {
       return;
     }
     return sendError(req, res, 'Method Not Allowed', 405);
+  }
+
+  if (url.pathname === '/update/check') {
+    checkForUpdate()
+      .then(data => sendJson(req, res, data))
+      .catch(e => {
+        console.error(`[Bridge Update] Check failed: ${e.message}`);
+        // 200 with updateAvailable:false so an offline/blocked network stays silent in the UI
+        sendJson(req, res, { currentVersion: CURRENT_VERSION, updateAvailable: false, error: e.message });
+      });
+    return;
+  }
+
+  if (url.pathname === '/update/apply') {
+    if (req.method !== 'POST') return sendError(req, res, 'Method Not Allowed', 405);
+    if (updateInProgress) return sendError(req, res, 'An update is already in progress.', 409);
+    updateInProgress = true;
+    applyUpdate()
+      .then(result => sendJson(req, res, { success: true, ...result }))
+      .catch(e => {
+        updateInProgress = false;
+        console.error(`[Bridge Update] Apply failed: ${e.message}`);
+        sendError(req, res, e.message, 500);
+      });
+    return;
   }
 
   // Fallback

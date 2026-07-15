@@ -6,6 +6,16 @@ The **MxDev Swiss Tool** is an offline-first, all-in-one developer toolkit desig
 
 ---
 
+## ⚡ Quick Start
+
+1. **Download** the latest `MxDevSwissTool-Release-*.zip` from the [Releases page](https://github.com/RealMecowhy/MxDevSwissTool/releases/latest) — it's listed under **Assets** (don't use the "Source code" links).
+2. **Extract** the ZIP to any folder — Desktop or Documents is fine, no admin rights needed.
+3. **Run** `Start-MxDevSwissTool.bat` (double-click). The tool opens automatically in your default browser.
+
+No Node.js installed? No problem — the launcher offers to download a portable one for you. If Windows shows a security warning on first launch, choose **More info → Run anyway**. Details and alternatives in [How to Run the Application](#-how-to-run-the-application).
+
+---
+
 ## 🛠️ Included Tools & Features
 
 The toolkit is divided into logical categories to assist you across the entire development and diagnostic lifecycle:
@@ -64,6 +74,15 @@ The toolkit is divided into logical categories to assist you across the entire d
 
 ---
 
+## 🧭 Getting Around
+
+* **Welcome tour**: on the very first launch a short onboarding modal introduces the essentials below; reopen it anytime via the **Welcome tour** button on the Home screen.
+* **Built-in help**: every tool has a **Help** button in the top bar explaining what it does and, where relevant, how to extract the input data (e.g. a HAR from browser DevTools or TRACE logs from Mendix).
+* **Favorites**: click the ☆ star next to a tool's name (or on its Home card) to pin it to the top of the Home screen.
+* **Command palette**: press **Ctrl+K** to jump to any tool by name.
+
+---
+
 ## 🔒 Data Privacy First
 
 This application is built with a strict **local-first** philosophy:
@@ -74,6 +93,8 @@ This application is built with a strict **local-first** philosophy:
 ---
 
 ## 🚀 How to Run the Application
+
+**First time here?** Download and extract the release ZIP first — see [Quick Start](#-quick-start) at the top.
 
 ### 1. Default (Recommended)
 Simply double-click the `Start-MxDevSwissTool.bat` file in the project root directory. This starts the local bridge server and automatically launches the tool UI in your default browser.
@@ -99,6 +120,19 @@ The bridge itself starts with **zero npm dependencies** — no `npm install` nee
 npm install pg
 ```
 Everything else works without it.
+
+---
+
+## 🔄 Updating
+
+Shortly after startup the tool checks [GitHub Releases](https://github.com/RealMecowhy/MxDevSwissTool/releases) for a newer version (a single anonymous API call; silent when offline or blocked by a proxy). When one exists, a popup shows the release notes of everything you missed and offers two paths:
+
+* **Update now** — the bridge downloads the release ZIP, unpacks it, replaces its own files via a small updater window and restarts. The UI reloads automatically on the new version.
+* **Download ZIP** — manual fallback for locked-down machines: grab the ZIP and unpack it over the tool folder, then start the launcher again.
+
+You can also snooze the reminder for a day or skip a version entirely.
+
+**Your local data is safe either way:** favorites, presets and theme live in your browser's storage (not in the tool folder), and the update never touches the `runtime/` folder with portable Node.js.
 
 ---
 

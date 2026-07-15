@@ -1,6 +1,7 @@
 node_modules/
 dist/
 runtime/
+.update/
 _local_assets/
 .agents/
 .claude/
