@@ -836,7 +836,7 @@ window.lqeVisualizePlan = function() {
   } catch (e) {
     // Plan was already plain text — pass it through unchanged
   }
-  window.navigate('query-intelligence', null);
+  window.navigateWithReturn('query-intelligence');
   const tabBtn = document.querySelector('#panel-query-intelligence .tab[data-help-key="query-intelligence-explain"]');
   if (tabBtn && window.qiSetTab) window.qiSetTab('explain', tabBtn);
   const input = document.getElementById('sql-explain-input');

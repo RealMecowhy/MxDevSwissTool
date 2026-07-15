@@ -2689,3 +2689,29 @@ kbd {
   display: flex;
   justify-content: center;
 }
+
+/* =========================================
+   CROSS-TOOL RETURN CHIP
+   ========================================= */
+.return-chip {
+  position: fixed;
+  bottom: var(--sp-5);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 950;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: var(--sp-2) var(--sp-4);
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  transition: all 0.15s ease;
+}
+.return-chip:hover {
+  background: var(--accent);
+  color: var(--bg-base);
+}

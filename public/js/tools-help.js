@@ -114,7 +114,7 @@ const TOOLS_HELP = {
             <li><strong>Source XPath/OQL:</strong> The original Mendix queries that generated the SQL, including intermediate OQL translation.</li>
             <li><strong>Parameters:</strong> A table listing the raw values bound to the SQL query.</li>
             <li><strong>Result Data:</strong> The raw output rows returned by the database.</li>
-            <li><strong>Query Plan:</strong> The PostgreSQL execution plan in JSON format. Click <strong>Visualize Plan</strong> to open it in the Query Intelligence Explain visualizer with index suggestions.</li>
+            <li><strong>Query Plan:</strong> The PostgreSQL execution plan in JSON format. Click <strong>Visualize Plan</strong> to open it in the Query Intelligence Explain visualizer with index suggestions &mdash; a floating <strong>&larr; Back</strong> pill returns you straight to the extractor.</li>
           </ul>
         </li>
       </ol>
@@ -171,7 +171,7 @@ const TOOLS_HELP = {
         <li>Drag the <code>.har</code> file onto the tool or use <strong>Load HAR File</strong>.</li>
         <li>Review the summary cards (total requests vs. Mendix XAS operations, total XAS time and transfer).</li>
         <li>The <strong>Operations</strong> table groups every XAS call by microflow / XPath, slowest first, with call counts. The <strong>Detections</strong> panel flags client-side N+1 (the same retrieve repeated many times) and oversized responses.</li>
-        <li>For a retrieve operation, click <strong>↗ XPath</strong> to send the query straight to the XPath Formatter for linting.</li>
+        <li>For a retrieve operation, click <strong>XPath</strong> to preview the full query in a popup without leaving the analysis &mdash; from there you can copy it or open it in the XPath Formatter for linting (a floating <strong>&larr; Back</strong> pill brings you straight back to the HAR view).</li>
       </ol>
     `,
     interpretation: `

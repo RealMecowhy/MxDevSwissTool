@@ -900,7 +900,7 @@ function logSendToAnonymizer() {
   setTimeout(() => {
     const rawText = logFilteredEntries.map(e => e.raw).join('\n');
     window.pendingAnonymizerText = rawText;
-    navigate('log-anonymizer', null);
+    window.navigateWithReturn('log-anonymizer');
     // Don't hideLoader — anonymizeProcess will take over and manage the loader
   }, 50);
 }

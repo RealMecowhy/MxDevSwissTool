@@ -159,6 +159,9 @@ async function navigate(toolId, navEl) {
     toolId = 'home';
     navEl = null;
   }
+  // Any manual navigation invalidates a pending cross-tool "← Back" chip;
+  // navigateWithReturn() suppresses this for the jump it initiates itself.
+  if (!returnChipKeep) hideReturnChip();
   document.querySelectorAll('.tool-panel').forEach(p => p.classList.remove('active'));
   const panel = document.getElementById('panel-' + toolId);
   if (panel) panel.classList.add('active');
@@ -174,7 +177,7 @@ async function navigate(toolId, navEl) {
     iconEl.style.color = tool.color || 'var(--accent)';
   }
   document.getElementById('topbar-title').textContent = tool.label;
-  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.7.1' : (tool.desc || '');
+  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.8.0' : (tool.desc || '');
   const previousTool = currentTool;
   currentTool = toolId;
   window.currentTool = currentTool;
@@ -226,8 +229,48 @@ async function navigate(toolId, navEl) {
   try { localStorage.setItem('mt-last-tool', toolId); } catch(e){}
 }
 
+// ============================================================
+// CROSS-TOOL RETURN CHIP
+// ============================================================
+// Programmatic jumps between tools (LQE "Visualize Plan" → Query Intelligence,
+// HAR → XPath Formatter, Log Viewer → Anonymizer) used to strand the user in the
+// target tool. navigateWithReturn() shows a floating "← Back to X" pill that
+// restores the previous tool; any manual navigation dismisses it.
+let returnChipKeep = false;
+
+function navigateWithReturn(toolId) {
+  const fromId = currentTool;
+  if (fromId === toolId || fromId === 'home') { navigate(toolId, null); return; }
+  const fromTool = TOOLS.find(t => t.id === fromId);
+  returnChipKeep = true;
+  navigate(toolId, null);
+  returnChipKeep = false;
+  showReturnChip(fromId, fromTool ? fromTool.label : fromId);
+}
+
+function showReturnChip(toolId, label) {
+  let chip = document.getElementById('return-chip');
+  if (!chip) {
+    chip = document.createElement('button');
+    chip.type = 'button';
+    chip.id = 'return-chip';
+    chip.className = 'return-chip';
+    document.body.appendChild(chip);
+  }
+  chip.textContent = '← Back to ' + label;
+  chip.title = 'Return to ' + label + ' where you came from';
+  chip.onclick = () => navigate(toolId, null);
+  chip.style.display = '';
+}
+
+function hideReturnChip() {
+  const chip = document.getElementById('return-chip');
+  if (chip) chip.style.display = 'none';
+}
+
 // Expose core functions to window for inline HTML handlers
 window.navigate = navigate;
+window.navigateWithReturn = navigateWithReturn;
 window.toggleSidebar = toggleSidebar;
 window.toggleTheme = toggleTheme;
 window.toggleFavorite = toggleFavorite;

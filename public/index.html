@@ -87,7 +87,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.7.1</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.8.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -244,7 +244,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.7.1</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.8.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -3004,6 +3004,27 @@ EntityName -> OtherEntity : Association"></textarea>
       <div style="display:flex; justify-content:flex-end; gap:var(--sp-2)">
         <button class="btn btn-secondary" onclick="logClosePasteModal()">Cancel</button>
         <button class="btn btn-primary" onclick="logSubmitPaste()">Parse Logs</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- HAR XPATH PREVIEW MODAL -->
+<div class="modal-overlay" id="har-xpath-modal" onclick="if(event.target===this)harCloseXpathModal()">
+  <div class="modal modal-md">
+    <div class="modal-header">
+      <div class="modal-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5" style="width:20px;height:20px;margin-right:var(--sp-2)"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>
+        <span>XPath Retrieve</span>
+      </div>
+      <button class="modal-close" onclick="harCloseXpathModal()" aria-label="Close dialog"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="modal-body" style="padding:var(--sp-4); display:flex; flex-direction:column; gap:var(--sp-3);">
+      <pre id="har-xpath-content" style="background:var(--bg-elevated); padding:var(--sp-3); border-radius:var(--r-md); border:1px solid var(--border); font-size:0.85rem; font-family:var(--font-mono); color:var(--text); margin:0; white-space:pre-wrap; word-break:break-all; max-height:50vh; overflow:auto;"></pre>
+      <div style="display:flex; justify-content:flex-end; gap:var(--sp-2);">
+        <button class="btn btn-ghost btn-sm" onclick="harOpenXpathInFormatter()" title="Analyze and lint this query in the XPath Formatter — a floating &ldquo;&larr; Back&rdquo; pill will bring you back here">Open in XPath Formatter &rarr;</button>
+        <button class="btn btn-secondary btn-sm" onclick="harCopyXpath(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy</button>
+        <button class="btn btn-primary btn-sm" onclick="harCloseXpathModal()">Close</button>
       </div>
     </div>
   </div>

@@ -176,7 +176,7 @@ function harRender(d) {
     tbody.innerHTML = d.groupArr.map(g => {
       const isRetrieve = /retrieve/i.test(g.action) && g.detail;
       const detailCell = g.detail
-        ? `<span style="font-family:var(--font-mono);font-size:0.78rem">${window.escHtml(g.detail.substring(0, 90))}${g.detail.length > 90 ? '…' : ''}</span>${isRetrieve ? ` <button class="btn btn-ghost btn-sm" style="padding:0 4px" title="Open this XPath in the XPath Formatter" onclick="harToXpath(this)" data-xpath="${window.escHtml(g.detail)}">↗ XPath</button>` : ''}`
+        ? `<span style="font-family:var(--font-mono);font-size:0.78rem">${window.escHtml(g.detail.substring(0, 90))}${g.detail.length > 90 ? '…' : ''}</span>${isRetrieve ? ` <button class="btn btn-ghost btn-sm" style="padding:0 4px" title="Preview the full XPath query (copy it or open it in the XPath Formatter)" onclick="harShowXpath(this)" data-xpath="${window.escHtml(g.detail)}">XPath</button>` : ''}`
         : '<span style="color:var(--text-muted)">—</span>';
       return `<tr style="border-top:1px solid var(--border)">
         <td style="padding:6px 10px;font-family:var(--font-mono);color:var(--accent)">${window.escHtml(g.action)}</td>
@@ -207,10 +207,33 @@ function harRender(d) {
     d.xasList.length > CAP ? `Showing first ${CAP} of ${d.xasList.length} XAS calls (chronological)` : `${d.xasList.length} XAS calls (chronological)`;
 }
 
-function harToXpath(btn) {
+// In-place preview modal: shows the full XPath without leaving the HAR analysis
+function harShowXpath(btn) {
   const xpath = btn.getAttribute('data-xpath');
   if (!xpath) return;
-  window.navigate('xpath-builder', null);
+  window._harCurrentXpath = xpath;
+  document.getElementById('har-xpath-content').textContent = xpath;
+  document.getElementById('har-xpath-modal').classList.add('active');
+}
+
+function harCloseXpathModal() {
+  document.getElementById('har-xpath-modal').classList.remove('active');
+}
+
+function harCopyXpath(btn) {
+  if (!window._harCurrentXpath) return;
+  navigator.clipboard.writeText(window._harCurrentXpath).then(() => {
+    const oldHtml = btn.innerHTML;
+    btn.innerHTML = 'Copied!';
+    setTimeout(() => btn.innerHTML = oldHtml, 2000);
+  });
+}
+
+function harOpenXpathInFormatter() {
+  const xpath = window._harCurrentXpath;
+  if (!xpath) return;
+  harCloseXpathModal();
+  window.navigateWithReturn('xpath-builder');
   const input = document.getElementById('xpath-input');
   if (input) {
     input.value = xpath;
@@ -223,6 +246,9 @@ function harToXpath(btn) {
 window.harLoadFile = harLoadFile;
 window.harHandleDrop = harHandleDrop;
 window.harReset = harReset;
-window.harToXpath = harToXpath;
+window.harShowXpath = harShowXpath;
+window.harCloseXpathModal = harCloseXpathModal;
+window.harCopyXpath = harCopyXpath;
+window.harOpenXpathInFormatter = harOpenXpathInFormatter;
 
 export function init() {}
