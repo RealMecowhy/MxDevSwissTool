@@ -2,6 +2,16 @@
 // Extracts SQL queries, XPath/OQL sources, Query Plans, parameters and results
 
 let extractedQueries = [];
+let lqeLastFiltered = [];
+let lqeSkippedLines = 0;
+let lqeSourceFormat = null; // 'csv' (Studio Pro export) | 'live' (Mendix Cloud download)
+
+// Mendix Cloud live-log line: TIMESTAMP [runtime-container/pod] LEVEL - Node: message
+// (same shape as LOG_PAT_CLOUD in the Log Viewer; a shared parser module lands in wave 2)
+const LQE_PAT_CLOUD = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+\[[^\]]+\]\s+(TRACE|DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL)\s+-\s+([^:\n]+?):\s*(.*)$/i;
+// ConnectionBus_Queries WARNING — logged at default log levels when a query exceeds
+// the runtime slow-query threshold, so it works on production without TRACE.
+const LQE_SLOW_QUERY = /^Query executed in (?:(\d+) seconds? and )?(\d+) milliseconds?:\s*([\s\S]+)/i;
 
 window.lqeSetTab = function(tabId, btn) {
   const container = document.getElementById('panel-log-query-extractor');
@@ -18,6 +28,14 @@ window.lqeSetTab = function(tabId, btn) {
 
 window.lqeClear = function() {
   extractedQueries = [];
+  lqeLastFiltered = [];
+  lqeSkippedLines = 0;
+  lqeSourceFormat = null;
+  window._lqeSlowestId = null;
+  const statsBar = document.getElementById('lqe-stats');
+  if (statsBar) statsBar.style.display = 'none';
+  const skippedEl = document.getElementById('lqe-skipped');
+  if (skippedEl) { skippedEl.style.display = 'none'; skippedEl.textContent = ''; }
   document.getElementById('lqe-query-list').innerHTML = '';
   document.getElementById('lqe-count').textContent = '0';
   document.getElementById('lqe-sql-content').textContent = 'Select a query to view its runnable SQL...';
@@ -43,11 +61,52 @@ window.lqeLoadFile = function(files) {
   reader.readAsText(file);
 };
 
+// Peeks at the first lines to tell a Studio Pro CSV export from a Mendix Cloud live log
+function lqeDetectFormat(rawLines) {
+  for (let i = 0; i < rawLines.length && i < 50; i++) {
+    const line = rawLines[i].replace(/\r$/, '');
+    if (!line.trim()) continue;
+    if (line.startsWith('Type,TimeStamp,LogNode,Message') || line.startsWith('"Type","TimeStamp","LogNode","Message"')) return 'csv';
+    if (LQE_PAT_CLOUD.test(line)) return 'live';
+  }
+  return 'csv';
+}
+
+// Live logs carry the SQL@ protocol under different nodes than the CSV export handles;
+// until the shared parser (wave 2), only slow-query warnings are ingested from them.
+// The SQL of a warning can span multiple lines — it continues until the next log-patterned line.
+function lqeLiveSlowRecords(rawLines) {
+  const records = [];
+  let current = null;
+  for (const raw of rawLines) {
+    const line = raw.replace(/\r$/, '');
+    const m = line.match(LQE_PAT_CLOUD);
+    if (m) {
+      current = null;
+      if (m[3].trim() === 'ConnectionBus_Queries' && /^WARN/i.test(m[2])) {
+        current = { type: 'WARNING', timestamp: m[1], logNode: 'ConnectionBus_Queries', message: m[4], cause: '' };
+        records.push(current);
+      }
+    } else if (current && line.trim()) {
+      current.message += '\n' + line;
+    }
+  }
+  return records;
+}
+
 function parseLogContent(text) {
   if (window.showLoader) window.showLoader('Parsing queries...', 50);
-  
-  // Step 1: Parse CSV properly, handling multiline quoted fields
+
   const rawLines = text.split('\n');
+  lqeSkippedLines = 0;
+  lqeSourceFormat = lqeDetectFormat(rawLines);
+
+  if (lqeSourceFormat === 'live') {
+    extractQueriesFromRecords(lqeLiveSlowRecords(rawLines));
+    return;
+  }
+
+  // Step 1: Parse CSV properly, handling multiline quoted fields
   const csvRows = [];
   
   let currentLine = '';
@@ -82,8 +141,11 @@ function parseLogContent(text) {
     
     // Parse CSV fields properly
     const fields = parseCSVRow(row);
-    if (fields.length < 4) continue;
-    
+    if (fields.length < 4) {
+      if (row.trim()) lqeSkippedLines++;
+      continue;
+    }
+
     records.push({
       type: fields[0],
       timestamp: fields[1],
@@ -132,16 +194,57 @@ function parseCSVRow(row) {
   return fields;
 }
 
+// Detects the statement type from the leading SQL keyword
+function lqeSqlType(sql) {
+  const upper = sql.toUpperCase();
+  if (upper.startsWith('SELECT') || upper.startsWith('COUNT')) return 'SELECT';
+  if (upper.startsWith('UPDATE')) return 'UPDATE';
+  if (upper.startsWith('INSERT')) return 'INSERT';
+  if (upper.startsWith('DELETE')) return 'DELETE';
+  return 'OTHER';
+}
+
 function extractQueriesFromRecords(records) {
   const queryMap = new Map();    // sqlId -> query object
   const xpathMap = new Map();    // xpathId -> { xpath, oql }
   const planMap = new Map();     // xpathId -> plan JSON string
   const unlinkedPlans = [];      // plans without xpathId, in order
-  
-  // First pass: collect all XPath sources, OQL translations, and Query Plans
-  for (const rec of records) {
+  const slowQueries = [];        // ConnectionBus_Queries WARNING entries (slow query log)
+
+  // First pass: collect XPath sources, OQL translations, Query Plans and slow-query warnings
+  for (let ri = 0; ri < records.length; ri++) {
+    const rec = records[ri];
     const msg = rec.message;
-    
+
+    // Slow query warning: full SQL + duration at default log levels (no TRACE needed)
+    if (rec.logNode === 'ConnectionBus_Queries') {
+      const sm = msg.match(LQE_SLOW_QUERY);
+      if (sm) {
+        const durationMs = (sm[1] ? parseInt(sm[1], 10) * 1000 : 0) + parseInt(sm[2], 10);
+        const sql = sm[3].trim();
+        slowQueries.push({
+          sqlId: 'slow-' + ri,
+          txConn: '-',
+          timestamp: rec.timestamp,
+          sql: sql,
+          type: lqeSqlType(sql),
+          params: [],
+          paramsString: '',
+          status: 'SLOW (warning)',
+          rows: '-',
+          xpathId: null,
+          xpathContent: '',
+          resultData: '',
+          queryPlan: '',
+          duration: durationMs + ' ms',
+          cost: null,
+          slowWarning: true,
+          _recIdx: ri
+        });
+      }
+      continue;
+    }
+
     // XPath incoming
     let xpathMatch = msg.match(/^Incoming query of type (XPath|OQL):\s*\[([a-f0-9-]+)\]\s*(.*)/is); // jshint ignore:line
     if (xpathMatch) {
@@ -182,18 +285,19 @@ function extractQueriesFromRecords(records) {
   // Second pass: extract SQL queries and correlate everything
   let lastSqlId = null;
   let unlinkedPlanIdx = 0;
-  
-  for (const rec of records) {
+
+  for (let ri = 0; ri < records.length; ri++) {
+    const rec = records[ri];
     const msg = rec.message;
-    
+
     // SQL line: SQL@SQLID(TX-CONN): content
     let sqlMatch = msg.match(/^SQL@([a-f0-9]+)\((T\d+-C[a-f0-9]+)\):\s*(.*)/is); // jshint ignore:line
     if (!sqlMatch) continue;
-    
+
     const sqlId = sqlMatch[1];
     const txConn = sqlMatch[2];
     const content = sqlMatch[3].trim();
-    
+
     if (!queryMap.has(sqlId)) {
       queryMap.set(sqlId, {
         sqlId: sqlId,
@@ -210,10 +314,11 @@ function extractQueriesFromRecords(records) {
         resultData: '',
         queryPlan: '',
         duration: null,
-        cost: null
+        cost: null,
+        _recIdx: ri
       });
     }
-    
+
     const q = queryMap.get(sqlId);
     lastSqlId = sqlId;
     
@@ -274,8 +379,10 @@ function extractQueriesFromRecords(records) {
     }
   }
   
-  // Build final list
-  extractedQueries = Array.from(queryMap.values()).filter(q => q.sql.length > 0);
+  // Build final list; slow-query warnings are merged in chronological (record) order
+  extractedQueries = Array.from(queryMap.values()).filter(q => q.sql.length > 0)
+    .concat(slowQueries)
+    .sort((a, b) => a._recIdx - b._recIdx);
 
   // Duplicate detection (N+1): identical statements differ only in bound values,
   // so a normalized signature groups them together.
@@ -290,7 +397,8 @@ function extractQueriesFromRecords(records) {
   // Post-process: parse params, extract duration/cost from query plans
   for (let q of extractedQueries) {
     // For queries without an xpathId, try to assign an unlinked plan
-    if (!q.queryPlan && unlinkedPlanIdx < unlinkedPlans.length && !q.xpathId) {
+    // (slow-query warnings never have a logged plan — don't consume one)
+    if (!q.queryPlan && unlinkedPlanIdx < unlinkedPlans.length && !q.xpathId && !q.slowWarning) {
       q.queryPlan = unlinkedPlans[unlinkedPlanIdx++];
     }
     
@@ -325,8 +433,28 @@ function extractQueriesFromRecords(records) {
     }
   }
   
+  lqeUpdateSkippedNote();
   window.lqeFilter();
   if (window.hideLoader) window.hideLoader();
+}
+
+// Non-invasive note next to the query counter: malformed CSV rows lost during parsing,
+// or a hint that a live log only yields slow-query warnings for now
+function lqeUpdateSkippedNote() {
+  const el = document.getElementById('lqe-skipped');
+  if (!el) return;
+  if (lqeSourceFormat === 'live') {
+    el.style.display = '';
+    el.textContent = ' · live log';
+    el.title = 'Mendix Cloud live-log format detected — extracted slow-query warnings (ConnectionBus_Queries). For full SQL/XPath/plan extraction load a Studio Pro CSV export with TRACE log levels.';
+  } else if (lqeSkippedLines > 0) {
+    el.style.display = '';
+    el.textContent = ' · ' + lqeSkippedLines + ' line' + (lqeSkippedLines === 1 ? '' : 's') + ' skipped';
+    el.title = lqeSkippedLines + ' CSV row(s) had fewer than 4 fields and were ignored — usually a truncated or hand-edited export.';
+  } else {
+    el.style.display = 'none';
+    el.textContent = '';
+  }
 }
 
 function splitParams(str) {
@@ -381,12 +509,21 @@ window.lqeFilter = function() {
   const search = searchEl ? searchEl.value.toLowerCase() : '';
   const typeFilterEl = document.getElementById('lqe-type-filter');
   const typeFilter = typeFilterEl ? typeFilterEl.value : 'ALL';
+  const slowOnlyEl = document.getElementById('lqe-slow-only');
+  const slowOnly = slowOnlyEl ? slowOnlyEl.checked : false;
+  const slowMsEl = document.getElementById('lqe-slow-ms');
+  const slowMs = slowMsEl ? (parseFloat(slowMsEl.value) || 0) : 0;
 
   const filtered = extractedQueries.filter(q => {
     if (typeFilter === 'DUP') {
       if (q.dupCount < 2) return false;
     } else if (typeFilter !== 'ALL' && q.type !== typeFilter) {
       return false;
+    }
+    if (slowOnly) {
+      // Queries without a measured duration can't pass a duration threshold
+      const d = q.duration ? parseFloat(q.duration) : NaN;
+      if (isNaN(d) || d <= slowMs) return false;
     }
     if (search) {
       if (!q.sql.toLowerCase().includes(search) &&
@@ -406,7 +543,57 @@ window.lqeFilter = function() {
 
   const countEl = document.getElementById('lqe-count');
   if (countEl) countEl.textContent = filtered.length;
+  lqeLastFiltered = filtered;
+  lqeUpdateStats(filtered);
   renderQueryList(filtered);
+};
+
+function lqeFmtMs(ms) {
+  if (ms >= 10000) return (ms / 1000).toFixed(1) + ' s';
+  if (ms >= 100) return Math.round(ms) + ' ms';
+  return ms.toFixed(2) + ' ms';
+}
+
+// Stats bar above the query list — always computed on the currently visible (filtered) set
+function lqeUpdateStats(filtered) {
+  const bar = document.getElementById('lqe-stats');
+  if (!bar) return;
+  if (extractedQueries.length === 0) {
+    bar.style.display = 'none';
+    window._lqeSlowestId = null;
+    return;
+  }
+  bar.style.display = 'flex';
+
+  let sum = 0, timedCount = 0, slowest = null, slowestMs = -1;
+  for (const q of filtered) {
+    const d = q.duration ? parseFloat(q.duration) : NaN;
+    if (!isNaN(d)) {
+      sum += d;
+      timedCount++;
+      if (d > slowestMs) { slowestMs = d; slowest = q; }
+    }
+  }
+  const dupStatements = new Set(filtered.filter(q => q.dupCount > 1).map(q => q.signature)).size;
+
+  document.getElementById('lqe-stat-total').textContent = filtered.length;
+  document.getElementById('lqe-stat-sum').textContent = timedCount ? lqeFmtMs(sum) : '–';
+  document.getElementById('lqe-stat-avg').textContent = timedCount ? lqeFmtMs(sum / timedCount) : '–';
+  document.getElementById('lqe-stat-slowest').textContent = slowest ? lqeFmtMs(slowestMs) : '–';
+  document.getElementById('lqe-stat-dups').textContent = dupStatements;
+  const sumEl = document.getElementById('lqe-stat-sum');
+  sumEl.parentElement.title = 'Sum of measured durations across visible queries (' + timedCount + ' of ' + filtered.length + ' have a duration)';
+  window._lqeSlowestId = slowest ? slowest.sqlId : null;
+}
+
+// Click on the "Slowest" stat selects that query in the list
+window.lqeSelectSlowest = function() {
+  if (!window._lqeSlowestId) return;
+  const el = document.querySelector('#lqe-query-list .lqe-list-item[data-sqlid="' + window._lqeSlowestId + '"]');
+  if (el) {
+    el.scrollIntoView({ block: 'center' });
+    el.click();
+  }
 };
 
 function highlightJsonSimple(json) {
@@ -436,8 +623,9 @@ function renderQueryList(list) {
   list.forEach((q, idx) => {
     const el = document.createElement('div');
     el.className = 'lqe-list-item';
+    el.dataset.sqlid = q.sqlId;
     el.style.display = 'grid';
-    el.style.gridTemplateColumns = '80px 100px 120px 70px 60px 1fr 60px';
+    el.style.gridTemplateColumns = '96px 92px 112px 70px 60px 1fr 60px';
     el.style.padding = 'var(--sp-2) var(--sp-3)';
     el.style.borderBottom = '1px solid var(--border)';
     el.style.fontSize = '0.8rem';
@@ -457,8 +645,12 @@ function renderQueryList(list) {
       ? `<span title="This statement was executed ${q.dupCount}× with different parameters — possible N+1 pattern" style="margin-left:4px;font-size:0.7rem;font-weight:700;color:${q.dupCount >= 10 ? 'var(--danger)' : 'var(--warning)'};background:${q.dupCount >= 10 ? 'var(--danger-subtle)' : 'var(--warning-subtle)'};padding:0 4px;border-radius:var(--r-sm)">×${q.dupCount}</span>`
       : '';
 
+    const slowBadge = q.slowWarning
+      ? `<span title="Slow-query warning logged by ConnectionBus_Queries — the runtime flagged this query as slow (available at default log levels, no TRACE needed)" style="margin-left:4px;color:var(--warning);cursor:help">⚠</span>`
+      : '';
+
     el.innerHTML = `
-      <div style="font-weight:600; color:${typeColor}">${q.type}${dupBadge}</div>
+      <div style="font-weight:600; color:${typeColor}; white-space:nowrap; overflow:hidden">${q.type}${dupBadge}${slowBadge}</div>
       <div style="color:var(--text-muted); font-family:var(--font-mono); font-size:0.75rem">${q.txConn}</div>
       <div style="color:var(--text-muted)">${q.timestamp}</div>
       <div style="color:var(--accent); font-weight:600;">${q.duration || '-'}</div>
@@ -639,6 +831,56 @@ window.lqeVisualizePlan = function() {
   const input = document.getElementById('sql-explain-input');
   if (input) input.value = text;
   if (window.visualizeSqlExplain) window.visualizeSqlExplain();
+};
+
+// ── Export of the currently filtered list ──────────────────
+// Columns: Type, Tx-Conn, Timestamp, Duration, Cost, Rows, Dup, SQL (truncated)
+function lqeExportRows(sqlMaxLen) {
+  return lqeLastFiltered.map(q => {
+    let sql = q.sql.replace(/\s+/g, ' ').trim();
+    if (sql.length > sqlMaxLen) sql = sql.substring(0, sqlMaxLen) + '…';
+    return [
+      q.type + (q.slowWarning ? ' (SLOW warning)' : ''),
+      q.txConn,
+      q.timestamp,
+      q.duration ? parseFloat(q.duration) : '',
+      (q.cost !== null && q.cost !== undefined) ? q.cost : '',
+      q.rows !== '-' ? q.rows : '',
+      q.dupCount > 1 ? '×' + q.dupCount : '',
+      sql
+    ];
+  });
+}
+
+const LQE_EXPORT_HEADER = ['Type', 'Tx-Conn', 'Timestamp', 'Duration (ms)', 'Cost', 'Rows', 'Dup', 'SQL'];
+
+window.lqeExportCsv = function() {
+  if (lqeLastFiltered.length === 0) {
+    alert('Nothing to export — load a log first (and check the active filters).');
+    return;
+  }
+  const esc = v => '"' + String(v).replace(/"/g, '""') + '"';
+  const lines = [LQE_EXPORT_HEADER.map(esc).join(',')];
+  for (const row of lqeExportRows(300)) lines.push(row.map(esc).join(','));
+  window.downloadText(lines.join('\n'), 'extracted-queries.csv');
+};
+
+window.lqeCopyMarkdown = function(btn) {
+  if (lqeLastFiltered.length === 0) {
+    alert('Nothing to copy — load a log first (and check the active filters).');
+    return;
+  }
+  const esc = v => String(v).replace(/\|/g, '\\|').replace(/\n/g, ' ');
+  const lines = [
+    '| ' + LQE_EXPORT_HEADER.join(' | ') + ' |',
+    '|' + LQE_EXPORT_HEADER.map(() => '---').join('|') + '|'
+  ];
+  for (const row of lqeExportRows(120)) lines.push('| ' + row.map(esc).join(' | ') + ' |');
+  navigator.clipboard.writeText(lines.join('\n')).then(() => {
+    const oldHtml = btn.innerHTML;
+    btn.innerHTML = 'Copied!';
+    setTimeout(() => btn.innerHTML = oldHtml, 2000);
+  });
 };
 
 window.lqeCopyContent = function(elementId, btn) {

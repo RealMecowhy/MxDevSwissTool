@@ -87,7 +87,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.6.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.7.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -244,7 +244,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.6.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.7.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -341,7 +341,7 @@
         <div id="log-empty-state">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><use href="#icon-doc-plain"></use></svg>
           <p>Drop a log file here or use &ldquo;Load Log File&rdquo;</p>
-          <p style="font-size:.75rem">Supports Mendix log format &bull; Multiple files merged chronologically &bull; .gz archives &bull; Large files OK</p>
+          <p style="font-size:.75rem">Supports Mendix Cloud live logs (.txt/.log) &amp; Studio Pro CSV exports &bull; Multiple files merged chronologically &bull; .gz archives &bull; Large files OK</p>
           <div style="margin-top:var(--sp-3); display:flex; gap:var(--sp-2)">
             <label class="btn btn-secondary btn-sm" for="log-file-input-empty" style="cursor:pointer">Browse Files</label>
             <button class="btn btn-primary btn-sm" onclick="logOpenPasteModal()">Paste Log Content</button>
@@ -395,6 +395,8 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Load TRACE Log
           </label>
           <input type="file" id="lqe-file-input" style="display:none" accept=".log,.txt,.csv" onchange="window.lqeLoadFile(this.files)">
+          <button class="btn btn-secondary btn-sm" onclick="window.lqeExportCsv()" title="Download the currently filtered query list as a CSV file"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export CSV</button>
+          <button class="btn btn-secondary btn-sm" onclick="window.lqeCopyMarkdown(this)" title="Copy the currently filtered query list as a Markdown table"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy Markdown</button>
           <button class="btn btn-secondary btn-sm" onclick="window.lqeClear()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Clear</button>
         </div>
       <div class="tool-body" style="padding:0; display:flex; flex:1; overflow:hidden;">
@@ -403,8 +405,8 @@
           <!-- LEFT PANEL: Query List -->
           <div style="border-right:1px solid var(--border); display:flex; flex-direction:column; background:var(--bg-elevated); overflow:hidden;">
             <!-- Toolbar -->
-            <div style="padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border); display:flex; gap:var(--sp-2); align-items:center;">
-              <input class="input input-sm" id="lqe-search" placeholder="Search queries..." oninput="window.lqeFilter()" style="flex:1;">
+            <div style="padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border); display:flex; gap:var(--sp-2); align-items:center; flex-wrap:wrap;">
+              <input class="input input-sm" id="lqe-search" placeholder="Search queries..." oninput="window.lqeFilter()" style="flex:1; min-width:120px;">
               <select class="select select-sm" id="lqe-type-filter" onchange="window.lqeFilter()" style="width:140px;">
                 <option value="ALL">All Types</option>
                 <option value="SELECT">SELECT</option>
@@ -413,10 +415,23 @@
                 <option value="DELETE">DELETE</option>
                 <option value="DUP">Duplicates only (N+1)</option>
               </select>
-              <div style="font-size:0.75rem; color:var(--text-muted);"><span id="lqe-count">0</span> queries</div>
+              <label style="display:flex; align-items:center; gap:4px; font-size:0.75rem; color:var(--text-secondary); white-space:nowrap; cursor:pointer;" title="Show only queries with a measured duration above the threshold — queries without a duration are hidden">
+                <input type="checkbox" id="lqe-slow-only" onchange="window.lqeFilter()">Slow only &gt;
+              </label>
+              <input class="input input-sm" type="number" id="lqe-slow-ms" value="100" min="0" step="50" oninput="window.lqeFilter()" style="width:70px;" title="Slow-query threshold in milliseconds">
+              <span style="font-size:0.75rem; color:var(--text-muted);">ms</span>
+              <div style="font-size:0.75rem; color:var(--text-muted); white-space:nowrap;"><span id="lqe-count">0</span> queries<span id="lqe-skipped" style="display:none; cursor:help; color:var(--warning);"></span></div>
+            </div>
+            <!-- Stats bar — recalculated for the currently filtered list -->
+            <div id="lqe-stats" style="display:none; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border); background:var(--bg-elevated); gap:var(--sp-4); flex-wrap:wrap; align-items:center; font-size:0.72rem; color:var(--text-secondary);">
+              <span class="log-stat">Queries: <strong id="lqe-stat-total">0</strong></span>
+              <span class="log-stat">Total time: <strong id="lqe-stat-sum">–</strong></span>
+              <span class="log-stat" title="Average of measured durations across visible queries">Avg: <strong id="lqe-stat-avg">–</strong></span>
+              <span class="log-stat" onclick="window.lqeSelectSlowest()" style="cursor:pointer;" title="Slowest visible query — click to select it in the list">Slowest: <strong id="lqe-stat-slowest" style="color:var(--accent);">–</strong></span>
+              <span class="log-stat" title="Number of distinct statements executed more than once (possible N+1)">Duplicated: <strong id="lqe-stat-dups">0</strong></span>
             </div>
             <!-- Table Header (click Time / Duration / Cost / Rows to sort) -->
-            <div id="lqe-list-header" style="display:grid; grid-template-columns:80px 100px 120px 70px 60px 1fr 60px; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border); font-size:0.75rem; font-weight:600; color:var(--text-muted); background:var(--bg);">
+            <div id="lqe-list-header" style="display:grid; grid-template-columns:96px 92px 112px 70px 60px 1fr 60px; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border); font-size:0.75rem; font-weight:600; color:var(--text-muted); background:var(--bg);">
               <div>Type</div>
               <div>Tx-Conn</div>
               <div data-sort-key="time" onclick="window.lqeSort('time')" style="cursor:pointer" title="Click to sort by log order">Time<span class="lqe-sort-arrow"></span></div>
@@ -428,7 +443,8 @@
             <!-- Table Body -->
             <div id="lqe-query-list" style="flex:1; overflow-y:auto; padding:0; display:flex; flex-direction:column;">
               <div style="padding:var(--sp-5); text-align:center; color:var(--text-muted); font-size:0.85rem;">
-                Load a Mendix TRACE log (CSV or TXT) to extract queries.
+                Load a Mendix log to extract queries:<br>
+                Studio Pro CSV export (TRACE) &mdash; full SQL, params &amp; plans &bull; Mendix Cloud live log (.txt/.log) &mdash; slow-query warnings.
               </div>
             </div>
           </div>

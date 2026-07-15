@@ -9,6 +9,7 @@ const TOOLS_HELP = {
     howToGet: `
       <ul>
         <li><strong>Mendix Cloud:</strong> Log in to the Mendix Portal, go to <em>Environments</em> → select an environment (e.g., Production) → <em>Details</em> → <em>Logs</em> → click <em>Download Log File</em> or download archive logs.</li>
+        <li><strong>Studio Pro Console:</strong> the Console log exported from Mendix Studio Pro as a <code>.csv</code> file (<code>Type, TimeStamp, LogNode, Message</code> columns) is also supported — the viewer detects the format automatically by the file extension.</li>
         <li><strong>Local Environment:</strong> In your Mendix project folder, logs are located at <code>[project_directory]/deployment/log/log.txt</code>.</li>
         <li><strong>Hybrid Environments (Docker):</strong> Download container logs using the command: <code>docker logs [container_name] > app_log.txt</code>.</li>
       </ul>
@@ -97,13 +98,16 @@ const TOOLS_HELP = {
       <ul>
         <li><strong>Local Studio Pro:</strong> Go to <em>Console</em> → <em>Advanced</em> → <em>Set Log Levels</em>. Set <code>ConnectionBus</code>, <code>DataStorage</code>, and <code>QueryParser</code> to <strong>TRACE</strong>. Perform the actions you want to track, then export the Console log to a CSV or TXT file.</li>
         <li><strong>Mendix Cloud:</strong> Change log levels for <code>ConnectionBus</code>, <code>DataStorage</code>, and <code>QueryParser</code> to <strong>TRACE</strong> in the Environment Details page. Download the logs from the portal.</li>
+        <li><strong>No TRACE? Production still works:</strong> at <em>default</em> log levels the Mendix runtime logs a <code>ConnectionBus_Queries</code> <strong>WARNING</strong> for every slow query (&ldquo;Query executed in N seconds&hellip;&rdquo;) with the full SQL. The tool ingests these from both the Studio Pro CSV export and the raw live log downloaded from Mendix Cloud (<code>.txt</code>/<code>.log</code>) — they appear in the list marked with a ⚠ badge and a filled Duration.</li>
       </ul>
     `,
     howToUse: `
       <ol>
-        <li>Load the exported CSV or TXT log file into the tool.</li>
+        <li>Load the exported CSV or TXT log file into the tool. The format is detected automatically: a Studio Pro CSV export gives full extraction; a Mendix Cloud live log currently yields slow-query warnings. If some CSV rows are malformed, a <strong>&ldquo;N lines skipped&rdquo;</strong> note appears next to the query counter.</li>
         <li>The tool will automatically group related log entries and extract all SQL queries. They will be listed on the left, displaying their type, transaction connection, execution duration, and estimated cost. Click the <strong>Time / Duration / Cost / Rows</strong> column headers to sort.</li>
-        <li>Statements executed multiple times with different parameters get a <strong>&times;N</strong> badge &mdash; use the <strong>Duplicates only (N+1)</strong> filter to instantly spot N+1 query patterns.</li>
+        <li>The <strong>stats bar</strong> above the list shows the total and average execution time, the slowest query (click it to jump to that query) and the number of duplicated statements &mdash; all recalculated live for the current filters.</li>
+        <li>Statements executed multiple times with different parameters get a <strong>&times;N</strong> badge &mdash; use the <strong>Duplicates only (N+1)</strong> filter to instantly spot N+1 query patterns. Enable <strong>Slow only &gt; X ms</strong> to hide everything below your duration threshold.</li>
+        <li>Use <strong>Export CSV</strong> or <strong>Copy Markdown</strong> in the top bar to take the currently filtered list with you &mdash; e.g. into a ticket, a wiki page or a spreadsheet.</li>
         <li>Select a query from the list to see its details neatly grouped on the right:
           <ul>
             <li><strong>Runnable SQL:</strong> The final SQL statement with all <code>?</code> parameters substituted correctly.</li>
@@ -120,6 +124,7 @@ const TOOLS_HELP = {
         <li><strong>For beginners:</strong> This tool bridges the gap between what Mendix executes and the underlying database. It allows you to grab a query and immediately paste it into your database client to test it.</li>
         <li><strong>Performance Tuning:</strong> Focus on queries that return a large number of rows, have high cost, or long duration. The Query Plan tab reveals whether the database is using indexes (Index Scan) or performing slow table scans (Seq Scan).</li>
         <li><strong>Duration & Cost:</strong> By setting <code>DataStorage</code> to TRACE, Mendix logs the database query execution plan. This tool parses it to display the exact execution time (Duration) and estimated Cost calculated by PostgreSQL.</li>
+        <li><strong>⚠ SLOW (warning) entries:</strong> these queries exceeded the runtime's slow-query threshold and were reported by <code>ConnectionBus_Queries</code> at default log levels. On production they are the cheapest performance signal available &mdash; start your investigation there.</li>
       </ul>
     `
   },
