@@ -139,7 +139,7 @@ const TOOLS_HELP = {
     `,
     howToUse: `
       <ol>
-        <li>Paste the content of Nginx logs (<em>combined</em> format for access logs) or drag and drop the log file into the tool window (supports plain text and <code>.gz</code> archives). Use the respective "Access Log" or "Error Log" tab.</li>
+        <li>Paste the content of Nginx logs (<em>combined</em> format for access logs) or drag and drop the log file into the tool window (supports plain text and <code>.gz</code> archives). Use the respective "Access Log" or "Error Log" tab. The <strong>Error Log</strong> tab expects the Nginx <code>error.log</code> format (<code>YYYY/MM/DD HH:MM:SS [level] …</code>); if it detects an access log there instead, it shows a hint pointing you to the correct tab.</li>
         <li>Check the <strong>Enable IP Geolocation</strong> option to automatically query a free external API for the country of origin of IPs sending the most requests (runs asynchronously, doesn't block the browser).</li>
         <li>Click <strong>Analyze Logs</strong>. The tool provides two views: <strong>Analyzer</strong> (interactive statistical tables and charts) and <strong>Log Stream</strong> (raw log lines with syntax highlighting).</li>
         <li>Use the global filter toolbar to instantly narrow down results across both views by HTTP status code, specific time ranges, dates, or custom search queries (IP, URL, method).</li>

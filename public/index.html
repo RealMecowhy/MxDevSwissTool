@@ -87,7 +87,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.9.1</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.9.2</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -244,7 +244,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.9.1</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.9.2</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -2043,6 +2043,7 @@ EntityName -> OtherEntity : Association"></textarea>
         </div>
         
         <div id="nx-content-error" style="display:none;flex-direction:column;gap:var(--sp-4); flex:1; min-height:0;">
+          <div id="nginx-error-hint" style="display:none; padding:var(--sp-3) var(--sp-4); border:1px solid var(--warning); background:var(--warning-subtle); border-radius:var(--r-md); font-size:0.85rem; color:var(--text-secondary); line-height:1.55;"></div>
           <div class="card" id="nginx-error-input-card" ondragover="event.preventDefault(); this.classList.add('drag-over');" ondragleave="this.classList.remove('drag-over');" ondrop="event.preventDefault(); this.classList.remove('drag-over'); if(typeof nginxHandleErrorDrop === 'function') nginxHandleErrorDrop(event)" style="transition:all 0.2s">
             <div class="card-body">
               <div style="position:relative; height:150px;">

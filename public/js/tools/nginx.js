@@ -61,6 +61,9 @@ async function nginxLoadFilesFromInput(files, type = 'access') {
         window.nginxParsedLogs = [];
       } else {
         window.nginxErrorParsedLogs = [];
+        window.nginxErrorScanned = 0;
+        window.nginxErrorMatched = 0;
+        window.nginxErrorSample = '';
       }
       let totalBytes = 0;
       let chunkCount = 0;
@@ -77,6 +80,11 @@ async function nginxLoadFilesFromInput(files, type = 'access') {
             let line = lines[i].trim();
             if (!line) continue;
             const parsed = type === 'access' ? nginxParseLine(line) : nginxParseErrorLine(line);
+            if (type === 'error') {
+              window.nginxErrorScanned++;
+              if (parsed) window.nginxErrorMatched++;
+              else if (!window.nginxErrorSample) window.nginxErrorSample = line;
+            }
             if (parsed) {
               let hourStr = 'Unknown';
               const timeMatch1 = parsed.date.match(/^(\d{2}\/\w{3}\/\d{4}:\d{2})/);
@@ -109,6 +117,11 @@ async function nginxLoadFilesFromInput(files, type = 'access') {
         if (done) {
           if (buffer.trim()) {
             const parsed = type === 'access' ? nginxParseLine(buffer.trim()) : nginxParseErrorLine(buffer.trim());
+            if (type === 'error') {
+              window.nginxErrorScanned++;
+              if (parsed) window.nginxErrorMatched++;
+              else if (!window.nginxErrorSample) window.nginxErrorSample = buffer.trim();
+            }
             if (parsed) {
               let hourStr = 'Unknown';
               const timeMatch1 = parsed.date.match(/^(\d{2}\/\w{3}\/\d{4}:\d{2})/);
@@ -260,7 +273,12 @@ function nginxClearData() {
 
   window.nginxErrorLoadedText = null;
   window.nginxErrorParsedLogs = [];
+  window.nginxErrorScanned = 0;
+  window.nginxErrorMatched = 0;
+  window.nginxErrorSample = '';
   document.getElementById('nginx-error-log-input').value = '';
+  const errHint = document.getElementById('nginx-error-hint');
+  if (errHint) { errHint.style.display = 'none'; errHint.innerHTML = ''; }
   document.getElementById('nginx-error-results').style.display = 'none';
   document.getElementById('nginx-error-input-card').style.display = '';
   const errorFileInput = document.getElementById('nginx-error-file-input');
@@ -644,27 +662,63 @@ function nginxParseErrorLine(line) {
   };
 }
 
+// Contextual banner shown when pasted/loaded text doesn't look like an nginx
+// error log — usually because an access log (Mendix Cloud rtr) landed in the
+// wrong tab. Stays quiet when the format matches or only a few odd lines slip by.
+function nginxUpdateErrorHint(matched, scanned, sample) {
+  const el = document.getElementById('nginx-error-hint');
+  if (!el) return;
+  const skipped = scanned - matched;
+  if (!scanned || matched >= scanned * 0.5 || skipped < 3) {
+    el.style.display = 'none';
+    el.innerHTML = '';
+    return;
+  }
+  const looksLikeAccess = sample && (/request="|status="/.test(sample) || /"\s+\d{3}\s+(?:\d+|-)\s+"/.test(sample));
+  let msg;
+  if (matched === 0) {
+    msg = `None of the ${scanned.toLocaleString('pl-PL')} lines match the nginx <strong>error</strong>-log format ` +
+          `(<code>YYYY/MM/DD HH:MM:SS [level] …</code>). `;
+    msg += looksLikeAccess
+      ? `This looks like an <strong>access</strong> log — switch to the <em>Access Log</em> tab instead.`
+      : `Make sure you pasted an nginx <code>error.log</code>, not an application or access log.`;
+  } else {
+    msg = `${skipped.toLocaleString('pl-PL')} of ${scanned.toLocaleString('pl-PL')} lines were skipped — ` +
+          `they don't match the nginx error-log format and were ignored.`;
+  }
+  el.innerHTML = msg;
+  el.style.display = 'block';
+}
+
 async function nginxAnalyzeErrorLogs() {
   let input = document.getElementById('nginx-error-log-input').value;
   if (input.startsWith('[File loaded:')) {
     input = window.nginxErrorLoadedText;
   }
   if (!input || !input.trim()) { hideLoader(); return; }
-  
+
   if (input !== '[PRE-PARSED]') {
     const lines = input.split('\n');
     window.nginxErrorParsedLogs = [];
-    
+    let scanned = 0;
+    let sample = '';
+
     lines.forEach(line => {
       line = line.trim();
       if (!line) return;
+      scanned++;
       const parsed = nginxParseErrorLine(line);
       if (parsed) {
         window.nginxErrorParsedLogs.push(parsed);
+      } else if (!sample) {
+        sample = line;
       }
     });
+    nginxUpdateErrorHint(window.nginxErrorParsedLogs.length, scanned, sample);
+  } else {
+    nginxUpdateErrorHint(window.nginxErrorMatched || 0, window.nginxErrorScanned || 0, window.nginxErrorSample || '');
   }
-  
+
   nginxApplyStreamFilters('error');
 }
 
