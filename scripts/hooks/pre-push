@@ -1,0 +1,46 @@
+#!/bin/sh
+# Guard: never push `main` with a package.json version that has no matching git tag.
+#
+# Why: releases are tag-triggered (.github/workflows/release.yml builds the ZIP and
+# publishes the GitHub Release only when a `v*` tag is pushed). v1.7.0–v1.9.1 shipped
+# as commits WITHOUT tags, so nothing was released and users on the in-app updater
+# stayed stuck on the last tagged build (v1.6.0). This hook makes that mistake
+# impossible. See memory: mendixtools-versioning ("zawsze komplet").
+#
+# Activated via: git config core.hooksPath scripts/hooks
+
+z40=0000000000000000000000000000000000000000
+pushing_main=0
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in
+    refs/heads/main)
+      # Skip branch deletions (local sha all zeros)
+      [ "$local_sha" = "$z40" ] || pushing_main=1
+      ;;
+  esac
+done
+
+[ "$pushing_main" -eq 1 ] || exit 0
+
+version=$(node -p "require('./package.json').version" 2>/dev/null)
+if [ -z "$version" ]; then
+  echo "pre-push: could not read version from package.json — skipping tag guard." >&2
+  exit 0
+fi
+
+if git rev-parse -q --verify "refs/tags/v$version" >/dev/null 2>&1; then
+  exit 0
+fi
+
+echo "" >&2
+echo "  x  pre-push blocked: package.json is v$version but tag v$version does not exist." >&2
+echo "     Releases are built from tags — push main without one and the release is skipped." >&2
+echo "" >&2
+echo "     Fix (zawsze komplet):" >&2
+echo "       npm run release          # tags v$version and pushes main + tag together" >&2
+echo "     or manually:" >&2
+echo "       git tag v$version && git push --follow-tags" >&2
+echo "     one-off bypass (not for a version bump): git push --no-verify" >&2
+echo "" >&2
+exit 1
