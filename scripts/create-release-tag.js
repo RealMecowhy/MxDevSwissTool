@@ -30,8 +30,11 @@ const tagExists = tryQuiet(`git rev-parse -q --verify refs/tags/${tag}`);
 if (tagExists) {
   console.log(`[release] tag ${tag} already exists — skipping tag creation.`);
 } else {
-  sh(`git tag ${tag}`);
-  console.log(`[release] created tag ${tag}.`);
+  // Annotated tag (-a), not lightweight: `git push --follow-tags` only pushes
+  // annotated tags, so a lightweight tag would silently never reach the remote
+  // and the release build would not trigger.
+  sh(`git tag -a ${tag} -m "Release ${tag}"`);
+  console.log(`[release] created annotated tag ${tag}.`);
 }
 
 // 3. Push the current branch and the tag together.
