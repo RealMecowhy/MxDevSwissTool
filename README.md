@@ -50,7 +50,7 @@ The toolkit is divided into logical categories to assist you across the entire d
   ![JSON Formatter](assets/screenshot-json-formatter.png)
 * **SQL Formatter**: Format and highlight complex ORM-generated database queries.
 * **Base64 / URL Encoder**: Encode and decode strings and HTML entities locally.
-* **XML & Text Sanitizer**: Detect and clean hidden control characters, zero-width spaces, and Mojibake.
+* **XML & Text Sanitizer**: Detect and clean hidden control characters, zero-width spaces, Mojibake, escaped references to invalid XML 1.0 characters (like `&#14;`), and invisible Private Use Area codepoints.
 * **XPath Formatter (Linter)**: Format Mendix XPath constraints and lint them for index-blocking patterns before they hit the database.
   ![XPath Formatter](assets/screenshot-xpath-builder.png)
 * **Text Diff**: Compare two text blocks or code side-by-side with differences highlighted.

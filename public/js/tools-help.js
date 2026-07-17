@@ -360,6 +360,8 @@ const TOOLS_HELP = {
         <li><strong>Invisible spaces (e.g., ZWSP, BOM):</strong> Very often pasted accidentally when copying text from a PDF or website. They block XML parsers even if the field looks empty.</li>
         <li><strong>Mojibake (e.g., Ã„â€¦, Ã…â€š):</strong> Occurs when systems exchange data using different encodings (e.g., database in Windows-1250, and interface in UTF-8).</li>
         <li><strong>C0 Control Characters (e.g., NUL, BEL, SUB):</strong> Older type control characters. They are not allowed in the XML 1.0 standard and cause immediate rejection of the file by the standard XML parser in Mendix.</li>
+        <li><strong>Escaped references (e.g., <code>&amp;#14;</code>, <code>&amp;#x0E;</code>):</strong> A file can be 100% clean at the byte level and still be invalid — an escaped numeric reference to a control character is rejected by every XML parser the moment it is expanded. This is a classic source of "works in the editor, fails in the integration" errors.</li>
+        <li><strong>Private Use Area characters (e.g., <code>U+100000</code>):</strong> Codepoints with no defined glyph, invisible in most editors. Technically legal in XML, but almost always injected garbage from an upstream system (scanners, label printers, EDI converters).</li>
       </ul>
     `
   },

@@ -63,6 +63,36 @@ const CS_INVISIBLE_MAP = {
   '\uFFFD': { name: 'Replacement Character (Invalid byte sequence)', label: 'REPL' }
 };
 
+// XML 1.0 valid character test (by full codepoint)
+// #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] | [#x10000-#x10FFFF]
+function csIsValidXmlCp(cp) {
+  return cp === 9 || cp === 10 || cp === 13 ||
+    (cp >= 0x20 && cp <= 0xD7FF) ||
+    (cp >= 0xE000 && cp <= 0xFFFD) ||
+    (cp >= 0x10000 && cp <= 0x10FFFF);
+}
+
+// Private Use Area / Unicode noncharacter test (by full codepoint).
+// These are "valid" XML tokens but almost always garbage injected by integrations.
+function csSuspiciousCpLabel(cp) {
+  if (cp >= 0xE000 && cp <= 0xF8FF) return 'PUA';
+  if (cp >= 0xF0000 && cp <= 0xFFFFD) return 'PUA-A';
+  if (cp >= 0x100000 && cp <= 0x10FFFD) return 'PUA-B';
+  if (cp >= 0xFDD0 && cp <= 0xFDEF) return 'NONCHAR';
+  if ((cp & 0xFFFE) === 0xFFFE) return 'NONCHAR'; // U+xFFFE / U+xFFFF in every plane
+  return null;
+}
+
+// Match an escaped numeric character reference (&#14; / &#x0E;) at the start of a string.
+// Returns { ref, cp } or null.
+function csParseCharRef(s) {
+  const m = /^&#(x[0-9A-Fa-f]+|[0-9]+);/.exec(s);
+  if (!m) return null;
+  const num = m[1];
+  const cp = (num[0] === 'x' || num[0] === 'X') ? parseInt(num.slice(1), 16) : parseInt(num, 10);
+  return { ref: m[0], cp };
+}
+
 let csCurrentTab = 'inspector';
 let csAnalysisResult = null;
 
@@ -92,7 +122,9 @@ function sanitizeClearInput() {
   csAnalysisResult = null;
 }
 
-// Load a rich sample text with problems
+// Load a rich sample text with problems.
+// U+100000 (PUA-B) is written as the surrogate pair uDBC0+uDC00 — jshint can't
+// parse code-point escapes (backslash-u-braces) despite esversion 2022.
 function sanitizeLoadSample() {
   const sampleText = `<?xml version="1.0" encoding="UTF-8"?>
 <root>
@@ -103,6 +135,7 @@ function sanitizeLoadSample() {
     <name>John Doe</name>
     <description>User data ą and ł was encoded incorrectly: ó and ż.</description> <!-- Polish mojibake -->
     <notes>Warning! Bell character\u0007 and end of file character\u001A are not allowed in XML 1.0.</notes> <!-- Control characters C0 -->
+    <reference>LS&#14;102192\uDBC0\uDC00</reference> <!-- Escaped control char reference + Private Use Area char U+100000: invisible at byte level, rejected by XML parsers -->
   </record>
 </root>`;
   document.getElementById('char-sanitizer-input').value = sampleText;
@@ -181,10 +214,28 @@ function sanitizeAnalyze() {
       }
     }
 
+    // 1.5 Escaped numeric character references to invalid XML 1.0 characters (&#14; / &#x0E;)
+    // Byte-level such a file looks clean (plain ASCII), but every XML parser rejects it on expansion.
+    if (!matchedIssue && optXml && char === '&') {
+      const refInfo = csParseCharRef(raw.slice(i, i + 12));
+      if (refInfo && !csIsValidXmlCp(refInfo.cp)) {
+        const ctrlName = CS_CTRL_NAMES[refInfo.cp] || `U+${refInfo.cp.toString(16).toUpperCase()}`;
+        matchedIssue = {
+          category: 'xml-invalid',
+          name: `Escaped reference to a character not allowed in XML 1.0: ${refInfo.ref} = ${ctrlName}`,
+          label: `XML-REF:${refInfo.ref}`,
+          matchLength: refInfo.ref.length,
+          visualRepl: refInfo.ref
+        };
+      }
+    }
+
     // 2. Check for Single character issues
     if (!matchedIssue) {
       const charStr = raw[i];
-      
+      const cp = raw.codePointAt(i);
+      const suspiciousLabel = csSuspiciousCpLabel(cp);
+
       if (optInvisible && CS_INVISIBLE_MAP[charStr]) {
         matchedIssue = {
           category: 'invisible',
@@ -202,6 +253,18 @@ function sanitizeAnalyze() {
           label: `XML-ERR:0x${code.toString(16).toUpperCase()}`,
           matchLength: 1,
           visualRepl: charStr
+        };
+      } else if (optInvisible && suspiciousLabel) {
+        // Private Use Area / noncharacter codepoints (incl. astral planes, e.g. U+100000)
+        const cpHex = 'U+' + cp.toString(16).toUpperCase();
+        matchedIssue = {
+          category: 'invisible',
+          name: suspiciousLabel === 'NONCHAR'
+            ? `Unicode noncharacter (${cpHex})`
+            : `Private Use Area character (${cpHex}) — undefined glyph, almost always injected garbage`,
+          label: suspiciousLabel,
+          matchLength: cp > 0xFFFF ? 2 : 1,
+          visualRepl: String.fromCodePoint(cp)
         };
       } else if (optControl && ((code >= 0 && code <= 31 && code !== 9 && code !== 10 && code !== 13) || (code >= 127 && code <= 159))) {
         // General C0/C1 control characters
@@ -238,7 +301,7 @@ function sanitizeAnalyze() {
         index: i,
         length: matchedIssue.matchLength,
         char: matchText,
-        hex: matchText.split('').map(c => 'U+' + c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')).join(' '),
+        hex: Array.from(matchText).map(c => 'U+' + c.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')).join(' '),
         category: matchedIssue.category,
         name: matchedIssue.name,
         label: matchedIssue.label
@@ -257,13 +320,16 @@ function sanitizeAnalyze() {
             displayStr = escHtml(matchText);
           }
         } else if (matchedIssue.category === 'invisible') {
-          // Zero-width characters MUST show a label to be visible
-          const isZeroWidth = (matchText === '\u200B' || matchText === '\uFEFF' || matchText === '\u200C' || matchText === '\u200D' || matchText === '\u200E' || matchText === '\u200F' || matchText === '\u2060' || matchText === '\u00AD');
+          // Zero-width and PUA/noncharacter codepoints MUST show a label to be visible
+          const isZeroWidth = (matchText === '\u200B' || matchText === '\uFEFF' || matchText === '\u200C' || matchText === '\u200D' || matchText === '\u200E' || matchText === '\u200F' || matchText === '\u2060' || matchText === '\u00AD' || !CS_INVISIBLE_MAP[matchText]);
           if (optShowMarkers || isZeroWidth) {
             displayStr = `[${matchedIssue.label}]`;
           } else {
             displayStr = escHtml(matchText);
           }
+        } else if (matchedIssue.category === 'xml-invalid' && matchedIssue.matchLength > 1) {
+          // Escaped character reference \u2014 the offending text is plain visible ASCII, keep it
+          displayStr = escHtml(matchText);
         } else {
           // Controls and XML errors
           displayStr = optShowMarkers ? `[${matchedIssue.label}]` : '';
@@ -336,11 +402,11 @@ function renderStatsTable() {
     
     // Format character column for visualization
     let charVisual = escHtml(matchText);
-    if (category === 'invisible' && (matchText === '\u200B' || matchText === '\uFEFF' || matchText === '\u200C' || matchText === '\u200D' || matchText === '\u200E' || matchText === '\u200F' || matchText === '\u2060' || matchText === '\u00AD')) {
+    if (category === 'invisible' && (matchText === '\u200B' || matchText === '\uFEFF' || matchText === '\u200C' || matchText === '\u200D' || matchText === '\u200E' || matchText === '\u200F' || matchText === '\u2060' || matchText === '\u00AD' || !CS_INVISIBLE_MAP[matchText])) {
       charVisual = `<span style="color:var(--text-muted);font-style:italic">[Invisible]</span>`;
     }
 
-    const hexCodes = matchText.split('').map(c => 'U+' + c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')).join(' ');
+    const hexCodes = Array.from(matchText).map(c => 'U+' + c.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')).join(' ');
 
     html += `<tr style="border-bottom:1px solid var(--border)">
       <td style="padding:var(--sp-2);font-family:var(--font-mono);font-weight:bold">${charVisual}</td>
@@ -382,6 +448,14 @@ function sanitizeOutput() {
     }
   }
 
+  // 1.5 Strip escaped numeric references to invalid XML 1.0 characters (&#14; / &#x0E;)
+  if (cleanXml) {
+    text = text.replace(/&#(x[0-9A-Fa-f]+|[0-9]+);/g, (m, num) => {
+      const cp = (num[0] === 'x' || num[0] === 'X') ? parseInt(num.slice(1), 16) : parseInt(num, 10);
+      return csIsValidXmlCp(cp) ? m : '';
+    });
+  }
+
   // 2. Perform character-by-character replacements
   let cleanedText = '';
   let i = 0;
@@ -399,6 +473,11 @@ function sanitizeOutput() {
     
     // Check general invisible characters (ZWSP, BOM, etc.)
     if (!replacementChar && cleanInvisible && CS_INVISIBLE_MAP[char] && char !== '\u00A0') {
+      stripChar = true;
+    }
+
+    // Check Private Use Area / noncharacter codepoints (incl. astral planes)
+    if (!replacementChar && !stripChar && cleanInvisible && csSuspiciousCpLabel(text.codePointAt(i))) {
       stripChar = true;
     }
 
