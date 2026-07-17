@@ -87,7 +87,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.10.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.10.1</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -248,7 +248,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.10.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.10.1</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -1001,7 +1001,7 @@
             <div class="form-label">PostgreSQL EXPLAIN Output</div>
             <textarea class="code-area" id="sql-explain-input" rows="8" placeholder="Paste EXPLAIN (or EXPLAIN ANALYZE) text here..."></textarea>
           </div>
-          <button class="btn btn-primary btn-sm" onclick="visualizeSqlExplain()">Visualize Query Plan</button>
+          <button class="btn btn-primary btn-sm" onclick="visualizeSqlExplain()" style="align-self:flex-start">Visualize Query Plan</button>
           <div id="sql-explain-result" style="margin-top:var(--sp-4);display:none;background:var(--bg-elevated);padding:var(--sp-4);border-radius:var(--r-md);border:1px solid var(--border);flex:1;overflow:auto;"></div>
         </div>
         

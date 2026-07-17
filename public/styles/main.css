@@ -657,6 +657,12 @@ pre,
   align-items: flex-end;
   display: flex;
 }
+.form-row > .btn {
+  padding-top: var(--sp-2);
+  padding-bottom: var(--sp-2);
+  font-size: 0.8rem;
+  line-height: normal;
+}
 .form-group {
   gap: var(--sp-1);
   flex-direction: column;
