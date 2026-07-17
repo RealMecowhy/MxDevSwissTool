@@ -252,6 +252,29 @@ ok('flow aggregate: 1 call, 1000 ms total', parentFlow.count === 1 && Math.abs(p
 const recFlow = mfOut.flows.find(f => f.name === 'ModC.Rec');
 ok('flow aggregate: recursion counted', recFlow.count === 2 && recFlow.recursions === 1);
 
+// ── MFT: correlation-ID segmentation (numeric requests vs UUID scheduled events) ──
+// Both shapes appear in the wild and must key independent call stacks: the same
+// microflow running concurrently under a request corrId and a scheduled-event corrId
+// must NOT be mistaken for recursion, and each Finished must close its own frame.
+console.log('\nMicroflow Tracer: corrId segmentation');
+const REQ = '1784268324436-46';                          // numeric — request-driven
+const SE  = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';      // UUID — scheduled event
+const segLog = [
+  '2026-07-17T11:00:00.000000 ' + P + '  DEBUG - MicroflowEngine: [' + REQ + '] Starting execution of microflow \'ModX.Shared\'',
+  '2026-07-17T11:00:00.100000 ' + P + '  DEBUG - MicroflowEngine: [' + SE  + '] Starting execution of microflow \'ModX.Shared\'',
+  '2026-07-17T11:00:00.300000 ' + P + '  DEBUG - MicroflowEngine: [' + REQ + '] Finished execution of microflow \'ModX.Shared\'',
+  '2026-07-17T11:00:00.500000 ' + P + '  DEBUG - MicroflowEngine: [' + SE  + '] Finished execution of microflow \'ModX.Shared\''
+].join('\n');
+const segOut = mftExtract(parser.parse(segLog).records);
+eq('two corrId shapes counted separately', segOut.stats.corrIds, 2);
+eq('same flow on two corrIds → two executions', segOut.executions.length, 2);
+ok('neither execution flagged recursive (separate stacks)', segOut.executions.every(e => !e.recursive));
+const reqExec = segOut.executions.find(e => e.corrId === REQ);
+const seExec = segOut.executions.find(e => e.corrId === SE);
+ok('request execution closes its own frame (300 ms)', reqExec.finished && Math.abs(reqExec.durationMs - 300) < 0.001, reqExec && reqExec.durationMs);
+ok('scheduled-event execution closes its own frame (400 ms)', seExec.finished && Math.abs(seExec.durationMs - 400) < 0.001, seExec && seExec.durationMs);
+ok('both are depth-0 roots (no cross-corrId nesting)', reqExec.depth === 0 && seExec.depth === 0 && reqExec.parentId === null && seExec.parentId === null);
+
 // Reference: real Mendix Cloud log with MicroflowEngine DEBUG+TRACE (local only)
 const refTrace = path.join(__dirname, '..', '_local_assets', 'FilesForTest', 'MxCloudApp_RealLogsWithTrace.txt');
 if (fs.existsSync(refTrace)) {
@@ -272,6 +295,70 @@ if (fs.existsSync(refTrace)) {
 } else {
   console.log('  – reference trace log absent, skipped (PII: never committed)');
 }
+
+// ── Log Query Extractor aggregation (public/js/tools/log-query-extractor.js) ──
+// The module attaches its pure extractor to window; pointing `window` at the global
+// (already done above for MFT) makes lqeExtractQueries requireable in Node.
+console.log('\nLog Query Extractor aggregation');
+require('../public/js/tools/log-query-extractor.js');
+const lqeExtract = global.lqeExtractQueries;
+
+const TR = '  TRACE - ';
+const lqeLog = [
+  // Query A: XPath source + SQL + params + result (row count) + linked plan (via xpathId)
+  '2026-07-17T10:00:00.000000 ' + P + TR + 'ConnectionBus_Retrieve: Incoming query of type XPath: [abc001] //Sales.Order[Status=\'Open\']',
+  '2026-07-17T10:00:00.010000 ' + P + TR + 'ConnectionBus_Retrieve: SQL@aaa111(T1-Cff01): SELECT "sales$order"."id" FROM "sales$order" WHERE "status" = ?',
+  '2026-07-17T10:00:00.020000 ' + P + TR + 'ConnectionBus_Retrieve: SQL@aaa111(T1-Cff01): Select params: \'Open\'',
+  '2026-07-17T10:00:00.030000 ' + P + TR + 'ConnectionBus_Retrieve: SQL@aaa111(T1-Cff01): [abc001] Data table (3 row(s))',
+  '2026-07-17T10:00:00.040000 ' + P + TR + 'DataStorage_QueryPlan: Query Plan: [abc001] [{"Plan":{"Node Type":"Seq Scan","Total Cost":12.5},"Execution Time":4.2,"Planning Time":0.3}]',
+  // Query B: identical statement, different bound value → same signature as A (N+1 duplicate)
+  '2026-07-17T10:00:00.050000 ' + P + TR + 'ConnectionBus_Retrieve: SQL@aaa222(T1-Cff01): SELECT "sales$order"."id" FROM "sales$order" WHERE "status" = ?',
+  '2026-07-17T10:00:00.060000 ' + P + TR + 'ConnectionBus_Retrieve: SQL@aaa222(T1-Cff01): [def002] Data table (1 row(s))',
+  // Query C: UPDATE with inline numeric literals → normalized to ? in the signature.
+  // Its own result line carries an xpathId (no plan logged for it), so it is NOT
+  // eligible for the unlinked plan below — that must flow to query D instead.
+  '2026-07-17T10:00:00.070000 ' + P + TR + 'ConnectionBus_Update: SQL@ccc333(T1-Cff01): UPDATE "sales$order" SET "amount" = 5 WHERE "id" = 42',
+  '2026-07-17T10:00:00.080000 ' + P + TR + 'ConnectionBus_Update: SQL@ccc333(T1-Cff01): [aa99bb] Data table (1 row(s))',
+  // Slow-query WARNING — full SQL + duration at default log levels, no TRACE needed
+  '2026-07-17T10:00:01.000000 ' + P + '  WARNING - ConnectionBus_Queries: Query executed in 3 seconds and 100 milliseconds: SELECT "big"."id" FROM "big"',
+  // Query D: no xpathId — receives the unlinked plan below (FIFO, first eligible query wins)
+  '2026-07-17T10:00:02.000000 ' + P + TR + 'ConnectionBus_Retrieve: SQL@ddd444(T1-Cff01): SELECT "cust"."name" FROM "cust"',
+  '2026-07-17T10:00:02.010000 ' + P + TR + 'DataStorage_QueryPlan: Query Plan: [{"Plan":{"Node Type":"Index Scan","Total Cost":3.1},"Execution Time":1.1}]'
+].join('\n');
+
+const lqeRecs = parser.parse(lqeLog).records;
+eq('LQE fixture parsed as live', parser.parse(lqeLog).format, 'live');
+const qs = lqeExtract(lqeRecs);
+eq('five queries extracted', qs.length, 5);
+const qById = id => qs.find(q => q.sqlId === id);
+const qA = qById('aaa111'), qB = qById('aaa222'), qC = qById('ccc333'), qD = qById('ddd444');
+const qSlow = qs.find(q => q.slowWarning);
+
+// Statement-type classification
+eq('SELECT classified', qA.type, 'SELECT');
+eq('UPDATE classified', qC.type, 'UPDATE');
+
+// Duplicate detection (N+1): normalized signature groups A and B
+eq('duplicate SELECTs share a signature', qA.signature, qB.signature);
+ok('both duplicates report dupCount 2', qA.dupCount === 2 && qB.dupCount === 2, 'A=' + qA.dupCount + ' B=' + qB.dupCount);
+eq('non-duplicated query has dupCount 1', qC.dupCount, 1);
+ok('numeric literals normalized to ? in signature', qC.signature.indexOf('5') === -1 && qC.signature.indexOf('42') === -1, qC.signature);
+
+// Plan linking via xpathId — duration/cost/planning time lifted out of the plan JSON
+ok('plan linked by xpathId', qA.xpathId === 'abc001' && qA.queryPlan.length > 0);
+eq('execution time from linked plan', qA.duration, '4.200 ms');
+eq('total cost from linked plan', qA.cost, 12.5);
+eq('planning time from linked plan', qA.planningTime, '0.300 ms');
+eq('row count captured from result line', qA.rows, '3');
+ok('params parsed off the Select-params line', qA.params.length === 1 && qA.params[0] === '\'Open\'', JSON.stringify(qA.params));
+
+// Unlinked plan (no xpathId) assigned FIFO to the first eligible query; slow warnings never consume one
+ok('unlinked plan assigned to first plan-less query', qD.duration === '1.100 ms' && qD.cost === 3.1, qD.duration + '/' + qD.cost);
+ok('duplicate B without its own plan stays unlinked', qB.queryPlan === '' && qB.duration === null);
+
+// Slow-query warning ingestion
+ok('slow-query warning ingested', !!qSlow && qSlow.duration === '3100 ms', qSlow && qSlow.duration);
+ok('slow-query warning did not swallow a plan', qSlow.queryPlan === '');
 
 // ── Summary ─────────────────────────────────────────────────────────────────
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

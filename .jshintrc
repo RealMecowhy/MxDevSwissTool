@@ -12,6 +12,7 @@
     "mermaid": false,
     "Chart": false,
     "DecompressionStream": false,
+    "ResizeObserver": false,
     "escape": false,
     "unescape": false,
     "escHtml": false,

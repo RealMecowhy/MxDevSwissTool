@@ -178,7 +178,7 @@ async function navigate(toolId, navEl) {
     iconEl.style.color = tool.color || 'var(--accent)';
   }
   document.getElementById('topbar-title').textContent = tool.label;
-  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.10.0' : (tool.desc || '');
+  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.12.0' : (tool.desc || '');
   const previousTool = currentTool;
   currentTool = toolId;
   window.currentTool = currentTool;
@@ -467,6 +467,9 @@ import { initWelcome } from './components/welcome.js';
 import './tools/utilities.js';
 import './tools-help.js';
 import './components/virtual-viewer.js';
+// Side-effect import: attaches window.createVirtualList, the reusable fixed-height
+// virtual row list used by the Log Query Extractor (and future row-heavy tools).
+import './components/virtual-list.js';
 
 function initCore() {
   // Reflect restored theme (set in index.html head) in the toggle label

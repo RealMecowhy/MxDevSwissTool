@@ -6,6 +6,7 @@ let lqeLastFiltered = [];
 let lqeSkippedLines = 0;
 let lqeSourceFormat = null; // 'csv' (Studio Pro export) | 'live' (Mendix Cloud download)
 let lqeWorker = null;
+let lqeVList = null;        // reusable virtual list bound to #lqe-query-list
 let lqeTimeWindow = null;   // {from, to, label} — set by the Microflow Tracer cross-link
 const LQE_WORKER_THRESHOLD = 2 * 1024 * 1024; // parse in a Web Worker above 2 MB
 
@@ -56,12 +57,17 @@ window.lqeClear = function() {
   lqeSkippedLines = 0;
   lqeSourceFormat = null;
   window._lqeSlowestId = null;
+  window._lqeActiveSqlId = null;
+  if (lqeVList) { lqeVList.destroy(); lqeVList = null; }
   if (lqeTimeWindow) window.lqeSetTimeWindow(null, null);
   const statsBar = document.getElementById('lqe-stats');
   if (statsBar) statsBar.style.display = 'none';
   const skippedEl = document.getElementById('lqe-skipped');
   if (skippedEl) { skippedEl.style.display = 'none'; skippedEl.textContent = ''; }
-  document.getElementById('lqe-query-list').innerHTML = '';
+  document.getElementById('lqe-query-list').innerHTML =
+    '<div style="padding:var(--sp-5); text-align:center; color:var(--text-muted); font-size:0.85rem;">' +
+    'Drop a log file here or use &ldquo;Load TRACE Log&rdquo;:<br>' +
+    'Studio Pro CSV export (TRACE) &mdash; full SQL, params &amp; plans &bull; Mendix Cloud live log (.txt/.log) &mdash; slow-query warnings.</div>';
   document.getElementById('lqe-count').textContent = '0';
   document.getElementById('lqe-sql-content').textContent = 'Select a query to view its runnable SQL...';
   document.getElementById('lqe-source-content').textContent = 'No source available (XPath/OQL) for this query.';
@@ -182,7 +188,10 @@ function lqeSqlType(sql) {
   return 'OTHER';
 }
 
-function extractQueriesFromRecords(records) {
+// Pure extraction + aggregation: records -> array of query objects (with signatures,
+// duplicate counts, linked plans and parsed params). No DOM, no module state, so it's
+// unit-testable in Node (attached to window/self at the bottom of this file, like MFT).
+function lqeExtractQueries(records) {
   const queryMap = new Map();    // sqlId -> query object
   const xpathMap = new Map();    // xpathId -> { xpath, oql }
   const planMap = new Map();     // xpathId -> plan JSON string
@@ -358,22 +367,22 @@ function extractQueriesFromRecords(records) {
   }
   
   // Build final list; slow-query warnings are merged in chronological (record) order
-  extractedQueries = Array.from(queryMap.values()).filter(q => q.sql.length > 0)
+  const queries = Array.from(queryMap.values()).filter(q => q.sql.length > 0)
     .concat(slowQueries)
     .sort((a, b) => a._recIdx - b._recIdx);
 
   // Duplicate detection (N+1): identical statements differ only in bound values,
   // so a normalized signature groups them together.
   const sigCounts = new Map();
-  extractedQueries.forEach((q, i) => {
+  queries.forEach((q, i) => {
     q._idx = i;
     q.signature = q.sql.replace(/\s+/g, ' ').replace(/\b\d+\b/g, '?').trim().toLowerCase();
     sigCounts.set(q.signature, (sigCounts.get(q.signature) || 0) + 1);
   });
-  extractedQueries.forEach(q => { q.dupCount = sigCounts.get(q.signature) || 1; });
-  
+  queries.forEach(q => { q.dupCount = sigCounts.get(q.signature) || 1; });
+
   // Post-process: parse params, extract duration/cost from query plans
-  for (let q of extractedQueries) {
+  for (let q of queries) {
     // For queries without an xpathId, try to assign an unlinked plan
     // (slow-query warnings never have a logged plan — don't consume one)
     if (!q.queryPlan && unlinkedPlanIdx < unlinkedPlans.length && !q.xpathId && !q.slowWarning) {
@@ -410,7 +419,13 @@ function extractQueriesFromRecords(records) {
       q.params = splitParams(q.paramsString);
     }
   }
-  
+
+  return queries;
+}
+
+// UI wrapper: run the pure extraction, then refresh the module state and the view.
+function extractQueriesFromRecords(records) {
+  extractedQueries = lqeExtractQueries(records);
   lqeUpdateSkippedNote();
   window.lqeFilter();
   if (window.hideLoader) window.hideLoader();
@@ -578,14 +593,16 @@ function lqeUpdateStats(filtered) {
   window._lqeSlowestId = slowest ? slowest.sqlId : null;
 }
 
-// Click on the "Slowest" stat selects that query in the list
+// Click on the "Slowest" stat selects that query in the list. The target row may be
+// virtualized out of the DOM, so drive it through the virtual list by index.
 window.lqeSelectSlowest = function() {
-  if (!window._lqeSlowestId) return;
-  const el = document.querySelector('#lqe-query-list .lqe-list-item[data-sqlid="' + window._lqeSlowestId + '"]');
-  if (el) {
-    el.scrollIntoView({ block: 'center' });
-    el.click();
-  }
+  if (!window._lqeSlowestId || !lqeVList) return;
+  const idx = lqeVList.indexOf(q => q.sqlId === window._lqeSlowestId);
+  if (idx < 0) return;
+  window._lqeActiveSqlId = window._lqeSlowestId;
+  lqeVList.scrollToIndex(idx, 'center');
+  lqeVList.refresh();
+  selectQuery(lqeVList.itemAt(idx));
 };
 
 function highlightJsonSimple(json) {
@@ -602,67 +619,80 @@ function highlightJsonSimple(json) {
   });
 }
 
+// True when a query is the currently selected row. Selection is tracked by sqlId
+// (not a DOM node) because the virtual list recycles rows as they scroll in and out.
+function lqeRowSelected(q) {
+  return window._lqeActiveSqlId != null && q.sqlId === window._lqeActiveSqlId;
+}
+
+// Builds one query row. Passed to the virtual list, which positions it and only
+// keeps the visible window in the DOM — so a 2 000-query result stays responsive.
+function lqeRenderRow(q) {
+  const el = document.createElement('div');
+  el.className = 'lqe-list-item';
+  el.dataset.sqlid = q.sqlId;
+  el.style.display = 'grid';
+  el.style.gridTemplateColumns = '96px 92px 112px 70px 60px 1fr 60px';
+  el.style.padding = 'var(--sp-2) var(--sp-3)';
+  el.style.borderBottom = '1px solid var(--border)';
+  el.style.fontSize = '0.8rem';
+  el.style.cursor = 'pointer';
+  el.style.color = 'var(--text)';
+  el.style.background = lqeRowSelected(q) ? 'var(--bg-active)' : 'transparent';
+
+  let summary = q.sql.substring(0, 100);
+  if (q.sql.length > 100) summary += '...';
+
+  let typeColor = 'var(--text)';
+  if (q.type === 'SELECT') typeColor = '#3498db';
+  if (q.type === 'UPDATE') typeColor = '#f39c12';
+  if (q.type === 'INSERT') typeColor = '#2ecc71';
+  if (q.type === 'DELETE') typeColor = '#e74c3c';
+
+  const dupBadge = q.dupCount > 1
+    ? `<span title="This statement was executed ${q.dupCount}× with different parameters — possible N+1 pattern" style="margin-left:4px;font-size:0.7rem;font-weight:700;color:${q.dupCount >= 10 ? 'var(--danger)' : 'var(--warning)'};background:${q.dupCount >= 10 ? 'var(--danger-subtle)' : 'var(--warning-subtle)'};padding:0 4px;border-radius:var(--r-sm)">×${q.dupCount}</span>`
+    : '';
+
+  const slowBadge = q.slowWarning
+    ? `<span title="Slow-query warning logged by ConnectionBus_Queries — the runtime flagged this query as slow (available at default log levels, no TRACE needed)" style="margin-left:4px;color:var(--warning);cursor:help">⚠</span>`
+    : '';
+
+  el.innerHTML = `
+    <div style="font-weight:600; color:${typeColor}; white-space:nowrap; overflow:hidden">${q.type}${dupBadge}${slowBadge}</div>
+    <div style="color:var(--text-muted); font-family:var(--font-mono); font-size:0.75rem">${q.txConn}</div>
+    <div style="color:var(--text-muted)">${q.timestamp}</div>
+    <div style="color:var(--accent); font-weight:600;">${q.duration || '-'}</div>
+    <div style="color:var(--text-muted)">${q.cost || '-'}</div>
+    <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${q.sql.replace(/"/g, '&quot;')}">${summary}</div>
+    <div style="text-align:right">${q.rows}</div>
+  `;
+
+  el.onmouseenter = () => { if (!lqeRowSelected(q)) el.style.background = 'var(--bg-hover)'; };
+  el.onmouseleave = () => { if (!lqeRowSelected(q)) el.style.background = 'transparent'; };
+
+  el.onclick = () => {
+    window._lqeActiveSqlId = q.sqlId;
+    if (lqeVList) lqeVList.refresh(); // restyle the visible window so only this row is active
+    selectQuery(q);
+  };
+
+  return el;
+}
+
 function renderQueryList(list) {
   const container = document.getElementById('lqe-query-list');
   if (!container) return;
-  container.innerHTML = '';
-  
+
   if (list.length === 0) {
+    if (lqeVList) { lqeVList.destroy(); lqeVList = null; }
     container.innerHTML = '<div style="padding:var(--sp-5); text-align:center; color:var(--text-muted); font-size:0.85rem;">No queries found matching criteria.</div>';
     return;
   }
-  
-  list.forEach((q, idx) => {
-    const el = document.createElement('div');
-    el.className = 'lqe-list-item';
-    el.dataset.sqlid = q.sqlId;
-    el.style.display = 'grid';
-    el.style.gridTemplateColumns = '96px 92px 112px 70px 60px 1fr 60px';
-    el.style.padding = 'var(--sp-2) var(--sp-3)';
-    el.style.borderBottom = '1px solid var(--border)';
-    el.style.fontSize = '0.8rem';
-    el.style.cursor = 'pointer';
-    el.style.color = 'var(--text)';
-    
-    let summary = q.sql.substring(0, 100);
-    if (q.sql.length > 100) summary += '...';
-    
-    let typeColor = 'var(--text)';
-    if (q.type === 'SELECT') typeColor = '#3498db';
-    if (q.type === 'UPDATE') typeColor = '#f39c12';
-    if (q.type === 'INSERT') typeColor = '#2ecc71';
-    if (q.type === 'DELETE') typeColor = '#e74c3c';
 
-    const dupBadge = q.dupCount > 1
-      ? `<span title="This statement was executed ${q.dupCount}× with different parameters — possible N+1 pattern" style="margin-left:4px;font-size:0.7rem;font-weight:700;color:${q.dupCount >= 10 ? 'var(--danger)' : 'var(--warning)'};background:${q.dupCount >= 10 ? 'var(--danger-subtle)' : 'var(--warning-subtle)'};padding:0 4px;border-radius:var(--r-sm)">×${q.dupCount}</span>`
-      : '';
-
-    const slowBadge = q.slowWarning
-      ? `<span title="Slow-query warning logged by ConnectionBus_Queries — the runtime flagged this query as slow (available at default log levels, no TRACE needed)" style="margin-left:4px;color:var(--warning);cursor:help">⚠</span>`
-      : '';
-
-    el.innerHTML = `
-      <div style="font-weight:600; color:${typeColor}; white-space:nowrap; overflow:hidden">${q.type}${dupBadge}${slowBadge}</div>
-      <div style="color:var(--text-muted); font-family:var(--font-mono); font-size:0.75rem">${q.txConn}</div>
-      <div style="color:var(--text-muted)">${q.timestamp}</div>
-      <div style="color:var(--accent); font-weight:600;">${q.duration || '-'}</div>
-      <div style="color:var(--text-muted)">${q.cost || '-'}</div>
-      <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${q.sql.replace(/"/g, '&quot;')}">${summary}</div>
-      <div style="text-align:right">${q.rows}</div>
-    `;
-    
-    el.onmouseenter = () => { if (el !== window._lqeActiveEl) el.style.background = 'var(--bg-hover)'; };
-    el.onmouseleave = () => { if (el !== window._lqeActiveEl) el.style.background = 'transparent'; };
-    
-    el.onclick = () => {
-      document.querySelectorAll('.lqe-list-item').forEach(i => i.style.background = 'transparent');
-      el.style.background = 'var(--bg-active)';
-      window._lqeActiveEl = el;
-      selectQuery(q);
-    };
-    
-    container.appendChild(el);
-  });
+  if (!lqeVList) {
+    lqeVList = window.createVirtualList({ container: container, renderRow: lqeRenderRow });
+  }
+  lqeVList.setItems(list);
 }
 
 function selectQuery(q) {
@@ -899,3 +929,6 @@ window.lqeCopyContent = function(elementId, btn) {
     });
   }
 };
+
+// Expose the pure extractor for unit tests (Node points `window` at the global).
+(typeof window !== 'undefined' ? window : self).lqeExtractQueries = lqeExtractQueries;
