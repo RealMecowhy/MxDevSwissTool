@@ -128,6 +128,44 @@ const TOOLS_HELP = {
       </ul>
     `
   },
+  'microflow-tracer': {
+    title: 'Microflow Tracer',
+    description: 'Rebuilds microflow executions from Mendix <code>MicroflowEngine</code> logs: execution times, activity-by-activity timelines, and the call tree of sub-microflows. Answers &ldquo;which microflows ran, how long did they take, and where inside them did the time go&rdquo; &mdash; straight from a log file, without instrumenting the app.',
+    howToGet: `
+      <p>The tool reads <code>MicroflowEngine</code> log records. Two levels unlock two layers of detail:</p>
+      <ul>
+        <li><strong>DEBUG</strong> &mdash; <em>Starting/Finished execution</em> records: gives the execution list with exact durations (microsecond timestamps). Cheap enough to enable widely.</li>
+        <li><strong>TRACE</strong> &mdash; adds <em>Executing activity</em> records: gives the step-by-step timeline (activity type, caption, time per step) and the call tree. Verbose &mdash; enable for a reproduction window, then switch back.</li>
+        <li><strong>Local Studio Pro:</strong> <em>Console</em> → <em>Advanced</em> → <em>Set Log Levels</em> → set <code>MicroflowEngine</code> to DEBUG or TRACE, reproduce the scenario, export the console log (CSV or TXT).</li>
+        <li><strong>Mendix Cloud:</strong> set the <code>MicroflowEngine</code> log level in Environment Details, reproduce, then download the live log from the portal. Both formats are detected automatically.</li>
+      </ul>
+    `,
+    howToUse: `
+      <ol>
+        <li>Load the log with <strong>Load Log</strong> or drag &amp; drop it onto the list. Large files parse on a background thread with a progress bar.</li>
+        <li>The <strong>Executions</strong> view lists every microflow run with its duration, activity-step count and direct sub-microflow calls. Sub-flows are indented under their caller; the <strong>Top-level</strong> checkbox hides them. Click <strong>Time / Duration / Steps / Sub</strong> to sort, use the search box, or enable <strong>Slow only &gt; X ms</strong>.</li>
+        <li>Switch to <strong>By microflow</strong> for the aggregate view: calls, total, average and max duration per microflow &mdash; the fastest way to find hot spots. Click a row to drill into its executions.</li>
+        <li>Select an execution to open the details:
+          <ul>
+            <li><strong>Activity Timeline:</strong> each logged activity with its offset from the start, type, caption and the time until the next engine event &mdash; the longest bars are where the time went.</li>
+            <li><strong>Call Tree:</strong> the full caller&rarr;callee tree for this correlation ID with durations; click any node to inspect it. Recursive calls are flagged with <strong>REC</strong>.</li>
+            <li><strong>Raw:</strong> the reconstructed engine events for copy-paste.</li>
+          </ul>
+        </li>
+        <li><strong>Queries in window</strong> jumps to the Log Query Extractor filtered to the SQL that executed during this execution's time window (engine records carry no transaction ID, so the correlation is temporal). If the extractor is empty, the same file is handed over automatically &mdash; one load powers both tools.</li>
+        <li><strong>Export CSV</strong> / <strong>Copy Markdown</strong> take the currently filtered list with you.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>Hot paths:</strong> sort the aggregate view by <em>Total</em> &mdash; a microflow with moderate average but thousands of calls often costs more than one slow outlier. Then check its timeline for the dominant step.</li>
+        <li><strong>Slow steps:</strong> long <em>RetrieveByXPath</em>/<em>AggregateUsingDatabase</em> steps point at database work &mdash; use <strong>Queries in window</strong> to see the exact SQL. Long <em>JavaAction</em> steps point at custom code, long <em>CallRest/CallWebservice</em> at external services.</li>
+        <li><strong>REC badge:</strong> the same microflow was already on the call stack &mdash; intentional recursion is rare in Mendix; verify it terminates and isn't doing N&times; database work.</li>
+        <li><strong>Unfinished (…):</strong> no Finished record in the log &mdash; usually the log window simply ends mid-execution, but combined with an ERROR nearby it can mean the microflow died with an exception.</li>
+        <li><strong>Steps = 0:</strong> the log has DEBUG but not TRACE &mdash; durations are exact, only the per-activity breakdown is missing.</li>
+      </ul>
+    `
+  },
   'nginx-log': {
     title: 'Nginx Log Analyzer',
     description: 'Module for parsing Nginx access and error logs. Helps to instantly check the most popular IP addresses, frequently accessed URLs, HTTP status code breakdown, error frequencies, and geographical location of visitors.',

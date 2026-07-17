@@ -87,7 +87,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.9.4</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.10.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -103,6 +103,10 @@
     <button type="button" class="nav-item" data-tool="log-query-extractor" onclick="navigate('log-query-extractor',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12h18"/><path d="M3 19h18"/></svg></span>
       <span class="nav-label">Log Query Extractor</span>
+    </button>
+    <button type="button" class="nav-item" data-tool="microflow-tracer" onclick="navigate('microflow-tracer',this)">
+      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg></span>
+      <span class="nav-label">Microflow Tracer</span>
     </button>
     <button type="button" class="nav-item" data-tool="log-anonymizer" onclick="navigate('log-anonymizer',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
@@ -244,7 +248,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.9.4</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.10.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -420,7 +424,7 @@
               </label>
               <input class="input input-sm" type="number" id="lqe-slow-ms" value="100" min="0" step="50" oninput="window.lqeFilter()" style="width:70px;" title="Slow-query threshold in milliseconds">
               <span style="font-size:0.75rem; color:var(--text-muted);">ms</span>
-              <div style="font-size:0.75rem; color:var(--text-muted); white-space:nowrap;"><span id="lqe-count">0</span> queries<span id="lqe-skipped" style="display:none; cursor:help; color:var(--warning);"></span></div>
+              <div style="font-size:0.75rem; color:var(--text-muted); white-space:nowrap;"><span id="lqe-count">0</span> queries<span id="lqe-skipped" style="display:none; cursor:help; color:var(--warning);"></span><span id="lqe-timewindow" style="display:none; color:var(--accent); margin-left:6px;"></span></div>
             </div>
             <!-- Stats bar — recalculated for the currently filtered list -->
             <div id="lqe-stats" style="display:none; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border); background:var(--bg-elevated); gap:var(--sp-4); flex-wrap:wrap; align-items:center; font-size:0.72rem; color:var(--text-secondary);">
@@ -512,6 +516,121 @@
                   <button class="btn btn-ghost btn-sm" onclick="window.lqeCopyContent('lqe-plan-content', this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy</button>
                 </div>
                  <pre id="lqe-plan-content" style="background:var(--bg-elevated); padding:var(--sp-3); border-radius:var(--r-md); border:1px solid var(--border); font-size:0.85rem; color:var(--text); margin:0; white-space:pre-wrap; word-break:break-all; flex:1; overflow:auto;">No execution plan found for this query.</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tool-panel" id="panel-microflow-tracer">
+      <div class="tool-actions">
+          <label class="btn btn-primary btn-sm" for="mft-file-input">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Load Log
+          </label>
+          <input type="file" id="mft-file-input" style="display:none" accept=".log,.txt,.csv" onchange="window.mftLoadFile(this.files)">
+          <button class="btn btn-secondary btn-sm" onclick="window.mftExportCsv()" title="Download the currently filtered list as a CSV file"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export CSV</button>
+          <button class="btn btn-secondary btn-sm" onclick="window.mftCopyMarkdown(this)" title="Copy the currently filtered list as a Markdown table"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy Markdown</button>
+          <button class="btn btn-secondary btn-sm" onclick="window.mftClear()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Clear</button>
+        </div>
+      <div class="tool-body" style="padding:0; display:flex; flex:1; overflow:hidden;">
+        <div style="display:grid; grid-template-columns:1fr 1fr; width:100%; height:100%;">
+
+          <!-- LEFT PANEL: Executions / Flows list -->
+          <div style="border-right:1px solid var(--border); display:flex; flex-direction:column; background:var(--bg-elevated); overflow:hidden;">
+            <!-- Toolbar -->
+            <div style="padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border); display:flex; gap:var(--sp-2); align-items:center; flex-wrap:wrap;">
+              <div id="mft-view-toggle" class="tabs" style="border:1px solid var(--border); border-radius:var(--r-md); padding:2px; display:flex; gap:2px; margin:0;">
+                <button type="button" class="tab active" style="padding:2px 10px; font-size:0.75rem;" onclick="window.mftSetView('exec', this)">Executions</button>
+                <button type="button" class="tab" style="padding:2px 10px; font-size:0.75rem;" onclick="window.mftSetView('flows', this)">By microflow</button>
+              </div>
+              <input class="input input-sm" id="mft-search" placeholder="Search microflow, corr ID..." oninput="window.mftFilter()" style="flex:1; min-width:120px;">
+              <label style="display:flex; align-items:center; gap:4px; font-size:0.75rem; color:var(--text-secondary); white-space:nowrap; cursor:pointer;" title="Show only executions with a measured duration above the threshold">
+                <input type="checkbox" id="mft-slow-only" onchange="window.mftFilter()">Slow only &gt;
+              </label>
+              <input class="input input-sm" type="number" id="mft-slow-ms" value="100" min="0" step="50" oninput="window.mftFilter()" style="width:70px;" title="Slow-execution threshold in milliseconds">
+              <span style="font-size:0.75rem; color:var(--text-muted);">ms</span>
+              <label style="display:flex; align-items:center; gap:4px; font-size:0.75rem; color:var(--text-secondary); white-space:nowrap; cursor:pointer;" title="Hide sub-microflow executions — show only the entry points of each call tree">
+                <input type="checkbox" id="mft-top-only" onchange="window.mftFilter()">Top-level
+              </label>
+              <div style="font-size:0.75rem; color:var(--text-muted); white-space:nowrap;"><span id="mft-count">0 executions</span><span id="mft-note" style="display:none; cursor:help; color:var(--warning);"></span></div>
+            </div>
+            <!-- Stats bar — recalculated for the currently filtered list -->
+            <div id="mft-stats" style="display:none; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border); background:var(--bg-elevated); gap:var(--sp-4); flex-wrap:wrap; align-items:center; font-size:0.72rem; color:var(--text-secondary);">
+              <span class="log-stat">Executions: <strong id="mft-stat-total">0</strong></span>
+              <span class="log-stat" title="Distinct microflows across visible executions">Flows: <strong id="mft-stat-flows">0</strong></span>
+              <span class="log-stat" title="Sum of measured durations across visible executions">Total time: <strong id="mft-stat-sum">–</strong></span>
+              <span class="log-stat" title="Average of measured durations across visible executions">Avg: <strong id="mft-stat-avg">–</strong></span>
+              <span class="log-stat" onclick="window.mftSelectSlowest()" style="cursor:pointer;" title="Slowest visible execution — click to select it">Slowest: <strong id="mft-stat-slowest" style="color:var(--accent);">–</strong></span>
+              <span class="log-stat" title="Executions without a Finished record — the log window likely ends mid-execution">Unfinished: <strong id="mft-stat-unfinished">0</strong></span>
+            </div>
+            <!-- Executions header (click to sort) -->
+            <div id="mft-exec-header" style="display:grid; grid-template-columns:118px 1fr 84px 56px 48px; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border); font-size:0.75rem; font-weight:600; color:var(--text-muted); background:var(--bg);">
+              <div data-sort-key="time" onclick="window.mftSort('time')" style="cursor:pointer" title="Click to sort by log order">Time<span class="mft-sort-arrow"></span></div>
+              <div>Microflow</div>
+              <div data-sort-key="duration" onclick="window.mftSort('duration')" style="cursor:pointer" title="Execution time (Starting → Finished, needs DEBUG) — click to sort">Duration<span class="mft-sort-arrow"></span></div>
+              <div data-sort-key="steps" onclick="window.mftSort('steps')" style="text-align:right; cursor:pointer" title="Activity steps logged for this execution (needs TRACE) — click to sort">Steps<span class="mft-sort-arrow"></span></div>
+              <div data-sort-key="sub" onclick="window.mftSort('sub')" style="text-align:right; cursor:pointer" title="Direct sub-microflow calls — click to sort">Sub<span class="mft-sort-arrow"></span></div>
+            </div>
+            <!-- Aggregated header (click to sort) -->
+            <div id="mft-flow-header" style="display:none; grid-template-columns:1fr 62px 84px 84px 84px; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border); font-size:0.75rem; font-weight:600; color:var(--text-muted); background:var(--bg);">
+              <div>Microflow</div>
+              <div data-sort-key="calls" onclick="window.mftSort('calls')" style="text-align:right; cursor:pointer" title="Number of executions — click to sort">Calls<span class="mft-sort-arrow"></span></div>
+              <div data-sort-key="total" onclick="window.mftSort('total')" style="text-align:right; cursor:pointer" title="Summed duration of finished executions — click to sort">Total<span class="mft-sort-arrow"></span></div>
+              <div data-sort-key="avg" onclick="window.mftSort('avg')" style="text-align:right; cursor:pointer" title="Average duration — click to sort">Avg<span class="mft-sort-arrow"></span></div>
+              <div data-sort-key="max" onclick="window.mftSort('max')" style="text-align:right; cursor:pointer" title="Slowest single execution — click to sort">Max<span class="mft-sort-arrow"></span></div>
+            </div>
+            <!-- List body -->
+            <div id="mft-list" class="drag-drop-zone" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="window.mftHandleDrop(event)" style="flex:1; overflow-y:auto; padding:0; display:flex; flex-direction:column;">
+              <div style="padding:var(--sp-5); text-align:center; color:var(--text-muted); font-size:0.85rem;">
+                Drop a log file here or use &ldquo;Load Log&rdquo;:<br>
+                MicroflowEngine at DEBUG &mdash; execution times &bull; at TRACE &mdash; activity steps &amp; call tree.
+              </div>
+            </div>
+          </div>
+
+          <!-- RIGHT PANEL: Execution detail -->
+          <div style="display:flex; flex-direction:column; background:var(--bg); overflow:hidden;">
+            <div id="mft-detail-head" style="padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:2px; min-height:44px; justify-content:center;">
+              <div style="color:var(--text-muted); font-size:0.85rem;">Select an execution to see its activity timeline and call tree.</div>
+            </div>
+            <div class="tabs" style="border-bottom:1px solid var(--border); padding:0 var(--sp-2); display:flex; align-items:center;">
+              <button type="button" class="tab active" data-target="mft-tab-timeline" onclick="window.mftSetTab('mft-tab-timeline', this)">Activity Timeline</button>
+              <button type="button" class="tab" data-target="mft-tab-tree" onclick="window.mftSetTab('mft-tab-tree', this)">Call Tree</button>
+              <button type="button" class="tab" data-target="mft-tab-raw" onclick="window.mftSetTab('mft-tab-raw', this)">Raw</button>
+              <button class="btn btn-ghost btn-sm" style="margin-left:auto;" onclick="window.mftShowInLqe()" title="Open the Log Query Extractor filtered to the SQL queries that ran inside this execution's time window (temporal correlation — engine lines carry no transaction ID)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>Queries in window</button>
+            </div>
+
+            <div style="flex:1; overflow:auto;">
+              <!-- TIMELINE TAB -->
+              <div id="mft-tab-timeline" style="padding:var(--sp-3); display:flex; height:100%; flex-direction:column;">
+                <div style="flex:1; overflow:auto; border:1px solid var(--border); border-radius:var(--r-md); background:var(--bg-elevated);">
+                  <table style="width:100%; border-collapse:collapse; font-size:0.8rem;">
+                    <thead>
+                      <tr style="border-bottom:1px solid var(--border); color:var(--text-muted); text-align:left;">
+                        <th style="padding:var(--sp-1) var(--sp-2); width:32px;">#</th>
+                        <th style="padding:var(--sp-1) var(--sp-2); width:90px;" title="Offset from execution start">Offset</th>
+                        <th style="padding:var(--sp-1) var(--sp-2); width:160px;">Activity</th>
+                        <th style="padding:var(--sp-1) var(--sp-2);">Caption</th>
+                        <th style="padding:var(--sp-1) var(--sp-2); width:180px;" title="Time until the engine logged the next event on this correlation ID">Duration</th>
+                      </tr>
+                    </thead>
+                    <tbody id="mft-timeline-body"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- CALL TREE TAB -->
+              <div id="mft-tab-tree" style="padding:var(--sp-3); display:none; height:100%; flex-direction:column;">
+                <div id="mft-tree-content" style="flex:1; overflow:auto; border:1px solid var(--border); border-radius:var(--r-md); background:var(--bg-elevated); padding:var(--sp-2); font-family:var(--font-mono);"></div>
+              </div>
+
+              <!-- RAW TAB -->
+              <div id="mft-tab-raw" style="padding:var(--sp-3); display:none; height:100%; flex-direction:column;">
+                <div style="display:flex; justify-content:flex-end; margin-bottom:var(--sp-2);">
+                  <button class="btn btn-ghost btn-sm" onclick="window.mftCopyContent('mft-raw-content', this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy</button>
+                </div>
+                <pre id="mft-raw-content" style="background:var(--bg-elevated); padding:var(--sp-3); border-radius:var(--r-md); border:1px solid var(--border); font-size:0.8rem; color:var(--text); margin:0; white-space:pre-wrap; word-break:break-all; flex:1; overflow:auto;"></pre>
               </div>
             </div>
           </div>

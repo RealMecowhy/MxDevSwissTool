@@ -6,6 +6,7 @@ let lqeLastFiltered = [];
 let lqeSkippedLines = 0;
 let lqeSourceFormat = null; // 'csv' (Studio Pro export) | 'live' (Mendix Cloud download)
 let lqeWorker = null;
+let lqeTimeWindow = null;   // {from, to, label} — set by the Microflow Tracer cross-link
 const LQE_WORKER_THRESHOLD = 2 * 1024 * 1024; // parse in a Web Worker above 2 MB
 
 // ConnectionBus_Queries WARNING — logged at default log levels when a query exceeds
@@ -25,12 +26,37 @@ window.lqeSetTab = function(tabId, btn) {
   document.getElementById(tabId).style.display = 'block';
 };
 
+// Cross-link entry points used by the Microflow Tracer: constrain the visible
+// queries to an execution's [start, end] window (shown as a dismissible chip),
+// and load raw log text directly so one file load powers both tools.
+window.lqeSetTimeWindow = function(from, to, label) {
+  lqeTimeWindow = from && to ? { from: from, to: to, label: label || '' } : null;
+  const chip = document.getElementById('lqe-timewindow');
+  if (chip) {
+    if (lqeTimeWindow) {
+      chip.style.display = '';
+      chip.innerHTML = '⧉ ' + (label ? String(label).replace(/</g, '&lt;') + ' ' : '') + '<span style="text-decoration:underline; cursor:pointer;">×</span>';
+      chip.title = 'Showing only queries between ' + from + ' and ' + to + ' (from Microflow Tracer). Click × to remove.';
+      chip.onclick = () => window.lqeSetTimeWindow(null, null);
+    } else {
+      chip.style.display = 'none';
+      chip.innerHTML = '';
+    }
+  }
+  window.lqeFilter();
+};
+
+window.lqeLoadText = function(text) {
+  parseLogContent(text);
+};
+
 window.lqeClear = function() {
   extractedQueries = [];
   lqeLastFiltered = [];
   lqeSkippedLines = 0;
   lqeSourceFormat = null;
   window._lqeSlowestId = null;
+  if (lqeTimeWindow) window.lqeSetTimeWindow(null, null);
   const statsBar = document.getElementById('lqe-stats');
   if (statsBar) statsBar.style.display = 'none';
   const skippedEl = document.getElementById('lqe-skipped');
@@ -471,7 +497,16 @@ window.lqeFilter = function() {
   const slowMsEl = document.getElementById('lqe-slow-ms');
   const slowMs = slowMsEl ? (parseFloat(slowMsEl.value) || 0) : 0;
 
+  // Time window from the Microflow Tracer cross-link — numeric comparison via the
+  // shared timestamp parser so live (ISO) and CSV (US date) formats both work
+  const twFrom = lqeTimeWindow && window.mftTsToMs ? window.mftTsToMs(lqeTimeWindow.from) : NaN;
+  const twTo = lqeTimeWindow && window.mftTsToMs ? window.mftTsToMs(lqeTimeWindow.to) : NaN;
+
   const filtered = extractedQueries.filter(q => {
+    if (!isNaN(twFrom) && !isNaN(twTo)) {
+      const t = window.mftTsToMs(q.timestamp);
+      if (isNaN(t) || t < twFrom || t > twTo) return false;
+    }
     if (typeFilter === 'DUP') {
       if (q.dupCount < 2) return false;
     } else if (typeFilter !== 'ALL' && q.type !== typeFilter) {

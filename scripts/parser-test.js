@@ -189,6 +189,90 @@ if (fs.existsSync(refLive)) {
   console.log('  – reference live log absent, skipped (PII: never committed)');
 }
 
+// ── Microflow Tracer extraction (public/js/tools/microflow-tracer.js) ────────
+// The module is a plain script that attaches its pure parts to window/self,
+// so pointing `window` at the global makes it requireable in Node too.
+console.log('\nMicroflow Tracer extraction');
+global.window = global;
+require('../public/js/tools/microflow-tracer.js');
+const mftExtract = global.mftExtractExecutions;
+const mftTs = global.mftTsToMs;
+
+ok('mftTsToMs parses live ISO with microseconds',
+  Math.abs(mftTs('2026-07-17T10:00:00.500250') - mftTs('2026-07-17T10:00:00.000000') - 500.25) < 0.001);
+ok('mftTsToMs parses Studio Pro CSV format',
+  mftTs('07/11/2026 21:21:30') - mftTs('07/11/2026 21:21:29') === 1000);
+
+const P = '[runtime-container/x]';
+const mfLog = [
+  '2026-07-17T10:00:00.000000 ' + P + '  DEBUG - MicroflowEngine: [100-1] Starting execution of microflow \'ModA.Parent\'',
+  '2026-07-17T10:00:00.100000 ' + P + '  TRACE - MicroflowEngine: [100-1] Executing activity: {"current_activity":{"type":"Start"},"name":"ModA.Parent","type":"Microflow"}',
+  '2026-07-17T10:00:00.200000 ' + P + '  TRACE - MicroflowEngine: [100-1] Executing activity: {"current_activity":{"caption":"Call child","type":"SubMicroflow"},"name":"ModA.Parent","type":"Microflow"}',
+  '2026-07-17T10:00:00.250000 ' + P + '  DEBUG - MicroflowEngine: [100-1] Starting execution of microflow \'ModA.Child\'',
+  '2026-07-17T10:00:00.300000 ' + P + '  TRACE - MicroflowEngine: [100-1] Executing activity: {"current_activity":{"caption":"Retrieve X","type":"RetrieveByXPath"},"name":"ModA.Child","type":"Microflow"}',
+  '2026-07-17T10:00:00.700000 ' + P + '  DEBUG - MicroflowEngine: [100-1] Finished execution of microflow \'ModA.Child\'',
+  '2026-07-17T10:00:01.000000 ' + P + '  DEBUG - MicroflowEngine: [100-1] Finished execution of microflow \'ModA.Parent\'',
+  // second correlation ID, interleaved and never finished (log window cut)
+  '2026-07-17T10:00:00.500000 ' + P + '  DEBUG - MicroflowEngine: [200-2] Starting execution of microflow \'ModB.Solo\'',
+  // recursion: the same flow starts again while already on the stack
+  '2026-07-17T10:00:02.000000 ' + P + '  DEBUG - MicroflowEngine: [300-3] Starting execution of microflow \'ModC.Rec\'',
+  '2026-07-17T10:00:02.100000 ' + P + '  DEBUG - MicroflowEngine: [300-3] Starting execution of microflow \'ModC.Rec\'',
+  '2026-07-17T10:00:02.200000 ' + P + '  DEBUG - MicroflowEngine: [300-3] Finished execution of microflow \'ModC.Rec\'',
+  '2026-07-17T10:00:02.300000 ' + P + '  DEBUG - MicroflowEngine: [300-3] Finished execution of microflow \'ModC.Rec\'',
+  // nested (anonymous) flow name normalization
+  '2026-07-17T10:00:03.000000 ' + P + '  DEBUG - MicroflowEngine: [400-4] Starting execution of microflow \'ModD.Flow.nested.0f305fb0-28f0-46f8-8c42-06e71e5c3097\'',
+  '2026-07-17T10:00:03.500000 ' + P + '  DEBUG - MicroflowEngine: [400-4] Finished execution of microflow \'ModD.Flow.nested.0f305fb0-28f0-46f8-8c42-06e71e5c3097\''
+].join('\n');
+
+const mfRecords = parser.parse(mfLog).records;
+const mfOut = mftExtract(mfRecords);
+eq('6 executions extracted', mfOut.executions.length, 6);
+const parent = mfOut.executions.find(e => e.name === 'ModA.Parent');
+const child = mfOut.executions.find(e => e.name === 'ModA.Child');
+const solo = mfOut.executions.find(e => e.name === 'ModB.Solo');
+ok('parent duration 1000 ms', Math.abs(parent.durationMs - 1000) < 0.001, 'got ' + parent.durationMs);
+ok('child duration 450 ms', Math.abs(child.durationMs - 450) < 0.001, 'got ' + child.durationMs);
+eq('child nests under parent', child.parentId, parent.id);
+eq('parent has one child', parent.children.length, 1);
+eq('child depth is 1', child.depth, 1);
+eq('parent has 2 steps', parent.steps.length, 2);
+eq('child step type parsed', child.steps[0].type, 'RetrieveByXPath');
+eq('child step caption parsed', child.steps[0].caption, 'Retrieve X');
+ok('parent step 1 duration = 100 ms (to next activity)', Math.abs(parent.steps[0].durationMs - 100) < 0.001, 'got ' + parent.steps[0].durationMs);
+ok('parent step 2 closes at child start (50 ms)', Math.abs(parent.steps[1].durationMs - 50) < 0.001, 'got ' + parent.steps[1].durationMs);
+ok('interleaved corrId stays unfinished', solo.finished === false && solo.durationMs === null);
+const recs = mfOut.executions.filter(e => e.name === 'ModC.Rec');
+ok('inner recursive call flagged REC', recs.some(e => e.recursive) && !recs[0].recursive);
+ok('outer recursive call resolves its own Finished', recs[0].finished && Math.abs(recs[0].durationMs - 300) < 0.001);
+const nested = mfOut.executions.find(e => e.name.indexOf('.nested.') !== -1);
+eq('nested flow display name normalized', nested.displayName, 'ModD.Flow (nested)');
+eq('correlation IDs counted', mfOut.stats.corrIds, 4);
+const parentFlow = mfOut.flows.find(f => f.name === 'ModA.Parent');
+ok('flow aggregate: 1 call, 1000 ms total', parentFlow.count === 1 && Math.abs(parentFlow.totalMs - 1000) < 0.001);
+const recFlow = mfOut.flows.find(f => f.name === 'ModC.Rec');
+ok('flow aggregate: recursion counted', recFlow.count === 2 && recFlow.recursions === 1);
+
+// Reference: real Mendix Cloud log with MicroflowEngine DEBUG+TRACE (local only)
+const refTrace = path.join(__dirname, '..', '_local_assets', 'FilesForTest', 'MxCloudApp_RealLogsWithTrace.txt');
+if (fs.existsSync(refTrace)) {
+  const text = fs.readFileSync(refTrace, 'utf8');
+  const recs2 = parser.parse(text).records;
+  const t0 = Date.now();
+  const out = mftExtract(recs2);
+  const ms = Date.now() - t0;
+  eq('reference trace: 11137 executions', out.executions.length, 11137);
+  const baseNames = new Set(out.executions.map(e => e.name.replace(/\.nested\..*$/, '')));
+  eq('reference trace: 254 unique microflows', baseNames.size, 254);
+  // Both corrId shapes exist in the wild: numeric (1784268324436-46, request-driven)
+  // and UUID (scheduled events / background jobs) — 669 total in this file
+  eq('reference trace: 669 correlation IDs', out.stats.corrIds, 669);
+  eq('reference trace: 76204 activity records', out.stats.activityRecords, 76204);
+  const finished = out.executions.filter(e => e.finished).length;
+  console.log('    (' + (text.length / (1024 * 1024)).toFixed(0) + ' MB → ' + out.executions.length + ' executions (' + finished + ' finished) in ' + ms + ' ms)');
+} else {
+  console.log('  – reference trace log absent, skipped (PII: never committed)');
+}
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);
