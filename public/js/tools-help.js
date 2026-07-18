@@ -166,6 +166,45 @@ const TOOLS_HELP = {
       </ul>
     `
   },
+  'ws-rest-extractor': {
+    title: 'REST & WS Extractor',
+    description: 'Rebuilds outgoing and incoming HTTP/SOAP integration calls from Mendix <code>REST Consume</code>, <code>REST Publish</code> and <code>WebServices</code> TRACE logs. Scattered request and response log entries are paired into complete calls &mdash; method, URL, status, headers, payloads and duration &mdash; and, when <code>MicroflowEngine</code> TRACE is present, each outgoing call is anchored to the microflow that made it, closing the <strong>microflow &rarr; REST &rarr; SQL</strong> chain via cross-links to the Microflow Tracer and Log Query Extractor.',
+    howToGet: `
+      <p>The tool reads integration log nodes at TRACE level:</p>
+      <ul>
+        <li><strong><code>REST Consume</code></strong> &mdash; outgoing REST calls made by <em>Call REST service</em> activities: request/response headers and bodies, plus the configured client timeout (&ldquo;Creating http client &hellip; with timeout&rdquo;).</li>
+        <li><strong><code>REST Publish</code></strong> &mdash; incoming calls to your published REST services: client IP, headers, matched operation and the outgoing response (including 404s for unmatched paths).</li>
+        <li><strong><code>WebServices</code></strong> &mdash; both directions of SOAP: consumed web services (with <code>SOAPAction</code>) and incoming requests to published services.</li>
+        <li><strong><code>MicroflowEngine</code> at TRACE (optional but recommended)</strong> &mdash; the <em>CallRest / CallWebservice</em> activity logged just before each outgoing call gives the correlation ID and microflow name, enabling the cross-links.</li>
+        <li><strong>Local Studio Pro:</strong> <em>Console</em> &rarr; <em>Advanced</em> &rarr; <em>Set Log Levels</em> &rarr; set the nodes above to TRACE, reproduce the scenario, export the console log (CSV or TXT). <strong>Mendix Cloud:</strong> set the log levels in Environment Details, reproduce, download the live log. Both formats are detected automatically.</li>
+      </ul>
+    `,
+    howToUse: `
+      <ol>
+        <li>Load the log with <strong>Load TRACE Log</strong> or drag &amp; drop it onto the list. Large files parse on a background thread with a progress bar.</li>
+        <li>The left list shows every paired call: time, node with direction (<strong>REST&nbsp;&rarr;</strong> outgoing / <strong>REST&nbsp;&larr;</strong> incoming / <strong>SOAP&nbsp;&rarr;</strong> / <strong>SOAP&nbsp;&larr;</strong>), method, status, duration and endpoint. Click <strong>Time / Status / Duration</strong> to sort; filter by direction, protocol, errors or uncertain pairing; use <strong>Slow only &gt; X ms</strong> for latency hunting.</li>
+        <li>The <strong>stats bar</strong> tracks the visible set: call count, average and slowest duration (click to jump), errors, requests without a response, and uncertain pairings.</li>
+        <li>Select a call to inspect it on the right:
+          <ul>
+            <li><strong>Overview:</strong> method, URL/service, status, duration (request&rarr;response timestamp delta), client timeout, client IP, and &mdash; with the anchor &mdash; the calling microflow and correlation ID.</li>
+            <li><strong>Headers:</strong> request and response headers as clean tables.</li>
+            <li><strong>Request / Response:</strong> payloads, automatically pretty-printed when they are JSON or XML.</li>
+          </ul>
+        </li>
+        <li><strong>Trace microflow</strong> opens the calling microflow in the Microflow Tracer; <strong>SQL in window</strong> opens the Log Query Extractor filtered to this call's time window. If the target tool is empty, the same file is handed over automatically &mdash; one load powers all three tools.</li>
+        <li><strong>Export CSV</strong> / <strong>Copy Markdown</strong> take the currently filtered list with you.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>Pairing model:</strong> Mendix logs carry no request IDs, so requests and responses are paired <em>FIFO per (log node + method + URL)</em>. When two calls to the same endpoint are in flight at once, both get the <strong>⇅ uncertain</strong> badge &mdash; the pairing is the most likely one, not a logged fact.</li>
+        <li><strong>⏱ timeout suspects:</strong> a request with a configured client timeout and no logged response usually means the client gave up (timeout) or the log window ended mid-call. Correlate with errors around that timestamp.</li>
+        <li><strong>Slow outgoing calls:</strong> the duration is pure wire time of the external service (delta between the logged request and response). A slow microflow whose time sits in a <em>CallRest</em> step is the external system's problem, not your app's &mdash; this view proves it.</li>
+        <li><strong>404 on REST Publish:</strong> &ldquo;no operation matches&rdquo; entries reveal clients calling wrong paths &mdash; the full requested URL is kept in the response tab.</li>
+        <li><strong>Security note:</strong> TRACE-level integration logs contain real payloads and headers. Treat exported files accordingly &mdash; the Log &amp; Text Anonymizer can scrub them before sharing.</li>
+      </ul>
+    `
+  },
   'nginx-log': {
     title: 'Nginx Log Analyzer',
     description: 'Module for parsing Nginx access and error logs. Helps to instantly check the most popular IP addresses, frequently accessed URLs, HTTP status code breakdown, error frequencies, and geographical location of visitors.',

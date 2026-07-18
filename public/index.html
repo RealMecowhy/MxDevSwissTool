@@ -87,7 +87,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.12.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.13.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -107,6 +107,10 @@
     <button type="button" class="nav-item" data-tool="microflow-tracer" onclick="navigate('microflow-tracer',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg></span>
       <span class="nav-label">Microflow Tracer</span>
+    </button>
+    <button type="button" class="nav-item" data-tool="ws-rest-extractor" onclick="navigate('ws-rest-extractor',this)">
+      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg></span>
+      <span class="nav-label">REST &amp; WS Extractor</span>
     </button>
     <button type="button" class="nav-item" data-tool="log-anonymizer" onclick="navigate('log-anonymizer',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
@@ -248,7 +252,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.12.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.13.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -516,6 +520,120 @@
                   <button class="btn btn-ghost btn-sm" onclick="window.lqeCopyContent('lqe-plan-content', this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy</button>
                 </div>
                  <pre id="lqe-plan-content" style="background:var(--bg-elevated); padding:var(--sp-3); border-radius:var(--r-md); border:1px solid var(--border); font-size:0.85rem; color:var(--text); margin:0; white-space:pre-wrap; word-break:break-all; flex:1; overflow:auto;">No execution plan found for this query.</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tool-panel" id="panel-ws-rest-extractor">
+      <div class="tool-actions">
+          <label class="btn btn-primary btn-sm" for="wsre-file-input">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Load TRACE Log
+          </label>
+          <input type="file" id="wsre-file-input" style="display:none" accept=".log,.txt,.csv" onchange="window.wsreLoadFile(this.files)">
+          <button class="btn btn-secondary btn-sm" onclick="window.wsreExportCsv()" title="Download the currently filtered call list as a CSV file"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export CSV</button>
+          <button class="btn btn-secondary btn-sm" onclick="window.wsreCopyMarkdown(this)" title="Copy the currently filtered call list as a Markdown table"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy Markdown</button>
+          <button class="btn btn-secondary btn-sm" onclick="window.wsreClear()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Clear</button>
+        </div>
+      <div class="tool-body" style="padding:0; display:flex; flex:1; overflow:hidden;">
+        <div style="display:grid; grid-template-columns:1fr 1fr; width:100%; height:100%;">
+
+          <!-- LEFT PANEL: Call List -->
+          <div style="border-right:1px solid var(--border); display:flex; flex-direction:column; background:var(--bg-elevated); overflow:hidden;">
+            <div style="padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border); display:flex; gap:var(--sp-2); align-items:center; flex-wrap:wrap;">
+              <input class="input input-sm" id="wsre-search" placeholder="Search URL, service, microflow..." oninput="window.wsreFilter()" style="flex:1; min-width:120px;">
+              <select class="select select-sm" id="wsre-type-filter" onchange="window.wsreFilter()" style="width:150px;">
+                <option value="ALL">All calls</option>
+                <option value="OUT">Outgoing (consume)</option>
+                <option value="IN">Incoming (publish)</option>
+                <option value="REST">REST only</option>
+                <option value="SOAP">SOAP only</option>
+                <option value="ERR">Errors / no response</option>
+                <option value="UNC">Uncertain pairing</option>
+              </select>
+              <label style="display:flex; align-items:center; gap:4px; font-size:0.75rem; color:var(--text-secondary); white-space:nowrap; cursor:pointer;" title="Show only calls with a duration above the threshold — calls without a paired response are hidden">
+                <input type="checkbox" id="wsre-slow-only" onchange="window.wsreFilter()">Slow only &gt;
+              </label>
+              <input class="input input-sm" type="number" id="wsre-slow-ms" value="500" min="0" step="100" oninput="window.wsreFilter()" style="width:70px;" title="Slow-call threshold in milliseconds">
+              <span style="font-size:0.75rem; color:var(--text-muted);">ms</span>
+              <div style="font-size:0.75rem; color:var(--text-muted); white-space:nowrap;"><span id="wsre-count">0</span> calls<span id="wsre-note" style="display:none; cursor:help; color:var(--warning);"></span></div>
+            </div>
+            <!-- Stats bar — recalculated for the currently filtered list -->
+            <div id="wsre-stats" style="display:none; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border); background:var(--bg-elevated); gap:var(--sp-4); flex-wrap:wrap; align-items:center; font-size:0.72rem; color:var(--text-secondary);">
+              <span class="log-stat">Calls: <strong id="wsre-stat-total">0</strong></span>
+              <span class="log-stat" title="Average duration across visible calls with a paired response">Avg: <strong id="wsre-stat-avg">–</strong></span>
+              <span class="log-stat" onclick="window.wsreSelectSlowest()" style="cursor:pointer;" title="Slowest visible call — click to select it in the list">Slowest: <strong id="wsre-stat-slowest" style="color:var(--accent);">–</strong></span>
+              <span class="log-stat" title="Calls with HTTP status ≥ 400 or a SOAP Fault">Errors: <strong id="wsre-stat-errors">0</strong></span>
+              <span class="log-stat" title="Requests with no response found in the log — check the ⏱ badge for client-timeout suspects">No response: <strong id="wsre-stat-unanswered">0</strong></span>
+              <span class="log-stat" title="Calls where another request to the same endpoint was in flight — FIFO pairing assumed">Uncertain: <strong id="wsre-stat-uncertain">0</strong></span>
+            </div>
+            <!-- Table Header (click Time / Status / Duration to sort) -->
+            <div id="wsre-list-header" style="display:grid; grid-template-columns:96px 76px 62px 56px 76px 1fr; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border); font-size:0.75rem; font-weight:600; color:var(--text-muted); background:var(--bg);">
+              <div data-sort-key="time" onclick="window.wsreSort('time')" style="cursor:pointer" title="Click to sort by log order">Time<span class="wsre-sort-arrow"></span></div>
+              <div title="REST Consume / REST Publish / WebServices — arrow shows the call direction">Node</div>
+              <div>Method</div>
+              <div data-sort-key="status" onclick="window.wsreSort('status')" style="cursor:pointer" title="Click to sort by status code">Status<span class="wsre-sort-arrow"></span></div>
+              <div data-sort-key="duration" onclick="window.wsreSort('duration')" style="cursor:pointer" title="Request → response timestamp delta — click to sort">Duration<span class="wsre-sort-arrow"></span></div>
+              <div>Endpoint</div>
+            </div>
+            <!-- Table Body -->
+            <div id="wsre-call-list" class="drag-drop-zone" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="window.wsreHandleDrop(event)" style="flex:1; overflow-y:auto; padding:0; display:flex; flex-direction:column;">
+              <div style="padding:var(--sp-5); text-align:center; color:var(--text-muted); font-size:0.85rem;">
+                Drop a log file here or use &ldquo;Load TRACE Log&rdquo;:<br>
+                <code>REST Consume</code> / <code>REST Publish</code> / <code>WebServices</code> at TRACE &mdash; paired request/response calls with headers, payloads and timings.
+              </div>
+            </div>
+          </div>
+
+          <!-- RIGHT PANEL: Call Details -->
+          <div style="display:flex; flex-direction:column; background:var(--bg); overflow:hidden;">
+            <div class="tabs" style="border-bottom:1px solid var(--border); padding:0 var(--sp-2);">
+              <button type="button" class="tab active" data-target="wsre-tab-overview" onclick="window.wsreSetTab('wsre-tab-overview', this)">Overview</button>
+              <button type="button" class="tab" data-target="wsre-tab-headers" onclick="window.wsreSetTab('wsre-tab-headers', this)">Headers</button>
+              <button type="button" class="tab" data-target="wsre-tab-request" onclick="window.wsreSetTab('wsre-tab-request', this)">Request</button>
+              <button type="button" class="tab" data-target="wsre-tab-response" onclick="window.wsreSetTab('wsre-tab-response', this)">Response</button>
+            </div>
+
+            <div style="flex:1; overflow:auto;">
+              <!-- OVERVIEW TAB -->
+              <div id="wsre-tab-overview" style="padding:var(--sp-3); display:block; height:100%;">
+                <div style="display:flex; justify-content:flex-end; margin-bottom:var(--sp-2); gap:var(--sp-2);">
+                  <button class="btn btn-ghost btn-sm" id="wsre-btn-mft" onclick="window.wsreShowInMft()" title="Open the microflow that made this call in the Microflow Tracer (needs the CallRest/CallWebservice anchor from MicroflowEngine TRACE)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>Trace microflow</button>
+                  <button class="btn btn-ghost btn-sm" id="wsre-btn-lqe" onclick="window.wsreShowInLqe()" title="Show the SQL queries that executed during this call's time window in the Log Query Extractor"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>SQL in window</button>
+                </div>
+                <div id="wsre-overview-content" style="background:var(--bg-elevated); padding:var(--sp-3); border-radius:var(--r-md); border:1px solid var(--border);">
+                  <span style="color:var(--text-muted); font-size:0.85rem;">Select a call to see its overview, headers and payloads.</span>
+                </div>
+              </div>
+
+              <!-- HEADERS TAB -->
+              <div id="wsre-tab-headers" style="padding:var(--sp-3); display:none; height:100%; flex-direction:column;">
+                <div style="font-size:0.75rem; font-weight:600; color:var(--text-muted); margin-bottom:var(--sp-2);">REQUEST HEADERS</div>
+                <div style="border:1px solid var(--border); border-radius:var(--r-md); background:var(--bg-elevated); margin-bottom:var(--sp-3); overflow:auto;">
+                  <table style="width:100%; border-collapse:collapse; font-size:0.8rem;"><tbody id="wsre-req-headers-body"><tr><td colspan="2" style="padding:var(--sp-3); color:var(--text-muted); text-align:center;">No headers logged</td></tr></tbody></table>
+                </div>
+                <div style="font-size:0.75rem; font-weight:600; color:var(--text-muted); margin-bottom:var(--sp-2);">RESPONSE HEADERS</div>
+                <div style="border:1px solid var(--border); border-radius:var(--r-md); background:var(--bg-elevated); overflow:auto;">
+                  <table style="width:100%; border-collapse:collapse; font-size:0.8rem;"><tbody id="wsre-resp-headers-body"><tr><td colspan="2" style="padding:var(--sp-3); color:var(--text-muted); text-align:center;">No headers logged</td></tr></tbody></table>
+                </div>
+              </div>
+
+              <!-- REQUEST TAB -->
+              <div id="wsre-tab-request" style="padding:var(--sp-3); display:none; height:100%; flex-direction:column;">
+                <div style="display:flex; justify-content:flex-end; margin-bottom:var(--sp-2);">
+                  <button class="btn btn-ghost btn-sm" onclick="window.wsreCopyContent('wsre-request-content', this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy</button>
+                </div>
+                <pre id="wsre-request-content" style="background:var(--bg-elevated); padding:var(--sp-3); border-radius:var(--r-md); border:1px solid var(--border); font-size:0.85rem; color:var(--text); margin:0; white-space:pre-wrap; word-break:break-all; flex:1; overflow:auto;">Select a call to view its request payload...</pre>
+              </div>
+
+              <!-- RESPONSE TAB -->
+              <div id="wsre-tab-response" style="padding:var(--sp-3); display:none; height:100%; flex-direction:column;">
+                <div style="display:flex; justify-content:flex-end; margin-bottom:var(--sp-2);">
+                  <button class="btn btn-ghost btn-sm" onclick="window.wsreCopyContent('wsre-response-content', this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy</button>
+                </div>
+                <pre id="wsre-response-content" style="background:var(--bg-elevated); padding:var(--sp-3); border-radius:var(--r-md); border:1px solid var(--border); font-size:0.85rem; color:var(--text); margin:0; white-space:pre-wrap; word-break:break-all; flex:1; overflow:auto;">Select a call to view its response payload...</pre>
               </div>
             </div>
           </div>

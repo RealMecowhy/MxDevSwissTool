@@ -360,6 +360,214 @@ ok('duplicate B without its own plan stays unlinked', qB.queryPlan === '' && qB.
 ok('slow-query warning ingested', !!qSlow && qSlow.duration === '3100 ms', qSlow && qSlow.duration);
 ok('slow-query warning did not swallow a plan', qSlow.queryPlan === '');
 
+// ── REST & WS Extractor pairing (public/js/tools/ws-rest-extractor.js) ───────
+// Written test-first (wave 4). The pairing contract: requests and responses are
+// matched FIFO per (logNode + method + URL); overlapping in-flight requests with
+// the same key get an `uncertain` flag because FIFO is an assumption, not a fact.
+// The interleave fixture reproduces a REAL case from MxCloudApp_RealLogsWithTrace.txt
+// (two POSTs to the same endpoint in flight at once, lines 105699/105704).
+console.log('\nREST & WS Extractor pairing');
+require('../public/js/tools/ws-rest-extractor.js');
+const wsreExtract = global.wsreExtractCalls;
+
+const wsreLog = [
+  // (1) Consume happy path — anchor gives corrId + microflow, timeout captured,
+  // headers + JSON bodies parsed, duration from the request→response delta.
+  '2026-07-17T12:00:00.000000 ' + P + TR + 'MicroflowEngine: [900-1] Executing activity: {"current_activity":{"caption":"Call REST (POST)","type":"CallRest"},"name":"Mod.SendData","type":"Microflow"}',
+  '2026-07-17T12:00:00.001000 ' + P + TR + 'REST Consume: Creating http client for api.example.com with timeout = 10s',
+  '2026-07-17T12:00:00.001500 ' + P + '  DEBUG - REST Consume: Using a timeout of 10 seconds',
+  '2026-07-17T12:00:00.002000 ' + P + TR + 'REST Consume: Request content for POST request to https://api.example.com/rest/send/v1/data HTTP/1.1',
+  'Content-Type: application/json',
+  'Authorization: (omitted)',
+  '{"RequestID":1,"Code":"A"}',
+  '2026-07-17T12:00:00.502000 ' + P + TR + 'REST Consume: Response content for POST request to https://api.example.com/rest/send/v1/data',
+  'HTTP/1.1 200 OK',
+  'Content-Type: application/json;charset=utf-8',
+  '{"ok":true}',
+
+  // (2) REAL interleave case — two calls to the SAME method+URL in flight at once
+  // (each with its own CallRest anchor), then both responses. FIFO must pair
+  // req1→resp1 / req2→resp2 and BOTH calls must carry the uncertainty flag.
+  '2026-07-17T12:01:00.000000 ' + P + TR + 'MicroflowEngine: [3769f9ea-dd81-4306-8f0e-121a8af66755] Executing activity: {"current_activity":{"caption":"Call REST (POST)","type":"CallRest"},"name":"MyTT.SendShipment","type":"Microflow"}',
+  '2026-07-17T12:01:00.004000 ' + P + TR + 'MicroflowEngine: [a81f0323-947d-48c3-98ae-77a671cc8bbf] Executing activity: {"current_activity":{"caption":"Call REST (POST)","type":"CallRest"},"name":"MyTT.SendShipment","type":"Microflow"}',
+  '2026-07-17T12:01:00.006000 ' + P + TR + 'REST Consume: Request content for POST request to https://api.example.com/rest/ship/v1/shipment HTTP/1.1',
+  'Content-Type: application/json',
+  '{"shipment":1}',
+  '2026-07-17T12:01:00.007000 ' + P + TR + 'REST Consume: Request content for POST request to https://api.example.com/rest/ship/v1/shipment HTTP/1.1',
+  'Content-Type: application/json',
+  '{"shipment":2}',
+  '2026-07-17T12:01:01.148000 ' + P + TR + 'REST Consume: Response content for POST request to https://api.example.com/rest/ship/v1/shipment',
+  'HTTP/1.1 200 OK',
+  '{"received":1}',
+  '2026-07-17T12:01:01.149000 ' + P + TR + 'REST Consume: Response content for POST request to https://api.example.com/rest/ship/v1/shipment',
+  'HTTP/1.1 500 Internal Server Error',
+  '{"received":2}',
+
+  // (3) Consume without a response (client timeout suspect — 10s timeout known)
+  '2026-07-17T12:02:00.000000 ' + P + TR + 'REST Consume: Creating http client for dead.example.com with timeout = 10s',
+  '2026-07-17T12:02:00.001000 ' + P + TR + 'REST Consume: Request content for GET request to https://dead.example.com/rest/ping HTTP/1.1',
+  'Accept: application/json',
+
+  // (4) SOAP consume (WebServices) — SOAPAction header, XML bodies, own FIFO key
+  '2026-07-17T12:03:00.000000 ' + P + TR + 'MicroflowEngine: [900-2] Executing activity: {"current_activity":{"caption":"Call web service \'getHeader\'","type":"CallWebservice"},"name":"Integration.GetInvoiceData","type":"Microflow"}',
+  '2026-07-17T12:03:00.050000 ' + P + TR + 'WebServices: Created soap request:',
+  '<soapenv:Envelope><soapenv:Body><ns1:HeaderRequest><compCode>PL14</compCode></ns1:HeaderRequest></soapenv:Body></soapenv:Envelope>',
+  '2026-07-17T12:03:00.060000 ' + P + TR + 'WebServices: Creating http client for soap.example.com with timeout = 10s',
+  '2026-07-17T12:03:00.100000 ' + P + TR + 'WebServices: Request content for POST request to https://soap.example.com/Invoices/InvoiceService HTTP/1.1',
+  'SOAPAction: "urn:getHeader"',
+  'Content-Type: text/xml; charset=UTF-8',
+  '<soapenv:Envelope><soapenv:Body><ns1:HeaderRequest><compCode>PL14</compCode></ns1:HeaderRequest></soapenv:Body></soapenv:Envelope>',
+  '2026-07-17T12:03:00.433000 ' + P + TR + 'WebServices: Response content for POST request to https://soap.example.com/Invoices/InvoiceService',
+  'HTTP/1.1 200 OK',
+  'content-type: text/xml; charset=utf-8',
+  '<?xml version="1.0" encoding="UTF-8"?>',
+  '<soapenv:Envelope><soapenv:Body><HeaderResponse/></soapenv:Body></soapenv:Envelope>',
+
+  // (5) REST Publish matched operation — routing noise must be ignored, operation
+  // captured, response 200 with body, duration = incoming→outgoing delta
+  '2026-07-17T12:04:00.000000 ' + P + TR + 'REST Publish: Incoming request from 127.0.0.1: POST http://app.example.com/rest/calculator/v1/httpRequest?request=42&cost=0',
+  'Accept: application/json',
+  'traceparent: 00-68e15ede94f821a5b33f1cfd4433e811-d6de9389113ea824-00',
+  'Content-Length: 0',
+  '2026-07-17T12:04:00.001000 ' + P + TR + 'REST Publish: Path \'calculator/v1/httpRequest\' did not match \'getquotation/quotation\', continuing...',
+  '2026-07-17T12:04:00.002000 ' + P + TR + 'REST Publish: Executing operation POST rest/calculator/v1/httpRequest',
+  '2026-07-17T12:04:00.003000 ' + P + TR + 'REST Publish: Query parameter \'request\' (microflow parameter \'request\') has value \'42\'',
+  '2026-07-17T12:04:00.356000 ' + P + TR + 'REST Publish: Outgoing response:',
+  'HTTP/1.1 200',
+  'Cache-Control: no-store',
+  'Total cost error - Please check the information',
+
+  // (6) REST Publish unmatched → 404 close with reason
+  '2026-07-17T12:05:00.000000 ' + P + TR + 'REST Publish: Incoming request from 127.0.0.1: GET http://app.example.com/rest/default/V1/guest-carts',
+  'Accept: */*',
+  '2026-07-17T12:05:00.002000 ' + P + '  DEBUG - REST Publish: Responding with 404 Not Found, because no operation matches http://app.example.com/rest/default/V1/guest-carts',
+
+  // (7) WS Publish (incoming SOAP) — service name, per-record headers, request data
+  // continuation, chunked response, Finished closes the call
+  '2026-07-17T12:06:00.000000 ' + P + '  DEBUG - WebServices: Incoming web service request from 127.0.0.1 for service \'AppUser_Create_Update\'',
+  '2026-07-17T12:06:00.000500 ' + P + TR + 'WebServices: Incoming web service request data: ',
+  '<soapenv:Envelope><soapenv:Body><ns1:Operation><User><Name>x@example.com</Name></User></ns1:Operation></soapenv:Body></soapenv:Envelope>',
+  '2026-07-17T12:06:00.001000 ' + P + TR + 'WebServices: Header soapaction: "http://www.example.com/Operation"',
+  '2026-07-17T12:06:00.001500 ' + P + TR + 'WebServices: Header Content-Type: text/xml; charset=UTF-8',
+  '2026-07-17T12:06:00.363000 ' + P + TR + 'WebServices: [Operation chunk: 1] <?xml version=\'1.0\' encoding=\'UTF-8\'?><soap:Envelope><soap:Body><tns:OperationResponse><Error>false</Error></tns:OperationResponse></soap:Body></soap:Envelope>',
+  '2026-07-17T12:06:00.364000 ' + P + '  DEBUG - WebServices: Finished handling web service request for service \'AppUser_Create_Update\'',
+  '2026-07-17T12:06:00.368000 ' + P + '  DEBUG - WebServices: Web service request from 127.0.0.1 finished'
+].join('\n');
+
+const wsreRecs = parser.parse(wsreLog).records;
+const wsreOut = wsreExtract(wsreRecs);
+const calls = wsreOut.calls;
+eq('8 calls extracted', calls.length, 8);
+
+// (1) Consume happy path
+const c1 = calls.find(c => c.url && c.url.indexOf('/rest/send/v1/data') !== -1);
+ok('consume call found', !!c1);
+eq('consume node', c1.node, 'REST Consume');
+eq('consume direction', c1.direction, 'out');
+eq('consume method', c1.method, 'POST');
+eq('consume status 200', c1.status, 200);
+ok('consume duration 500 ms', Math.abs(c1.durationMs - 500) < 0.001, 'got ' + c1.durationMs);
+eq('consume timeout captured', c1.timeoutSec, 10);
+ok('consume request headers parsed', c1.requestHeaders.some(h => h.name === 'Content-Type' && h.value === 'application/json'), JSON.stringify(c1.requestHeaders));
+ok('consume response headers parsed', c1.responseHeaders.some(h => h.name.toLowerCase() === 'content-type'), JSON.stringify(c1.responseHeaders));
+eq('consume request body', c1.requestBody, '{"RequestID":1,"Code":"A"}');
+eq('consume response body', c1.responseBody, '{"ok":true}');
+ok('consume not flagged uncertain', !c1.uncertain);
+eq('anchor corrId attached', c1.corrId, '900-1');
+eq('anchor microflow attached', c1.microflow, 'Mod.SendData');
+
+// (2) Interleave: FIFO per (method+URL) + uncertainty flag on both
+const ship = calls.filter(c => c.url && c.url.indexOf('/rest/ship/v1/shipment') !== -1);
+eq('two interleaved calls extracted', ship.length, 2);
+eq('FIFO: first request gets first response', ship[0].responseBody, '{"received":1}');
+eq('FIFO: second request gets second response', ship[1].responseBody, '{"received":2}');
+eq('FIFO: first status 200', ship[0].status, 200);
+eq('FIFO: second status 500', ship[1].status, 500);
+ok('both interleaved calls flagged uncertain', ship[0].uncertain && ship[1].uncertain);
+eq('interleave: first anchor corrId', ship[0].corrId, '3769f9ea-dd81-4306-8f0e-121a8af66755');
+eq('interleave: second anchor corrId', ship[1].corrId, 'a81f0323-947d-48c3-98ae-77a671cc8bbf');
+ok('durations from own pair (1142/1142 ms)', Math.abs(ship[0].durationMs - 1142) < 0.001 && Math.abs(ship[1].durationMs - 1142) < 0.001,
+  ship[0].durationMs + '/' + ship[1].durationMs);
+
+// (3) Unanswered request → no response, timeout suspect
+const dead = calls.find(c => c.url && c.url.indexOf('dead.example.com') !== -1);
+ok('unanswered call kept', !!dead && dead.status === null);
+ok('unanswered call has no duration', dead.durationMs === null);
+ok('unanswered call flagged as timeout suspect', dead.timeoutSuspect === true);
+
+// (4) SOAP consume
+const soap = calls.find(c => c.node === 'WebServices' && c.direction === 'out');
+ok('SOAP consume found', !!soap);
+eq('SOAP consume kind', soap.kind, 'soap');
+eq('SOAP status 200', soap.status, 200);
+ok('SOAP duration 333 ms', Math.abs(soap.durationMs - 333) < 0.001, 'got ' + soap.durationMs);
+ok('SOAPAction header kept', soap.requestHeaders.some(h => h.name === 'SOAPAction'));
+ok('SOAP request body is the envelope', soap.requestBody.indexOf('<soapenv:Envelope>') === 0);
+ok('SOAP response body includes xml prolog line', soap.responseBody.indexOf('<?xml') === 0 && soap.responseBody.indexOf('HeaderResponse') !== -1);
+eq('CallWebservice anchor corrId', soap.corrId, '900-2');
+eq('CallWebservice anchor microflow', soap.microflow, 'Integration.GetInvoiceData');
+
+// (5) REST Publish matched
+const pub = calls.find(c => c.node === 'REST Publish' && c.status === 200);
+ok('publish call found', !!pub);
+eq('publish direction', pub.direction, 'in');
+eq('publish method', pub.method, 'POST');
+eq('publish operation captured', pub.operation, 'rest/calculator/v1/httpRequest');
+ok('publish routing noise not in headers', !pub.requestHeaders.some(h => /did not match/.test(h.value)));
+ok('publish request headers parsed', pub.requestHeaders.some(h => h.name === 'traceparent'));
+eq('publish response body', pub.responseBody, 'Total cost error - Please check the information');
+ok('publish duration 356 ms', Math.abs(pub.durationMs - 356) < 0.001, 'got ' + pub.durationMs);
+
+// (6) REST Publish 404
+const pub404 = calls.find(c => c.node === 'REST Publish' && c.status === 404);
+ok('404 publish call found', !!pub404);
+eq('404 status text', pub404.statusText, 'Not Found');
+ok('404 reason kept', /no operation matches/.test(pub404.responseBody), JSON.stringify(pub404.responseBody));
+
+// (7) WS Publish (incoming SOAP)
+const wsIn = calls.find(c => c.node === 'WebServices' && c.direction === 'in');
+ok('WS publish call found', !!wsIn);
+eq('WS publish service', wsIn.service, 'AppUser_Create_Update');
+ok('WS publish request body captured', wsIn.requestBody.indexOf('<soapenv:Envelope>') === 0);
+ok('WS publish per-record headers collected', wsIn.requestHeaders.some(h => h.name === 'soapaction'));
+ok('WS publish chunked response captured', wsIn.responseBody.indexOf('OperationResponse') !== -1);
+eq('WS publish operation from chunk marker', wsIn.operation, 'Operation');
+ok('WS publish duration 364 ms', Math.abs(wsIn.durationMs - 364) < 0.001, 'got ' + wsIn.durationMs);
+
+// Stats
+ok('stats: total matches', wsreOut.stats.total === 8);
+eq('stats: uncertain count', wsreOut.stats.uncertain, 2);
+eq('stats: unanswered count', wsreOut.stats.unanswered, 1);
+
+// Reference: the same real trace log used by MFT/LQE reference tests (local only)
+if (fs.existsSync(refTrace)) {
+  const text = fs.readFileSync(refTrace, 'utf8');
+  const recs3 = parser.parse(text).records;
+  const t0 = Date.now();
+  const out = wsreExtract(recs3);
+  const ms = Date.now() - t0;
+  eq('reference trace: 31 calls', out.calls.length, 31);
+  eq('reference trace: 11 REST Consume', out.calls.filter(c => c.node === 'REST Consume').length, 11);
+  eq('reference trace: 4 REST Publish', out.calls.filter(c => c.node === 'REST Publish').length, 4);
+  eq('reference trace: 6 SOAP consume', out.calls.filter(c => c.node === 'WebServices' && c.direction === 'out').length, 6);
+  eq('reference trace: 10 SOAP publish', out.calls.filter(c => c.node === 'WebServices' && c.direction === 'in').length, 10);
+  // Two REAL overlaps exist in this file: the interleaved shipment POST pair
+  // (REST Consume) and two concurrent AppUser_Create_Update WS publish requests.
+  const uncertain = out.calls.filter(c => c.uncertain);
+  eq('reference trace: real interleaves flagged (4 uncertain)', uncertain.length, 4);
+  eq('reference trace: interleaved consume pair is the shipment POST',
+    uncertain.filter(c => /myorderintegration\/v1\/shipment$/.test(c.url)).length, 2);
+  eq('reference trace: overlapping WS publish pair flagged',
+    uncertain.filter(c => c.service === 'AppUser_Create_Update').length, 2);
+  const withAnchor = out.calls.filter(c => c.corrId).length;
+  ok('reference trace: anchors attached to consume calls (>= 15)', withAnchor >= 15, 'got ' + withAnchor);
+  const answered = out.calls.filter(c => c.direction === 'out' && c.status !== null).length;
+  eq('reference trace: every outgoing call got its response', answered, 17);
+  console.log('    (' + (text.length / (1024 * 1024)).toFixed(0) + ' MB → ' + out.calls.length + ' calls in ' + ms + ' ms)');
+} else {
+  console.log('  – reference trace log absent, skipped (PII: never committed)');
+}
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);

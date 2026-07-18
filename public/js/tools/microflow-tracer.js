@@ -199,6 +199,12 @@ window.mftLoadFile = function(files) {
   reader.readAsText(files[0]);
 };
 
+// Cross-link entry point (REST & WS Extractor → MFT): load raw log text directly
+// so one file load powers all the log tools, mirroring lqeLoadText.
+window.mftLoadText = function(text) {
+  mftParseText(text);
+};
+
 function mftParseText(text) {
   if (window.showLoader) window.showLoader('Parsing microflow events...', 5);
   mftRawText = text;
