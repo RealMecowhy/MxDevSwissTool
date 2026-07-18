@@ -33,7 +33,11 @@ const PORT = 9999;
 // =========================================================================
 const ALLOWED_ORIGINS = [
   'http://localhost:9999',
-  'http://127.0.0.1:9999'
+  'http://127.0.0.1:9999',
+  // Vite dev server (npm run dev) — lets the local UI reach the bridge while
+  // developing, instead of falling back to the 9999 origin and failing CORS.
+  'http://localhost:5173',
+  'http://127.0.0.1:5173'
 ];
 
 function corsHeaders(req) {
