@@ -31,12 +31,14 @@ const TOOLS = [
   {id:'log-query-extractor', label:'Log Query Extractor',  desc:'Extract, parse and correlate executed SQL queries and XPath from Mendix TRACE logs', color:'#3498db', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12h18"/><path d="M3 19h18"/></svg>', section:'Diagnostics & Logs'},
   {id:'microflow-tracer', label:'Microflow Tracer',  desc:'Rebuild microflow executions, activity timelines and call trees from MicroflowEngine DEBUG/TRACE logs', color:'#9b59b6', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>', section:'Diagnostics & Logs'},
   {id:'ws-rest-extractor', label:'REST & WS Extractor',  desc:'Pair REST and SOAP requests with their responses from TRACE logs — headers, payloads, timings and the calling microflow', color:'#16a085', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>', section:'Diagnostics & Logs'},
+  {id:'error-decoder', label:'Mendix Error Decoder',  desc:'Decode the mechanism behind a Mendix, Java or PostgreSQL error — what happened, typical causes and how to check which one applies', color:'#e84118', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="11.5"/><line x1="11" y1="14" x2="11.01" y2="14"/></svg>', section:'Diagnostics & Logs'},
   {id:'log-anonymizer', label:'Log & Text Anonymizer',             desc:'Anonymize sensitive data (emails, IPs, UUIDs, custom keywords) from arbitrary text and logs', color:'#e74c3c', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>', section:'Diagnostics & Logs'},
   {id:'nginx-log',    label:'Nginx Log Analyzer',          desc:'Analyze Nginx access logs to find top IPs, URLs, errors, and fetch GeoIP',       color:'#2ea043',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>', section:'Diagnostics & Logs'},
   {id:'telemetry-monitor', label:'Metrics & Telemetry',     desc:'Visualize Mendix Prometheus metrics and explore OpenTelemetry traces/logs locally or from cloud endpoints', color:'#ff9f43', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>', section:'Diagnostics & Logs'},
   {id:'har-analyzer', label:'Client Traffic (HAR)',         desc:'Decode a browser HAR into named Mendix operations to spot client-side N+1 and chatty microflows', color:'#3498db', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="5" width="3" height="13"/></svg>', section:'Diagnostics & Logs'},
   {id:'http-status',  label:'HTTP Status Codes',           desc:'Reference for HTTP status codes with Mendix context',                            color:'var(--info)',     icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>', section:'Diagnostics & Logs'},
   {id:'thread-dump',  label:'JVM Health Analyzer',   desc:'Thread dumps, GC logs and heap histograms — find blocked threads and memory leaks',         color:'var(--danger)',   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>', section:'Diagnostics & Logs'},
+  {id:'incident-report', label:'Incident Report',   desc:'Combine the data loaded across the diagnostics tools into one self-contained HTML report for a time window', color:'#6c5ce7', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>', section:'Diagnostics & Logs'},
   {id:'json-formatter',label:'JSON Formatter',             desc:'Format, validate and explore JSON with interactive tree view',                    color:'var(--success)',  icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',          section:'Data & Format'},
   {id:'xml-formatter', label:'XML Formatter',              desc:'Format, validate and explore XML with interactive tree view',                     color:'var(--info)',     icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13l3 3-3 3M16 19h-4"/></svg>',    section:'Data & Format'},
   {id:'char-sanitizer',label:'XML & Text Sanitizer',       desc:'Detect and fix hidden control characters, zero-width spaces, invalid XML tokens, and Mojibake', color:'#e67e22', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>', section:'Data & Format'},
@@ -179,7 +181,7 @@ async function navigate(toolId, navEl) {
     iconEl.style.color = tool.color || 'var(--accent)';
   }
   document.getElementById('topbar-title').textContent = tool.label;
-  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.14.0' : (tool.desc || '');
+  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.15.0' : (tool.desc || '');
   const previousTool = currentTool;
   currentTool = toolId;
   window.currentTool = currentTool;
@@ -396,6 +398,10 @@ import './tools/mendix-log-parser.js';
 import * as logQueryExtractor from './tools/log-query-extractor.js';
 import * as microflowTracer from './tools/microflow-tracer.js';
 import * as wsRestExtractor from './tools/ws-rest-extractor.js';
+import * as incidentReport from './tools/incident-report.js';
+// Side-effect import: the Mendix Error Decoder attaches its pure edxDecode plus
+// the paste-and-render UI handlers to window (no init(), like the log parser).
+import './tools/error-decoder.js';
 import * as markdown from './tools/markdown.js';
 import * as memoryInspector from './tools/memory-inspector.js';
 import * as miscMendix from './tools/misc-mendix.js';
@@ -436,6 +442,7 @@ const toolModules = {
   'log-query-extractor': logQueryExtractor,
   'microflow-tracer': microflowTracer,
   'ws-rest-extractor': wsRestExtractor,
+  'incident-report': incidentReport,
   'markdown': markdown,
   'md-preview': markdown,
   'memory-inspector': memoryInspector,
@@ -473,6 +480,9 @@ import './components/virtual-viewer.js';
 // Side-effect import: attaches window.createVirtualList, the reusable fixed-height
 // virtual row list used by the Log Query Extractor (and future row-heavy tools).
 import './components/virtual-list.js';
+// Side-effect import: attaches window.mtExport + the pure mtExportTo* builders —
+// the shared CSV / Markdown / self-contained-HTML export helpers.
+import './components/exporters.js';
 
 function initCore() {
   // Reflect restored theme (set in index.html head) in the toggle label

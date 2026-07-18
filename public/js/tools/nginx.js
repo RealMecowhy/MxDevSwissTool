@@ -1068,4 +1068,43 @@ window.nginxToggleStatusClass = nginxToggleStatusClass;
 window.nginxToggleErrorLevel = nginxToggleErrorLevel;
 window.nginxApplyStreamFilters = nginxApplyStreamFilters;
 
+// Parses an Nginx access-log timestamp ("18/Jul/2026:09:14:22 +0000") to epoch ms.
+const NGINX_MONTHS = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+function nginxDateToMs(d) {
+  if (!d) return NaN;
+  const m = String(d).match(/(\d{2})\/([A-Za-z]{3})\/(\d{4}):(\d{2}):(\d{2}):(\d{2})\s*([+-]\d{4})?/);
+  if (!m || NGINX_MONTHS[m[2]] === undefined) return NaN;
+  const base = Date.UTC(+m[3], NGINX_MONTHS[m[2]], +m[1], +m[4], +m[5], +m[6]);
+  if (m[7]) { const off = (m[7][0] === '-' ? -1 : 1) * (parseInt(m[7].slice(1, 3), 10) * 60 + parseInt(m[7].slice(3, 5), 10)); return base - off * 60000; }
+  return base;
+}
+
+// Incident Report source: Nginx access-log entries, optionally narrowed to
+// [fromMs, toMs]. Error responses (status ≥ 400) lead; if none, the busiest
+// window still shows traffic for context. Returns null when empty (data-driven rule).
+window.nginxReportSection = function(fromMs, toMs) {
+  const logs = window.nginxParsedLogs || [];
+  if (!logs.length) return null;
+  let firstMs = Infinity, lastMs = -Infinity;
+  const inWin = logs.filter(function (e) {
+    const ms = nginxDateToMs(e.date);
+    if (fromMs != null && !isNaN(ms) && ms < fromMs) return false;
+    if (toMs != null && !isNaN(ms) && ms > toMs) return false;
+    if (!isNaN(ms)) { if (ms < firstMs) firstMs = ms; if (ms > lastMs) lastMs = ms; }
+    return true;
+  });
+  if (!inWin.length) return null;
+  const errs = inWin.filter(function (e) { return e.status >= 400; });
+  const pick = (errs.length ? errs : inWin).slice(0, 1000);
+  const rows = pick.map(function (e) {
+    return [e.timeOnly || e.date, e.ip, e.method, e.status, e.time ? e.time.toFixed(3) : '', e.url];
+  });
+  return {
+    id: 'nginx-log', title: 'Nginx — HTTP requests',
+    subtitle: inWin.length + ' request' + (inWin.length === 1 ? '' : 's') + ' · ' + errs.length + ' error response' + (errs.length === 1 ? '' : 's') + (errs.length ? ' (4xx/5xx shown)' : ' (sample shown)'),
+    columns: ['Time', 'IP', 'Method', 'Status', 'Resp (s)', 'URL'], rows: rows, total: inWin.length,
+    firstMs: firstMs === Infinity ? null : firstMs, lastMs: lastMs === -Infinity ? null : lastMs
+  };
+};
+
 export function init() {}

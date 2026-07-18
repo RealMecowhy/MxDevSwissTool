@@ -67,7 +67,8 @@ window.lqeClear = function() {
   document.getElementById('lqe-query-list').innerHTML =
     '<div style="padding:var(--sp-5); text-align:center; color:var(--text-muted); font-size:0.85rem;">' +
     'Drop a log file here or use &ldquo;Load TRACE Log&rdquo;:<br>' +
-    'Studio Pro CSV export (TRACE) &mdash; full SQL, params &amp; plans &bull; Mendix Cloud live log (.txt/.log) &mdash; slow-query warnings.</div>';
+    'Studio Pro CSV export (TRACE) &mdash; full SQL, params &amp; plans &bull; Mendix Cloud live log (.txt/.log) &mdash; slow-query warnings.' +
+    '<div class="data-req"><span class="data-req-title">How to get this data</span>Raise <b>ConnectionBus_Retrieve</b> (and <b>DataStorage_QueryPlan</b> for query plans) to <b>TRACE</b> &mdash; Studio Pro: <em>Console &rarr; Advanced &rarr; Set Log Levels</em>; Mendix Cloud: <em>Environment &rarr; Details &rarr; Log Levels</em>. Reproduce the scenario, then export the console log (CSV) or download the live log (.txt/.log/.gz).</div></div>';
   document.getElementById('lqe-count').textContent = '0';
   document.getElementById('lqe-sql-content').textContent = 'Select a query to view its runnable SQL...';
   document.getElementById('lqe-source-content').textContent = 'No source available (XPath/OQL) for this query.';
@@ -876,15 +877,14 @@ function lqeExportRows(sqlMaxLen) {
 
 const LQE_EXPORT_HEADER = ['Type', 'Tx-Conn', 'Timestamp', 'Duration (ms)', 'Cost', 'Rows', 'Dup', 'SQL'];
 
+// Exports go through the shared helper (window.mtExport) so quoting/escaping and
+// the self-contained HTML template live in one place across tools.
 window.lqeExportCsv = function() {
   if (lqeLastFiltered.length === 0) {
     alert('Nothing to export — load a log first (and check the active filters).');
     return;
   }
-  const esc = v => '"' + String(v).replace(/"/g, '""') + '"';
-  const lines = [LQE_EXPORT_HEADER.map(esc).join(',')];
-  for (const row of lqeExportRows(300)) lines.push(row.map(esc).join(','));
-  window.downloadText(lines.join('\n'), 'extracted-queries.csv');
+  window.mtExport.downloadCsv('extracted-queries.csv', LQE_EXPORT_HEADER, lqeExportRows(300));
 };
 
 window.lqeCopyMarkdown = function(btn) {
@@ -892,17 +892,59 @@ window.lqeCopyMarkdown = function(btn) {
     alert('Nothing to copy — load a log first (and check the active filters).');
     return;
   }
-  const esc = v => String(v).replace(/\|/g, '\\|').replace(/\n/g, ' ');
-  const lines = [
-    '| ' + LQE_EXPORT_HEADER.join(' | ') + ' |',
-    '|' + LQE_EXPORT_HEADER.map(() => '---').join('|') + '|'
-  ];
-  for (const row of lqeExportRows(120)) lines.push('| ' + row.map(esc).join(' | ') + ' |');
-  navigator.clipboard.writeText(lines.join('\n')).then(() => {
-    const oldHtml = btn.innerHTML;
-    btn.innerHTML = 'Copied!';
-    setTimeout(() => btn.innerHTML = oldHtml, 2000);
+  window.mtExport.copyMarkdown(LQE_EXPORT_HEADER, lqeExportRows(120), btn);
+};
+
+window.lqeExportHtml = function() {
+  if (lqeLastFiltered.length === 0) {
+    alert('Nothing to export — load a log first (and check the active filters).');
+    return;
+  }
+  const rows = lqeExportRows(2000);
+  window.mtExport.downloadHtml('extracted-queries.html', {
+    title: 'Extracted SQL Queries',
+    subtitle: 'MxDev Swiss Tool — Log Query Extractor',
+    meta: [
+      { label: 'Source', value: lqeSourceFormat === 'live' ? 'Mendix Cloud live log' : (lqeSourceFormat === 'csv' ? 'Studio Pro CSV export' : 'log') },
+      { label: 'Queries', value: rows.length }
+    ],
+    columns: LQE_EXPORT_HEADER,
+    rows: rows
   });
+};
+
+// Incident Report source: the currently filtered queries, optionally narrowed to
+// [fromMs, toMs]. Reuses the tool's own filter state, so the report reflects what
+// the user is looking at. Returns null when empty (data-driven rule).
+window.lqeReportSection = function(fromMs, toMs) {
+  if (!lqeLastFiltered.length) return null;
+  const tsToMs = window.mftTsToMs || function () { return NaN; };
+  const inWin = lqeLastFiltered.filter(function (q) {
+    const ms = tsToMs(q.timestamp);
+    if (fromMs != null && !isNaN(ms) && ms < fromMs) return false;
+    if (toMs != null && !isNaN(ms) && ms > toMs) return false;
+    return true;
+  });
+  if (!inWin.length) return null;
+  let firstMs = Infinity, lastMs = -Infinity;
+  const rows = inWin.map(function (q) {
+    const ms = tsToMs(q.timestamp);
+    if (!isNaN(ms)) { if (ms < firstMs) firstMs = ms; if (ms > lastMs) lastMs = ms; }
+    let sql = q.sql.replace(/\s+/g, ' ').trim();
+    if (sql.length > 2000) sql = sql.substring(0, 2000) + '…';
+    return [
+      q.type + (q.slowWarning ? ' (SLOW warning)' : ''), q.txConn, q.timestamp,
+      q.duration ? parseFloat(q.duration) : '',
+      (q.cost !== null && q.cost !== undefined) ? q.cost : '',
+      q.rows !== '-' ? q.rows : '', q.dupCount > 1 ? '×' + q.dupCount : '', sql
+    ];
+  });
+  return {
+    id: 'log-query-extractor', title: 'Log Query Extractor — SQL queries',
+    subtitle: rows.length + ' quer' + (rows.length === 1 ? 'y' : 'ies') + (lqeSourceFormat === 'live' ? ' (Mendix Cloud live log)' : (lqeSourceFormat === 'csv' ? ' (Studio Pro CSV)' : '')),
+    columns: LQE_EXPORT_HEADER, rows: rows, total: rows.length,
+    firstMs: firstMs === Infinity ? null : firstMs, lastMs: lastMs === -Infinity ? null : lastMs
+  };
 };
 
 window.lqeCopyContent = function(elementId, btn) {

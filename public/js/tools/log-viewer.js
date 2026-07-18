@@ -376,7 +376,7 @@ function logLoadMore() {
   const rows = logFilteredEntries.slice(start, end);
   logScrollState.currentLoaded = end;
   
-  const html = rows.map(e => {
+  const html = rows.map((e, i) => {
     const cls = 'row-' + e.level.toLowerCase();
     const msgParts = e.msg.split('\n');
     const mainLine = msgParts[0];
@@ -387,6 +387,13 @@ function logLoadMore() {
       const re = new RegExp(escRegex(search), 'gi');
       mainHtml = mainHtml.replace(re, m => '<mark class="log-highlight">'+m+'</mark>');
     }
+
+    // ERROR/CRITICAL rows get an "Explain" chip that hands the full message
+    // (headline + stack) to the Mendix Error Decoder. Index is into the current
+    // filtered list, which is rebuilt on every filter change, so it stays valid.
+    const explainChip = (e.level === 'ERROR' || e.level === 'CRITICAL')
+      ? '<span class="log-explain-chip" onclick="event.stopPropagation();window.logExplainError('+(start+i)+')" title="Decode this error\'s mechanism in the Mendix Error Decoder">Explain</span>'
+      : '';
 
     let stackHtml = '';
     if (stackLines.length > 0) {
@@ -405,6 +412,7 @@ function logLoadMore() {
       + '<span class="log-row-level">'+logBadge(e.level)+'</span>'
       + '<span class="log-row-node" title="'+escHtml(e.node)+'">'+escHtml(e.node)+'</span>'
       + '<span class="log-row-msg">'+mainHtml+'</span>'
+      + explainChip
       + stackHtml
       + '</div>';
   }).join('');
@@ -486,6 +494,55 @@ function logClear() {
 function logExportFiltered() {
   if (!logFilteredEntries.length) return;
   downloadText(logFilteredEntries.map(e=>e.raw).join('\n'), 'filtered-logs.txt');
+}
+
+// Parses a log timestamp to epoch ms (UTC basis), matching the convention the
+// MFT/WSRE tsToMs helpers use so the Incident Report can align windows across
+// tools. Returns NaN for time-only or unparseable stamps.
+function logTsToMs(ts) {
+  if (!ts) return NaN;
+  const m = String(ts).match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?/);
+  if (!m) return NaN;
+  const base = Date.parse(m[1] + 'T' + m[2] + ':' + m[3] + ':' + m[4] + 'Z');
+  const frac = m[5] ? parseFloat('0.' + m[5]) * 1000 : 0;
+  return base + frac;
+}
+
+// Incident Report source: WARNING/ERROR/CRITICAL entries in the loaded log,
+// optionally narrowed to [fromMs, toMs]. Returns null when nothing qualifies so
+// the report omits the section (data-driven rule).
+function logReportSection(fromMs, toMs) {
+  if (!logAllEntries.length) return null;
+  const levels = { ERROR: 1, CRITICAL: 1, WARN: 1 };
+  const rows = [];
+  let firstMs = Infinity, lastMs = -Infinity, total = 0;
+  for (let i = 0; i < logAllEntries.length; i++) {
+    const e = logAllEntries[i];
+    if (!levels[e.level]) continue;
+    const ms = logTsToMs(e.ts);
+    if (fromMs != null && !isNaN(ms) && ms < fromMs) continue;
+    if (toMs != null && !isNaN(ms) && ms > toMs) continue;
+    total++;
+    if (!isNaN(ms)) { if (ms < firstMs) firstMs = ms; if (ms > lastMs) lastMs = ms; }
+    if (rows.length < 1000) rows.push([e.ts, e.level, e.node, e.msg.split('\n')[0]]);
+  }
+  if (total === 0) return null;
+  return {
+    id: 'log-viewer', title: 'Log Viewer — warnings & errors',
+    subtitle: total + ' WARNING/ERROR/CRITICAL entr' + (total === 1 ? 'y' : 'ies') + (rows.length < total ? ' (showing first ' + rows.length + ')' : ''),
+    columns: ['Time', 'Level', 'Node', 'Message'], rows: rows, total: total,
+    firstMs: firstMs === Infinity ? null : firstMs, lastMs: lastMs === -Infinity ? null : lastMs
+  };
+}
+
+// "Explain" chip on ERROR/CRITICAL rows → hand the full message (headline +
+// stack) to the Mendix Error Decoder, with a "← Back" chip to return here.
+function logExplainError(idx) {
+  const e = logFilteredEntries[idx];
+  if (!e) return;
+  if (window.navigateWithReturn) window.navigateWithReturn('error-decoder');
+  else if (window.navigate) window.navigate('error-decoder', null);
+  if (window.edxDecodeText) window.edxDecodeText(e.msg);
 }
 
 // ============================================================
@@ -1263,6 +1320,8 @@ window.logUpdateStats = logUpdateStats;
 window.logScrollTo = logScrollTo;
 window.logClear = logClear;
 window.logExportFiltered = logExportFiltered;
+window.logExplainError = logExplainError;
+window.logReportSection = logReportSection;
 window.logOpenAggregator = logOpenAggregator;
 window.logCloseAggregator = logCloseAggregator;
 window.logAnalyzeSignatures = logAnalyzeSignatures;

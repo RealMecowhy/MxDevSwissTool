@@ -135,7 +135,7 @@ const TOOLS_HELP = {
         <li>The tool will automatically group related log entries and extract all SQL queries. They will be listed on the left, displaying their type, transaction connection, execution duration, and estimated cost. Click the <strong>Time / Duration / Cost / Rows</strong> column headers to sort.</li>
         <li>The <strong>stats bar</strong> above the list shows the total and average execution time, the slowest query (click it to jump to that query) and the number of duplicated statements &mdash; all recalculated live for the current filters.</li>
         <li>Statements executed multiple times with different parameters get a <strong>&times;N</strong> badge &mdash; use the <strong>Duplicates only (N+1)</strong> filter to instantly spot N+1 query patterns. Enable <strong>Slow only &gt; X ms</strong> to hide everything below your duration threshold.</li>
-        <li>Use <strong>Export CSV</strong> or <strong>Copy Markdown</strong> in the top bar to take the currently filtered list with you &mdash; e.g. into a ticket, a wiki page or a spreadsheet.</li>
+        <li>Use <strong>Export CSV</strong>, <strong>Copy Markdown</strong> or <strong>Export HTML</strong> (a self-contained, shareable report) in the top bar to take the currently filtered list with you &mdash; e.g. into a ticket, a wiki page or a spreadsheet.</li>
         <li>Select a query from the list to see its details neatly grouped on the right:
           <ul>
             <li><strong>Runnable SQL:</strong> The final SQL statement with all <code>?</code> parameters substituted correctly.</li>
@@ -230,6 +230,67 @@ const TOOLS_HELP = {
         <li><strong>Slow outgoing calls:</strong> the duration is pure wire time of the external service (delta between the logged request and response). A slow microflow whose time sits in a <em>CallRest</em> step is the external system's problem, not your app's &mdash; this view proves it.</li>
         <li><strong>404 on REST Publish:</strong> &ldquo;no operation matches&rdquo; entries reveal clients calling wrong paths &mdash; the full requested URL is kept in the response tab.</li>
         <li><strong>Security note:</strong> TRACE-level integration logs contain real payloads and headers. Treat exported files accordingly &mdash; the Log &amp; Text Anonymizer can scrub them before sharing.</li>
+      </ul>
+    `
+  },
+  'error-decoder': {
+    title: 'Mendix Error Decoder',
+    description: 'Decodes the <strong>mechanism</strong> behind a Mendix, Java or PostgreSQL error message or stack trace. For every known signature it matches, it shows three things: <strong>what happened technically</strong> (certain — it follows directly from the message), <strong>typical causes</strong> (an explicit list of hypotheses) and <strong>how to check which one applies</strong> (a diagnostic checklist that cross-links to the Log Query Extractor, JVM Health Analyzer, Microflow Tracer and others). It is deliberately a <em>decoder, not a fix advisor</em>: it never prescribes what to change, always shows you the pattern it matched so you can judge the fit, and — when it does not recognize a message — it says so rather than guessing.',
+    howToGet: `
+      <ul>
+        <li><strong>From a log:</strong> copy an <code>ERROR</code>/<code>CRITICAL</code> line and everything indented under it (the stack trace) from the Mendix log. In the <strong>Mendix Log Viewer</strong>, ERROR rows carry an <strong>Explain</strong> chip that sends the full message here automatically.</li>
+        <li><strong>Full stack trace matters:</strong> paste down to the deepest <code>Caused by:</code> line — Mendix wraps the real exception (database, integration, null…) inside a generic <code>MicroflowException</code>, and the decoder keys off that root cause.</li>
+        <li><strong>Sources:</strong> the runtime log (Mendix Cloud <em>Environments → Logs</em>, or local <code>deployment/log/log.txt</code>), a support ticket, or an alert message all work — no special log level is required.</li>
+      </ul>
+    `,
+    howToUse: `
+      <ol>
+        <li>Paste the error into the left panel (or arrive via the Log Viewer <strong>Explain</strong> chip) and click <strong>Decode</strong> — matching also runs automatically as you paste.</li>
+        <li>Each recognized signature produces a card. Cards are ordered <strong>most specific first</strong>; when several match (a wrapped exception), the deepest/root match sits at the top — read them together.</li>
+        <li>Every card shows the <strong>exact pattern it matched</strong> so you can confirm it fits your message before trusting the explanation.</li>
+        <li>Work down the card: <strong>What happened technically</strong> is the certain part; <strong>Typical causes</strong> are hypotheses to weigh; <strong>How to check which</strong> is a checklist — use the inline links to jump to the tool that answers each check (e.g. the Log Query Extractor to see the SQL that ran).</li>
+        <li>If nothing matches, that is an honest result: the decoder does not invent a cause. Try pasting more of the stack trace, or inspect the message in the Log Viewer.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>Decoder, not advisor:</strong> the cards explain <em>why</em> an error occurs and what to <em>check</em> — they never tell you what to change. The fix is your decision once you have confirmed which cause applies.</li>
+        <li><strong>Wrapped exceptions:</strong> a <code>MicroflowException</code> card is only the outer layer. The specific card above it (e.g. a unique-constraint or socket-timeout match) is the mechanism that actually failed.</li>
+        <li><strong>Matched pattern is evidence, not proof:</strong> the decoder matches on text signatures. Always sanity-check the matched snippet against your real message — a similar-looking message can key the same rule.</li>
+        <li><strong>Coverage:</strong> the ruleset covers common database (constraints, deadlocks, timeouts, pool exhaustion), JVM/memory (heap, metaspace, GC, threads), integration (TLS, socket timeouts, connection refused, client disconnects), SAML/SSO and platform errors. Unrecognized ≠ unimportant — it just is not in the ruleset yet.</li>
+      </ul>
+    `
+  },
+  'incident-report': {
+    title: 'Incident Report',
+    description: 'Assembles the data currently loaded across the diagnostics tools into <strong>one self-contained HTML report</strong> for a chosen time window. It pulls the warnings &amp; errors from the Log Viewer, the SQL from the Log Query Extractor, microflow executions from the Microflow Tracer, integration calls from the REST &amp; WS Extractor, HTTP requests from the Nginx analyzer and the thread-dump summary from JVM Health &mdash; correlating them side by side so one file tells the whole story of an incident. Fully offline: no external resources, safe to attach to a ticket or email.',
+    howToGet: `
+      <p>The Incident Report does not read files itself &mdash; it reuses whatever you have already loaded in the other tools. Load your data there first:</p>
+      <ul>
+        <li><strong>Log Viewer</strong> &mdash; the application log (its WARNING/ERROR/CRITICAL entries become the incident backbone).</li>
+        <li><strong>Log Query Extractor</strong> &mdash; a TRACE log or CSV export for the SQL that ran.</li>
+        <li><strong>Microflow Tracer</strong> &mdash; a MicroflowEngine DEBUG/TRACE log for the executions.</li>
+        <li><strong>REST &amp; WS Extractor</strong> &mdash; a TRACE log for the integration calls.</li>
+        <li><strong>Nginx Log Analyzer</strong> &mdash; the access log for HTTP requests / error responses.</li>
+        <li><strong>JVM Health Analyzer</strong> &mdash; paste and analyze a thread dump for the thread-state summary.</li>
+      </ul>
+      <p>Only sources that actually hold data are offered; the rest show an “Open &amp; load data” shortcut.</p>
+    `,
+    howToUse: `
+      <ol>
+        <li>Load data in the tools above, then open <strong>Incident Report</strong> (it re-scans every time you open it; use <strong>Refresh sources</strong> after loading more).</li>
+        <li>Give the incident a <strong>title</strong> (used for the report heading and the file name).</li>
+        <li>Set the <strong>time window</strong> (UTC). It is pre-filled from the span of the loaded data &mdash; narrow it to focus on the incident, or clear both fields to include everything. Leave one side blank for an open-ended bound.</li>
+        <li>Tick which <strong>sources</strong> to include. Add optional <strong>notes</strong> that appear at the top of the report.</li>
+        <li>Click <strong>Generate HTML report</strong>. The file downloads immediately and a summary shows exactly what went in. Open it in any browser &mdash; it is fully self-contained.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>One window, many angles:</strong> because every section is filtered to the same time window, a spike lines up across the Nginx 5xx responses, the slow SQL, the failing microflow and the blocked threads &mdash; that alignment is the point of the report.</li>
+        <li><strong>Data-driven:</strong> a section only appears when its source produced rows for the window. An empty report for a window means those tools logged nothing there &mdash; widen the window or confirm the log levels.</li>
+        <li><strong>Point-in-time JVM:</strong> a thread dump is a snapshot, so the JVM section is not time-filtered &mdash; it reflects the dump you last analyzed in JVM Health.</li>
+        <li><strong>Sensitive data:</strong> the report carries real log content (SQL, payloads, IPs). Review it before sharing &mdash; the Log &amp; Text Anonymizer can scrub logs before you load them.</li>
       </ul>
     `
   },

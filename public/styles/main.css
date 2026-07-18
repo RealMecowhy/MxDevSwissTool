@@ -2829,3 +2829,271 @@ kbd {
   background: var(--accent);
   color: var(--bg-base);
 }
+
+/* =========================================
+   MENDIX ERROR DECODER
+   ========================================= */
+.edx-context {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  margin-bottom: var(--sp-3);
+  line-height: 1.5;
+}
+.edx-context strong { color: var(--text-primary); }
+.edx-empty {
+  border: 1px dashed var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-elevated);
+  padding: var(--sp-5);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+.edx-empty p { margin: 0 0 var(--sp-2) 0; }
+.edx-empty p:last-child { margin-bottom: 0; }
+.edx-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--danger);
+  border-radius: var(--r-md);
+  padding: var(--sp-4);
+  margin-bottom: var(--sp-3);
+}
+.edx-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-2);
+}
+.edx-cat {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  padding: 2px 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.edx-title {
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--text-primary);
+}
+.edx-matched {
+  background: var(--bg-overlay);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-sm);
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-bottom: var(--sp-3);
+}
+.edx-matched-label {
+  display: block;
+  font-family: var(--font-sans, inherit);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 3px;
+}
+.edx-section { margin-top: var(--sp-3); }
+.edx-section-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: var(--sp-2);
+}
+.edx-section-mechanism .edx-section-label { color: var(--info); }
+.edx-section-causes .edx-section-label { color: var(--warning); }
+.edx-section-checks .edx-section-label { color: var(--success); }
+.edx-mechanism {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: 0;
+}
+.edx-mechanism code, .edx-list code, .edx-matched code {
+  font-family: var(--font-mono);
+  font-size: 0.82em;
+  background: var(--bg-overlay);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--text-primary);
+}
+.edx-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.edx-list li {
+  font-size: 0.84rem;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+.edx-checks { list-style: none; padding-left: 0; }
+.edx-check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+}
+.edx-check-mark {
+  color: var(--success);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.edx-check-body { flex: 1; }
+.edx-tool-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.edx-tool-link:hover { text-decoration: underline; }
+.edx-disclaimer {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  font-style: italic;
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border-subtle);
+  line-height: 1.5;
+}
+
+/* =========================================
+   INCIDENT REPORT
+   ========================================= */
+.ir-status {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  padding: var(--sp-2) var(--sp-3);
+  line-height: 1.5;
+}
+.ir-sources {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.ir-source {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-elevated);
+}
+.ir-source-on { cursor: pointer; }
+.ir-source-off { opacity: 0.65; }
+.ir-source-label { flex: 1; font-size: 0.85rem; color: var(--text-primary); }
+.ir-source-count {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+.ir-source-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+.ir-done {
+  border: 1px solid color-mix(in srgb, var(--success) 40%, var(--border));
+  border-left: 3px solid var(--success);
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--success) 6%, transparent);
+  padding: var(--sp-4);
+}
+.ir-done-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--sp-2);
+}
+.ir-done-title svg { color: var(--success); }
+.ir-done-meta { font-size: 0.76rem; color: var(--text-muted); margin-top: var(--sp-2); }
+.ir-done-list {
+  margin: var(--sp-2) 0 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ir-done-list li { font-size: 0.82rem; color: var(--text-secondary); }
+
+/* Data-requirement hint shown in the empty/drop states of the log tools —
+   names the log node, level and where to download the file (data-driven rule). */
+.data-req {
+  margin: var(--sp-3) auto 0;
+  max-width: 460px;
+  text-align: left;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  padding: var(--sp-2) var(--sp-3);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.data-req b { color: var(--text-secondary); }
+.data-req .data-req-title {
+  display: block;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: 0.66rem;
+  margin-bottom: 3px;
+}
+
+/* "Explain" chip on ERROR/CRITICAL rows in the Log Viewer → Error Decoder */
+.log-explain-chip {
+  flex-shrink: 0;
+  align-self: center;
+  margin-left: var(--sp-2);
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 999px;
+  padding: 1px 8px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.log-explain-chip:hover {
+  background: var(--accent);
+  color: var(--bg-base);
+}

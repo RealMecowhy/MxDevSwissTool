@@ -645,6 +645,36 @@ function mftExportRows() {
   ]);
 }
 
+// Incident Report source: individual microflow executions (all parsed, not the
+// current view's aggregation), optionally narrowed to [fromMs, toMs] by start
+// time. Returns null when empty (data-driven rule).
+window.mftReportSection = function(fromMs, toMs) {
+  if (!mftExecutions.length) return null;
+  const inWin = mftExecutions.filter(function (e) {
+    if (fromMs != null && !isNaN(e.startMs) && e.startMs < fromMs) return false;
+    if (toMs != null && !isNaN(e.startMs) && e.startMs > toMs) return false;
+    return true;
+  });
+  if (!inWin.length) return null;
+  let firstMs = Infinity, lastMs = -Infinity, unfinished = 0;
+  const rows = inWin.map(function (e) {
+    if (!isNaN(e.startMs)) { if (e.startMs < firstMs) firstMs = e.startMs; if (e.startMs > lastMs) lastMs = e.startMs; }
+    if (!e.finished) unfinished++;
+    return [
+      e.displayName, e.startTs,
+      (e.durationMs !== null && !isNaN(e.durationMs)) ? +e.durationMs.toFixed(3) : '',
+      e.steps.length, e.children.length, e.depth, e.corrId,
+      e.finished ? 'finished' : 'unfinished'
+    ];
+  });
+  return {
+    id: 'microflow-tracer', title: 'Microflow Tracer — executions',
+    subtitle: rows.length + ' execution' + (rows.length === 1 ? '' : 's') + (unfinished ? ' · ' + unfinished + ' unfinished' : ''),
+    columns: MFT_EXPORT_HEADER, rows: rows, total: rows.length,
+    firstMs: firstMs === Infinity ? null : firstMs, lastMs: lastMs === -Infinity ? null : lastMs
+  };
+};
+
 window.mftExportCsv = function() {
   if (mftLastFiltered.length === 0) { alert('Nothing to export — load a log first (and check the active filters).'); return; }
   const esc = v => '"' + String(v).replace(/"/g, '""') + '"';
@@ -694,7 +724,8 @@ window.mftClear = function() {
   document.getElementById('mft-list').innerHTML =
     '<div style="padding:var(--sp-5); text-align:center; color:var(--text-muted); font-size:0.85rem;">' +
     'Drop a log file here or use &ldquo;Load Log&rdquo;:<br>' +
-    'MicroflowEngine at DEBUG &mdash; execution times &bull; at TRACE &mdash; activity steps &amp; call tree.</div>';
+    'MicroflowEngine at DEBUG &mdash; execution times &bull; at TRACE &mdash; activity steps &amp; call tree.' +
+    '<div class="data-req"><span class="data-req-title">How to get this data</span>Raise <b>MicroflowEngine</b> to <b>DEBUG</b> (execution times) or <b>TRACE</b> (activity steps &amp; call tree) &mdash; Studio Pro: <em>Console &rarr; Advanced &rarr; Set Log Levels</em>; Mendix Cloud: <em>Environment &rarr; Details &rarr; Log Levels</em>. Reproduce the scenario, then export/download the log.</div></div>';
   document.getElementById('mft-count').textContent = '0 executions';
   document.getElementById('mft-detail-head').innerHTML = '<div style="color:var(--text-muted); font-size:0.85rem;">Select an execution to see its activity timeline and call tree.</div>';
   document.getElementById('mft-timeline-body').innerHTML = '';

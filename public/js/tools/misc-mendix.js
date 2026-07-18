@@ -415,6 +415,15 @@ function analyzeThreadDump() {
     }
   });
 
+  // Stash a lightweight summary for the Incident Report. A thread dump is a
+  // point-in-time snapshot (no time window), so the report includes it only when
+  // one has actually been analyzed here (data-driven rule).
+  window._jvmLastSummary = {
+    blocked: blocked.length, waiting: waiting.length, runnable: runnable.length,
+    total: blocked.length + waiting.length + runnable.length, deadlocks: deadlocks.length,
+    blockedThreads: blocked.slice(0, 25).map(function (t) { return (t.name.split('"')[1] || t.name); })
+  };
+
   let html = `<div style="display:flex;gap:var(--sp-4);margin-bottom:var(--sp-3)">
     <div class="card" style="flex:1;border-color:var(--danger)"><div class="card-body"><h3 style="color:var(--danger);margin:0">${blocked.length}</h3><div style="font-size:0.8rem">BLOCKED</div></div></div>
     <div class="card" style="flex:1;border-color:var(--warning)"><div class="card-body"><h3 style="color:var(--warning);margin:0">${waiting.length}</h3><div style="font-size:0.8rem">WAITING</div></div></div>
@@ -714,6 +723,26 @@ window.qiExtractSchema = qiExtractSchema;
 window.formatOql = formatOql;
 window.translateOqlSql = translateOqlSql;
 window.analyzeThreadDump = analyzeThreadDump;
+// Incident Report source: the last analyzed thread dump. Point-in-time, so the
+// fromMs/toMs window is accepted for a uniform signature but not applied. Returns
+// null until a dump has been analyzed in the JVM Health tool (data-driven rule).
+window.jvmReportSection = function() {
+  const s = window._jvmLastSummary;
+  if (!s || !s.total) return null;
+  const rows = [
+    ['BLOCKED', s.blocked], ['WAITING', s.waiting], ['RUNNABLE', s.runnable],
+    ['Total threads', s.total], ['Deadlocks detected', s.deadlocks]
+  ];
+  if (s.blockedThreads && s.blockedThreads.length) {
+    rows.push(['Blocked threads', s.blockedThreads.join(', ') + (s.blocked > s.blockedThreads.length ? ', …' : '')]);
+  }
+  return {
+    id: 'thread-dump', title: 'JVM Health — thread dump summary',
+    subtitle: 'Point-in-time snapshot (not time-filtered) · ' + s.blocked + ' blocked, ' + s.waiting + ' waiting, ' + s.runnable + ' runnable',
+    columns: ['Metric', 'Value'], rows: rows, total: s.total, firstMs: null, lastMs: null
+  };
+};
+
 window.jvmSetTab = jvmSetTab;
 window.jvmAnalyzeActive = jvmAnalyzeActive;
 window.visualizeSqlExplain = visualizeSqlExplain;

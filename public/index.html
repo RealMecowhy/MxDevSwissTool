@@ -87,7 +87,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.14.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.15.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -112,6 +112,10 @@
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg></span>
       <span class="nav-label">REST &amp; WS Extractor</span>
     </button>
+    <button type="button" class="nav-item" data-tool="error-decoder" onclick="navigate('error-decoder',this)">
+      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="11.5"/><line x1="11" y1="14" x2="11.01" y2="14"/></svg></span>
+      <span class="nav-label">Mendix Error Decoder</span>
+    </button>
     <button type="button" class="nav-item" data-tool="log-anonymizer" onclick="navigate('log-anonymizer',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
       <span class="nav-label">Log & Text Anonymizer</span>
@@ -135,6 +139,10 @@
     <button type="button" class="nav-item" data-tool="thread-dump" onclick="navigate('thread-dump',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span>
       <span class="nav-label">JVM Health Analyzer</span>
+    </button>
+    <button type="button" class="nav-item" data-tool="incident-report" onclick="navigate('incident-report',this)">
+      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg></span>
+      <span class="nav-label">Incident Report</span>
     </button>
 
     <div class="nav-section-label">Performance &amp; Testing</div>
@@ -252,7 +260,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.14.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.15.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -351,6 +359,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><use href="#icon-doc-plain"></use></svg>
           <p>Drop a log file here or use &ldquo;Load Log File&rdquo;</p>
           <p style="font-size:.75rem">Supports Mendix Cloud live logs (.txt/.log) &amp; Studio Pro CSV exports &bull; Multiple files merged chronologically &bull; .gz archives &bull; Large files OK</p>
+          <div class="data-req"><span class="data-req-title">How to get this data</span>Any Mendix log works &mdash; no special level needed for INFO/WARN/ERROR. Mendix Cloud: <em>Environment &rarr; Details &rarr; Logs</em> (download the file or a <b>.gz</b> archive). Studio Pro: the Console, or <b>deployment/log/log.txt</b> in the project folder. To see microflow/SQL/integration detail, raise the relevant log node to DEBUG/TRACE first.</div>
           <div style="margin-top:var(--sp-3); display:flex; gap:var(--sp-2)">
             <label class="btn btn-secondary btn-sm" for="log-file-input-empty" style="cursor:pointer">Browse Files</label>
             <button class="btn btn-primary btn-sm" onclick="logOpenPasteModal()">Paste Log Content</button>
@@ -416,6 +425,7 @@
           <input type="file" id="lqe-file-input" style="display:none" accept=".log,.txt,.csv" onchange="window.lqeLoadFile(this.files)">
           <button class="btn btn-secondary btn-sm" onclick="window.lqeExportCsv()" title="Download the currently filtered query list as a CSV file"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export CSV</button>
           <button class="btn btn-secondary btn-sm" onclick="window.lqeCopyMarkdown(this)" title="Copy the currently filtered query list as a Markdown table"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy Markdown</button>
+          <button class="btn btn-secondary btn-sm" onclick="window.lqeExportHtml()" title="Download the currently filtered query list as a self-contained HTML report"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>Export HTML</button>
           <button class="btn btn-secondary btn-sm" onclick="window.lqeClear()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Clear</button>
         </div>
       <div class="tool-body" style="padding:0; display:flex; flex:1; overflow:hidden;">
@@ -464,6 +474,7 @@
               <div style="padding:var(--sp-5); text-align:center; color:var(--text-muted); font-size:0.85rem;">
                 Drop a log file here or use &ldquo;Load TRACE Log&rdquo;:<br>
                 Studio Pro CSV export (TRACE) &mdash; full SQL, params &amp; plans &bull; Mendix Cloud live log (.txt/.log) &mdash; slow-query warnings.
+                <div class="data-req"><span class="data-req-title">How to get this data</span>Raise <b>ConnectionBus_Retrieve</b> (and <b>DataStorage_QueryPlan</b> for query plans) to <b>TRACE</b> &mdash; Studio Pro: <em>Console &rarr; Advanced &rarr; Set Log Levels</em>; Mendix Cloud: <em>Environment &rarr; Details &rarr; Log Levels</em>. Reproduce the scenario, then export the console log (CSV) or download the live log (.txt/.log/.gz).</div>
               </div>
             </div>
           </div>
@@ -594,6 +605,7 @@
               <div style="padding:var(--sp-5); text-align:center; color:var(--text-muted); font-size:0.85rem;">
                 Drop a log file here or use &ldquo;Load TRACE Log&rdquo;:<br>
                 <code>REST Consume</code> / <code>REST Publish</code> / <code>WebServices</code> at TRACE &mdash; paired request/response calls with headers, payloads and timings.
+                <div class="data-req"><span class="data-req-title">How to get this data</span>Raise <b>REST Consume</b> / <b>REST Publish</b> / <b>WebServices</b> (and <b>MicroflowEngine</b> to link each call to its microflow) to <b>TRACE</b> &mdash; Studio Pro: <em>Console &rarr; Advanced &rarr; Set Log Levels</em>; Mendix Cloud: <em>Environment &rarr; Details &rarr; Log Levels</em>. Reproduce the integration call, then export/download the log.</div>
               </div>
             </div>
           </div>
@@ -648,6 +660,78 @@
               </div>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tool-panel" id="panel-error-decoder">
+      <div class="tool-actions">
+        <button class="btn btn-primary btn-sm" onclick="window.edxAnalyze()" title="Decode the pasted error message or stack trace"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="11.5"/><line x1="11" y1="14" x2="11.01" y2="14"/></svg>Decode</button>
+        <button class="btn btn-secondary btn-sm" onclick="window.edxLoadExample()" title="Fill the input with a sample Mendix stack trace"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Load example</button>
+        <button class="btn btn-secondary btn-sm" onclick="window.edxClear()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Clear</button>
+      </div>
+      <div class="tool-body" style="padding:0; display:flex; flex:1; overflow:hidden;">
+        <div style="display:grid; grid-template-columns:minmax(320px, 42%) 1fr; width:100%; height:100%;" class="edx-split">
+
+          <!-- LEFT: paste input -->
+          <div style="border-right:1px solid var(--border); display:flex; flex-direction:column; background:var(--bg-elevated); overflow:hidden;">
+            <div style="padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border); font-size:0.75rem; color:var(--text-muted);">
+              Paste a Mendix / Java / PostgreSQL error message or full stack trace (including <code>Caused by:</code> lines).
+            </div>
+            <textarea id="edx-input" class="input" placeholder="e.g.  ERROR - Connector: com.mendix.systemwideinterfaces.core.UserException&#10;Caused by: org.postgresql.util.PSQLException: ERROR: duplicate key value violates unique constraint &quot;account_email_key&quot;&#10;    at ..." spellcheck="false" style="flex:1; border:none; border-radius:0; resize:none; font-family:var(--font-mono); font-size:0.8rem; line-height:1.5; padding:var(--sp-3); background:var(--bg); color:var(--text); outline:none;" oninput="window.edxOnInput && window.edxOnInput()"></textarea>
+          </div>
+
+          <!-- RIGHT: decoded cards -->
+          <div style="display:flex; flex-direction:column; background:var(--bg); overflow:hidden;">
+            <div id="edx-results" style="flex:1; overflow-y:auto; padding:var(--sp-4);">
+              <div class="edx-empty">
+                <p style="font-weight:600; color:var(--text-primary);">Paste an error to decode its mechanism</p>
+                <p>The decoder recognizes known Mendix, Java and PostgreSQL error signatures and explains, for each one it matches: <strong>what happened technically</strong> (certain), <strong>typical causes</strong> (hypotheses) and <strong>how to check which cause applies</strong> (a diagnostic checklist).</p>
+                <p>It is a decoder, not a fix advisor — it never tells you what to change, and when it does not recognize a message it says so rather than guessing.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tool-panel" id="panel-incident-report">
+      <div class="tool-actions">
+        <button class="btn btn-secondary btn-sm" onclick="window.irRefresh()" title="Re-scan the diagnostics tools for loaded data"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>Refresh sources</button>
+        <button class="btn btn-primary btn-sm" id="ir-generate-btn" onclick="window.irGenerate()" title="Build one self-contained HTML report from the selected sources"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 12 15 15"/></svg>Generate HTML report</button>
+      </div>
+      <div class="tool-body" style="overflow:auto; padding:var(--sp-5);">
+        <div style="max-width:820px; margin:0 auto; display:flex; flex-direction:column; gap:var(--sp-4);">
+          <p style="color:var(--text-secondary); font-size:0.85rem; margin:0; line-height:1.6;">Combine the data currently loaded across the diagnostics tools into <strong>one self-contained HTML report</strong> for a chosen time window. Load your logs in the individual tools first (Log Viewer, Log Query Extractor, Microflow Tracer, REST &amp; WS Extractor, Nginx, JVM Health) &mdash; only sources that actually hold data are offered here.</p>
+          <div id="ir-status" class="ir-status">Scanning loaded tools&hellip;</div>
+
+          <div>
+            <label class="form-label" for="ir-title">Incident title</label>
+            <input id="ir-title" class="input" placeholder="e.g. Checkout 500s — 2026-07-18 morning">
+          </div>
+
+          <div>
+            <label class="form-label">Time window (UTC) &mdash; leave blank for all loaded data</label>
+            <div style="display:flex; gap:var(--sp-2); align-items:center; flex-wrap:wrap;">
+              <input id="ir-from" class="input" placeholder="YYYY-MM-DD HH:MM:SS" style="flex:1; min-width:180px;">
+              <span style="color:var(--text-muted)">&rarr;</span>
+              <input id="ir-to" class="input" placeholder="YYYY-MM-DD HH:MM:SS" style="flex:1; min-width:180px;">
+              <button class="btn btn-ghost btn-sm" onclick="window.irResetWindow()" title="Clear the window and re-read the full span of loaded data">Clear</button>
+            </div>
+            <div style="font-size:0.72rem; color:var(--text-muted); margin-top:4px;">Pre-filled from the span of loaded data. Narrow it to focus the report on the incident.</div>
+          </div>
+
+          <div>
+            <label class="form-label">Sources to include</label>
+            <div id="ir-sources" class="ir-sources"></div>
+          </div>
+
+          <div>
+            <label class="form-label" for="ir-notes">Notes (optional)</label>
+            <textarea id="ir-notes" class="input" rows="2" placeholder="Context shown at the top of the report…" style="resize:vertical;"></textarea>
+          </div>
+
+          <div id="ir-summary" style="display:none;"></div>
         </div>
       </div>
     </div>
@@ -714,6 +798,7 @@
               <div style="padding:var(--sp-5); text-align:center; color:var(--text-muted); font-size:0.85rem;">
                 Drop a log file here or use &ldquo;Load Log&rdquo;:<br>
                 MicroflowEngine at DEBUG &mdash; execution times &bull; at TRACE &mdash; activity steps &amp; call tree.
+                <div class="data-req"><span class="data-req-title">How to get this data</span>Raise <b>MicroflowEngine</b> to <b>DEBUG</b> (execution times) or <b>TRACE</b> (activity steps &amp; call tree) &mdash; Studio Pro: <em>Console &rarr; Advanced &rarr; Set Log Levels</em>; Mendix Cloud: <em>Environment &rarr; Details &rarr; Log Levels</em>. Reproduce the scenario, then export/download the log.</div>
               </div>
             </div>
           </div>

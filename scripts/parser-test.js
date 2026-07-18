@@ -699,6 +699,132 @@ if (fs.existsSync(refInfo)) {
   console.log('  – reference INFO log absent, skipped (PII: never committed)');
 }
 
+// ── Mendix Error Decoder ruleset (public/js/tools/error-decoder.js) ──────────
+// The decoder is a plain script attaching edxDecode to window/self (window is
+// already pointed at the global above), so it require()s directly like MFT/WSRE.
+// Contract: decode mechanisms only, always expose the matched pattern, and — the
+// data-driven rule — return NO match rather than a guess for unknown input.
+console.log('\nError Decoder ruleset');
+require('../public/js/tools/error-decoder.js');
+const edxDecode = global.edxDecode;
+
+function edxIds(text) { return edxDecode(text).matches.map(function (m) { return m.id; }); }
+function edxTop(text) { return edxDecode(text).matches[0]; }
+
+// Data-driven rule: unknown / empty input yields zero cards, never a guess.
+eq('errdec: empty input → no matches', edxDecode('').matches.length, 0);
+eq('errdec: whitespace input → no matches', edxDecode('   \n  ').matches.length, 0);
+eq('errdec: unrecognized text → no matches',
+  edxDecode('Everything is fine, nothing to see here.').matches.length, 0);
+
+// Each headline signature is recognized.
+ok('errdec: unique constraint', edxIds('ERROR: duplicate key value violates unique constraint "account_email_key"').indexOf('pg-unique-violation') !== -1);
+ok('errdec: not-null constraint', edxIds('null value in column "name" violates not-null constraint').indexOf('pg-notnull-violation') !== -1);
+ok('errdec: foreign key', edxIds('violates foreign key constraint "customer_order_fk"').indexOf('pg-fk-violation') !== -1);
+ok('errdec: deadlock', edxIds('ERROR: deadlock detected').indexOf('pg-deadlock') !== -1);
+ok('errdec: statement timeout', edxIds('ERROR: canceling statement due to statement timeout').indexOf('pg-statement-timeout') !== -1);
+ok('errdec: pool exhausted', edxIds('Cannot get a connection, pool error Timeout waiting for idle object').indexOf('db-pool-exhausted') !== -1);
+ok('errdec: nonexistent object', edxIds("Trying to retrieve nonexistent object with id 'Sales.Order_281474976710656'").indexOf('mendix-nonexistent-object') !== -1);
+ok('errdec: heap OOM', edxIds('java.lang.OutOfMemoryError: Java heap space').indexOf('oom-heap') !== -1);
+ok('errdec: metaspace OOM', edxIds('java.lang.OutOfMemoryError: Metaspace').indexOf('oom-metaspace') !== -1);
+ok('errdec: gc overhead OOM', edxIds('java.lang.OutOfMemoryError: GC overhead limit exceeded').indexOf('oom-gc-overhead') !== -1);
+ok('errdec: native thread OOM', edxIds('java.lang.OutOfMemoryError: unable to create new native thread').indexOf('oom-native-thread') !== -1);
+ok('errdec: jetty EOF', edxIds('org.eclipse.jetty.io.EofException: Early EOF').indexOf('jetty-eof') !== -1);
+ok('errdec: socket read timeout', edxIds('java.net.SocketTimeoutException: Read timed out').indexOf('socket-read-timeout') !== -1);
+ok('errdec: TLS PKIX', edxIds('sun.security.validator.ValidatorException: PKIX path building failed').indexOf('ssl-pkix') !== -1);
+ok('errdec: connection refused', edxIds('java.net.ConnectException: Connection refused').indexOf('connection-refused') !== -1);
+ok('errdec: SAML audience', edxIds('SAML assertion invalid: Audience urn:acc:sp is not valid').indexOf('saml-audience') !== -1);
+ok('errdec: SAML clock/NotOnOrAfter', edxIds('Assertion Conditions NotOnOrAfter 2026-07-18T09:00:00Z has passed').indexOf('saml-clock') !== -1);
+ok('errdec: port in use', edxIds('java.net.BindException: Address already in use').indexOf('port-in-use') !== -1);
+ok('errdec: NPE', edxIds('java.lang.NullPointerException').indexOf('npe') !== -1);
+
+// The matched pattern is always exposed (owner contract: user judges the fit).
+const uniqTop = edxTop('ERROR: duplicate key value violates unique constraint "account_email_key"');
+ok('errdec: matchedText echoes the signature', /account_email_key/.test(uniqTop.matchedText), uniqTop.matchedText);
+eq('errdec: card carries category', uniqTop.category, 'Database');
+ok('errdec: mechanism is non-empty prose', uniqTop.mechanism.length > 40);
+ok('errdec: causes is a non-empty list', Array.isArray(uniqTop.causes) && uniqTop.causes.length >= 2);
+ok('errdec: checks is a non-empty list', Array.isArray(uniqTop.checks) && uniqTop.checks.length >= 1);
+ok('errdec: at least one check references a tool', uniqTop.checks.some(function (c) { return !!c.tool; }));
+ok('errdec: unique-violation check points at LQE', uniqTop.checks.some(function (c) { return c.tool === 'log-query-extractor'; }));
+
+// A real wrapped stack: the specific root cause must outrank the generic wrapper.
+const wrapped = [
+  'com.mendix.modules.microflowengine.MicroflowException: Error in (sub)microflow call',
+  '\tat com.mendix.modules.microflowengine.MicroflowEngine.execute(MicroflowEngine.java:120)',
+  'Caused by: java.net.SocketTimeoutException: Read timed out',
+  '\tat java.base/java.net.SocketInputStream.socketRead0(Native Method)'
+].join('\n');
+const wrappedIds = edxIds(wrapped);
+ok('errdec: wrapped stack matches both wrapper and root', wrappedIds.indexOf('microflow-exception') !== -1 && wrappedIds.indexOf('socket-read-timeout') !== -1);
+eq('errdec: specific root cause ranks first, not the wrapper', edxTop(wrapped).id, 'socket-read-timeout');
+ok('errdec: stack trace detected in input', edxDecode(wrapped).input.hasStackTrace);
+
+// Specificity: a specific DB signature outranks a bare NPE when both appear.
+const mixed = 'java.lang.NullPointerException\nCaused by: ERROR: deadlock detected';
+eq('errdec: DB deadlock outranks NPE', edxTop(mixed).id, 'pg-deadlock');
+
+// A single-line message with no stack still decodes and reports no stack trace.
+ok('errdec: single-line message → no stack flag', !edxDecode('java.lang.OutOfMemoryError: Java heap space').input.hasStackTrace);
+
+// ── Shared export helpers (public/js/components/exporters.js) ────────────────
+// Pure builders attach to window/self; the browser-only download/copy wrappers
+// are guarded by `typeof document`, so require() in Node loads just the builders.
+console.log('\nExport helpers');
+require('../public/js/components/exporters.js');
+const toCsv = global.mtExportToCsv;
+const toMd = global.mtExportToMarkdown;
+const toHtml = global.mtExportToHtml;
+
+const expHeader = ['Type', 'SQL'];
+const expRows = [['Retrieve', 'SELECT "a$b"."id" FROM "a$b"'], ['Slow', 'x, "quoted" value']];
+
+const csv = toCsv(expHeader, expRows);
+ok('csv: header quoted', csv.split('\r\n')[0] === '"Type","SQL"', csv.split('\r\n')[0]);
+ok('csv: embedded quotes doubled', csv.indexOf('""quoted"" value') !== -1, csv);
+eq('csv: row count = header + data', csv.split('\r\n').length, 3);
+ok('csv: uses CRLF line endings', csv.indexOf('\r\n') !== -1);
+
+const md = toMd(expHeader, expRows);
+ok('md: has separator row', md.split('\n')[1] === '|---|---|', md.split('\n')[1]);
+ok('md: pipes in cells escaped', toMd(['A'], [['x|y']]).indexOf('x\\|y') !== -1);
+ok('md: newlines in cells flattened', toMd(['A'], [['x\ny']]).indexOf('x y') !== -1);
+
+const html = toHtml({ title: 'Q & <Report>', subtitle: 'sub', meta: [{ label: 'Rows', value: 2 }], columns: expHeader, rows: expRows });
+ok('html: is a self-contained document', /^<!doctype html>/i.test(html) && html.indexOf('</html>') !== -1);
+ok('html: no external resource references', html.indexOf('http://') === -1 && html.indexOf('https://') === -1 && html.indexOf('src=') === -1);
+ok('html: title HTML-escaped', html.indexOf('Q &amp; &lt;Report&gt;') !== -1);
+ok('html: cell content escaped', html.indexOf('&quot;a$b&quot;') !== -1 || html.indexOf('&quot;quoted&quot;') !== -1);
+ok('html: renders a data cell', html.indexOf('<td>Retrieve</td>') !== -1);
+ok('html: sections mode renders multiple tables', (function () {
+  const h = toHtml({ title: 'Incident', sections: [{ title: 'SQL', columns: ['A'], rows: [['1']] }, { title: 'Microflows', columns: ['B'], rows: [['2']] }] });
+  return (h.match(/<h2>/g) || []).length === 2;
+})());
+ok('html: empty rows → "No rows." not a broken table', toHtml({ title: 'x', columns: ['A'], rows: [] }).indexOf('No rows.') !== -1);
+
+// ── Incident Report model builder (mtBuildIncidentReport) ────────────────────
+console.log('\nIncident Report builder');
+const buildIncident = global.mtBuildIncidentReport;
+const secA = { id: 'log-viewer', title: 'Log Viewer — errors', subtitle: '2 errors', columns: ['Time', 'Msg'], rows: [['t1', 'boom'], ['t2', 'bang']], total: 2, firstMs: 1000, lastMs: 5000 };
+const secB = { id: 'nginx-log', title: 'Nginx', subtitle: '1 request', columns: ['Time', 'Status'], rows: [['t3', 500]], total: 1, firstMs: 2000, lastMs: 8000 };
+
+const model = buildIncident([secA, null, secB], { title: 'Checkout incident', notes: 'prod, morning' });
+eq('incident: null sections dropped', model.sections.length, 2);
+eq('incident: title carried', model.title, 'Checkout incident');
+eq('incident: notes become the subtitle', model.subtitle, 'prod, morning');
+ok('incident: meta lists both source ids', model.meta.some(function (m) { return m.label === 'Sources' && /log-viewer/.test(m.value) && /nginx-log/.test(m.value); }));
+ok('incident: total rows summed across sections', model.meta.some(function (m) { return m.label === 'Total rows' && m.value === 3; }));
+ok('incident: default window spans min→max of section data', model.meta.some(function (m) { return m.label === 'Time window' && /1970-01-01 00:00:01.*1970-01-01 00:00:08/.test(m.value); }), JSON.stringify(model.meta[0]));
+
+const modelWin = buildIncident([secA], { fromMs: 1500, toMs: 4000 });
+ok('incident: explicit window overrides the data span', modelWin.meta.some(function (m) { return m.label === 'Time window' && /00:00:01.*00:00:04/.test(m.value); }));
+eq('incident: no sections → empty sections array', buildIncident([], {}).sections.length, 0);
+
+// The built model round-trips through the HTML exporter into a real report.
+const incidentHtml = toHtml(model);
+ok('incident: renders both section headings', (incidentHtml.match(/<h2>/g) || []).length === 2);
+ok('incident: self-contained, no external refs', /^<!doctype html>/i.test(incidentHtml) && !/https?:\/\//.test(incidentHtml));
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);

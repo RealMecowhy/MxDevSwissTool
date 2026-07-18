@@ -784,6 +784,36 @@ function wsreExportRows() {
   ]);
 }
 
+// Incident Report source: all paired REST/SOAP calls, optionally narrowed to
+// [fromMs, toMs] by request time. Returns null when empty (data-driven rule).
+window.wsreReportSection = function(fromMs, toMs) {
+  if (!wsreCalls.length) return null;
+  const inWin = wsreCalls.filter(function (c) {
+    if (fromMs != null && !isNaN(c.startMs) && c.startMs < fromMs) return false;
+    if (toMs != null && !isNaN(c.startMs) && c.startMs > toMs) return false;
+    return true;
+  });
+  if (!inWin.length) return null;
+  let firstMs = Infinity, lastMs = -Infinity, errors = 0;
+  const rows = inWin.map(function (c) {
+    if (!isNaN(c.startMs)) { if (c.startMs < firstMs) firstMs = c.startMs; if (c.startMs > lastMs) lastMs = c.startMs; }
+    if ((c.status !== null && c.status >= 400) || /fault/i.test(c.statusText || '')) errors++;
+    return [
+      c.startTs, c.node, c.direction === 'out' ? 'outgoing' : 'incoming', c.method,
+      c.status !== null ? c.status : c.statusText,
+      (c.durationMs !== null && !isNaN(c.durationMs)) ? +c.durationMs.toFixed(3) : '',
+      wsreEndpoint(c), c.microflow || '', c.corrId || '',
+      [c.uncertain ? 'uncertain-pairing' : '', c.timeoutSuspect ? 'timeout-suspect' : ''].filter(Boolean).join(' ')
+    ];
+  });
+  return {
+    id: 'ws-rest-extractor', title: 'REST & WS Extractor — integration calls',
+    subtitle: rows.length + ' call' + (rows.length === 1 ? '' : 's') + (errors ? ' · ' + errors + ' with error status' : ''),
+    columns: WSRE_EXPORT_HEADER, rows: rows, total: rows.length,
+    firstMs: firstMs === Infinity ? null : firstMs, lastMs: lastMs === -Infinity ? null : lastMs
+  };
+};
+
 window.wsreExportCsv = function() {
   if (wsreLastFiltered.length === 0) { alert('Nothing to export — load a log first (and check the active filters).'); return; }
   const esc = v => '"' + String(v).replace(/"/g, '""') + '"';
@@ -834,7 +864,8 @@ window.wsreClear = function() {
   document.getElementById('wsre-call-list').innerHTML =
     '<div style="padding:var(--sp-5); text-align:center; color:var(--text-muted); font-size:0.85rem;">' +
     'Drop a log file here or use &ldquo;Load TRACE Log&rdquo;:<br>' +
-    '<code>REST Consume</code> / <code>REST Publish</code> / <code>WebServices</code> at TRACE &mdash; paired request/response calls with headers, payloads and timings.</div>';
+    '<code>REST Consume</code> / <code>REST Publish</code> / <code>WebServices</code> at TRACE &mdash; paired request/response calls with headers, payloads and timings.' +
+    '<div class="data-req"><span class="data-req-title">How to get this data</span>Raise <b>REST Consume</b> / <b>REST Publish</b> / <b>WebServices</b> (and <b>MicroflowEngine</b> to link each call to its microflow) to <b>TRACE</b> &mdash; Studio Pro: <em>Console &rarr; Advanced &rarr; Set Log Levels</em>; Mendix Cloud: <em>Environment &rarr; Details &rarr; Log Levels</em>. Reproduce the integration call, then export/download the log.</div></div>';
   document.getElementById('wsre-count').textContent = '0';
   document.getElementById('wsre-overview-content').innerHTML = '<span style="color:var(--text-muted); font-size:0.85rem;">Select a call to see its overview, headers and payloads.</span>';
   wsreHeadersRows('wsre-req-headers-body', []);
