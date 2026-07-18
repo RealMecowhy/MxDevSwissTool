@@ -250,6 +250,8 @@ function logParseContent(text, filename) {
 
   logBuildDateFilter();
   logApplyFilters();
+  const insTab = document.getElementById('log-tab-insights');
+  if (insTab && insTab.style.display !== 'none') logRenderInsights();
   document.getElementById('log-stats').style.display = 'flex';
   document.getElementById('log-analyze-btn').style.display = 'inline-flex';
   document.getElementById('log-anon-copy-btn').style.display = 'inline-flex';
@@ -477,6 +479,9 @@ function logClear() {
   document.getElementById('log-correlation-output').innerHTML = '<span style="color:var(--text-muted)">Enter a correlation ID to see the flow...</span>';
   document.getElementById('log-sequence-output').innerHTML = '<span style="color:var(--text-muted);margin-top:var(--sp-5)">Sequence diagram will appear here...</span>';
   document.getElementById('log-gantt-output').innerHTML = '<span style="color:var(--text-muted)">Gantt chart will appear here...</span>';
+  const insOut = document.getElementById('log-insights-output');
+  if (insOut) insOut.innerHTML = '<div class="log-insights-empty"><p style="font-weight:600;margin-bottom:6px">No log loaded yet</p>'
+    + '<p style="font-size:0.8rem;color:var(--text-muted)">Insights scans WARNING/ERROR patterns and shows a card for each problem that actually appears. Click a card to filter the stream.</p></div>';
 }
 function logExportFiltered() {
   if (!logFilteredEntries.length) return;
@@ -723,6 +728,217 @@ function logClearSignatureFilter() {
   document.getElementById('log-sig-filter-banner').style.display = 'none';
   logApplyFilters();
 }
+
+// ============================================================
+// LOG INSIGHTS — curated Mendix problem cards (data-driven)
+// ============================================================
+// Pure function, attached to window/self so Node tests can require it like the
+// MFT/LQE/WSRE extractors. Consumes parser records ({level, logNode|node,
+// message|msg, timestamp|ts}) and returns ONLY the problem categories that
+// actually occur in the data — no empty cards (data-driven rule). Specialized
+// detectors pull structured detail out of known Mendix pain points; everything
+// else falls back to per-node error/warning hotspots. Zero new parsing:
+// aggregation runs over records already produced by the log parser.
+
+function logInsightsLevel(l) {
+  l = (l || '').toUpperCase();
+  if (l === 'WARNING') return 'WARN';
+  if (l === 'ERR' || l === 'FATAL') return 'ERROR';
+  return l;
+}
+
+// Collapse a message to a signature so distinct variants can be counted:
+// UUIDs, Mendix ids, numbers and quoted literals become '#'.
+function logInsightsSignature(msg) {
+  return String(msg || '').split('\n')[0]
+    .replace(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g, '#')
+    .replace(/'[^']*'/g, "'#'")
+    .replace(/\b\d+\b/g, '#')
+    .trim().slice(0, 200);
+}
+
+function logExtractInsights(records, opts) {
+  opts = opts || {};
+  const warnMin = opts.warnHotspotMin != null ? opts.warnHotspotMin : 10;
+  records = records || [];
+
+  const rows = records.map(function (r) {
+    return {
+      level: logInsightsLevel(r.level),
+      node:  (r.logNode != null ? r.logNode : r.node) || '',
+      msg:   String(r.message != null ? r.message : r.msg || ''),
+      ts:    (r.timestamp != null ? r.timestamp : r.ts) || ''
+    };
+  });
+
+  const consumed = new Array(rows.length).fill(false);
+  const categories = [];
+
+  let warnings = 0, errors = 0;
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].level === 'WARN') warnings++;
+    else if (rows[i].level === 'ERROR' || rows[i].level === 'CRITICAL') errors++;
+  }
+
+  function agg() { return { count: 0, firstTs: '', lastTs: '', sample: '', sigs: new Set() }; }
+  function bump(a, r) {
+    a.count++;
+    if (!a.firstTs) a.firstTs = r.ts;
+    a.lastTs = r.ts;
+    if (!a.sample) a.sample = r.msg.split('\n')[0];
+    a.sigs.add(logInsightsSignature(r.msg));
+  }
+  function finishCat(key, title, severity, a, filter, items, subtitle) {
+    return {
+      key: key, title: title, severity: severity,
+      count: a.count, distinct: a.sigs.size,
+      firstTs: a.firstTs, lastTs: a.lastTs, sample: a.sample,
+      subtitle: subtitle || '', filter: filter, items: items || []
+    };
+  }
+  function itemsFromMap(map, parentFilter, searchIsLabel) {
+    return Array.from(map.entries()).map(function (e) {
+      const label = e[0], a = e[1];
+      return {
+        label: label, count: a.count, sample: a.sample, distinct: a.sigs.size,
+        filter: {
+          node: parentFilter.node, levels: parentFilter.levels,
+          search: searchIsLabel === false ? '' : label
+        }
+      };
+    }).sort(function (x, y) { return y.count - x.count; });
+  }
+
+  // ── 1. Access denied — user lacks microflow/entity rights (WebUI WARNING) ──
+  {
+    const byMf = new Map(); const users = new Set(); const cat = agg();
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (r.node !== 'WebUI' || r.level !== 'WARN') continue;
+      const m = r.msg.match(/User '([^']*)' attempted to execute .*?\(microflow call '([^']+)'\)/);
+      if (!m) continue;
+      consumed[i] = true; bump(cat, r); users.add(m[1]);
+      if (!byMf.has(m[2])) byMf.set(m[2], agg());
+      bump(byMf.get(m[2]), r);
+    }
+    if (cat.count > 0) {
+      categories.push(finishCat('perm-denied', 'Access denied — user lacks rights', 'warning', cat,
+        { node: 'WebUI', levels: 'WARN', search: 'attempted to execute' },
+        itemsFromMap(byMf, { node: 'WebUI', levels: 'WARN' }),
+        cat.count + ' denied call(s) · ' + users.size + ' user(s) · ' + byMf.size + ' microflow(s)'));
+    }
+  }
+
+  // ── 2. Runtime operation missing parameters (WebUI WARNING) ──
+  {
+    const byOp = new Map(); const cat = agg();
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (consumed[i] || r.node !== 'WebUI' || r.level !== 'WARN') continue;
+      if (!/is missing parameters/.test(r.msg)) continue;
+      consumed[i] = true; bump(cat, r);
+      const m = r.msg.match(/is missing parameters: \[([^\]]*)\]/);
+      const key = m ? m[1] : '(unknown)';
+      if (!byOp.has(key)) byOp.set(key, agg());
+      bump(byOp.get(key), r);
+    }
+    if (cat.count > 0) {
+      categories.push(finishCat('missing-params', 'Runtime operation missing parameters', 'warning', cat,
+        { node: 'WebUI', levels: 'WARN', search: 'is missing parameters' },
+        itemsFromMap(byOp, { node: 'WebUI', levels: 'WARN' }, false),
+        cat.count + ' occurrence(s) · ' + byOp.size + ' distinct parameter set(s)'));
+    }
+  }
+
+  // ── 3. Request state bloat — session memory (RequestStatistics WARNING) ──
+  {
+    const cat = agg(); let maxSize = 0, threshold = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (r.node !== 'RequestStatistics' || r.level !== 'WARN') continue;
+      const m = r.msg.match(/Request state size of (\d+) objects exceeds the threshold of (\d+)/);
+      if (!m) continue;
+      consumed[i] = true; bump(cat, r);
+      maxSize = Math.max(maxSize, parseInt(m[1], 10));
+      threshold = parseInt(m[2], 10);
+    }
+    if (cat.count > 0) {
+      categories.push(finishCat('session-bloat', 'Request state bloat (session memory)', 'warning', cat,
+        { node: 'RequestStatistics', levels: 'WARN', search: 'Request state size' }, [],
+        cat.count + ' request(s) over limit · peak ' + maxSize + ' objects (threshold ' + threshold + ')'));
+    }
+  }
+
+  // ── 4. TaskQueue — failed background tasks (ERROR); retry loops surface here ──
+  {
+    const byTask = new Map(); const cat = agg();
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (r.node !== 'TaskQueue' || (r.level !== 'ERROR' && r.level !== 'CRITICAL')) continue;
+      // Task args can contain single quotes (e.g. MailTo='...'), so capture the
+      // task name (up to '(' or quote) and the queue name independently rather
+      // than with one brittle regex that would drop those failures.
+      const tm = r.msg.match(/Failed to execute task '([^'(]+)/);
+      if (!tm) continue;
+      consumed[i] = true; bump(cat, r);
+      const task = tm[1].trim();
+      const qm = r.msg.match(/from task queue '([^']+)'/);
+      const queue = qm ? qm[1] : '(unknown)';
+      const key = task + '  ·  queue ' + queue;
+      if (!byTask.has(key)) byTask.set(key, { agg: agg(), task: task });
+      bump(byTask.get(key).agg, r);
+    }
+    if (cat.count > 0) {
+      const items = Array.from(byTask.entries()).map(function (e) {
+        const a = e[1].agg;
+        return { label: e[0], count: a.count, sample: a.sample, distinct: a.sigs.size,
+          filter: { node: 'TaskQueue', levels: 'ERROR,CRITICAL', search: e[1].task } };
+      }).sort(function (x, y) { return y.count - x.count; });
+      const loops = items.filter(function (it) { return it.count >= 5; }).length;
+      categories.push(finishCat('taskqueue-fail', 'TaskQueue — failed background tasks', 'error', cat,
+        { node: 'TaskQueue', levels: 'ERROR,CRITICAL', search: 'Failed to execute task' }, items,
+        cat.count + ' failure(s) · ' + byTask.size + ' task(s)' + (loops ? ' · ' + loops + ' retry-loop(s)' : '')));
+    }
+  }
+
+  // ── 5. Generic per-node hotspots for everything not captured above ──
+  const buckets = new Map();
+  for (let i = 0; i < rows.length; i++) {
+    if (consumed[i]) continue;
+    const r = rows[i];
+    const isErr = r.level === 'ERROR' || r.level === 'CRITICAL';
+    const isWarn = r.level === 'WARN';
+    if (!isErr && !isWarn) continue;
+    const bkey = (isErr ? 'E|' : 'W|') + r.node;
+    if (!buckets.has(bkey)) buckets.set(bkey, { node: r.node, severity: isErr ? 'error' : 'warning', a: agg(), sigMap: new Map() });
+    const b = buckets.get(bkey);
+    bump(b.a, r);
+    const sig = logInsightsSignature(r.msg);
+    if (!b.sigMap.has(sig)) b.sigMap.set(sig, agg());
+    bump(b.sigMap.get(sig), r);
+  }
+  buckets.forEach(function (b) {
+    if (b.severity === 'warning' && b.a.count < warnMin) return;
+    const levels = b.severity === 'error' ? 'ERROR,CRITICAL' : 'WARN';
+    const items = Array.from(b.sigMap.entries()).map(function (e) {
+      return { label: e[0], count: e[1].count, sample: e[1].sample, distinct: 1,
+        filter: { node: b.node, levels: levels, search: '' } };
+    }).sort(function (x, y) { return y.count - x.count; }).slice(0, 8);
+    categories.push(finishCat('node-' + b.severity + '-' + b.node,
+      b.node + (b.severity === 'error' ? ' — errors' : ' — warnings'), b.severity, b.a,
+      { node: b.node, levels: levels, search: '' }, items,
+      b.a.count + ' entr' + (b.a.count === 1 ? 'y' : 'ies') + ' · ' + b.sigMap.size + ' distinct message(s)'));
+  });
+
+  categories.sort(function (x, y) {
+    const sr = (x.severity === 'error' ? 0 : 1) - (y.severity === 'error' ? 0 : 1);
+    if (sr) return sr;
+    return y.count - x.count;
+  });
+
+  return { categories: categories, stats: { records: rows.length, warnings: warnings, errors: errors, categories: categories.length } };
+}
+
 // ============================================================
 // ADVANCED LOG INTELLIGENCE (Correlation, Sequence, Gantt)
 // ============================================================
@@ -730,11 +946,111 @@ function logClearSignatureFilter() {
 function logSetTab(tabId, el) {
   document.querySelectorAll('#panel-log-viewer .tabs .tab').forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected', 'false'); });
   if (el) { el.classList.add('active'); el.setAttribute('aria-selected', 'true'); }
-  
-  const tabs = ['stream', 'correlation', 'sequence', 'gantt'];
+
+  const tabs = ['stream', 'insights', 'correlation', 'sequence', 'gantt'];
   tabs.forEach(t => {
-    document.getElementById('log-tab-' + t).style.display = (t === tabId) ? 'flex' : 'none';
+    const pane = document.getElementById('log-tab-' + t);
+    if (pane) pane.style.display = (t === tabId) ? 'flex' : 'none';
   });
+  if (tabId === 'insights') logRenderInsights();
+}
+
+// Builds the Insights problem-card overview from the loaded records. Honors the
+// data-driven rule: empty log → guidance; loaded but no WARN/ERROR patterns →
+// an explicit "clean" state; otherwise one card per category that occurs.
+function logRenderInsights() {
+  const out = document.getElementById('log-insights-output');
+  if (!out) return;
+
+  if (!logAllEntries.length) {
+    out.innerHTML = '<div class="log-insights-empty">'
+      + '<p style="font-weight:600;margin-bottom:6px">No log loaded yet</p>'
+      + '<p style="font-size:0.8rem;color:var(--text-muted)">Insights scans WARNING/ERROR patterns (permission violations, session-state bloat, TaskQueue failures, per-node error hotspots) and shows a card for each problem that actually appears — nothing more.</p></div>';
+    return;
+  }
+
+  const result = logExtractInsights(logAllEntries);
+  const cats = result.categories;
+
+  const head = '<div class="log-insights-summary">Scanned <strong>' + result.stats.records + '</strong> entries · '
+    + '<span style="color:var(--log-error)">' + result.stats.errors + ' errors</span> · '
+    + '<span style="color:var(--log-warning)">' + result.stats.warnings + ' warnings</span> · '
+    + '<strong>' + cats.length + '</strong> problem categor' + (cats.length === 1 ? 'y' : 'ies') + '</div>';
+
+  if (cats.length === 0) {
+    out.innerHTML = head + '<div class="log-insights-empty" style="margin-top:var(--sp-4)">'
+      + '<p style="font-weight:600;margin-bottom:6px">No WARNING/ERROR patterns found</p>'
+      + '<p style="font-size:0.8rem;color:var(--text-muted)">This log is clean at WARNING level and above. If you expected background-job or microflow detail, raise the relevant log nodes to DEBUG/TRACE and reproduce the scenario.</p></div>';
+    return;
+  }
+
+  const cards = cats.map(function (c, i) {
+    const sevColor = c.severity === 'error' ? 'var(--log-error)' : 'var(--log-warning)';
+    const span = (c.firstTs && c.lastTs && c.firstTs !== c.lastTs)
+      ? '<span class="log-insights-span" title="First → last occurrence">' + escHtml(logInsightsShortTs(c.firstTs)) + ' → ' + escHtml(logInsightsShortTs(c.lastTs)) + '</span>' : '';
+    const itemsHtml = (c.items && c.items.length) ? '<div class="log-insights-items" id="log-insights-items-' + i + '" style="display:none">'
+      + c.items.slice(0, 12).map(function (it) {
+          return '<div class="log-insights-item" onclick="logInsightFilter(' + logInsightsAttr(it.filter) + ')" title="Filter the stream to these entries">'
+            + '<span class="log-insights-item-count">' + it.count + '×</span>'
+            + '<span class="log-insights-item-label">' + escHtml(it.label) + '</span></div>';
+        }).join('')
+      + (c.items.length > 12 ? '<div style="font-size:0.72rem;color:var(--text-muted);padding:4px 8px">…and ' + (c.items.length - 12) + ' more</div>' : '')
+      + '</div>' : '';
+    const toggle = (c.items && c.items.length)
+      ? '<button class="btn btn-ghost btn-sm log-insights-toggle" onclick="event.stopPropagation();logInsightsToggle(' + i + ')">Breakdown (' + c.items.length + ')</button>' : '';
+
+    return '<div class="log-insights-card" style="border-left:3px solid ' + sevColor + '">'
+      + '<div class="log-insights-card-head" onclick="logInsightFilter(' + logInsightsAttr(c.filter) + ')" title="Filter the stream to these entries">'
+      +   '<span class="log-insights-count" style="background:' + sevColor + '">' + c.count + '×</span>'
+      +   '<div style="flex:1;min-width:0">'
+      +     '<div class="log-insights-title">' + escHtml(c.title) + '</div>'
+      +     '<div class="log-insights-sub">' + escHtml(c.subtitle) + '</div>'
+      +     (c.sample ? '<div class="log-insights-sample" title="' + escHtml(c.sample) + '">' + escHtml(c.sample) + '</div>' : '')
+      +   '</div>'
+      +   span
+      + '</div>'
+      + (toggle ? '<div class="log-insights-actions">' + toggle + '</div>' : '')
+      + itemsHtml
+      + '</div>';
+  }).join('');
+
+  out.innerHTML = head + '<div class="log-insights-grid">' + cards + '</div>';
+}
+
+function logInsightsShortTs(ts) {
+  const m = String(ts).match(/(\d{2}:\d{2}:\d{2})/);
+  return m ? m[1] : ts;
+}
+
+// Serializes a filter object into an inline-handler argument list, safely quoted.
+function logInsightsAttr(f) {
+  const q = function (s) { return "'" + String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'"; };
+  return q(f.node) + ',' + q(f.levels) + ',' + q(f.search);
+}
+
+function logInsightsToggle(i) {
+  const el = document.getElementById('log-insights-items-' + i);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+// Card/item click → jump to the Log Stream tab with matching filters applied.
+function logInsightFilter(node, levels, search) {
+  const levelSet = (levels || '').split(',').map(function (s) { return s.trim().toUpperCase(); }).filter(Boolean)
+    .map(function (l) { return l === 'WARNING' ? 'WARN' : l; });
+
+  ['TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'CRITICAL'].forEach(function (l) {
+    const on = levelSet.length === 0 || levelSet.indexOf(l) !== -1;
+    const btn = document.querySelector('.level-filter-btn[onclick*="\'' + l + '\'"]');
+    if (on) { logActiveLevels.add(l); if (btn) btn.classList.add('active'); }
+    else { logActiveLevels.delete(l); if (btn) btn.classList.remove('active'); }
+  });
+
+  document.getElementById('log-node-filter').value = node || '';
+  document.getElementById('log-search').value = search || '';
+
+  const streamTab = document.querySelector('#panel-log-viewer .tabs .tab[data-help-key="log-viewer-stream"]');
+  logSetTab('stream', streamTab);
+  logApplyFilters();
 }
 
 function logGenerateCorrelation() {
@@ -957,6 +1273,10 @@ window.logToggleSigDetail = logToggleSigDetail;
 window.logExpandAllSignatures = logExpandAllSignatures;
 window.logFilterToSignature = logFilterToSignature;
 window.logClearSignatureFilter = logClearSignatureFilter;
+window.logExtractInsights = logExtractInsights;
+window.logRenderInsights = logRenderInsights;
+window.logInsightFilter = logInsightFilter;
+window.logInsightsToggle = logInsightsToggle;
 window.logSetTab = logSetTab;
 window.logGenerateCorrelation = logGenerateCorrelation;
 window.logGenerateSequence = logGenerateSequence;

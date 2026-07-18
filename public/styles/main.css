@@ -1210,6 +1210,114 @@ kbd {
   color: #7a5800;
   background: #ffc40059;
 }
+/* ── Log Insights ── */
+#log-tab-insights {
+  overflow: auto;
+  padding: var(--sp-4);
+}
+.log-insights-summary {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  margin-bottom: var(--sp-4);
+}
+.log-insights-empty {
+  text-align: center;
+  color: var(--text-secondary);
+  max-width: 520px;
+  margin: var(--sp-8) auto;
+}
+.log-insights-grid {
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: var(--sp-3);
+  display: grid;
+}
+.log-insights-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.log-insights-card-head {
+  align-items: flex-start;
+  gap: var(--sp-3);
+  cursor: pointer;
+  display: flex;
+}
+.log-insights-count {
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.8rem;
+  padding: 2px 8px;
+  border-radius: var(--r-sm);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.log-insights-title {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.log-insights-sub {
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  margin-top: 2px;
+}
+.log-insights-sample {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 4px;
+}
+.log-insights-span {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.log-insights-actions {
+  display: flex;
+  gap: var(--sp-2);
+}
+.log-insights-items {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--sp-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.log-insights-item {
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: 3px 6px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  display: flex;
+}
+.log-insights-item:hover {
+  background: var(--bg-hover);
+}
+.log-insights-item-count {
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  min-width: 36px;
+  font-variant-numeric: tabular-nums;
+}
+.log-insights-item-label {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  word-break: break-word;
+}
 #json-split,
 #xml-split,
 #sql-split {

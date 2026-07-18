@@ -30,6 +30,34 @@ const TOOLS_HELP = {
       </ul>
     `
   },
+  'log-viewer-insights': {
+    title: 'Mendix Log Viewer - Insights',
+    description: 'A triage overview that scans the loaded log for known Mendix problem patterns and shows one card per issue that actually occurs — never an empty report. It works on ordinary production logs (INFO level and above): permission violations, session-state bloat and TaskQueue failures all log at WARNING/ERROR, so no DEBUG/TRACE is required. Click any card (or a row in its breakdown) to jump to the Log Stream filtered to exactly those entries.',
+    howToGet: `
+      <p>Any Mendix log works — the same files you load in the Log Stream tab. Insights reads the records already parsed there, so nothing extra is needed.</p>
+      <ul style="margin-top:var(--sp-2); margin-left:var(--sp-4); list-style-type:disc;">
+        <li><strong>Standard production logs (INFO+):</strong> permission violations, request-state bloat, TaskQueue failures and per-node error hotspots are all captured — these events log at WARNING/ERROR.</li>
+        <li><strong>Background-job run statistics:</strong> if you also need scheduled-event durations and microflow-level detail, raise the relevant log nodes to <code>DEBUG</code>/<code>TRACE</code> — but that is <em>not</em> required for the cards here.</li>
+      </ul>
+    `,
+    howToUse: `
+      <ol>
+        <li>Load a log in the <strong>Log Stream</strong> tab, then switch to <strong>Insights</strong>.</li>
+        <li>Read the summary line (entries scanned, error/warning totals, number of problem categories). Cards are sorted with errors first, then by frequency.</li>
+        <li>Each card shows the count, a one-line summary and a sample message. Click <strong>Breakdown</strong> to expand the per-microflow / per-task / per-message drill-down.</li>
+        <li>Click a card header or a breakdown row to open the Log Stream pre-filtered (log node + level + search) to just those entries.</li>
+        <li>If no cards appear, the log is clean at WARNING level and above — that is itself a useful result.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>Access denied (WebUI):</strong> a user tried to run a microflow/page they lack rights for. A single microflow denied to many users usually means a missing or misconfigured entity/page access rule.</li>
+        <li><strong>Request state bloat (RequestStatistics):</strong> a request kept far more objects in session state than the threshold — a common cause of memory pressure and slow pages. The card reports the peak object count observed.</li>
+        <li><strong>TaskQueue failures:</strong> background tasks that threw. A single task failing many times is a <em>retry loop</em> (flagged in the card) — typically one poison record; use the breakdown to get the task name and queue, then trace it.</li>
+        <li><strong>Per-node error hotspots:</strong> everything else, bucketed by log node (e.g. <code>SAML_SSO</code>, <code>Connector</code>, <code>WebServices</code>). High <code>Connector</code> 404 counts are often bots probing the public URL — noise, but worth confirming.</li>
+      </ul>
+    `
+  },
   'log-viewer-correlation': {
     title: 'Mendix Log Viewer - Correlation Flow',
     description: 'Visualizes the flow of requests and microflow executions based on correlation IDs in the logs, allowing you to trace a complete transaction across multiple log entries.',

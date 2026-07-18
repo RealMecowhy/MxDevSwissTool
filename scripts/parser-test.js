@@ -568,6 +568,137 @@ if (fs.existsSync(refTrace)) {
   console.log('  – reference trace log absent, skipped (PII: never committed)');
 }
 
+// ── Log Insights aggregation (public/js/tools/log-viewer.js) ─────────────────
+// log-viewer.js is imported by core.js as an ES module (it carries `export
+// function init()`), so unlike the other tools it can't be require()d as-is.
+// Strip the `export ` keyword and compile the rest in a CommonJS wrapper — the
+// pure logExtractInsights + helpers attach to window (pointed at global above).
+// The extractor honors the data-driven rule: only categories that occur produce
+// a card, and a clean INFO-level log yields zero categories.
+console.log('\nLog Insights aggregation');
+const lvPath = path.join(__dirname, '..', 'public', 'js', 'tools', 'log-viewer.js');
+const lvSrc = fs.readFileSync(lvPath, 'utf8').replace(/^export\s+/gm, '');
+const NodeModule = require('module');
+const lvModule = new NodeModule(lvPath, module);
+lvModule.filename = lvPath;
+lvModule.paths = NodeModule._nodeModulePaths(path.dirname(lvPath));
+lvModule._compile(lvSrc, lvPath);
+const logInsights = global.logExtractInsights;
+
+const insLog = [
+  // Access denied — same microflow denied to two users, a third microflow to one
+  '2026-07-18T09:00:00.000000 ' + P + '  WARNING - WebUI: User \'a@ex.com\' attempted to execute runtime operation \'OP1\' (microflow call \'Mod.ACT_Secret\') but does not have the required permission.',
+  '2026-07-18T09:00:01.000000 ' + P + '  WARNING - WebUI: User \'b@ex.com\' attempted to execute runtime operation \'OP1\' (microflow call \'Mod.ACT_Secret\') but does not have the required permission.',
+  '2026-07-18T09:00:02.000000 ' + P + '  WARNING - WebUI: User \'a@ex.com\' attempted to execute runtime operation \'OP9\' (microflow call \'Mod.ACT_Other\') but does not have the required permission.',
+  // Missing parameters (WebUI, different problem)
+  '2026-07-18T09:00:03.000000 ' + P + '  WARNING - WebUI: The runtime operation \'OP2\' is missing parameters: [CurrentObject]. This might lead to an unresolvable XPath.',
+  // Session state bloat — two requests, peak 450
+  '2026-07-18T09:00:04.000000 ' + P + '  WARNING - RequestStatistics: Request state size of 315 objects exceeds the threshold of 300 objects.',
+  '2026-07-18T09:00:05.000000 ' + P + '  WARNING - RequestStatistics: Request state size of 450 objects exceeds the threshold of 300 objects.',
+  // TaskQueue retry loop — MDM.UPD_UserData fails 6× from one queue, plus one other task
+  '2026-07-18T09:00:06.000000 ' + P + '   ERROR - TaskQueue: Failed to execute task \'MDM.UPD_UserData(Account=X@1)\' from task queue \'Queues.Schedule\'.',
+  '2026-07-18T09:00:07.000000 ' + P + '   ERROR - TaskQueue: Failed to execute task \'MDM.UPD_UserData(Account=X@1)\' from task queue \'Queues.Schedule\'.',
+  '2026-07-18T09:00:08.000000 ' + P + '   ERROR - TaskQueue: Failed to execute task \'MDM.UPD_UserData(Account=X@1)\' from task queue \'Queues.Schedule\'.',
+  '2026-07-18T09:00:09.000000 ' + P + '   ERROR - TaskQueue: Failed to execute task \'MDM.UPD_UserData(Account=X@1)\' from task queue \'Queues.Schedule\'.',
+  '2026-07-18T09:00:10.000000 ' + P + '   ERROR - TaskQueue: Failed to execute task \'MDM.UPD_UserData(Account=X@1)\' from task queue \'Queues.Schedule\'.',
+  '2026-07-18T09:00:11.000000 ' + P + '   ERROR - TaskQueue: Failed to execute task \'MDM.UPD_UserData(Account=X@1)\' from task queue \'Queues.Schedule\'.',
+  '2026-07-18T09:00:12.000000 ' + P + '   ERROR - TaskQueue: Failed to execute task \'Parking.SmsNotification(Id=9)\' from task queue \'Queues.Sms\'.',
+  // Generic per-node error hotspot (SAML_SSO)
+  '2026-07-18T09:00:13.000000 ' + P + '   ERROR - SAML_SSO: null',
+  '2026-07-18T09:00:14.000000 ' + P + '   ERROR - SAML_SSO: null',
+  '2026-07-18T09:00:15.000000 ' + P + '   ERROR - SAML_SSO: null',
+  // Below-threshold warnings (Core ×2) must NOT surface as a hotspot by default
+  '2026-07-18T09:00:16.000000 ' + P + '  WARNING - Core: minor thing happened',
+  '2026-07-18T09:00:17.000000 ' + P + '  WARNING - Core: minor thing happened again',
+  // Noise that must be ignored entirely
+  '2026-07-18T09:00:18.000000 ' + P + '    INFO - Core: business as usual',
+  '2026-07-18T09:00:19.000000 ' + P + '   DEBUG - MicroflowEngine: [1-1] Starting execution of microflow \'Mod.Flow\''
+].join('\n');
+
+const insRecs = parser.parse(insLog).records;
+const ins = logInsights(insRecs);
+const catBy = {};
+ins.categories.forEach(function (c) { catBy[c.key] = c; });
+
+eq('insights: stats count errors', ins.stats.errors, 10);
+// 3 perm-denied + 1 missing-params + 2 session-bloat + 2 sub-threshold Core = 8
+eq('insights: stats count warnings', ins.stats.warnings, 8);
+
+// Access denied
+ok('insights: perm-denied category present', !!catBy['perm-denied']);
+eq('perm-denied: total count', catBy['perm-denied'].count, 3);
+eq('perm-denied: 2 microflows in breakdown', catBy['perm-denied'].items.length, 2);
+eq('perm-denied: top microflow is ACT_Secret ×2', catBy['perm-denied'].items[0].label, 'Mod.ACT_Secret');
+eq('perm-denied: top microflow count', catBy['perm-denied'].items[0].count, 2);
+ok('perm-denied: subtitle names 2 users', /2 user/.test(catBy['perm-denied'].subtitle), catBy['perm-denied'].subtitle);
+eq('perm-denied: item filter searches microflow', catBy['perm-denied'].items[0].filter.search, 'Mod.ACT_Secret');
+
+// Missing params is a distinct category (not folded into perm-denied)
+ok('insights: missing-params category present', !!catBy['missing-params']);
+eq('missing-params: count', catBy['missing-params'].count, 1);
+
+// Session bloat — peak size reported
+ok('insights: session-bloat category present', !!catBy['session-bloat']);
+eq('session-bloat: count', catBy['session-bloat'].count, 2);
+ok('session-bloat: subtitle reports peak 450', /peak 450/.test(catBy['session-bloat'].subtitle), catBy['session-bloat'].subtitle);
+
+// TaskQueue failures — retry loop surfaced
+ok('insights: taskqueue-fail category present', !!catBy['taskqueue-fail']);
+eq('taskqueue-fail: total failures', catBy['taskqueue-fail'].count, 7);
+eq('taskqueue-fail: severity error', catBy['taskqueue-fail'].severity, 'error');
+ok('taskqueue-fail: retry loop noted in subtitle', /retry-loop/.test(catBy['taskqueue-fail'].subtitle), catBy['taskqueue-fail'].subtitle);
+eq('taskqueue-fail: top task is MDM.UPD_UserData', catBy['taskqueue-fail'].items[0].filter.search, 'MDM.UPD_UserData');
+eq('taskqueue-fail: top task count', catBy['taskqueue-fail'].items[0].count, 6);
+
+// Generic per-node hotspot
+ok('insights: SAML_SSO error hotspot present', !!catBy['node-error-SAML_SSO']);
+eq('SAML_SSO hotspot count', catBy['node-error-SAML_SSO'].count, 3);
+
+// Below-threshold Core warnings must not produce a card by default...
+ok('insights: sub-threshold Core warnings suppressed', !catBy['node-warning-Core']);
+// ...but a lower threshold surfaces them (data-driven knob)
+const insLow = logInsights(insRecs, { warnHotspotMin: 1 });
+ok('insights: Core warnings appear at warnHotspotMin=1',
+  insLow.categories.some(function (c) { return c.key === 'node-warning-Core' && c.count === 2; }));
+
+// Sorting: error categories rank before warning categories
+const firstWarnIdx = ins.categories.findIndex(function (c) { return c.severity === 'warning'; });
+const lastErrIdx = ins.categories.map(function (c) { return c.severity; }).lastIndexOf('error');
+ok('insights: all error cards sort before warning cards', lastErrIdx < firstWarnIdx, lastErrIdx + '/' + firstWarnIdx);
+
+// Data-driven rule: a clean INFO-level log yields no categories at all
+const cleanLog = [
+  '2026-07-18T10:00:00.000000 ' + P + '    INFO - Core: started',
+  '2026-07-18T10:00:01.000000 ' + P + '    INFO - Jetty: listening',
+  '2026-07-18T10:00:02.000000 ' + P + '   DEBUG - Core: tick'
+].join('\n');
+const cleanIns = logInsights(parser.parse(cleanLog).records);
+eq('insights: clean INFO log → zero categories', cleanIns.categories.length, 0);
+eq('insights: empty input → zero categories', logInsights([]).categories.length, 0);
+
+// Reference: real INFO-level production log (local only, PII — never committed).
+// This is the 14.07 log from the SE/Log-Insights analysis: it carries a genuine
+// MDM.UPD_UserData retry loop, permission denials and request-state bloat.
+const refInfo = path.join(__dirname, '..', '_local_assets', 'FilesForTest', 'logs_8d888530-51c3-4167-94f7-2d4c9a1b887e_2026-07-14.txt');
+if (fs.existsSync(refInfo)) {
+  const text = fs.readFileSync(refInfo, 'utf8');
+  const recs4 = parser.parse(text).records;
+  const t0 = Date.now();
+  const out = logInsights(recs4);
+  const ms = Date.now() - t0;
+  const by = {};
+  out.categories.forEach(function (c) { by[c.key] = c; });
+  eq('reference INFO: TaskQueue failures = 118', by['taskqueue-fail'] && by['taskqueue-fail'].count, 118);
+  eq('reference INFO: MDM.UPD_UserData is the top failing task', by['taskqueue-fail'].items[0].filter.search, 'MDM.UPD_UserData');
+  eq('reference INFO: MDM.UPD_UserData failed 103×', by['taskqueue-fail'].items[0].count, 103);
+  eq('reference INFO: permission denials = 14', by['perm-denied'] && by['perm-denied'].count, 14);
+  eq('reference INFO: session-state bloat warnings = 5', by['session-bloat'] && by['session-bloat'].count, 5);
+  eq('reference INFO: SAML_SSO error hotspot = 266', by['node-error-SAML_SSO'] && by['node-error-SAML_SSO'].count, 266);
+  console.log('    (' + (text.length / (1024 * 1024)).toFixed(0) + ' MB → ' + out.stats.records + ' records, ' + out.categories.length + ' categories in ' + ms + ' ms)');
+} else {
+  console.log('  – reference INFO log absent, skipped (PII: never committed)');
+}
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);
