@@ -22,6 +22,65 @@ export function initCommandPalette(toolsList, navigateFn) {
   let selectedIndex = 0;
   let currentResults = [];
 
+  const globalActions = [
+    {
+      id: 'action-export',
+      label: 'Export current view...',
+      desc: 'Export data or results from the currently active tool',
+      color: 'var(--success)',
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
+      section: 'Actions',
+      isAction: true,
+      execute: () => {
+        const activePanel = document.querySelector('.tool-panel.active');
+        if (!activePanel) {
+          alert('No active tool.');
+          return;
+        }
+        const exportSelectors = [
+          'button[id*="export" i]',
+          'button[title*="export" i]',
+          'button[class*="export" i]',
+          '.export-btn'
+        ];
+        const exportBtn = activePanel.querySelector(exportSelectors.join(', '));
+        if (exportBtn) {
+          exportBtn.click();
+        } else {
+          alert('No export action found for the current tool.');
+        }
+      }
+    },
+    {
+      id: 'action-load',
+      label: 'Load file into...',
+      desc: 'Load a file into the currently active tool',
+      color: 'var(--info)',
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>',
+      section: 'Actions',
+      isAction: true,
+      execute: () => {
+        const activePanel = document.querySelector('.tool-panel.active');
+        if (!activePanel) {
+          alert('No active tool.');
+          return;
+        }
+        const loadSelectors = [
+          'input[type="file"]',
+          'button[id*="load" i]',
+          'button[title*="load" i]',
+          '.load-btn'
+        ];
+        const loadBtn = activePanel.querySelector(loadSelectors.join(', '));
+        if (loadBtn) {
+          loadBtn.click();
+        } else {
+          alert('No file load action found for the current tool.');
+        }
+      }
+    }
+  ];
+
   function isOpen() {
     return modal.classList.contains('active');
   }
@@ -39,7 +98,9 @@ export function initCommandPalette(toolsList, navigateFn) {
 
   function renderResults(query) {
     const lowerQuery = query.toLowerCase();
-    currentResults = toolsList.filter(t => 
+    const allItems = [...toolsList, ...globalActions];
+    
+    currentResults = allItems.filter(t => 
       t.id !== 'home' && (
       t.label.toLowerCase().includes(lowerQuery) || 
       t.desc.toLowerCase().includes(lowerQuery) ||
@@ -94,7 +155,11 @@ export function initCommandPalette(toolsList, navigateFn) {
   function executeResult(idx) {
     if (currentResults[idx]) {
       closePalette();
-      navigateFn(currentResults[idx].id, null);
+      if (currentResults[idx].isAction) {
+        currentResults[idx].execute();
+      } else {
+        navigateFn(currentResults[idx].id, null);
+      }
     }
   }
 

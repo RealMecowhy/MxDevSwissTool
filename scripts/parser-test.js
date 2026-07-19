@@ -275,6 +275,67 @@ ok('request execution closes its own frame (300 ms)', reqExec.finished && Math.a
 ok('scheduled-event execution closes its own frame (400 ms)', seExec.finished && Math.abs(seExec.durationMs - 400) < 0.001, seExec && seExec.durationMs);
 ok('both are depth-0 roots (no cross-corrId nesting)', reqExec.depth === 0 && seExec.depth === 0 && reqExec.parentId === null && seExec.parentId === null);
 
+// ── MFT: N+1 detection (database retrieves inside a loop) ──
+console.log('\nMicroflow Tracer: N+1 detection');
+const mftDetectN1 = global.mftDetectNPlusOne;
+const n1Log = [
+  '2026-07-17T11:00:00.000000 ' + P + '  DEBUG - MicroflowEngine: [n1-1] Starting execution of microflow \'Mod.LoopFlow\'',
+  // Loop setup
+  '2026-07-17T11:00:00.100000 ' + P + '  TRACE - MicroflowEngine: [n1-1] Executing activity: {"current_activity":{"type":"RetrieveByXPath","caption":"Get List"},"name":"Mod.LoopFlow","type":"Microflow"}',
+  // Iteration 1
+  '2026-07-17T11:00:00.200000 ' + P + '  TRACE - MicroflowEngine: [n1-1] Executing activity: {"current_activity":{"type":"ListLoop","caption":""},"name":"Mod.LoopFlow","type":"Microflow"}',
+  '2026-07-17T11:00:00.250000 ' + P + '  TRACE - MicroflowEngine: [n1-1] Executing activity: {"current_activity":{"type":"RetrieveByXPath","caption":"Get Details"},"name":"Mod.LoopFlow","type":"Microflow"}',
+  // Iteration 2
+  '2026-07-17T11:00:00.300000 ' + P + '  TRACE - MicroflowEngine: [n1-1] Executing activity: {"current_activity":{"type":"ListLoop","caption":""},"name":"Mod.LoopFlow","type":"Microflow"}',
+  '2026-07-17T11:00:00.350000 ' + P + '  TRACE - MicroflowEngine: [n1-1] Executing activity: {"current_activity":{"type":"RetrieveByXPath","caption":"Get Details"},"name":"Mod.LoopFlow","type":"Microflow"}',
+  // Iteration 3
+  '2026-07-17T11:00:00.400000 ' + P + '  TRACE - MicroflowEngine: [n1-1] Executing activity: {"current_activity":{"type":"ListLoop","caption":""},"name":"Mod.LoopFlow","type":"Microflow"}',
+  '2026-07-17T11:00:00.450000 ' + P + '  TRACE - MicroflowEngine: [n1-1] Executing activity: {"current_activity":{"type":"RetrieveByXPath","caption":"Get Details"},"name":"Mod.LoopFlow","type":"Microflow"}',
+  // Consecutive DB calls without loop (e.g. poor man's unrolled loop) -> should trigger pass 2
+  '2026-07-17T11:00:00.500000 ' + P + '  TRACE - MicroflowEngine: [n1-1] Executing activity: {"current_activity":{"type":"RetrieveByAssociation","caption":"Get Children"},"name":"Mod.LoopFlow","type":"Microflow"}',
+  '2026-07-17T11:00:00.550000 ' + P + '  TRACE - MicroflowEngine: [n1-1] Executing activity: {"current_activity":{"type":"RetrieveByAssociation","caption":"Get Children"},"name":"Mod.LoopFlow","type":"Microflow"}',
+  '2026-07-17T11:00:00.600000 ' + P + '  TRACE - MicroflowEngine: [n1-1] Executing activity: {"current_activity":{"type":"RetrieveByAssociation","caption":"Get Children"},"name":"Mod.LoopFlow","type":"Microflow"}',
+  '2026-07-17T11:00:00.700000 ' + P + '  DEBUG - MicroflowEngine: [n1-1] Finished execution of microflow \'Mod.LoopFlow\''
+].join('\n');
+const n1Out = mftExtract(parser.parse(n1Log).records);
+const n1Count = mftDetectN1(n1Out.executions);
+eq('detector finds 2 patterns', n1Count, 2);
+const n1Exec = n1Out.executions[0];
+ok('execution has nPlusOne array', Array.isArray(n1Exec.nPlusOne) && n1Exec.nPlusOne.length === 2);
+const loopN1 = n1Exec.nPlusOne.find(d => d.type === 'RetrieveByXPath' && d.caption === 'Get Details');
+ok('loop-aware pass detects 3 iterations', loopN1 && loopN1.count === 3);
+ok('loop-aware pass sums duration (150ms total)', loopN1 && Math.abs(loopN1.totalMs - 150) < 0.001);
+const consecN1 = n1Exec.nPlusOne.find(d => d.type === 'RetrieveByAssociation' && d.caption === 'Get Children');
+ok('consecutive pass detects 3 calls', consecN1 && consecN1.count === 3);
+
+// Shape B (the dominant real-world case): the loop body calls a sub-microflow
+// that retrieves. Each iteration's sub-microflow is a SEPARATE child execution
+// holding one retrieve, so detection must aggregate over the loop owner's subtree.
+const n1SubLog = [
+  '2026-07-17T11:10:00.000000 ' + P + '  DEBUG - MicroflowEngine: [n1-2] Starting execution of microflow \'Mod.Parent\'',
+  '2026-07-17T11:10:00.050000 ' + P + '  TRACE - MicroflowEngine: [n1-2] Executing activity: {"current_activity":{"type":"ListLoop","caption":""},"name":"Mod.Parent","type":"Microflow"}',
+  // iteration 1 → sub-microflow retrieves once
+  '2026-07-17T11:10:00.100000 ' + P + '  DEBUG - MicroflowEngine: [n1-2] Starting execution of microflow \'Mod.Child\'',
+  '2026-07-17T11:10:00.150000 ' + P + '  TRACE - MicroflowEngine: [n1-2] Executing activity: {"current_activity":{"type":"RetrieveByXPath","caption":"Get One"},"name":"Mod.Child","type":"Microflow"}',
+  '2026-07-17T11:10:00.180000 ' + P + '  DEBUG - MicroflowEngine: [n1-2] Finished execution of microflow \'Mod.Child\'',
+  // iteration 2
+  '2026-07-17T11:10:00.200000 ' + P + '  DEBUG - MicroflowEngine: [n1-2] Starting execution of microflow \'Mod.Child\'',
+  '2026-07-17T11:10:00.250000 ' + P + '  TRACE - MicroflowEngine: [n1-2] Executing activity: {"current_activity":{"type":"RetrieveByXPath","caption":"Get One"},"name":"Mod.Child","type":"Microflow"}',
+  '2026-07-17T11:10:00.280000 ' + P + '  DEBUG - MicroflowEngine: [n1-2] Finished execution of microflow \'Mod.Child\'',
+  // iteration 3
+  '2026-07-17T11:10:00.300000 ' + P + '  DEBUG - MicroflowEngine: [n1-2] Starting execution of microflow \'Mod.Child\'',
+  '2026-07-17T11:10:00.350000 ' + P + '  TRACE - MicroflowEngine: [n1-2] Executing activity: {"current_activity":{"type":"RetrieveByXPath","caption":"Get One"},"name":"Mod.Child","type":"Microflow"}',
+  '2026-07-17T11:10:00.380000 ' + P + '  DEBUG - MicroflowEngine: [n1-2] Finished execution of microflow \'Mod.Child\'',
+  '2026-07-17T11:10:00.400000 ' + P + '  DEBUG - MicroflowEngine: [n1-2] Finished execution of microflow \'Mod.Parent\''
+].join('\n');
+const n1SubOut = mftExtract(parser.parse(n1SubLog).records);
+mftDetectN1(n1SubOut.executions);
+const parentExec = n1SubOut.executions.find(e => e.name === 'Mod.Parent');
+const childExecs = n1SubOut.executions.filter(e => e.name === 'Mod.Child');
+const subHit = parentExec && parentExec.nPlusOne.find(d => d.type === 'RetrieveByXPath' && d.caption === 'Get One');
+ok('subtree pass flags loop owner (retrieve in sub-microflow ×3)', subHit && subHit.count === 3);
+ok('sub-microflow children are not individually flagged', childExecs.length === 3 && childExecs.every(e => e.nPlusOne.length === 0));
+
 // Reference: real Mendix Cloud log with MicroflowEngine DEBUG+TRACE (local only)
 const refTrace = path.join(__dirname, '..', '_local_assets', 'FilesForTest', 'MxCloudApp_RealLogsWithTrace.txt');
 if (fs.existsSync(refTrace)) {
@@ -292,6 +353,16 @@ if (fs.existsSync(refTrace)) {
   eq('reference trace: 76204 activity records', out.stats.activityRecords, 76204);
   const finished = out.executions.filter(e => e.finished).length;
   console.log('    (' + (text.length / (1024 * 1024)).toFixed(0) + ' MB → ' + out.executions.length + ' executions (' + finished + ' finished) in ' + ms + ' ms)');
+  // N+1 detection must fire on the real log (regression guard: the split loop
+  // owner delegates its retrieves to sub-microflows, so subtree aggregation is
+  // required). This file contains a textbook 3040× RetrieveByXPath in a ListLoop.
+  const realN1 = mftDetectN1(out.executions);
+  ok('reference trace: N+1 detector fires on real data', realN1 > 0, 'got ' + realN1);
+  const worst = out.executions
+    .filter(e => e.nPlusOne && e.nPlusOne.length)
+    .map(e => e.nPlusOne[0].count)
+    .sort((a, b) => b - a)[0] || 0;
+  ok('reference trace: worst offender is a large loop (≥1000×)', worst >= 1000, 'worst=' + worst);
 } else {
   console.log('  – reference trace log absent, skipped (PII: never committed)');
 }
@@ -878,6 +949,27 @@ eq('incident: no sections → empty sections array', buildIncident([], {}).secti
 const incidentHtml = toHtml(model);
 ok('incident: renders both section headings', (incidentHtml.match(/<h2>/g) || []).length === 2);
 ok('incident: self-contained, no external refs', /^<!doctype html>/i.test(incidentHtml) && !/https?:\/\//.test(incidentHtml));
+
+// ── Live DB — EXPLAIN live guard (Wave 6, server/livedb.js) ──────────────────
+// The whitelist is the first of three safety layers (whitelist + EXPLAIN-without-
+// ANALYZE + READ ONLY transaction). Pure, so it unit-tests without a database.
+const livedb = require('../server/livedb.js');
+ok('livedb: plain SELECT allowed', livedb.isReadOnlySelect('SELECT 1') === true);
+ok('livedb: SELECT with whitespace/case allowed', livedb.isReadOnlySelect('  select * from foo where a=1  ') === true);
+ok('livedb: read-only WITH…SELECT allowed', livedb.isReadOnlySelect('WITH x AS (SELECT 1) SELECT * FROM x') === true);
+ok('livedb: single trailing semicolon allowed', livedb.isReadOnlySelect('SELECT 1;') === true);
+ok('livedb: leading block comment allowed', livedb.isReadOnlySelect('/* c */ SELECT 1') === true);
+ok('livedb: leading line comment allowed', livedb.isReadOnlySelect('-- c\nSELECT 1') === true);
+ok('livedb: leading paren allowed', livedb.isReadOnlySelect('(SELECT 1)') === true);
+ok('livedb: DELETE keyword inside a string literal still read-only', livedb.isReadOnlySelect("SELECT * FROM audit WHERE action='DELETE'") === true);
+ok('livedb: multi-statement rejected', livedb.isReadOnlySelect('SELECT 1; DROP TABLE t') === false);
+ok('livedb: UPDATE rejected', livedb.isReadOnlySelect('UPDATE t SET a=1') === false);
+ok('livedb: DELETE rejected', livedb.isReadOnlySelect('DELETE FROM t') === false);
+ok('livedb: DROP rejected', livedb.isReadOnlySelect('DROP TABLE t') === false);
+ok('livedb: comment hiding a write rejected', livedb.isReadOnlySelect('/* x */ DROP TABLE t') === false);
+ok('livedb: data-modifying CTE rejected', livedb.isReadOnlySelect('WITH d AS (DELETE FROM t RETURNING 1) SELECT * FROM d') === false);
+ok('livedb: empty rejected', livedb.isReadOnlySelect('') === false);
+ok('livedb: non-string rejected', livedb.isReadOnlySelect(null) === false);
 
 // ── Summary ─────────────────────────────────────────────────────────────────
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

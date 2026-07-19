@@ -392,10 +392,11 @@ async function nginxAggregateAndRender() {
     const os = nginxGetOS(parsed.userAgent);
     stats.os[os] = (stats.os[os] || 0) + 1;
 
-    if (!stats.urlTimes[parsed.url]) stats.urlTimes[parsed.url] = { count: 0, totalBytes: 0, totalTime: 0 };
+    if (!stats.urlTimes[parsed.url]) stats.urlTimes[parsed.url] = { count: 0, totalBytes: 0, totalTime: 0, times: [] };
     stats.urlTimes[parsed.url].count++;
     stats.urlTimes[parsed.url].totalBytes += parsed.bytes;
     stats.urlTimes[parsed.url].totalTime += parsed.time || 0;
+    if (parsed.time != null) stats.urlTimes[parsed.url].times.push(parsed.time);
 
     let botReason = null;
     const lowerUrl = parsed.url.toLowerCase();
@@ -510,7 +511,13 @@ async function nginxAggregateAndRender() {
 
   const slowestUrls = Object.entries(stats.urlTimes)
     .filter(([_, d]) => d.count > 0)
-    .map(([url, d]) => [url, d.totalTime / d.count, d.count])
+    .map(([url, d]) => {
+      d.times.sort((a,b) => a - b);
+      const avg = d.totalTime / d.count;
+      const p95 = d.times.length > 0 ? d.times[Math.floor(d.times.length * 0.95)] : 0;
+      const p99 = d.times.length > 0 ? d.times[Math.floor(d.times.length * 0.99)] : 0;
+      return [url, avg, p95, p99, d.count];
+    })
     .sort((a,b) => b[1] - a[1])
     .slice(0, 10);
 
@@ -533,7 +540,7 @@ async function nginxAggregateAndRender() {
   document.getElementById('nx-ip-table').querySelector('tbody').innerHTML = toRows(topIps, stats.total, true);
 
   document.getElementById('nx-slow-table').querySelector('tbody').innerHTML = slowestUrls.map(u =>
-    `<tr><td style="padding:4px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--info);text-decoration:underline" title="${u[0]}" onclick="nginxSetFilter('url', '${u[0].replace(/'/g, "\\\\'")}')">${u[0]}</td><td style="padding:4px 8px">${u[1].toFixed(3)}</td><td style="padding:4px 8px">${u[2].toLocaleString('pl-PL')}</td></tr>`
+    `<tr><td style="padding:4px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--info);text-decoration:underline" title="${u[0]}" onclick="nginxSetFilter('url', '${u[0].replace(/'/g, "\\\\'")}')">${u[0]}</td><td style="padding:4px 8px">${u[1].toFixed(3)}</td><td style="padding:4px 8px">${u[2].toFixed(3)}</td><td style="padding:4px 8px">${u[3].toFixed(3)}</td><td style="padding:4px 8px">${u[4].toLocaleString('pl-PL')}</td></tr>`
   ).join('');
 
   document.getElementById('nx-bw-table').querySelector('tbody').innerHTML = bwHogs.map(u =>
@@ -1054,10 +1061,17 @@ function nginxRenderStream(type) {
     else if (type === 'error' && ['error', 'crit', 'alert', 'emerg'].includes(log.level)) badge = `<span style="background:var(--danger);width:4px;display:inline-block;margin-right:8px;flex-shrink:0"></span>`;
     else badge = `<span style="width:4px;display:inline-block;margin-right:8px;flex-shrink:0"></span>`;
     
-    html += `<div style="display:flex;padding:2px 8px;border-bottom:1px solid var(--border-subtle);white-space:pre-wrap;word-break:break-all;line-height:1.4">
+    html += `<div class="nx-stream-row" style="display:flex;padding:2px 8px;border-bottom:1px solid var(--border-subtle);white-space:pre-wrap;word-break:break-all;line-height:1.4;position:relative;">
       ${badge}
-      <div style="flex:1">${nginxColorizeLine(type, log)}</div>
-    </div>`;
+      <div style="flex:1">${nginxColorizeLine(type, log)}</div>`;
+      
+    if (type === 'access') {
+      html += `
+      <div class="nx-stream-actions" style="position:absolute; right:8px; top:4px; display:none; background:var(--bg-elevated); box-shadow:0 0 10px 10px var(--bg-elevated); z-index:1;">
+         <button class="btn btn-xs" onclick="nginxShowInLqe(${i})">SQL in window</button>
+      </div>`;
+    }
+    html += `</div>`;
   }
   
   list.innerHTML = html;
@@ -1078,6 +1092,19 @@ function nginxDateToMs(d) {
   if (m[7]) { const off = (m[7][0] === '-' ? -1 : 1) * (parseInt(m[7].slice(1, 3), 10) * 60 + parseInt(m[7].slice(3, 5), 10)); return base - off * 60000; }
   return base;
 }
+
+window.nginxShowInLqe = function(index) {
+  const log = window.nxStreamState.accessFiltered[index];
+  if (!log) return;
+  const endTs = nginxDateToMs(log.date);
+  if (isNaN(endTs)) { alert('Invalid date format in log entry.'); return; }
+  const startTs = endTs - ((log.time || 0) * 1000);
+  
+  window.navigateWithReturn('log-query-extractor');
+  if (window.lqeSetTimeWindow) {
+    window.lqeSetTimeWindow(startTs, endTs, log.method + ' ' + log.url);
+  }
+};
 
 // Incident Report source: Nginx access-log entries, optionally narrowed to
 // [fromMs, toMs]. Error responses (status ≥ 400) lead; if none, the busiest

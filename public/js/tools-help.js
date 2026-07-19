@@ -166,6 +166,7 @@ const TOOLS_HELP = {
             <li><strong>Parameters:</strong> A table listing the raw values bound to the SQL query.</li>
             <li><strong>Result Data:</strong> The raw output rows returned by the database.</li>
             <li><strong>Query Plan:</strong> The PostgreSQL execution plan in JSON format. Click <strong>Visualize Plan</strong> to open it in the Query Intelligence Explain visualizer with index suggestions &mdash; a floating <strong>&larr; Back</strong> pill returns you straight to the extractor.</li>
+            <li><strong>Run EXPLAIN live (optional):</strong> If you have a local/dev PostgreSQL database of the app, fill in the read-only <em>Live database</em> panel below the plan and click <strong>Connect</strong>. Then <strong>Run EXPLAIN live</strong> executes <code>EXPLAIN</code> on the selected <code>SELECT</code> against that database and shows the fresh plan &mdash; no DBeaver, no waiting for a logged plan. This is entirely optional: without a connection the extractor works exactly as before (logged plans and manual paste). The connection is read-only (single <code>SELECT</code> only, <code>EXPLAIN</code> without <code>ANALYZE</code>, inside a <code>READ ONLY</code> transaction with a statement timeout).</li>
           </ul>
         </li>
       </ol>
@@ -210,6 +211,7 @@ const TOOLS_HELP = {
     interpretation: `
       <ul>
         <li><strong>Hot paths:</strong> sort the aggregate view by <em>Total</em> &mdash; a microflow with moderate average but thousands of calls often costs more than one slow outlier. Then check its timeline for the dominant step.</li>
+        <li><strong>N+1 Anti-Pattern:</strong> look for the orange <strong>N+1</strong> badge. This means the tool detected a database retrieve (e.g., <em>RetrieveByXPath</em>) executing multiple times inside a loop. This is a common performance killer — pull the data outside the loop with a single batch retrieve.</li>
         <li><strong>Slow steps:</strong> long <em>RetrieveByXPath</em>/<em>AggregateUsingDatabase</em> steps point at database work &mdash; use <strong>Queries in window</strong> to see the exact SQL. Long <em>JavaAction</em> steps point at custom code, long <em>CallRest/CallWebservice</em> at external services.</li>
         <li><strong>REC badge:</strong> the same microflow was already on the call stack &mdash; intentional recursion is rare in Mendix; verify it terminates and isn't doing N&times; database work.</li>
         <li><strong>Unfinished (…):</strong> no Finished record in the log &mdash; usually the log window simply ends mid-execution, but combined with an ERROR nearby it can mean the microflow died with an exception.</li>
@@ -683,6 +685,9 @@ const TOOLS_HELP = {
             <li>Prepend your SQL query with <code>EXPLAIN (ANALYZE, COSTS, VERBOSE, BUFFERS, FORMAT TEXT)</code> (or simply <code>EXPLAIN ANALYZE</code>) and execute it.</li>
             <li>Copy the resulting text output of the execution plan.</li>
           </ol>
+        </li>
+        <li>
+          <strong>Option 3 (EXPLAIN live, optional &mdash; from the Log Query Extractor):</strong> If you have a local/dev database, select a slow <code>SELECT</code> in the Log Query Extractor, open its <strong>Query Plan</strong> tab, connect the read-only <em>Live database</em> panel, and click <strong>Run EXPLAIN live</strong>. The plan lands here automatically. Requires the Observability Bridge; on Mendix Cloud or any environment without database access, use Option 1 or 2 instead.
         </li>
       </ul>
     `,

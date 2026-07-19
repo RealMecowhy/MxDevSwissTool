@@ -171,8 +171,117 @@ function mftExtractExecutions(records) {
   };
 }
 
+// ── N+1 detector ─────────────────────────────────────────────────────────────
+// Scans executions for the classic Mendix N+1 anti-pattern: a database retrieve
+// firing N times because it sits inside a list iteration (`ListLoop`) instead of
+// one batch retrieve before the loop.
+//
+// Two shapes occur in real Mendix TRACE logs, and both must be caught:
+//
+//   A. Retrieve directly in the loop body — the repeated retrieves are steps of
+//      the SAME execution, separated by the `ListLoop` marker.
+//   B. Loop body calls a sub-microflow that retrieves — by far the most common
+//      shape. Each iteration's sub-microflow is a SEPARATE child execution (same
+//      correlation id) holding one retrieve, so the repetition is only visible
+//      when you look at the loop owner's whole subtree, not its own steps.
+//
+// Detection — for every execution:
+//
+// 1. **Loop-aware subtree pass**: if this microflow contains a loop step, tally
+//    DB retrieves by (type, caption) across its own steps AND every descendant
+//    execution (covers shape B). ≥ threshold repetitions of the same retrieve → N+1.
+//
+// 2. **Consecutive-run pass** over this execution's own steps (covers shape A even
+//    when the loop iterator is logged below TRACE). Loop markers don't break a run.
+//
+// Results are de-duplicated (same type+caption kept at the higher count) and
+// attributed to the loop-owning execution. Threshold: MFT_N1_THRESHOLD (default 3).
+//
+// NB: real Mendix logs emit `ListLoop` (not `LoopedActivity`); both are accepted.
+
+const MFT_N1_THRESHOLD = 3;
+// The canonical N+1 is a per-row database retrieve. Aggregate-in-loop is a weaker,
+// noisier signal (and often unavoidable), so it is deliberately excluded here.
+const MFT_N1_DB_TYPES = new Set(['RetrieveByXPath', 'RetrieveByAssociation']);
+const MFT_LOOP_TYPES = new Set(['ListLoop', 'LoopedActivity']);
+
+// Tally DB retrieves by (type, caption) across an execution's own steps plus all
+// descendant executions (recursively). Mutates `tally` (Map key "type\tcaption").
+function mftTallyRetrievesDeep(exec, tally) {
+  for (const s of exec.steps) {
+    if (MFT_N1_DB_TYPES.has(s.type)) {
+      const key = s.type + '\t' + s.caption;
+      let t = tally.get(key);
+      if (!t) { t = { type: s.type, caption: s.caption, count: 0, totalMs: 0 }; tally.set(key, t); }
+      t.count++;
+      if (s.durationMs !== null && !isNaN(s.durationMs)) t.totalMs += s.durationMs;
+    }
+  }
+  for (const child of exec.children) mftTallyRetrievesDeep(child, tally);
+}
+
+function mftDetectNPlusOne(executions) {
+  let totalDetections = 0;
+  for (const exec of executions) {
+    exec.nPlusOne = [];
+
+    const found = new Map(); // key "type\tcaption" → {type, caption, count, totalMs}
+    const addHit = function(hit) {
+      const key = hit.type + '\t' + hit.caption;
+      const prev = found.get(key);
+      if (!prev || hit.count > prev.count) {
+        found.set(key, { type: hit.type, caption: hit.caption, count: hit.count, totalMs: hit.totalMs });
+      }
+    };
+
+    // Pass 1: loop-aware subtree tally (shape B — retrieve in a called sub-microflow)
+    const hasLoop = exec.steps.some(function(s) { return MFT_LOOP_TYPES.has(s.type); });
+    if (hasLoop) {
+      const tally = new Map();
+      mftTallyRetrievesDeep(exec, tally);
+      for (const t of tally.values()) {
+        if (t.count >= MFT_N1_THRESHOLD) addHit(t);
+      }
+    }
+
+    // Pass 2: consecutive-run within this execution's own steps (shape A).
+    // Loop markers sit between iterations and must not break the run.
+    let runType = null, runCaption = null, runCount = 0, runMs = 0;
+    const flushRun = function() {
+      if (runCount >= MFT_N1_THRESHOLD && runType) {
+        addHit({ type: runType, caption: runCaption, count: runCount, totalMs: runMs });
+      }
+      runCount = 0; runMs = 0;
+    };
+    for (const s of exec.steps) {
+      if (MFT_N1_DB_TYPES.has(s.type)) {
+        if (s.type === runType && s.caption === runCaption) {
+          runCount++;
+          if (s.durationMs !== null && !isNaN(s.durationMs)) runMs += s.durationMs;
+        } else {
+          flushRun();
+          runType = s.type; runCaption = s.caption; runCount = 1;
+          runMs = (s.durationMs !== null && !isNaN(s.durationMs)) ? s.durationMs : 0;
+        }
+      } else if (MFT_LOOP_TYPES.has(s.type)) {
+        continue; // loop marker doesn't break a run
+      } else {
+        flushRun();
+        runType = null; runCaption = null;
+      }
+    }
+    flushRun();
+
+    exec.nPlusOne = Array.from(found.values());
+    exec.nPlusOne.sort(function(a, b) { return b.count - a.count; }); // worst offender first
+    totalDetections += exec.nPlusOne.length;
+  }
+  return totalDetections;
+}
+
 // Expose the pure parts for Node tests (scripts/parser-test.js) and other tools
 (typeof window !== 'undefined' ? window : self).mftExtractExecutions = mftExtractExecutions;
+(typeof window !== 'undefined' ? window : self).mftDetectNPlusOne = mftDetectNPlusOne;
 (typeof window !== 'undefined' ? window : self).mftTsToMs = mftTsToMs;
 
 // ── UI: load / parse ─────────────────────────────────────────────────────────
@@ -270,6 +379,10 @@ function mftApplyParseResult(res) {
   mftExecutions = out.executions;
   mftFlows = out.flows;
   window._mftStats = out.stats;
+
+  // N+1 detection pass (requires TRACE-level activity steps)
+  const n1Count = mftDetectNPlusOne(mftExecutions);
+  window._mftStats.nPlusOneDetections = n1Count;
 
   const noteEl = document.getElementById('mft-note');
   if (noteEl) {
@@ -400,11 +513,12 @@ function mftUpdateStats(filtered) {
   bar.style.display = 'flex';
 
   const list = filtered || mftExecutions;
-  let sum = 0, timed = 0, slowest = null, slowestMs = -1, unfinished = 0;
+  let sum = 0, timed = 0, slowest = null, slowestMs = -1, unfinished = 0, n1Execs = 0;
   const names = new Set();
   for (const e of list) {
     names.add(e.displayName);
     if (!e.finished) unfinished++;
+    if (e.nPlusOne && e.nPlusOne.length) n1Execs++;
     if (e.durationMs !== null && !isNaN(e.durationMs)) {
       sum += e.durationMs;
       timed++;
@@ -417,6 +531,12 @@ function mftUpdateStats(filtered) {
   document.getElementById('mft-stat-avg').textContent = timed ? mftFmtMs(sum / timed) : '–';
   document.getElementById('mft-stat-slowest').textContent = slowest ? mftFmtMs(slowestMs) : '–';
   document.getElementById('mft-stat-unfinished').textContent = unfinished;
+  const n1El = document.getElementById('mft-stat-n1');
+  if (n1El) {
+    n1El.textContent = n1Execs;
+    const n1Stat = n1El.closest('.log-stat');
+    if (n1Stat) n1Stat.style.display = n1Execs > 0 ? '' : 'none';
+  }
   window._mftSlowestId = slowest ? slowest.id : null;
 }
 
@@ -457,10 +577,11 @@ function mftRenderExecList(list) {
     const indent = e.depth ? '<span style="color:var(--text-muted)">' + '&nbsp;&nbsp;'.repeat(Math.min(e.depth, 6)) + '└ </span>' : '';
     const recBadge = e.recursive ? '<span title="This microflow was already on the call stack when this execution started (recursion)" style="margin-left:4px;font-size:0.7rem;font-weight:700;color:var(--warning);background:var(--warning-subtle);padding:0 4px;border-radius:var(--r-sm)">REC</span>' : '';
     const unfBadge = !e.finished ? '<span title="No Finished record — the log window probably ends mid-execution" style="margin-left:4px;font-size:0.7rem;font-weight:700;color:var(--danger);background:var(--danger-subtle);padding:0 4px;border-radius:var(--r-sm)">…</span>' : '';
+    const n1Badge = (e.nPlusOne && e.nPlusOne.length) ? '<span title="N+1 detected: ' + e.nPlusOne.map(function(d) { return d.type + ' ×' + d.count; }).join(', ') + '" style="margin-left:4px;font-size:0.7rem;font-weight:700;color:#e65100;background:#fff3e0;padding:0 4px;border-radius:var(--r-sm)">N+1</span>' : '';
 
     el.innerHTML =
       '<div style="color:var(--text-muted); font-family:var(--font-mono); font-size:0.72rem">' + mftEsc(timeShort) + '</div>' +
-      '<div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="' + mftEsc(e.name) + ' [' + mftEsc(e.corrId) + ']">' + indent + mftEsc(e.displayName) + recBadge + unfBadge + '</div>' +
+      '<div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="' + mftEsc(e.name) + ' [' + mftEsc(e.corrId) + ']">' + indent + mftEsc(e.displayName) + recBadge + unfBadge + n1Badge + '</div>' +
       '<div style="color:var(--accent); font-weight:600;">' + mftFmtMs(e.durationMs) + '</div>' +
       '<div style="color:var(--text-muted); text-align:right;">' + e.steps.length + '</div>' +
       '<div style="color:var(--text-muted); text-align:right;">' + (e.children.length || '') + '</div>';
@@ -542,6 +663,24 @@ function mftSelectExecution(e) {
 
   // Timeline: this execution's own steps (sub-flow steps live in their own executions)
   const tbody = document.getElementById('mft-timeline-body');
+  const n1Panel = document.getElementById('mft-timeline-n1');
+  if (n1Panel) {
+    if (e.nPlusOne && e.nPlusOne.length) {
+      n1Panel.style.display = 'block';
+      let html = '<div style="font-weight:700; margin-bottom:4px; display:flex; align-items:center; gap:6px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg> N+1 Anti-Pattern Detected</div>';
+      html += '<div style="margin-bottom:6px;">A database retrieve inside a loop is executing N times. This usually degrades performance severely. Consider pulling the data outside the loop with a single batch retrieve.</div>';
+      html += '<ul style="margin:0; padding-left:20px; list-style-type:disc;">';
+      e.nPlusOne.forEach(function(d) {
+        html += '<li><strong>' + mftEsc(d.caption || d.type) + '</strong> (' + mftEsc(d.type) + ') executed <strong>' + d.count + ' times</strong> taking ' + mftFmtMs(d.totalMs) + ' in total.</li>';
+      });
+      html += '</ul>';
+      n1Panel.innerHTML = html;
+    } else {
+      n1Panel.style.display = 'none';
+      n1Panel.innerHTML = '';
+    }
+  }
+
   if (tbody) {
     tbody.innerHTML = '';
     if (e.steps.length === 0) {
@@ -624,7 +763,7 @@ window.mftShowInLqe = function() {
 
 // ── Export (currently filtered executions) ───────────────────────────────────
 
-const MFT_EXPORT_HEADER = ['Microflow', 'Start', 'Duration (ms)', 'Steps', 'Sub-flows', 'Depth', 'Corr ID', 'Status'];
+const MFT_EXPORT_HEADER = ['Microflow', 'Start', 'Duration (ms)', 'Steps', 'Sub-flows', 'Depth', 'Corr ID', 'Status', 'N+1 Issues'];
 
 function mftExportRows() {
   if (mftView === 'flows') {
@@ -641,7 +780,8 @@ function mftExportRows() {
     e.children.length,
     e.depth,
     e.corrId,
-    e.finished ? 'finished' : 'unfinished'
+    e.finished ? 'finished' : 'unfinished',
+    (e.nPlusOne && e.nPlusOne.length) ? e.nPlusOne.map(function(d) { return d.type + ' ×' + d.count; }).join(', ') : ''
   ]);
 }
 
@@ -664,7 +804,8 @@ window.mftReportSection = function(fromMs, toMs) {
       e.displayName, e.startTs,
       (e.durationMs !== null && !isNaN(e.durationMs)) ? +e.durationMs.toFixed(3) : '',
       e.steps.length, e.children.length, e.depth, e.corrId,
-      e.finished ? 'finished' : 'unfinished'
+      e.finished ? 'finished' : 'unfinished',
+      (e.nPlusOne && e.nPlusOne.length) ? e.nPlusOne.map(function(d) { return d.type + ' ×' + d.count; }).join(', ') : ''
     ];
   });
   return {

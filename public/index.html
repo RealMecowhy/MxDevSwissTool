@@ -87,7 +87,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.16.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.17.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -260,7 +260,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.16.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.17.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -558,10 +558,12 @@
               <!-- PLAN TAB -->
               <div id="lqe-tab-plan" style="padding:var(--sp-3); display:none; height:100%; flex-direction:column;">
                 <div style="display:flex; justify-content:flex-end; margin-bottom:var(--sp-2); gap:var(--sp-2);">
+                  <button class="btn btn-ghost btn-sm" id="lqe-explain-live-btn" onclick="window.lqeExplainLive(this)" title="Run EXPLAIN on the selected query against a connected live database (read-only)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>Run EXPLAIN live</button>
                   <button class="btn btn-ghost btn-sm" onclick="window.lqeVisualizePlan()" title="Open this plan in the Query Intelligence Explain visualizer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"/></svg>Visualize Plan</button>
                   <button class="btn btn-ghost btn-sm" onclick="window.lqeCopyContent('lqe-plan-content', this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy</button>
                 </div>
                  <pre id="lqe-plan-content" style="background:var(--bg-elevated); padding:var(--sp-3); border-radius:var(--r-md); border:1px solid var(--border); font-size:0.85rem; color:var(--text); margin:0; white-space:pre-wrap; word-break:break-all; flex:1; overflow:auto;">No execution plan found for this query.</pre>
+                 <div id="lqe-livedb-bar" data-mt-db-connection style="margin-top:var(--sp-2);"></div>
               </div>
             </div>
           </div>
@@ -796,6 +798,7 @@
               <span class="log-stat" title="Average of measured durations across visible executions">Avg: <strong id="mft-stat-avg">–</strong></span>
               <span class="log-stat" onclick="window.mftSelectSlowest()" style="cursor:pointer;" title="Slowest visible execution — click to select it">Slowest: <strong id="mft-stat-slowest" style="color:var(--accent);">–</strong></span>
               <span class="log-stat" title="Executions without a Finished record — the log window likely ends mid-execution">Unfinished: <strong id="mft-stat-unfinished">0</strong></span>
+              <span class="log-stat" title="Executions with detected N+1 patterns (DB retrieve inside a loop)" style="display:none;">N+1 issues: <strong id="mft-stat-n1" style="color:#e65100;">0</strong></span>
             </div>
             <!-- Executions header (click to sort) -->
             <div id="mft-exec-header" style="display:grid; grid-template-columns:118px 1fr 84px 56px 48px; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border); font-size:0.75rem; font-weight:600; color:var(--text-muted); background:var(--bg);">
@@ -838,6 +841,7 @@
             <div style="flex:1; overflow:auto;">
               <!-- TIMELINE TAB -->
               <div id="mft-tab-timeline" style="padding:var(--sp-3); display:flex; height:100%; flex-direction:column;">
+                <div id="mft-timeline-n1" style="display:none; margin-bottom:var(--sp-3); padding:var(--sp-3); background:#fff3e0; border:1px solid #ffcc80; border-radius:var(--r-md); color:#e65100; font-size:0.8rem;"></div>
                 <div style="flex:1; overflow:auto; border:1px solid var(--border); border-radius:var(--r-md); background:var(--bg-elevated);">
                   <table style="width:100%; border-collapse:collapse; font-size:0.8rem;">
                     <thead>
@@ -2353,7 +2357,7 @@ EntityName -> OtherEntity : Association"></textarea>
               <div class="card-body" style="padding:0;overflow-x:auto">
                 <table style="width:100%;border-collapse:collapse;font-size:0.8rem" id="nx-slow-table">
                   <thead style="background:var(--bg-elevated);border-bottom:1px solid var(--border);text-align:left">
-                    <tr><th style="padding:var(--sp-2)">URL</th><th style="padding:var(--sp-2)">Avg Time (s)</th><th style="padding:var(--sp-2)">Hits</th></tr>
+                    <tr><th style="padding:var(--sp-2)">URL</th><th style="padding:var(--sp-2)">Avg (s)</th><th style="padding:var(--sp-2)">p95 (s)</th><th style="padding:var(--sp-2)">p99 (s)</th><th style="padding:var(--sp-2)">Hits</th></tr>
                   </thead>
                   <tbody></tbody>
                 </table>

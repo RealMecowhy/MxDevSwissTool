@@ -856,6 +856,52 @@ window.lqeVisualizePlan = function() {
   if (window.visualizeSqlExplain) window.visualizeSqlExplain();
 };
 
+// EXPLAIN live: run the selected query against a connected read-only database
+// through the Bridge, then hand the plan text to the same SQL Explain visualizer
+// as lqeVisualizePlan(). Progressive enhancement — with no connection this does
+// nothing but point the user at the connection bar; the logged-plan flow above
+// and manual paste in SQL Explain are unaffected.
+window.lqeExplainLive = async function(btn) {
+  const q = window._currentSelectedQuery;
+  const sql = window._currentRunnableSql;
+  if (!q || !sql) { alert('Select a query first.'); return; }
+  if (q.type && q.type !== 'SELECT') {
+    alert('EXPLAIN live runs only on SELECT queries (read-only). This one is a ' + q.type + ' — copy it and analyze it manually.');
+    return;
+  }
+  if (!window.mtDb || !window.mtDb.isConnected()) {
+    const bar = document.getElementById('lqe-livedb-bar');
+    if (bar) bar.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    alert('Connect a live database first — use the "Live database" panel below the plan. Without a connection you can still copy the query and paste its plan into SQL Explain.');
+    return;
+  }
+  const oldHtml = btn ? btn.innerHTML : null;
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Running…'; }
+  try {
+    const resp = await fetch('http://localhost:9999/livedb/explain', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(Object.assign({}, window.mtDb.getConfig(), { sql: sql }))
+    });
+    const data = await resp.json();
+    if (!data || data.error || typeof data.plan !== 'string') {
+      alert('EXPLAIN live failed: ' + ((data && data.message) || 'no plan returned') +
+            '\n\nTip: queries with parameter placeholders can\'t be planned directly — copy the query and substitute values, or paste an EXPLAIN plan manually.');
+      return;
+    }
+    window.navigateWithReturn('query-intelligence');
+    const tabBtn = document.querySelector('#panel-query-intelligence .tab[data-help-key="query-intelligence-explain"]');
+    if (tabBtn && window.qiSetTab) window.qiSetTab('explain', tabBtn);
+    const input = document.getElementById('sql-explain-input');
+    if (input) input.value = data.plan;
+    if (window.visualizeSqlExplain) window.visualizeSqlExplain();
+  } catch (e) {
+    alert('EXPLAIN live failed: ' + e.message);
+  } finally {
+    if (btn && oldHtml !== null) { btn.disabled = false; btn.innerHTML = oldHtml; }
+  }
+};
+
 // ── Export of the currently filtered list ──────────────────
 // Columns: Type, Tx-Conn, Timestamp, Duration, Cost, Rows, Dup, SQL (truncated)
 function lqeExportRows(sqlMaxLen) {

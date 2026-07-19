@@ -3282,3 +3282,8 @@ kbd {
   background: var(--accent);
   color: var(--bg-base);
 }
+
+/* Nginx Stream Actions */
+.nx-stream-row:hover .nx-stream-actions {
+  display: flex !important;
+}
