@@ -333,6 +333,7 @@ const TOOLS_HELP = {
         <li>Paste the content of Nginx logs (<em>combined</em> format for access logs) or drag and drop the log file into the tool window (supports plain text and <code>.gz</code> archives). Use the respective "Access Log" or "Error Log" tab. The <strong>Error Log</strong> tab expects the Nginx <code>error.log</code> format (<code>YYYY/MM/DD HH:MM:SS [level] …</code>); if it detects an access log there instead, it shows a hint pointing you to the correct tab.</li>
         <li>Check the <strong>Enable IP Geolocation</strong> option to automatically query a free external API for the country of origin of IPs sending the most requests (runs asynchronously, doesn't block the browser).</li>
         <li>Click <strong>Analyze Logs</strong>. The tool provides two views: <strong>Analyzer</strong> (interactive statistical tables and charts) and <strong>Log Stream</strong> (raw log lines with syntax highlighting).</li>
+        <li>In <strong>Log Stream</strong> (Access Log), hover a request row and click <strong>SQL in window</strong> to jump to the Log Query Extractor scoped to that request's time window — connecting a slow front-door response to the database work behind it (needs a TRACE log loaded there).</li>
         <li>Use the global filter toolbar to instantly narrow down results across both views by HTTP status code, specific time ranges, dates, or custom search queries (IP, URL, method).</li>
         <li>To load a different file or start over, use the <strong>Clear</strong> button to reset the tool's memory and inputs.</li>
       </ol>
@@ -342,6 +343,7 @@ const TOOLS_HELP = {
         <li><strong>4xx Status Codes:</strong> Frequent 404 (Not Found) or 403 (Forbidden) codes might indicate scanning of your server by bots/malware looking for vulnerabilities.</li>
         <li><strong>5xx Status Codes:</strong> Indicate a failure in the Mendix backend application (e.g., Mendix server is down or dropped the connection).</li>
         <li><strong>High traffic from a single IP:</strong> If one IP sends thousands of requests per minute, it could be a DoS attack attempt or a looped client script. Consider blocking such IPs at the firewall level.</li>
+        <li><strong>p95 / p99 response time:</strong> the slowest-URLs table shows the 95th and 99th percentile next to the average. A healthy average can still hide a slow tail that some users hit on every request — a high p99 with a low average points at intermittent slowness (lock contention, cold cache, GC pauses) rather than a uniformly slow endpoint.</li>
       </ul>
     `
   },
@@ -401,6 +403,7 @@ const TOOLS_HELP = {
         <li>Click <strong>Connect Agent</strong> (agent profiles) or <strong>Fetch Metrics</strong> (direct mode). Charts for JVM memory usage, database connection pool, and request counts will start updating live.</li>
         <li>Go to the <strong>OTLP Traces (Waterfall)</strong> tab to see waterfall charts of Microflow / SQL executions. Click on individual spans to see details.</li>
         <li>No running Mendix app at hand? Click <strong>Start Sandbox</strong> to explore the dashboard with simulated data.</li>
+        <li>Use the <strong>Alerts</strong> card to set <strong>threshold alerts</strong> — when a metric such as JVM heap, thread count or database-pool usage crosses the limit you set, the tool flags the breach as the data updates, so you are not left watching charts.</li>
       </ol>
     `,
     interpretation: `
@@ -408,6 +411,7 @@ const TOOLS_HELP = {
         <li><strong>JVM Heap Memory:</strong> If memory usage constantly increases (staircase chart upwards) and does not drop after Garbage Collection, the application might have a memory leak.</li>
         <li><strong>Database Connection Pool:</strong> If the number of used connections approaches the limit (e.g., 50), subsequent user requests will be blocked waiting for a free connection, drastically slowing down the system.</li>
         <li><strong>Waterfall (Traces):</strong> A long horizontal bar means the longest running activity. If you see dozens of small SQL query bars to the same table underneath, you've detected an <strong>N+1 queries</strong> problem, which should be optimized (e.g., by fetching data at once using an association or modifying a loop).</li>
+        <li><strong>Threshold alerts:</strong> rather than eyeballing the charts, set an alert on heap, threads or the DB pool — a breach is surfaced immediately, so you catch a leak or pool exhaustion while it is building rather than after it takes the app down.</li>
       </ul>
     `
   },
