@@ -19,6 +19,24 @@
   --t-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
   --sidebar-w: 240px;
   --sidebar-collapsed-w: 64px;
+  --control-h-xs: 22px;
+  --control-h-sm: 26px;
+  --control-h: 32px;
+  --control-h-lg: 40px;
+}
+[data-theme] {
+  /* Aliases: some tool code references these shorthand names, but only the fully-qualified
+     tokens below (--accent, --text-primary, --bg-*) were ever defined per-theme. Without these
+     aliases the shorthands are invalid at compute time and silently drop to transparent (for
+     backgrounds) or inherited (for color) — e.g. the Telemetry chart cards (--bg-card) and the
+     Error Decoder textarea (--bg) rendered transparent. Keep this list in sync with the
+     var(--x) references used in tool markup/JS. */
+  --primary: var(--accent);
+  --text: var(--text-primary);
+  --bg: var(--bg-base);
+  --bg-sunken: var(--bg-base);
+  --bg-card: var(--bg-elevated);
+  --success-dark: var(--success);
 }
 [data-theme="dark"] {
   --bg-base: #111111;
@@ -516,7 +534,8 @@ pre,
 .btn {
   align-items: center;
   gap: var(--sp-2);
-  padding: var(--sp-2) var(--sp-3);
+  height: var(--control-h);
+  padding: 0 var(--sp-3);
   border-radius: var(--r-md);
   cursor: pointer;
   transition: all var(--t-fast);
@@ -572,16 +591,19 @@ pre,
   background: var(--danger-subtle);
 }
 .btn-xs {
-  padding: 2px var(--sp-2);
+  height: var(--control-h-xs);
+  padding: 0 var(--sp-2);
   font-size: 0.7rem;
   line-height: 1;
 }
 .btn-sm {
-  padding: 3px var(--sp-2);
+  height: var(--control-h-sm);
+  padding: 0 var(--sp-2);
   font-size: 0.72rem;
 }
 .btn-lg {
-  padding: var(--sp-3) var(--sp-5);
+  height: var(--control-h-lg);
+  padding: 0 var(--sp-5);
   font-size: 0.9rem;
 }
 .btn-group {
@@ -628,6 +650,21 @@ pre,
   width: 100%;
   font-size: 0.8rem;
 }
+input.input,
+select.select {
+  height: var(--control-h);
+  padding-top: 0;
+  padding-bottom: 0;
+}
+input.input.input-sm,
+select.select.select-sm {
+  height: var(--control-h-sm);
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: var(--sp-2);
+  padding-right: var(--sp-2);
+  font-size: 0.72rem;
+}
 .input:focus,
 .textarea:focus,
 .select:focus {
@@ -656,12 +693,6 @@ pre,
   flex-wrap: wrap;
   align-items: flex-end;
   display: flex;
-}
-.form-row > .btn {
-  padding-top: var(--sp-2);
-  padding-bottom: var(--sp-2);
-  font-size: 0.8rem;
-  line-height: normal;
 }
 .form-group {
   gap: var(--sp-1);

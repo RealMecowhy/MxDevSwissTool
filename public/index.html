@@ -87,7 +87,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.15.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.15.1</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -260,7 +260,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.15.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.15.1</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -1349,7 +1349,7 @@
       <div class="tool-body">
         <div class="form-group" style="margin-bottom:var(--sp-4)">
           <div class="form-label">Input (epoch ms/s, ISO 8601, or any date string)</div>
-          <div class="form-row"><input class="input input-mono" id="ts-input" placeholder="1716220800000  or  2024-05-20T12:00:00Z" style="flex:1"><button class="btn btn-primary btn-sm" id="ts-btn-convert">Convert</button></div>
+          <div class="form-row"><input class="input input-mono" id="ts-input" placeholder="1716220800000  or  2024-05-20T12:00:00Z" style="flex:1"><button class="btn btn-primary" id="ts-btn-convert">Convert</button></div>
         </div>
         <div class="ts-grid" id="ts-grid"></div>
         <div class="sep"></div>
@@ -1357,7 +1357,7 @@
         <div class="form-row" style="margin-bottom:var(--sp-3)">
           <div class="form-group" style="flex:1"><div class="form-label">From</div><input class="input input-mono" id="ts-diff-from" placeholder="2024-01-01T00:00:00Z"></div>
           <div class="form-group" style="flex:1"><div class="form-label">To</div><input class="input input-mono" id="ts-diff-to" placeholder="2024-12-31T23:59:59Z"></div>
-          <button class="btn btn-primary btn-sm" id="ts-btn-diff" style="align-self:flex-end">Calculate</button>
+          <button class="btn btn-primary" id="ts-btn-diff" style="align-self:flex-end">Calculate</button>
         </div>
         <div id="ts-diff-result" class="ts-grid" style="display:none"></div>
 
@@ -1398,7 +1398,7 @@
               <option value="local">Local time</option>
             </select>
           </div>
-          <button class="btn btn-primary btn-sm" id="ts-btn-sched" style="align-self:flex-end">Preview Runs</button>
+          <button class="btn btn-primary" id="ts-btn-sched" style="align-self:flex-end">Preview Runs</button>
         </div>
         <div id="ts-sched-result" style="display:none;overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:0.82rem">
