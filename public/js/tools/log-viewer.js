@@ -3,6 +3,14 @@
 let logAllEntries = [], logFilteredEntries = [];
 // Parser normalizes WARNING -> WARN, so the filter set only needs WARN
 let logActiveLevels = new Set(['TRACE','DEBUG','INFO','WARN','ERROR','CRITICAL']);
+// Pinned lines for cross-filter navigation. Keyed by file#line (unique across the
+// merged multi-file timeline); the value snapshots what the bookmark list shows so
+// the map survives filter changes and re-renders independently of logFilteredEntries.
+let logBookmarks = new Map();
+function logBookmarkKey(e) { return (e.file || '') + '#' + e.line; }
+// Quotes a value for safe embedding in an inline-handler argument (mirrors
+// logInsightsAttr — file names could in theory carry quotes/backslashes).
+function logJsStr(s) { return "'" + String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'"; }
 // ── Log format patterns ────────────────────────────────────
 // Pattern 1 (Mendix Cloud):
 //   2026-07-01T14:51:09.591808 [runtime-container/v7f5t]  ERROR - Connector: message
@@ -252,6 +260,9 @@ function logParseContent(text, filename) {
   logApplyFilters();
   const insTab = document.getElementById('log-tab-insights');
   if (insTab && insTab.style.display !== 'none') logRenderInsights();
+  const mtxTab = document.getElementById('log-tab-matrix');
+  if (mtxTab && mtxTab.style.display !== 'none') logRenderMatrix();
+  logUpdateBookmarkBar();
   document.getElementById('log-stats').style.display = 'flex';
   document.getElementById('log-analyze-btn').style.display = 'inline-flex';
   document.getElementById('log-anon-copy-btn').style.display = 'inline-flex';
@@ -382,6 +393,13 @@ function logLoadMore() {
     const mainLine = msgParts[0];
     const stackLines = msgParts.slice(1);
 
+    const bmKey = logBookmarkKey(e);
+    const isBm = logBookmarks.has(bmKey);
+    const bmToggle = '<span class="log-bm-toggle' + (isBm ? ' active' : '') + '" data-bmkey="' + escHtml(bmKey) + '"'
+      + ' title="' + (isBm ? 'Remove bookmark' : 'Bookmark this line') + '"'
+      + ' onclick="event.stopPropagation();logToggleBookmark(this,' + logJsStr(e.file) + ',' + e.line + ')">'
+      + (isBm ? '★' : '☆') + '</span>';
+
     let mainHtml = escHtml(mainLine);
     if (search && search.length > 1) {
       const re = new RegExp(escRegex(search), 'gi');
@@ -406,7 +424,8 @@ function logLoadMore() {
         + '</div></div>';
     }
 
-    return '<div class="log-row '+cls+'" style="flex-wrap:wrap">'
+    return '<div class="log-row '+cls+(isBm ? ' log-row-bookmarked' : '')+'" style="flex-wrap:wrap">'
+      + bmToggle
       + '<span class="log-row-num">'+e.line+'</span>'
       + '<span class="log-row-ts">'+escHtml(e.ts)+'</span>'
       + '<span class="log-row-level">'+logBadge(e.level)+'</span>'
@@ -490,6 +509,11 @@ function logClear() {
   const insOut = document.getElementById('log-insights-output');
   if (insOut) insOut.innerHTML = '<div class="log-insights-empty"><p style="font-weight:600;margin-bottom:6px">No log loaded yet</p>'
     + '<p style="font-size:0.8rem;color:var(--text-muted)">Insights scans WARNING/ERROR patterns and shows a card for each problem that actually appears. Click a card to filter the stream.</p></div>';
+
+  // Bookmarks & matrix reset with the log
+  logBookmarks.clear();
+  logUpdateBookmarkBar();
+  logRenderMatrix();
 }
 function logExportFiltered() {
   if (!logFilteredEntries.length) return;
@@ -543,6 +567,136 @@ function logExplainError(idx) {
   if (window.navigateWithReturn) window.navigateWithReturn('error-decoder');
   else if (window.navigate) window.navigate('error-decoder', null);
   if (window.edxDecodeText) window.edxDecodeText(e.msg);
+}
+
+// ============================================================
+// LINE BOOKMARKS — pin lines and jump between them across filters
+// ============================================================
+// Bookmarks live in logBookmarks (file#line → snapshot) so they persist through
+// every filter/level change. The star on each row toggles membership; the bar
+// below the toolbar lists them chronologically and jumps back to the stream —
+// clearing filters first if the target line is currently filtered out.
+
+function logToggleBookmark(el, file, line) {
+  const key = (file || '') + '#' + line;
+  if (logBookmarks.has(key)) {
+    logBookmarks.delete(key);
+    if (el) {
+      el.classList.remove('active'); el.textContent = '☆'; el.title = 'Bookmark this line';
+      const row = el.closest('.log-row'); if (row) row.classList.remove('log-row-bookmarked');
+    }
+  } else {
+    const e = logAllEntries.find(x => x.line === line && (x.file || '') === (file || ''));
+    if (!e) return;
+    logBookmarks.set(key, { line: e.line, file: e.file, ts: e.ts, level: e.level, node: e.node, msg: e.msg.split('\n')[0] });
+    if (el) {
+      el.classList.add('active'); el.textContent = '★'; el.title = 'Remove bookmark';
+      const row = el.closest('.log-row'); if (row) row.classList.add('log-row-bookmarked');
+    }
+  }
+  logUpdateBookmarkBar();
+}
+
+// Removes one bookmark and syncs any star currently rendered for that line.
+function logRemoveBookmark(key) {
+  logBookmarks.delete(key);
+  document.querySelectorAll('.log-bm-toggle').forEach(function (el) {
+    if (el.dataset.bmkey !== key) return;
+    el.classList.remove('active'); el.textContent = '☆'; el.title = 'Bookmark this line';
+    const row = el.closest('.log-row'); if (row) row.classList.remove('log-row-bookmarked');
+  });
+  logUpdateBookmarkBar();
+  logRenderBookmarks();
+}
+
+function logClearBookmarks() {
+  logBookmarks.clear();
+  document.querySelectorAll('.log-bm-toggle.active').forEach(function (el) {
+    el.classList.remove('active'); el.textContent = '☆'; el.title = 'Bookmark this line';
+    const row = el.closest('.log-row'); if (row) row.classList.remove('log-row-bookmarked');
+  });
+  logUpdateBookmarkBar();
+}
+
+// Shows/hides the bar (empty ⇒ hidden) and refreshes the count and open list.
+function logUpdateBookmarkBar() {
+  const bar = document.getElementById('log-bookmarks-bar');
+  if (!bar) return;
+  const n = logBookmarks.size;
+  const list = document.getElementById('log-bookmarks-list');
+  if (n === 0) { bar.style.display = 'none'; if (list) list.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  const countEl = document.getElementById('log-bm-count');
+  if (countEl) countEl.textContent = n;
+  if (list && list.style.display !== 'none') logRenderBookmarks();
+}
+
+function logToggleBookmarksList() {
+  const list = document.getElementById('log-bookmarks-list');
+  if (!list) return;
+  const show = list.style.display === 'none' || !list.style.display;
+  list.style.display = show ? 'block' : 'none';
+  if (show) logRenderBookmarks();
+}
+
+function logRenderBookmarks() {
+  const list = document.getElementById('log-bookmarks-list');
+  if (!list) return;
+  if (logBookmarks.size === 0) {
+    list.innerHTML = '<div style="color:var(--text-muted);font-size:0.78rem;padding:var(--sp-2)">No bookmarks yet. Click the ☆ at the start of a log line to pin it.</div>';
+    return;
+  }
+  const items = Array.from(logBookmarks.entries()).map(function (e) { return { key: e[0], b: e[1] }; });
+  items.sort(function (x, y) {
+    const mx = logTsToMs(x.b.ts), my = logTsToMs(y.b.ts);
+    if (!isNaN(mx) && !isNaN(my) && mx !== my) return mx - my;
+    return x.b.line - y.b.line;
+  });
+  list.innerHTML = items.map(function (it) {
+    const b = it.b;
+    return '<div class="log-bm-item" onclick="logJumpToBookmark(' + logJsStr(it.key) + ')" title="Jump to this line in the stream">'
+      + '<span class="log-bm-item-line">L' + b.line + '</span>'
+      + '<span class="log-bm-item-ts">' + escHtml(logInsightsShortTs(b.ts)) + '</span>'
+      + logBadge(b.level)
+      + '<span class="log-bm-item-node" title="' + escHtml(b.node) + '">' + escHtml(b.node) + '</span>'
+      + '<span class="log-bm-item-msg">' + escHtml(b.msg) + '</span>'
+      + '<span class="log-bm-item-remove" title="Remove bookmark" onclick="event.stopPropagation();logRemoveBookmark(' + logJsStr(it.key) + ')">&times;</span>'
+      + '</div>';
+  }).join('');
+}
+
+// Resets every stream filter so a hidden bookmark can be revealed. Sets the input
+// values, then defers to logToggleAllLevels(true), which re-applies and re-renders.
+function logResetStreamFilters() {
+  logActiveSignatureKey = null;
+  const banner = document.getElementById('log-sig-filter-banner');
+  if (banner) banner.style.display = 'none';
+  const ids = ['log-search', 'log-time-from', 'log-time-to', 'log-node-filter', 'log-date-filter'];
+  ids.forEach(function (id) { const el = document.getElementById(id); if (el) el.value = ''; });
+  logToggleAllLevels(true);
+}
+
+// Jumps to a bookmarked line in the Log Stream: switch to the stream tab, reveal
+// the row (clearing filters if the line is filtered out), page the infinite-scroll
+// list up to it, then centre and flash it.
+function logJumpToBookmark(key) {
+  let idx = logFilteredEntries.findIndex(e => logBookmarkKey(e) === key);
+  if (idx < 0) {
+    logResetStreamFilters();
+    idx = logFilteredEntries.findIndex(e => logBookmarkKey(e) === key);
+    if (idx < 0) return;
+  }
+  const streamTab = document.querySelector('#panel-log-viewer .tabs .tab[data-help-key="log-viewer-stream"]');
+  logSetTab('stream', streamTab);
+  const list = document.getElementById('log-virtual-list');
+  let guard = 0;
+  while (logScrollState.currentLoaded <= idx && logScrollState.currentLoaded < logFilteredEntries.length && guard++ < 100000) logLoadMore();
+  const row = list && list.children[idx];
+  if (row) {
+    row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    row.classList.add('log-row-flash');
+    setTimeout(function () { row.classList.remove('log-row-flash'); }, 1500);
+  }
 }
 
 // ============================================================
@@ -997,6 +1151,115 @@ function logExtractInsights(records, opts) {
 }
 
 // ============================================================
+// LEVEL MATRIX — LogNode × level pivot (data-driven)
+// ============================================================
+// Pure function, attached to window/self so Node tests require it like the
+// other extractors. Consumes parser records ({level, logNode|node}) and returns
+// only the levels and nodes that actually occur — no empty rows/columns
+// (data-driven rule). Zero new parsing: it counts records the log parser already
+// produced. Nodes rank by ERROR+CRITICAL volume so the noisiest logger floats up.
+
+const LOG_LEVEL_ORDER = ['TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'CRITICAL'];
+
+function logMatrixLevel(l) {
+  l = (l || '').toUpperCase();
+  if (l === 'WARNING') return 'WARN';
+  if (l === 'ERR' || l === 'FATAL') return 'ERROR';
+  return l;
+}
+
+function logBuildLevelMatrix(records) {
+  records = records || [];
+  const nodeMap = new Map();       // node → { node, counts:{level:n}, total }
+  const levelTotals = {};
+  const present = new Set();
+  let grandTotal = 0;
+
+  for (let i = 0; i < records.length; i++) {
+    const r = records[i];
+    const level = logMatrixLevel(r.level);
+    if (LOG_LEVEL_ORDER.indexOf(level) === -1) continue; // ignore unknown levels
+    const node = ((r.logNode != null ? r.logNode : r.node) || 'Runtime') || 'Runtime';
+    if (!nodeMap.has(node)) nodeMap.set(node, { node: node, counts: {}, total: 0 });
+    const row = nodeMap.get(node);
+    row.counts[level] = (row.counts[level] || 0) + 1;
+    row.total++;
+    levelTotals[level] = (levelTotals[level] || 0) + 1;
+    present.add(level);
+    grandTotal++;
+  }
+
+  const levels = LOG_LEVEL_ORDER.filter(l => present.has(l));
+  const nodes = Array.from(nodeMap.values());
+  nodes.sort(function (a, b) {
+    const ae = (a.counts.ERROR || 0) + (a.counts.CRITICAL || 0);
+    const be = (b.counts.ERROR || 0) + (b.counts.CRITICAL || 0);
+    if (be !== ae) return be - ae;
+    if (b.total !== a.total) return b.total - a.total;
+    return a.node.localeCompare(b.node);
+  });
+
+  return { levels: levels, nodes: nodes, levelTotals: levelTotals, grandTotal: grandTotal, nodeCount: nodes.length };
+}
+
+// Renders the pivot table. Honors the data-driven rule: no log → guidance;
+// otherwise one row per node, one column per level that occurs. Every non-zero
+// cell is clickable and hands node+level to logInsightFilter (jumps to the
+// Stream pre-filtered); zero cells are inert. Error/critical columns are tinted.
+function logRenderMatrix() {
+  const out = document.getElementById('log-matrix-output');
+  if (!out) return;
+
+  if (!logAllEntries.length) {
+    out.innerHTML = '<div class="log-insights-empty">'
+      + '<p style="font-weight:600;margin-bottom:6px">No log loaded yet</p>'
+      + '<p style="font-size:0.8rem;color:var(--text-muted)">The Levels matrix pivots the loaded log by log node × severity so you can see, at a glance, which logger is producing the errors and which nodes are running at DEBUG/TRACE. Load a log in the <strong>Log Stream</strong> tab; then click any cell to filter the stream to exactly those entries.</p></div>';
+    return;
+  }
+
+  const m = logBuildLevelMatrix(logAllEntries);
+  if (m.grandTotal === 0) {
+    out.innerHTML = '<div class="log-insights-empty"><p style="font-weight:600">No leveled entries to pivot</p></div>';
+    return;
+  }
+
+  const levelClass = { TRACE: 'lm-trace', DEBUG: 'lm-debug', INFO: 'lm-info', WARN: 'lm-warn', ERROR: 'lm-error', CRITICAL: 'lm-critical' };
+
+  const head = '<div class="log-insights-summary">Pivot of <strong>' + m.grandTotal + '</strong> entr' + (m.grandTotal === 1 ? 'y' : 'ies') + ' · '
+    + '<strong>' + m.nodeCount + '</strong> log node' + (m.nodeCount === 1 ? '' : 's') + ' × <strong>' + m.levels.length + '</strong> level' + (m.levels.length === 1 ? '' : 's')
+    + ' · <span style="color:var(--text-muted)">click a cell to filter the stream</span></div>';
+
+  let thead = '<tr><th class="lm-node-th">Log node</th>';
+  m.levels.forEach(function (l) {
+    thead += '<th class="lm-lvl-th ' + (levelClass[l] || '') + '" onclick="logInsightFilter(\'\',' + logJsStr(l) + ',\'\')" title="Filter the stream to all ' + l + ' entries">' + l + '</th>';
+  });
+  thead += '<th class="lm-total-th">Total</th></tr>';
+
+  const body = m.nodes.map(function (row) {
+    let tr = '<tr><td class="lm-node" onclick="logInsightFilter(' + logJsStr(row.node) + ',\'\',\'\')" title="Filter the stream to node ' + escHtml(row.node) + '">' + escHtml(row.node) + '</td>';
+    m.levels.forEach(function (l) {
+      const c = row.counts[l] || 0;
+      if (c === 0) { tr += '<td class="lm-cell lm-zero">·</td>'; return; }
+      tr += '<td class="lm-cell ' + (levelClass[l] || '') + '" onclick="logInsightFilter(' + logJsStr(row.node) + ',' + logJsStr(l) + ',\'\')" title="Filter to ' + escHtml(row.node) + ' · ' + l + ' (' + c + ')">' + c + '</td>';
+    });
+    tr += '<td class="lm-cell lm-total" onclick="logInsightFilter(' + logJsStr(row.node) + ',\'\',\'\')">' + row.total + '</td></tr>';
+    return tr;
+  }).join('');
+
+  let tfoot = '<tr class="lm-foot"><td class="lm-node">All nodes</td>';
+  m.levels.forEach(function (l) {
+    const c = m.levelTotals[l] || 0;
+    tfoot += '<td class="lm-cell ' + (levelClass[l] || '') + '" onclick="logInsightFilter(\'\',' + logJsStr(l) + ',\'\')">' + c + '</td>';
+  });
+  tfoot += '<td class="lm-cell lm-total">' + m.grandTotal + '</td></tr>';
+
+  out.innerHTML = head
+    + '<div class="log-matrix-wrap"><table class="log-matrix"><thead>' + thead + '</thead>'
+    + '<tbody>' + body + '</tbody>'
+    + '<tfoot>' + tfoot + '</tfoot></table></div>';
+}
+
+// ============================================================
 // ADVANCED LOG INTELLIGENCE (Correlation, Sequence, Gantt)
 // ============================================================
 
@@ -1004,12 +1267,13 @@ function logSetTab(tabId, el) {
   document.querySelectorAll('#panel-log-viewer .tabs .tab').forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected', 'false'); });
   if (el) { el.classList.add('active'); el.setAttribute('aria-selected', 'true'); }
 
-  const tabs = ['stream', 'insights', 'correlation', 'sequence', 'gantt'];
+  const tabs = ['stream', 'insights', 'matrix', 'correlation', 'sequence', 'gantt'];
   tabs.forEach(t => {
     const pane = document.getElementById('log-tab-' + t);
     if (pane) pane.style.display = (t === tabId) ? 'flex' : 'none';
   });
   if (tabId === 'insights') logRenderInsights();
+  if (tabId === 'matrix') logRenderMatrix();
 }
 
 // Builds the Insights problem-card overview from the loaded records. Honors the
@@ -1322,6 +1586,14 @@ window.logClear = logClear;
 window.logExportFiltered = logExportFiltered;
 window.logExplainError = logExplainError;
 window.logReportSection = logReportSection;
+window.logToggleBookmark = logToggleBookmark;
+window.logRemoveBookmark = logRemoveBookmark;
+window.logClearBookmarks = logClearBookmarks;
+window.logToggleBookmarksList = logToggleBookmarksList;
+window.logRenderBookmarks = logRenderBookmarks;
+window.logJumpToBookmark = logJumpToBookmark;
+window.logBuildLevelMatrix = logBuildLevelMatrix;
+window.logRenderMatrix = logRenderMatrix;
 window.logOpenAggregator = logOpenAggregator;
 window.logCloseAggregator = logCloseAggregator;
 window.logAnalyzeSignatures = logAnalyzeSignatures;

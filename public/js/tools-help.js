@@ -20,6 +20,7 @@ const TOOLS_HELP = {
         <li>Use the filters in the toolbar: enter a phrase (e.g., Microflow name), toggle log levels (TRACE, DEBUG, INFO, WARN, ERROR, CRITICAL) or filter by a specific logger name (e.g., <code>ConnectionBus</code>).</li>
         <li>Narrow down to a specific time window by entering a From / To time (e.g., <code>09:00:00</code> &rarr; <code>10:00:00</code>) and optionally selecting a date.</li>
         <li>Click <strong>Aggregate Errors</strong> in the top right corner of the module bar to open a modal with a summary of unique errors and their occurrence statistics (useful for locating error loops).</li>
+        <li><strong>Bookmark lines</strong> with the <code>&#9734;</code> star at the start of any row — pinned lines are collected in a bar above the stream that survives every filter change. Click a bookmark to jump straight back to that line (if it is hidden by the current filter, filters are cleared so it can be shown). Ideal for marking the key moments of an incident while you keep filtering around them.</li>
       </ol>
     `,
     interpretation: `
@@ -55,6 +56,28 @@ const TOOLS_HELP = {
         <li><strong>Request state bloat (RequestStatistics):</strong> a request kept far more objects in session state than the threshold — a common cause of memory pressure and slow pages. The card reports the peak object count observed.</li>
         <li><strong>TaskQueue failures:</strong> background tasks that threw. A single task failing many times is a <em>retry loop</em> (flagged in the card) — typically one poison record; use the breakdown to get the task name and queue, then trace it.</li>
         <li><strong>Per-node error hotspots:</strong> everything else, bucketed by log node (e.g. <code>SAML_SSO</code>, <code>Connector</code>, <code>WebServices</code>). High <code>Connector</code> 404 counts are often bots probing the public URL — noise, but worth confirming.</li>
+      </ul>
+    `
+  },
+  'log-viewer-matrix': {
+    title: 'Mendix Log Viewer - Levels Matrix',
+    description: 'A pivot table of the loaded log: one row per log node, one column per severity that actually occurs, with the entry count in each cell. It answers two questions at a glance — which logger is producing the errors, and which nodes are running at DEBUG/TRACE (i.e. where verbose logging is inflating the file). Every non-empty cell is clickable and drops you into the Log Stream filtered to exactly those entries.',
+    howToGet: `
+      <p>Any Mendix log works — the same files you load in the Log Stream tab. The matrix counts the records already parsed there, so nothing extra is needed. Rows and columns appear only for the nodes and levels present in the file (a log with no CRITICAL line has no CRITICAL column).</p>
+    `,
+    howToUse: `
+      <ol>
+        <li>Load a log in the <strong>Log Stream</strong> tab, then switch to <strong>Levels Matrix</strong>.</li>
+        <li>Read down the <strong>ERROR</strong> / <strong>CRITICAL</strong> columns first — nodes are sorted so the loggers with the most errors are at the top.</li>
+        <li>Click a <strong>cell</strong> to filter the stream to that node + level; click a <strong>node name</strong> to filter to all levels of that node; click a <strong>column header</strong> to filter to that level across every node.</li>
+        <li>The bottom <strong>All nodes</strong> row and the right-hand <strong>Total</strong> column give the per-level and per-node totals.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>A single node dominating ERROR/CRITICAL:</strong> that logger is where to start — e.g. all errors under <code>ConnectionBus</code> points at the database, under <code>Connector</code> at integrations.</li>
+        <li><strong>Tens of thousands of TRACE/DEBUG on one node:</strong> that node was left at a verbose level. Either it is intentional (e.g. <code>MicroflowEngine</code> at TRACE to feed the Microflow Tracer) or it is bloating the log and should be turned down.</li>
+        <li><strong>A node with only INFO:</strong> healthy — it is logging activity but nothing went wrong there.</li>
       </ul>
     `
   },

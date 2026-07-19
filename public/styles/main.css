@@ -1241,6 +1241,160 @@ kbd {
   color: #7a5800;
   background: #ffc40059;
 }
+/* ── Line bookmarks ── */
+.log-bm-toggle {
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+  opacity: 0.45;
+  -webkit-user-select: none;
+  user-select: none;
+  transition: opacity var(--t-fast), color var(--t-fast);
+}
+.log-row:hover .log-bm-toggle {
+  opacity: 0.85;
+}
+.log-bm-toggle.active {
+  color: var(--warning);
+  opacity: 1;
+}
+.log-row-bookmarked {
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+}
+.log-row-flash {
+  animation: log-row-flash 1.5s ease-out;
+}
+@keyframes log-row-flash {
+  0%, 30% { background: color-mix(in srgb, var(--accent) 32%, transparent); }
+  100% { background: transparent; }
+}
+.log-bm-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 3px var(--sp-2);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  font-size: 0.75rem;
+}
+.log-bm-item:hover {
+  background: var(--bg-hover);
+}
+.log-bm-item-line {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+  width: 52px;
+}
+.log-bm-item-ts {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+  width: 66px;
+}
+.log-bm-item-node {
+  color: var(--accent);
+  flex-shrink: 0;
+  max-width: 130px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.log-bm-item-msg {
+  color: var(--text-primary);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.log-bm-item-remove {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: var(--r-sm);
+  font-size: 0.95rem;
+}
+.log-bm-item-remove:hover {
+  color: var(--danger);
+  background: var(--bg-elevated);
+}
+/* ── Levels matrix ── */
+.log-matrix-wrap {
+  overflow-x: auto;
+  margin-top: var(--sp-3);
+}
+.log-matrix {
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+.log-matrix th,
+.log-matrix td {
+  border: 1px solid var(--border);
+  padding: 5px 12px;
+  text-align: right;
+  white-space: nowrap;
+}
+.log-matrix thead th {
+  background: var(--bg-elevated);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.log-matrix .lm-node-th,
+.log-matrix .lm-node {
+  text-align: left;
+  font-family: var(--font-mono);
+  color: var(--accent);
+  cursor: pointer;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.log-matrix .lm-node:hover {
+  text-decoration: underline;
+}
+.log-matrix .lm-lvl-th {
+  cursor: pointer;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.log-matrix .lm-cell {
+  cursor: pointer;
+}
+.log-matrix .lm-cell:hover {
+  background: var(--bg-hover);
+  outline: 1px solid var(--accent);
+}
+.log-matrix .lm-zero {
+  color: var(--text-muted);
+  opacity: 0.4;
+  cursor: default;
+}
+.log-matrix .lm-zero:hover {
+  background: none;
+  outline: none;
+}
+.log-matrix .lm-total-th,
+.log-matrix .lm-total {
+  font-weight: 700;
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+}
+.log-matrix tfoot .lm-foot td {
+  font-weight: 700;
+  background: var(--bg-elevated);
+}
+.log-matrix .lm-trace { color: var(--log-trace); }
+.log-matrix .lm-debug { color: var(--log-debug); }
+.log-matrix .lm-info  { color: var(--log-info); }
+.log-matrix .lm-warn  { color: var(--log-warning); }
+.log-matrix .lm-error { color: var(--log-error); }
+.log-matrix .lm-critical { color: var(--log-critical); }
+.log-matrix td.lm-error { background: #f851490f; }
+.log-matrix td.lm-critical { background: #f851491f; }
 /* ── Log Insights ── */
 #log-tab-insights {
   overflow: auto;

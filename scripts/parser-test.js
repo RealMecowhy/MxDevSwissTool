@@ -699,6 +699,60 @@ if (fs.existsSync(refInfo)) {
   console.log('  – reference INFO log absent, skipped (PII: never committed)');
 }
 
+// ── Level matrix pivot (public/js/tools/log-viewer.js) ───────────────────────
+// logBuildLevelMatrix attaches to window (pointed at global above) when the
+// log-viewer module was compiled for the Insights tests. It pivots parsed records
+// by log node × severity, honoring the data-driven rule: only levels/nodes that
+// occur produce columns/rows. Reuses the insLog distribution asserted above.
+console.log('\nLevel matrix pivot');
+const logMatrix = global.logBuildLevelMatrix;
+
+const mtx = logMatrix(insRecs);
+// Present levels only, in canonical order (no TRACE/CRITICAL in this fixture)
+eq('matrix: levels present in canonical order', mtx.levels.join(','), 'DEBUG,INFO,WARN,ERROR');
+eq('matrix: grand total = 20 records', mtx.grandTotal, 20);
+eq('matrix: node count = 6', mtx.nodeCount, 6);
+// Nodes rank by ERROR+CRITICAL volume, then total
+eq('matrix: TaskQueue is the top (noisiest-error) node', mtx.nodes[0].node, 'TaskQueue');
+eq('matrix: TaskQueue error count = 7', mtx.nodes[0].counts.ERROR, 7);
+eq('matrix: SAML_SSO ranks second', mtx.nodes[1].node, 'SAML_SSO');
+eq('matrix: SAML_SSO error count = 3', mtx.nodes[1].counts.ERROR, 3);
+// Column (level) totals
+eq('matrix: WARN column total = 8', mtx.levelTotals.WARN, 8);
+eq('matrix: ERROR column total = 10', mtx.levelTotals.ERROR, 10);
+eq('matrix: INFO column total = 1', mtx.levelTotals.INFO, 1);
+eq('matrix: DEBUG column total = 1', mtx.levelTotals.DEBUG, 1);
+// A pure INFO/WARN node keeps its own row and per-level split
+const webui = mtx.nodes.find(function (n) { return n.node === 'WebUI'; });
+eq('matrix: WebUI WARN count = 4', webui.counts.WARN, 4);
+eq('matrix: WebUI has no ERROR bucket', webui.counts.ERROR, undefined);
+eq('matrix: WebUI total = 4', webui.total, 4);
+
+// Data-driven rule: empty input → no rows, no columns, nothing to pivot
+const emptyMtx = logMatrix([]);
+eq('matrix: empty input → 0 grand total', emptyMtx.grandTotal, 0);
+eq('matrix: empty input → 0 nodes', emptyMtx.nodes.length, 0);
+eq('matrix: empty input → 0 levels', emptyMtx.levels.length, 0);
+
+// Clean INFO/DEBUG log → only those two columns appear
+const cleanMtx = logMatrix(parser.parse(cleanLog).records);
+eq('matrix: clean log levels = DEBUG,INFO only', cleanMtx.levels.join(','), 'DEBUG,INFO');
+eq('matrix: clean log node count = 2', cleanMtx.nodeCount, 2);
+
+// Level normalization + unknown-level rejection + node|logNode fallback
+const rawMtx = logMatrix([
+  { level: 'WARNING', logNode: 'A' },  // → WARN
+  { level: 'FATAL', logNode: 'A' },    // → ERROR
+  { level: 'INFO', node: 'B' },        // node (not logNode) still resolves
+  { level: 'SOMETHINGWEIRD', logNode: 'C' } // unknown level dropped, node C never appears
+]);
+eq('matrix: normalized/known levels only → grand total 3', rawMtx.grandTotal, 3);
+eq('matrix: unknown-level node C dropped → 2 nodes', rawMtx.nodeCount, 2);
+eq('matrix: FATAL normalized into ERROR total', rawMtx.levelTotals.ERROR, 1);
+eq('matrix: WARNING normalized into WARN total', rawMtx.levelTotals.WARN, 1);
+eq('matrix: present levels canonical-ordered', rawMtx.levels.join(','), 'INFO,WARN,ERROR');
+ok('matrix: node field resolves when logNode absent', !!rawMtx.nodes.find(function (n) { return n.node === 'B'; }));
+
 // ── Mendix Error Decoder ruleset (public/js/tools/error-decoder.js) ──────────
 // The decoder is a plain script attaching edxDecode to window/self (window is
 // already pointed at the global above), so it require()s directly like MFT/WSRE.

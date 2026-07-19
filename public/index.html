@@ -87,7 +87,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.15.1</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.16.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -260,7 +260,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.15.1</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.16.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -310,6 +310,7 @@
         <div class="tabs" style="margin-bottom:var(--sp-2);padding:0;border-bottom:1px solid var(--border)">
           <button type="button" class="tab active" data-help-key="log-viewer-stream" onclick="logSetTab('stream',this)">Log Stream</button>
           <button type="button" class="tab" data-help-key="log-viewer-insights" onclick="logSetTab('insights',this)">Insights</button>
+          <button type="button" class="tab" data-help-key="log-viewer-matrix" onclick="logSetTab('matrix',this)">Levels Matrix</button>
           <button type="button" class="tab" data-help-key="log-viewer-correlation" onclick="logSetTab('correlation',this)">Correlation Flow</button>
           <button type="button" class="tab" data-help-key="log-viewer-sequence" onclick="logSetTab('sequence',this)">Sequence Diagram</button>
           <button type="button" class="tab" data-help-key="log-viewer-gantt" onclick="logSetTab('gantt',this)">Gantt Chart</button>
@@ -345,6 +346,15 @@
         <span id="log-sig-filter-name" style="font-family:var(--font-mono); font-size:0.75rem; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis"></span>
         <button class="btn btn-ghost btn-sm" onclick="logClearSignatureFilter()" style="color:var(--accent); padding:2px 6px">Clear Filter</button>
       </div>
+      <div id="log-bookmarks-bar" style="display:none; flex-direction:column; gap:var(--sp-2); background:var(--bg-elevated); border:1px solid var(--border); padding:var(--sp-2) var(--sp-4); margin:var(--sp-2) var(--sp-5); border-radius:var(--r-md)">
+        <div style="display:flex; align-items:center; gap:var(--sp-3); font-size:0.8rem">
+          <span style="color:var(--accent); font-weight:600; cursor:pointer; user-select:none" onclick="logToggleBookmarksList()">&#9733; Bookmarks: <span id="log-bm-count">0</span></span>
+          <button class="btn btn-ghost btn-sm" onclick="logToggleBookmarksList()">Show / hide list</button>
+          <span style="flex:1"></span>
+          <button class="btn btn-ghost btn-sm" onclick="logClearBookmarks()">Clear all</button>
+        </div>
+        <div id="log-bookmarks-list" style="display:none; max-height:220px; overflow:auto; border-top:1px solid var(--border); padding-top:var(--sp-2)"></div>
+      </div>
       <div id="log-stats" style="display:none">
         <span class="log-stat">Total: <strong id="ls-total">0</strong></span>
         <span class="log-stat">Shown: <strong id="ls-shown">0</strong></span>
@@ -376,6 +386,16 @@
           <div class="log-insights-empty">
             <p style="font-weight:600;margin-bottom:6px">No log loaded yet</p>
             <p style="font-size:0.8rem;color:var(--text-muted)">Insights scans WARNING/ERROR patterns and shows a card for each problem that actually appears &mdash; permission violations, session-state bloat, TaskQueue failures, per-node error hotspots. Click a card to filter the stream.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- LEVELS MATRIX TAB -->
+      <div id="log-tab-matrix" style="display:none;flex-direction:column;flex:1;height:calc(100% - 40px)">
+        <div id="log-matrix-output" style="flex:1;overflow:auto;padding:var(--sp-4)">
+          <div class="log-insights-empty">
+            <p style="font-weight:600;margin-bottom:6px">No log loaded yet</p>
+            <p style="font-size:0.8rem;color:var(--text-muted)">The Levels matrix pivots the loaded log by log node &times; severity &mdash; a one-glance view of which logger is producing the errors and which nodes run at DEBUG/TRACE. Load a log in the <strong>Log Stream</strong> tab, then click any cell to filter the stream to those entries.</p>
           </div>
         </div>
       </div>
