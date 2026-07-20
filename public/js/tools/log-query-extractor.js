@@ -8,6 +8,10 @@ let lqeSourceFormat = null; // 'csv' (Studio Pro export) | 'live' (Mendix Cloud 
 let lqeWorker = null;
 let lqeVList = null;        // reusable virtual list bound to #lqe-query-list
 let lqeTimeWindow = null;   // {from, to, label} — set by the Microflow Tracer cross-link
+// The file currently being parsed, published to the Data Hub once the record
+// count is known. Only set for user-loaded files: text arriving through a
+// cross-link or the Hub itself already has an owner, so it must not re-register.
+let lqePendingFile = null;
 const LQE_WORKER_THRESHOLD = 2 * 1024 * 1024; // parse in a Web Worker above 2 MB
 
 // ConnectionBus_Queries WARNING — logged at default log levels when a query exceeds
@@ -48,6 +52,7 @@ window.lqeSetTimeWindow = function(from, to, label) {
 };
 
 window.lqeLoadText = function(text) {
+  lqePendingFile = null;   // the caller (cross-link / Data Hub) owns this text
   parseLogContent(text);
 };
 
@@ -93,6 +98,7 @@ window.lqeHandleDrop = function(e) {
 window.lqeLoadFile = function(files) {
   if (!files || files.length === 0) return;
   const file = files[0];
+  lqePendingFile = { name: file.name, size: file.size };
   const reader = new FileReader();
   if (window.showLoader) window.showLoader('Reading log file...');
   
@@ -111,6 +117,7 @@ window.lqeLoadFile = function(files) {
 function parseLogContent(text) {
   if (window.showLoader) window.showLoader('Parsing queries...', 5);
   lqeSkippedLines = 0;
+  if (lqePendingFile) lqePendingFile.text = text;
 
   if (text.length >= LQE_WORKER_THRESHOLD && typeof Worker !== 'undefined' && window.createMendixLogParser) {
     lqeParseInWorker(text);
@@ -132,7 +139,19 @@ function lqeApplyParseResult(res) {
   lqeSourceFormat = res.format;
   lqeSkippedLines = res.skipped || 0;
   extractQueriesFromRecords(res.records);
+  lqePublishToHub(res);
 }
+
+// Registers the just-parsed file with the Data Hub so the other log tools can
+// pick it up without a second load. No-op when the text came from elsewhere.
+function lqePublishToHub(res) {
+  if (window.mtHub) window.mtHub.publishFromParse(lqePendingFile, lqePendingFile && lqePendingFile.text, res, 'log-query-extractor');
+  lqePendingFile = null;
+}
+
+// Data Hub: does this tool currently show something of its own? Used to warn
+// before a one-click hand-off from another tool silently replaces it.
+window.lqeHasData = function () { return extractedQueries.length > 0; };
 
 // Builds a Web Worker straight from the shared parser's own source. createMendixLogParser
 // is a self-contained factory, so .toString() is a complete, serializable program — no

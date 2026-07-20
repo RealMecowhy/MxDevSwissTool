@@ -336,6 +336,87 @@ const subHit = parentExec && parentExec.nPlusOne.find(d => d.type === 'RetrieveB
 ok('subtree pass flags loop owner (retrieve in sub-microflow ×3)', subHit && subHit.count === 3);
 ok('sub-microflow children are not individually flagged', childExecs.length === 3 && childExecs.every(e => e.nPlusOne.length === 0));
 
+// ── MFT: scheduled events & background monitor ──
+// A "run" is a depth-0 execution on a UUID correlation ID. Request-driven work
+// (numeric corrId) and sub-microflows must stay out of the aggregation.
+console.log('\nMicroflow Tracer: background monitor');
+const mftBackground = global.mftBuildBackgroundView;
+const U = n => String(n).repeat(8) + '-' + String(n).repeat(4) + '-4' + String(n).repeat(3) + '-8' + String(n).repeat(3) + '-' + String(n).repeat(12);
+const bgStart = (ts, id, flow) => '2026-07-17T' + ts + ' ' + P + '  DEBUG - MicroflowEngine: [' + id + '] Starting execution of microflow \'' + flow + '\'';
+const bgEnd = (ts, id, flow) => '2026-07-17T' + ts + ' ' + P + '  DEBUG - MicroflowEngine: [' + id + '] Finished execution of microflow \'' + flow + '\'';
+const bgLog = [
+  // four nightly runs, five minutes apart, getting slower over time
+  bgStart('10:00:00.000000', U(1), 'Ops.Nightly'),
+  bgStart('10:00:00.020000', U(1), 'Ops.Sub'),          // sub-microflow — not a run
+  bgEnd('10:00:00.060000', U(1), 'Ops.Sub'),
+  bgEnd('10:00:00.100000', U(1), 'Ops.Nightly'),
+  bgStart('10:05:00.000000', U(2), 'Ops.Nightly'),
+  bgEnd('10:05:00.120000', U(2), 'Ops.Nightly'),
+  bgStart('10:10:00.000000', U(3), 'Ops.Nightly'),
+  bgEnd('10:10:00.400000', U(3), 'Ops.Nightly'),
+  bgStart('10:15:00.000000', U(4), 'Ops.Nightly'),
+  bgEnd('10:15:00.500000', U(4), 'Ops.Nightly'),
+  // same microflow, request-driven — must not be counted as a background run
+  bgStart('10:16:00.000000', '1784268324436-46', 'Ops.Nightly'),
+  bgEnd('10:16:00.900000', '1784268324436-46', 'Ops.Nightly'),
+  // two runs of the same event overlapping by 5 s
+  bgStart('10:20:00.000000', U(5), 'Ops.Overlap'),
+  bgStart('10:20:05.000000', U(6), 'Ops.Overlap'),
+  bgEnd('10:20:10.000000', U(5), 'Ops.Overlap'),
+  bgEnd('10:20:12.000000', U(6), 'Ops.Overlap'),
+  // started, never finished (log window ends mid-run)
+  bgStart('10:30:00.000000', U(7), 'Ops.Stuck')
+].join('\n');
+const bgOut = mftBackground(mftExtract(parser.parse(bgLog).records).executions, []);
+eq('background: three events aggregated', bgOut.events.length, 3);
+eq('background: request-driven runs excluded from events', bgOut.runs, 7);
+eq('background: request-driven runs counted separately', bgOut.requestRuns, 1);
+const bgNightly = bgOut.events.find(e => e.name === 'Ops.Nightly');
+eq('background: four runs of the nightly event', bgNightly.runs, 4);
+ok('background: sub-microflow is not an event of its own', !bgOut.events.some(e => e.name === 'Ops.Sub'));
+ok('background: min/median/max durations', bgNightly.minMs === 100 && bgNightly.medianMs === 260 && bgNightly.maxMs === 500,
+  bgNightly.minMs + '/' + bgNightly.medianMs + '/' + bgNightly.maxMs);
+eq('background: median start-to-start interval is the schedule', bgNightly.medianIntervalMs, 300000);
+eq('background: slowing runs trend up', bgNightly.trend.dir, 'up');
+ok('background: trend compares half-medians (110 → 450)',
+  bgNightly.trend.firstHalfMs === 110 && bgNightly.trend.secondHalfMs === 450,
+  bgNightly.trend.firstHalfMs + ' → ' + bgNightly.trend.secondHalfMs);
+const bgOverlap = bgOut.events.find(e => e.name === 'Ops.Overlap');
+eq('background: overlapping runs detected', bgOverlap.overlapCount, 1);
+eq('background: overlap duration measured', bgOverlap.overlaps[0].overlapMs, 5000);
+eq('background: overlaps totalled across events', bgOut.overlapCount, 1);
+const bgStuck = bgOut.events.find(e => e.name === 'Ops.Stuck');
+ok('background: unfinished run has no duration stats', bgStuck.unfinished === 1 && bgStuck.medianMs === null);
+eq('background: unfinished totalled across events', bgOut.unfinished, 1);
+ok('background: events sorted by run count', bgOut.events[0].name === 'Ops.Nightly');
+// A single run cannot trend and must not pretend to (data-driven rule).
+ok('background: a single run yields no trend', bgStuck.trend === null);
+ok('background: a single run yields no interval', bgStuck.medianIntervalMs === null);
+// Empty input: no invented events, and the caller can tell there was no engine data.
+const bgEmpty = mftBackground([], []);
+ok('background: empty input yields no events and no engine data',
+  bgEmpty.events.length === 0 && bgEmpty.hasEngineData === false && bgEmpty.errors.length === 0);
+
+// Fallback for INFO-only logs: MicroflowEngine is silent, but background failures
+// are not — those are worth surfacing instead of an empty view.
+const bgErrLog = [
+  '2026-07-17T12:00:00.000000 ' + P + '  ERROR - TaskQueue: Task MDM.UPD_UserData failed',
+  '2026-07-17T12:00:01.000000 ' + P + '  ERROR - TaskQueue: Task MDM.UPD_UserData failed',
+  '2026-07-17T12:00:02.000000 ' + P + '  WARNING - TaskQueue: Retrying task',
+  '2026-07-17T12:00:03.000000 ' + P + '  ERROR - Core: Error executing scheduled event Ops.Nightly',
+  '2026-07-17T12:00:04.000000 ' + P + '  ERROR - Jetty: Unrelated request failure'
+].join('\n');
+const bgErr = mftBackground([], parser.parse(bgErrLog).records);
+eq('background fallback: two node groups (queue + scheduled event)', bgErr.errors.length, 2);
+eq('background fallback: repeated task failures counted', bgErr.errors[0].count, 2);
+eq('background fallback: node name kept', bgErr.errors[0].node, 'TaskQueue');
+ok('background fallback: warnings are not failures', !bgErr.errors.some(e => e.count > 2));
+ok('background fallback: unrelated ERROR nodes ignored', !bgErr.errors.some(e => e.node === 'Jetty'));
+ok('background fallback: scheduled-event ERROR matched by message, not node',
+  bgErr.errors.some(e => e.node === 'Core' && e.count === 1));
+ok('background fallback: first/last timestamps kept',
+  bgErr.errors[0].firstTs === '2026-07-17T12:00:00.000000' && bgErr.errors[0].lastTs === '2026-07-17T12:00:01.000000');
+
 // Reference: real Mendix Cloud log with MicroflowEngine DEBUG+TRACE (local only)
 const refTrace = path.join(__dirname, '..', '_local_assets', 'FilesForTest', 'MxCloudApp_RealLogsWithTrace.txt');
 if (fs.existsSync(refTrace)) {
@@ -363,6 +444,18 @@ if (fs.existsSync(refTrace)) {
     .map(e => e.nPlusOne[0].count)
     .sort((a, b) => b - a)[0] || 0;
   ok('reference trace: worst offender is a large loop (≥1000×)', worst >= 1000, 'worst=' + worst);
+  // Background monitor on real data: 312 background runs across 22 distinct
+  // events, against 357 request-driven ones — the corrId split is what separates
+  // them, and getting it wrong shows up immediately in these counts.
+  const bgRef = global.mftBuildBackgroundView(out.executions, recs2);
+  eq('reference trace: 312 background runs', bgRef.runs, 312);
+  eq('reference trace: 357 request-driven runs', bgRef.requestRuns, 357);
+  eq('reference trace: 22 background events', bgRef.events.length, 22);
+  const qStats = bgRef.events.find(e => e.name === 'Queues.QueuesStats');
+  eq('reference trace: Queues.QueuesStats ran 91 times', qStats.runs, 91);
+  ok('reference trace: its median interval is the 5-minute schedule',
+    Math.abs(qStats.medianIntervalMs - 300000) < 1000, 'got ' + qStats.medianIntervalMs);
+  ok('reference trace: overlapping background runs found', bgRef.overlapCount === 4, 'got ' + bgRef.overlapCount);
 } else {
   console.log('  – reference trace log absent, skipped (PII: never committed)');
 }
@@ -971,6 +1064,947 @@ ok('livedb: data-modifying CTE rejected', livedb.isReadOnlySelect('WITH d AS (DE
 ok('livedb: empty rejected', livedb.isReadOnlySelect('') === false);
 ok('livedb: non-string rejected', livedb.isReadOnlySelect(null) === false);
 
+// ── Live DB — Index Advisor (Wave 6 R2, server/livedb.js) ───────────────────
+// The advisor's central rule: usage counters are worthless on a cold database,
+// structural findings are not. These fixtures pin both halves of that split.
+function ixFix(over) {
+  return Object.assign({
+    schema: 'public', table: 'orders', name: 'idx_a', idxScan: 100,
+    indexBytes: 1048576, tableBytes: 10485760, isUnique: false, isPrimary: false,
+    isValid: true, keyAtts: 1, am: 'btree', predicate: '', keyColumns: 'customer_id',
+    indexdef: 'CREATE INDEX idx_a ON orders (customer_id)'
+  }, over || {});
+}
+function tbFix(over) {
+  return Object.assign({
+    schema: 'public', table: 'orders', seqScan: 0, seqTupRead: 0,
+    idxScan: 1000, liveTuples: 50000, tableBytes: 10485760
+  }, over || {});
+}
+// A warm window: plenty of scans, reset well in the past.
+const WARM = { statsSince: '2026-07-01T00:00:00Z', nowMs: Date.parse('2026-07-19T00:00:00Z'), totalIdxScan: 500000, totalSeqScan: 100 };
+function advise(indexes, tables, over) {
+  return livedb.buildIndexAdvice(Object.assign({ indexes: indexes, tables: tables || [] }, WARM, over || {}));
+}
+
+// -- statistics window assessment --
+eq('advisor: cold database → no confidence',
+  livedb.assessStatsWindow({ totalIdxScan: 8, totalSeqScan: 26, statsSince: '2026-07-19T12:00:00Z', nowMs: Date.parse('2026-07-19T13:00:00Z') }).confidence, 'none');
+eq('advisor: warm but young window → low confidence',
+  livedb.assessStatsWindow({ totalIdxScan: 90000, totalSeqScan: 10, statsSince: '2026-07-19T00:00:00Z', nowMs: Date.parse('2026-07-19T06:00:00Z') }).confidence, 'low');
+eq('advisor: few scans over a long window → low confidence',
+  livedb.assessStatsWindow({ totalIdxScan: 200, totalSeqScan: 10, statsSince: '2026-06-01T00:00:00Z', nowMs: Date.parse('2026-07-19T00:00:00Z') }).confidence, 'low');
+eq('advisor: long warm window → ok',
+  livedb.assessStatsWindow({ totalIdxScan: 500000, totalSeqScan: 100, statsSince: '2026-06-01T00:00:00Z', nowMs: Date.parse('2026-07-19T00:00:00Z') }).confidence, 'ok');
+ok('advisor: withheld verdict always explains itself',
+  /almost no queries/.test(livedb.assessStatsWindow({ totalIdxScan: 1, totalSeqScan: 1 }).reason));
+
+// -- the SS3DB trap: a restored copy must NOT be told to drop 597 indexes --
+const coldAdvice = livedb.buildIndexAdvice({
+  indexes: [ixFix({ idxScan: 0 }), ixFix({ name: 'idx_b', idxScan: 0, keyColumns: 'status' })],
+  tables: [tbFix({ seqScan: 20, idxScan: 0 })],
+  totalIdxScan: 8, totalSeqScan: 26,
+  statsSince: '2026-07-19T12:00:00Z', nowMs: Date.parse('2026-07-19T13:00:00Z')
+});
+eq('advisor: cold DB suppresses every unused-index finding',
+  coldAdvice.findings.filter(function (f) { return f.kind === 'unused-index'; }).length, 0);
+eq('advisor: cold DB suppresses seq-scan findings too',
+  coldAdvice.findings.filter(function (f) { return f.kind === 'seq-scan-heavy'; }).length, 0);
+
+// -- unused indexes, once the window earns it --
+const unused = advise([ixFix({ idxScan: 0 })]);
+eq('advisor: warm window reports the unused index', unused.findings.length, 1);
+eq('advisor: unused index is usage-based, not structural', unused.findings[0].structural, false);
+ok('advisor: unused finding warns against reading dev counters',
+  unused.findings[0].verify.some(function (v) { return /PRODUCTION/.test(v); }));
+ok('advisor: unused finding warns that Studio Pro recreates the index',
+  unused.findings[0].verify.some(function (v) { return /Studio Pro/.test(v); }));
+// Mendix regenerates association indexes on every deploy — a DROP is temporary.
+ok('advisor: Mendix association index carries the deploy warning',
+  /recreates it on every deploy/.test(
+    advise([ixFix({ idxScan: 0, table: 'eshop$order', name: 'idx_eshop$order_eshop$customer_order' })]).findings[0].mendixNote));
+ok('advisor: other Mendix tables still get the Studio Pro note',
+  /Studio Pro/.test(advise([ixFix({ idxScan: 0, table: 'eshop$order', name: 'custom_ix' })]).findings[0].mendixNote));
+eq('advisor: non-Mendix table gets no Mendix note',
+  advise([ixFix({ idxScan: 0, table: 'plain_table', name: 'custom_ix' })]).findings[0].mendixNote, null);
+eq('advisor: primary key is never reported as unused',
+  advise([ixFix({ idxScan: 0, isPrimary: true, isUnique: true })]).findings.length, 0);
+eq('advisor: unique constraint index is never reported as unused',
+  advise([ixFix({ idxScan: 0, isUnique: true })]).findings.length, 0);
+eq('advisor: tiny unused index is below the noise floor',
+  advise([ixFix({ idxScan: 0, indexBytes: 8192 })]).findings.length, 0);
+eq('advisor: a scanned index is not reported', advise([ixFix({ idxScan: 1 })]).findings.length, 0);
+
+// -- structural findings survive a cold window --
+const coldDup = livedb.buildIndexAdvice({
+  indexes: [ixFix({ name: 'idx_a', idxScan: 0 }), ixFix({ name: 'idx_dup', idxScan: 0 })],
+  tables: [], totalIdxScan: 2, totalSeqScan: 2
+});
+eq('advisor: duplicate index reported even on a cold database', coldDup.findings.length, 1);
+eq('advisor: duplicate is flagged structural', coldDup.findings[0].kind, 'duplicate-index');
+eq('advisor: identical pair reported once, not twice',
+  advise([ixFix({ name: 'idx_a' }), ixFix({ name: 'idx_dup' })]).findings.length, 1);
+
+// -- prefix redundancy --
+const redundant = advise([
+  ixFix({ name: 'idx_narrow', keyColumns: 'customer_id', keyAtts: 1 }),
+  ixFix({ name: 'idx_wide', keyColumns: 'customer_id,created_at', keyAtts: 2 })
+]);
+eq('advisor: prefix index flagged redundant', redundant.findings[0].kind, 'redundant-index');
+eq('advisor: the narrow index is the one named', redundant.findings[0].index, 'idx_narrow');
+eq('advisor: wider index is not redundant against the narrow one',
+  redundant.findings.filter(function (f) { return f.index === 'idx_wide'; }).length, 0);
+eq('advisor: non-prefix column order is not redundant',
+  advise([ixFix({ name: 'i1', keyColumns: 'created_at', keyAtts: 1 }),
+          ixFix({ name: 'i2', keyColumns: 'customer_id,created_at', keyAtts: 2 })]).findings.length, 0);
+eq('advisor: unique index is never redundant against a wider one',
+  advise([ixFix({ name: 'uq', keyColumns: 'email', keyAtts: 1, isUnique: true }),
+          ixFix({ name: 'wide', keyColumns: 'email,tenant', keyAtts: 2 })]).findings.length, 0);
+eq('advisor: different access methods are not duplicates',
+  advise([ixFix({ name: 'b', am: 'btree' }), ixFix({ name: 'g', am: 'gin' })]).findings.length, 0);
+eq('advisor: partial indexes with different predicates are not duplicates',
+  advise([ixFix({ name: 'p1', predicate: 'active' }), ixFix({ name: 'p2', predicate: 'NOT active' })]).findings.length, 0);
+eq('advisor: same predicate still duplicates',
+  advise([ixFix({ name: 'p1', predicate: 'active' }), ixFix({ name: 'p2', predicate: 'active' })]).findings.length, 1);
+eq('advisor: indexes on different tables are never compared',
+  advise([ixFix({ name: 'x', table: 'orders' }), ixFix({ name: 'y', table: 'invoices' })]).findings.length, 0);
+// Expression indexes resolve partially — treating (a, lower(b)) as (a) would be
+// a false duplicate against a plain index on a.
+eq('advisor: partially resolved expression index is not compared',
+  advise([ixFix({ name: 'plain', keyColumns: 'customer_id', keyAtts: 1 }),
+          ixFix({ name: 'expr', keyColumns: 'customer_id', keyAtts: 2 })]).findings.length, 0);
+
+// -- invalid index --
+const invalid = advise([ixFix({ isValid: false, idxScan: 0 })]);
+eq('advisor: invalid index reported once', invalid.findings.length, 1);
+eq('advisor: invalid index outranks unused', invalid.findings[0].kind, 'invalid-index');
+eq('advisor: invalid index is structural', invalid.findings[0].structural, true);
+
+// -- sequential scan pressure --
+const seqHeavy = advise([], [tbFix({ seqScan: 500, seqTupRead: 25000000, idxScan: 10, liveTuples: 50000 })]);
+eq('advisor: seq-scan-heavy table reported', seqHeavy.findings[0].kind, 'seq-scan-heavy');
+ok('advisor: seq-scan finding points at EXPLAIN live',
+  seqHeavy.findings[0].verify.some(function (v) { return /EXPLAIN live/.test(v); }));
+eq('advisor: small table is allowed to be seq-scanned',
+  advise([], [tbFix({ seqScan: 500, seqTupRead: 50000, idxScan: 0, liveTuples: 200 })]).findings.length, 0);
+eq('advisor: a handful of seq scans is noise',
+  advise([], [tbFix({ seqScan: 10, seqTupRead: 500000, idxScan: 0 })]).findings.length, 0);
+eq('advisor: index-dominated table is fine',
+  advise([], [tbFix({ seqScan: 100, seqTupRead: 5000000, idxScan: 100000 })]).findings.length, 0);
+
+// -- ordering, summary, data-driven empty state --
+const mixedIdx = advise([
+  ixFix({ name: 'small_unused', idxScan: 0, indexBytes: 1048576 }),
+  ixFix({ name: 'big_unused', idxScan: 0, indexBytes: 99999999, keyColumns: 'note', keyAtts: 1 }),
+  ixFix({ name: 'broken', isValid: false, keyColumns: 'other', keyAtts: 1 })
+]);
+eq('advisor: high severity sorts first', mixedIdx.findings[0].severity, 'high');
+eq('advisor: within a severity the biggest index wins', mixedIdx.findings[1].index, 'big_unused');
+ok('advisor: reclaimable storage is summed and labelled',
+  mixedIdx.summary.reclaimableBytes > 99999999 && /MB/.test(mixedIdx.summary.reclaimableLabel));
+const clean = advise([ixFix({ idxScan: 500 })], [tbFix()]);
+eq('advisor: healthy database yields zero findings', clean.findings.length, 0);
+eq('advisor: healthy database still reports what it inspected', clean.summary.indexCount, 1);
+eq('advisor: no pg_stat_statements degrades rather than fails',
+  livedb.buildIndexAdvice({ indexes: [], tables: [] }).statements.available, false);
+eq('advisor: empty input is not an error', livedb.buildIndexAdvice({}).findings.length, 0);
+
+// -- table→entity translation in the Error Decoder (fed by the live model) --
+// PostgreSQL names tables, developers think in entities. Only active once a
+// model has been loaded; with no map the section stays absent (data principle).
+const edxMap = global.edxMapTables;
+const EDX_TBL = { 'eshop$order': 'eShop.Order', 'eshop$orderline': 'eShop.OrderLine' };
+eq('errdec/model: no map loaded → no translation', edxMap('duplicate key in eshop$order', null).length, 0);
+eq('errdec/model: table in the message is translated',
+  edxMap('ERROR: duplicate key value violates unique constraint on eshop$order', EDX_TBL)[0].entity, 'eShop.Order');
+eq('errdec/model: unrelated message translates nothing',
+  edxMap('java.lang.OutOfMemoryError: Java heap space', EDX_TBL).length, 0);
+eq('errdec/model: matching is case-insensitive',
+  edxMap('constraint on ESHOP$ORDER failed', EDX_TBL).length, 1);
+// The longer table name must be reported first, otherwise `eshop$orderline`
+// gets described as `eShop.Order`.
+eq('errdec/model: most specific table first',
+  edxMap('violation on eshop$orderline', EDX_TBL)[0].entity, 'eShop.OrderLine');
+
+// ── Live DB — Domain Model from database (Wave 6 R3, server/livedb.js) ──────
+// Two facts decide whether the generated diagram is right or merely plausible:
+// where the FK column lives (parent's table, NOT association.table_name — they
+// differ on Mendix 9) and which side is "one" (the child, because the parent
+// holds the FK). Both are pinned here.
+const DM_ENTITIES = [
+  { id: 'e1', entityName: 'eShop.Category', tableName: 'eshop$category' },
+  { id: 'e2', entityName: 'eShop.Product', tableName: 'eshop$product' },
+  { id: 'e3', entityName: 'System.Image', tableName: 'system$image', superEntityId: 'e4' },
+  { id: 'e4', entityName: 'System.FileDocument', tableName: 'system$filedocument' },
+  { id: 'e5', entityName: 'Sales.Tag', tableName: 'sales$tag' }
+];
+const DM_ATTRS = [
+  { entityId: 'e2', attributeName: 'Name', columnName: 'name', type: 30, length: 200 },
+  { entityId: 'e2', attributeName: 'Price', columnName: 'price', type: 5, length: 0 },
+  { entityId: 'e2', attributeName: 'Active', columnName: 'active', type: 10, length: 0 },
+  { entityId: 'e1', attributeName: 'Code', columnName: 'code', type: 3, length: 0 },
+  { entityId: 'e9', attributeName: 'Orphan', columnName: 'orphan', type: 30, length: 0 }
+];
+// Category_Product: FK column lives on the PRODUCT (parent) table.
+const DM_COLUMN_ASSOC = {
+  associationName: 'eShop.Category_Product', tableName: 'eshop$product',
+  parentEntityId: 'e2', childEntityId: 'e1',
+  parentColumnName: 'id', childColumnName: 'eshop$category_product'
+};
+// Mendix 9 shape: table_name names the COLUMN and matches no table at all.
+const DM_MX9_ASSOC = {
+  associationName: 'System.owner', tableName: 'system$owner',
+  parentEntityId: 'e2', childEntityId: 'e1',
+  parentColumnName: 'id', childColumnName: 'system$owner'
+};
+const DM_JUNCTION_ASSOC = {
+  associationName: 'Sales.Product_Tag', tableName: 'sales$product_tag',
+  parentEntityId: 'e2', childEntityId: 'e5',
+  parentColumnName: 'eshop$productid', childColumnName: 'sales$tagid'
+};
+function dm(assocs, uniqueColumns) {
+  return livedb.buildDomainModel({
+    entities: DM_ENTITIES, attributes: DM_ATTRS,
+    associations: assocs || [], uniqueColumns: uniqueColumns || []
+  });
+}
+
+// -- entities, attributes, types --
+const dmBase = dm();
+eq('domain: entities reconstructed', dmBase.stats.entityCount, 5);
+eq('domain: module split from Module.Entity', dmBase.entities[0].module, 'eShop');
+eq('domain: short name split from Module.Entity', dmBase.entities[0].shortName, 'Category');
+eq('domain: attributes attached to their entity',
+  dmBase.entities.find(function (e) { return e.name === 'eShop.Product'; }).attributes.length, 3);
+eq('domain: orphan attribute row ignored', dmBase.stats.attributeCount, 4);
+eq('domain: inheritance resolved to the super entity name',
+  dmBase.entities.find(function (e) { return e.name === 'System.Image'; }).superName, 'System.FileDocument');
+eq('domain: inherited entities counted', dmBase.stats.inheritedCount, 1);
+eq('domain: table→entity map for the Error Decoder', dmBase.tableMap['eshop$product'], 'eShop.Product');
+// Type codes, empirically confirmed on Mendix 9.24 and 11.12.
+eq('domain: type 30 is String with length', livedb.mxTypeName(30, 200), 'String(200)');
+eq('domain: type 30 without length stays String', livedb.mxTypeName(30, 0), 'String');
+eq('domain: type 5 is Decimal', livedb.mxTypeName(5, 0), 'Decimal');
+eq('domain: type 10 is Boolean', livedb.mxTypeName(10, 0), 'Boolean');
+eq('domain: type 20 is DateTime', livedb.mxTypeName(20, 0), 'DateTime');
+eq('domain: type 40 is Enum', livedb.mxTypeName(40, 8), 'Enum');
+eq('domain: type 0 is AutoNumber', livedb.mxTypeName(0, 0), 'AutoNumber');
+eq('domain: unknown type code is surfaced, not guessed', livedb.mxTypeName(99, 0), 'Type99');
+
+// -- column-stored association: direction and FK location --
+const dmCol = dm([DM_COLUMN_ASSOC]);
+const aCol = dmCol.associations[0];
+eq('domain: column storage detected via parent_column_name=id', aCol.storage, 'column');
+// The parent holds the FK, so the CHILD is the "1" side. Reversing this flips
+// every relationship in the diagram.
+eq('domain: child entity is the ONE side', aCol.one, 'eShop.Category');
+eq('domain: parent entity is the MANY side', aCol.many, 'eShop.Product');
+eq('domain: column association is 1-* without a unique index', aCol.cardinality, '1-*');
+eq('domain: FK table is the parent entity table', aCol.table, 'eshop$product');
+// Mendix 9: association.table_name is the column name and matches no table.
+const aMx9 = dm([DM_MX9_ASSOC]).associations[0];
+eq('domain: Mx9 FK table resolved from the parent entity, not table_name', aMx9.table, 'eshop$product');
+eq('domain: Mx9 association still directed child→one', aMx9.one, 'eShop.Category');
+// A unique index on the FK column makes it 1-1.
+eq('domain: unique FK column upgrades 1-* to 1-1',
+  dm([DM_COLUMN_ASSOC], ['eshop$product|eshop$category_product']).associations[0].cardinality, '1-1');
+eq('domain: a unique index on an unrelated column changes nothing',
+  dm([DM_COLUMN_ASSOC], ['eshop$product|name']).associations[0].cardinality, '1-*');
+
+// -- junction-table association --
+const aJun = dm([DM_JUNCTION_ASSOC]).associations[0];
+eq('domain: junction storage detected', aJun.storage, 'junction');
+eq('domain: junction without unique indexes is *-*', aJun.cardinality, '*-*');
+eq('domain: junction table name kept', aJun.table, 'sales$product_tag');
+eq('domain: junction records both FK columns', aJun.columns.length, 2);
+// Unique on the child column means each child links to at most one parent.
+const aJunChildU = dm([DM_JUNCTION_ASSOC], ['sales$product_tag|sales$tagid']).associations[0];
+eq('domain: unique child column makes it 1-*', aJunChildU.cardinality, '1-*');
+eq('domain: with a unique child column the parent is the ONE side', aJunChildU.one, 'eShop.Product');
+const aJunParentU = dm([DM_JUNCTION_ASSOC], ['sales$product_tag|eshop$productid']).associations[0];
+eq('domain: unique parent column also yields 1-*', aJunParentU.cardinality, '1-*');
+eq('domain: with a unique parent column the child is the ONE side', aJunParentU.one, 'Sales.Tag');
+eq('domain: both columns unique yields 1-1',
+  dm([DM_JUNCTION_ASSOC], ['sales$product_tag|sales$tagid', 'sales$product_tag|eshop$productid']).associations[0].cardinality, '1-1');
+// An association whose entity is missing must not invent a node.
+eq('domain: association with an unknown entity is dropped',
+  dm([{ associationName: 'X.Broken', tableName: 't', parentEntityId: 'zz', childEntityId: 'e1', parentColumnName: 'id', childColumnName: 'c' }]).associations.length, 0);
+
+// -- modules and stats --
+const dmFull = dm([DM_COLUMN_ASSOC, DM_JUNCTION_ASSOC]);
+eq('domain: modules aggregated', dmFull.stats.moduleCount, 3);
+eq('domain: modules sorted by entity count', dmFull.modules[0].name, 'eShop');
+eq('domain: cardinality distribution counted', dmFull.stats.cardinality['*-*'], 1);
+eq('domain: empty input is not an error', livedb.buildDomainModel({}).stats.entityCount, 0);
+
+// -- projection into the Architecture tool's JSON shape --
+const arch = livedb.domainModelToArchJson(dmFull);
+eq('domain→arch: every entity projected', arch.entities.length, 5);
+eq('domain→arch: entity uses the short name', arch.entities[0].name, 'Category');
+eq('domain→arch: attributes carry a rendered type',
+  arch.entities.find(function (e) { return e.name === 'Product'; }).attributes.find(function (a) { return a.name === 'Name'; }).type, 'String(200)');
+eq('domain→arch: inheritance projected', arch.entities.find(function (e) { return e.name === 'Image'; }).extends, 'System.FileDocument');
+eq('domain→arch: association parent is the ONE side',
+  arch.associations.find(function (a) { return a.name === 'Category_Product'; }).parent, 'Category');
+eq('domain→arch: association child is the MANY side',
+  arch.associations.find(function (a) { return a.name === 'Category_Product'; }).child, 'Product');
+// Filtering matters: a 338-entity model is unreadable as a single diagram.
+const archEshop = livedb.domainModelToArchJson(dmFull, ['eShop']);
+eq('domain→arch: module filter narrows entities', archEshop.entities.length, 2);
+eq('domain→arch: association kept when both ends survive the filter',
+  archEshop.associations.length, 1);
+const archSales = livedb.domainModelToArchJson(dmFull, ['Sales']);
+eq('domain→arch: association dropped when one end is filtered out',
+  archSales.associations.length, 0);
+
+// ── Data Hub v0 — shared loaded-file summary and targets ────────────────────
+// The component is an IIFE that skips every DOM branch when `document` is
+// undefined, so requiring it in Node yields just the pure builders.
+console.log('\nData Hub');
+require('../public/js/components/data-hub.js');
+const hubSummary = global.mtHubSummary;
+const hubTargets = global.mtHubTargets;
+
+// -- summary line --
+// Nothing loaded must produce nothing at all (data-driven principle): the bar
+// renders an empty shell only if this returns a truthy object.
+eq('hub: no source yields no summary', hubSummary(null), null);
+eq('hub: a source without a name yields no summary', hubSummary({ text: 'x' }), null);
+
+const hubSrc = {
+  name: 'app.log', size: 3 * 1024 * 1024, format: 'live', records: 176986,
+  text: 'raw', origin: 'log-viewer', loadedIn: ['log-viewer']
+};
+const hubS = hubSummary(hubSrc);
+eq('hub: summary keeps the file name', hubS.name, 'app.log');
+eq('hub: size rendered in MB', hubS.sizeText, '3.0 MB');
+eq('hub: record count is thousands-separated', hubS.recordsText, '176,986 records');
+eq('hub: live format gets a human label', hubS.formatText, 'Mendix Cloud live log');
+eq('hub: summary line joins the parts',
+  hubS.line, 'Loaded: app.log · 3.0 MB · 176,986 records · Mendix Cloud live log');
+eq('hub: csv format gets its own label',
+  hubSummary({ name: 'a.csv', text: 'x', format: 'csv' }).formatText, 'Studio Pro CSV export');
+// An unknown/absent format must not invent a label.
+eq('hub: unknown format contributes nothing',
+  hubSummary({ name: 'a.log', text: 'x', format: 'zzz' }).formatText, '');
+eq('hub: a source with only a name still yields a line',
+  hubSummary({ name: 'a.log', text: 'x' }).line, 'Loaded: a.log');
+// Singular/plural and size units are the kind of detail that silently looks wrong.
+eq('hub: one record is singular', hubSummary({ name: 'a', text: 'x', records: 1 }).recordsText, '1 record');
+eq('hub: zero records is still reported', hubSummary({ name: 'a', text: 'x', records: 0 }).recordsText, '0 records');
+eq('hub: bytes below 1 KB stay bytes', global.mtHubFormatBytes(512), '512 B');
+eq('hub: kilobytes rendered with one decimal', global.mtHubFormatBytes(2048), '2.0 KB');
+eq('hub: a missing size contributes nothing', hubSummary({ name: 'a', text: 'x' }).sizeText, '');
+// The Log Viewer accepts several files at once; the Hub carries one, and says so.
+eq('hub: sibling files counted', hubSummary(Object.assign({ siblings: 2 }, hubSrc)).siblings, 2);
+eq('hub: no siblings by default', hubS.siblings, 0);
+
+// -- open-in targets --
+eq('hub: no source offers no targets', hubTargets(null, 'log-viewer').length, 0);
+const hubT = hubTargets(hubSrc, 'log-query-extractor');
+eq('hub: all four log tools are offered', hubT.length, 4);
+eq('hub: the active tool is flagged as current',
+  hubT.filter(t => t.current).map(t => t.id).join(), 'log-query-extractor');
+eq('hub: the tool that parsed the file is flagged as loaded',
+  hubT.find(t => t.id === 'log-viewer').loaded, true);
+eq('hub: an untouched tool is not flagged as loaded',
+  hubT.find(t => t.id === 'microflow-tracer').loaded, false);
+eq('hub: each target names the global it hands off to',
+  hubT.find(t => t.id === 'ws-rest-extractor').fn, 'wsreLoadText');
+// current and loaded are independent: the origin tool can also be the active one.
+const hubT2 = hubTargets(hubSrc, 'log-viewer');
+eq('hub: origin tool is both current and loaded',
+  hubT2.find(t => t.id === 'log-viewer').current && hubT2.find(t => t.id === 'log-viewer').loaded, true);
+eq('hub: a source with no loadedIn marks nothing as loaded',
+  hubTargets({ name: 'a', text: 'x' }, 'log-viewer').filter(t => t.loaded).length, 0);
+
+// ============================================================================
+// Excel Converter (.xlsx → JSON / CSV) — public/js/tools/xlsx-converter.js
+// ============================================================================
+// The tool reads .xlsx with the native DecompressionStream and a hand-written
+// XML scanner (no DOMParser, so everything below runs in plain Node). The ZIP
+// reader is exercised against a real archive built here with zlib — the same
+// bytes Excel would produce — because a reader that only ever sees fixtures
+// made by its own writer proves nothing.
+console.log('\nExcel Converter');
+require('../public/js/tools/xlsx-converter.js');
+
+// The ZIP writer lives in scripts/lib/xlsx-fixture.js — shared with the
+// screenshot pipeline, which needs a demo workbook built the same way.
+const { buildZip, buildDemoWorkbook } = require('./lib/xlsx-fixture.js');
+
+function toArrayBuffer(buf) {
+  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+}
+
+// ── XML text decoding ───────────────────────────────────────────────────────
+eq('xlsx: plain text passes through untouched', global.xlsDecodeXmlText('Order ID'), 'Order ID');
+eq('xlsx: named entities decoded', global.xlsDecodeXmlText('a &amp; b &lt;c&gt;'), 'a & b <c>');
+eq('xlsx: decimal and hex character references decoded',
+  global.xlsDecodeXmlText('&#65;&#x42;'), 'AB');
+// Excel escapes characters that are illegal in XML as _xHHHH_.
+eq('xlsx: _xHHHH_ escape decoded to its character',
+  global.xlsDecodeXmlText('line_x000D_break'), 'line\rbreak');
+// …and escapes a literal "_x000D_" by escaping its underscore first. Decoding
+// left to right consumes _x005F_ and leaves the rest as text — if this ever
+// regresses, a cell reading "_x000D_" silently becomes a carriage return.
+eq('xlsx: an escaped literal escape survives as text',
+  global.xlsDecodeXmlText('_x005F_x000D_'), '_x000D_');
+
+// ── Column references ───────────────────────────────────────────────────────
+eq('xlsx: column A is index 0', global.xlsColToIndex('A1'), 0);
+eq('xlsx: column Z is index 25', global.xlsColToIndex('Z10'), 25);
+eq('xlsx: column AA is index 26', global.xlsColToIndex('AA1'), 26);
+eq('xlsx: column BC is index 54', global.xlsColToIndex('BC7'), 54);
+eq('xlsx: index 0 is column A', global.xlsIndexToCol(0), 'A');
+eq('xlsx: index 26 is column AA', global.xlsIndexToCol(26), 'AA');
+eq('xlsx: index 701 is column ZZ', global.xlsIndexToCol(701), 'ZZ');
+eq('xlsx: column round-trips through both directions',
+  global.xlsColToIndex(global.xlsIndexToCol(1000)), 1000);
+
+// ── Date formats ────────────────────────────────────────────────────────────
+eq('xlsx: General is not a date format', global.xlsIsDateFormat('General'), false);
+eq('xlsx: a numeric format is not a date format', global.xlsIsDateFormat('#,##0.00'), false);
+eq('xlsx: a d/m/y format is a date format', global.xlsIsDateFormat('dd/mm/yyyy'), true);
+// [Red] and [$-409] are decoration and must not read as month/day tokens…
+eq('xlsx: a colour-conditioned numeric format is not a date',
+  global.xlsIsDateFormat('[Red]#,##0.00'), false);
+eq('xlsx: a locale-tagged numeric format is not a date',
+  global.xlsIsDateFormat('[$-409]#,##0'), false);
+// …but [h]:mm is an elapsed-time format and must survive the bracket stripping.
+eq('xlsx: an elapsed-time format is a date format', global.xlsIsDateFormat('[h]:mm:ss'), true);
+eq('xlsx: quoted literals do not create false positives',
+  global.xlsIsDateFormat('0.00" days"'), false);
+
+// ── Serial → ISO ────────────────────────────────────────────────────────────
+eq('xlsx: a whole serial becomes a bare date', global.xlsSerialToIso(45352, false), '2024-03-01');
+eq('xlsx: a fractional serial keeps its time', global.xlsSerialToIso(45353.5, false), '2024-03-02T12:00:00');
+eq('xlsx: a sub-day serial is a time of day', global.xlsSerialToIso(0.5, false), '12:00:00');
+// Excel counts a 29 February 1900 that never existed; serials below 60 need the
+// extra day or every date in the first two months of 1900 lands a day early.
+eq('xlsx: serial 1 is 1 January 1900', global.xlsSerialToIso(1, false), '1900-01-01');
+eq('xlsx: serial 61 is 1 March 1900', global.xlsSerialToIso(61, false), '1900-03-01');
+eq('xlsx: the phantom leap day resolves to a real date',
+  global.xlsSerialToIso(60, false), '1900-02-28');
+eq('xlsx: the 1904 date system uses its own epoch',
+  global.xlsSerialToIso(100, true), '1904-04-10');
+eq('xlsx: a non-numeric serial has no date', global.xlsSerialToIso('x', false), null);
+eq('xlsx: a negative serial has no date', global.xlsSerialToIso(-5, false), null);
+// Floating point noise from Excel must not leak into the seconds field.
+eq('xlsx: near-integer serials snap to the second',
+  global.xlsSerialToIso(45352.749999997, false), '2024-03-01T18:00:00');
+
+// ── Workbook / rels / shared strings / styles ───────────────────────────────
+const wbXml = '<workbook><workbookPr date1904="1"/><sheets>' +
+  '<sheet name="Orders &amp; Lines" sheetId="1" r:id="rId3"/>' +
+  '<sheet name="Archive" sheetId="2" state="hidden" r:id="rId1"/>' +
+  '</sheets></workbook>';
+const wb = global.xlsParseWorkbook(wbXml);
+eq('xlsx: both sheets found', wb.sheets.length, 2);
+// Tab order comes from workbook.xml and is not recoverable from file names —
+// sheet1.xml can be the second tab.
+eq('xlsx: sheets keep workbook (tab) order', wb.sheets.map(s => s.rid).join(), 'rId3,rId1');
+eq('xlsx: entities in a sheet name are decoded', wb.sheets[0].name, 'Orders & Lines');
+eq('xlsx: a hidden sheet is flagged', wb.sheets[1].hidden, true);
+eq('xlsx: a normal sheet is not flagged hidden', wb.sheets[0].hidden, false);
+eq('xlsx: the 1904 date system is picked up', wb.date1904, true);
+eq('xlsx: no workbookPr means the 1900 date system',
+  global.xlsParseWorkbook('<workbook><sheets/></workbook>').date1904, false);
+
+const rels = global.xlsParseRels(
+  '<Relationships><Relationship Id="rId3" Target="worksheets/sheet1.xml"/>' +
+  '<Relationship Id="rId1" Target="/xl/worksheets/sheet2.xml"/></Relationships>');
+eq('xlsx: relationship targets resolved by id', rels.rId3, 'worksheets/sheet1.xml');
+eq('xlsx: an absolute relationship target is preserved', rels.rId1, '/xl/worksheets/sheet2.xml');
+
+const sst = global.xlsParseSharedStrings(
+  '<sst><si><t>Order ID</t></si><si><r><t>Ship</t></r><r><t>ped</t></r></si>' +
+  '<si/><si><t xml:space="preserve"> pad </t></si></sst>');
+eq('xlsx: four shared strings read', sst.length, 4);
+// A string styled mid-word is stored as several runs; joining them is the
+// difference between "Shipped" and "Ship".
+eq('xlsx: rich-text runs are joined into one string', sst[1], 'Shipped');
+eq('xlsx: an empty <si/> is an empty string', sst[2], '');
+eq('xlsx: preserved whitespace is kept', sst[3], ' pad ');
+
+// cellStyleXfs is a decoy: it looks identical to cellXfs but is NOT what a
+// cell's s="N" indexes into. Reading it would shift every style by one and
+// turn the first numeric column into 1900-era dates.
+const stylesXml = '<styleSheet>' +
+  '<numFmts count="1"><numFmt numFmtId="165" formatCode="dd/mm/yyyy hh:mm"/></numFmts>' +
+  '<cellStyleXfs count="1"><xf numFmtId="14"/></cellStyleXfs>' +
+  '<cellXfs count="4"><xf numFmtId="0"/><xf numFmtId="14"/><xf numFmtId="165"/><xf numFmtId="4"/></cellXfs>' +
+  '</styleSheet>';
+const styles = global.xlsParseStyles(stylesXml);
+eq('xlsx: only cellXfs entries are counted', styles.dateXf.length, 4);
+eq('xlsx: the General style is not a date', styles.dateXf[0], false);
+eq('xlsx: a built-in date format is a date', styles.dateXf[1], true);
+eq('xlsx: a custom date format is a date', styles.dateXf[2], true);
+eq('xlsx: a built-in numeric format is not a date', styles.dateXf[3], false);
+eq('xlsx: a workbook with no styles yields no date styles',
+  global.xlsParseStyles('').dateXf.length, 0);
+
+// ── Sheet parsing ───────────────────────────────────────────────────────────
+const sheetXml = '<worksheet><sheetData>' +
+  '<row r="3"><c r="A3" t="s"><v>0</v></c><c r="B3" t="s"><v>1</v></c><c r="C3" t="s"><v>2</v></c><c r="D3" t="s"><v>3</v></c><c r="E3" t="s"><v>4</v></c></row>' +
+  '<row r="4"><c r="A4"><v>1001</v></c><c r="B4" t="s"><v>5</v></c><c r="C4" s="1"><v>45352</v></c><c r="D4" s="3"><v>1234.5</v></c><c r="E4" t="b"><v>1</v></c></row>' +
+  '<row r="5"><c r="A5"><v>1002</v></c><c r="B5" t="inlineStr"><is><t>Inline &lt;Name&gt;</t></is></c><c r="C5" s="2"><v>45353.5</v></c><c r="D5" s="3"><f>D4*2</f><v>2469</v></c><c r="E5" t="b"><v>0</v></c></row>' +
+  '<row r="6"><c r="A6"><v>1003</v></c><c r="E6" t="e"><v>#N/A</v></c></row>' +
+  '<row r="8"><c r="A8"><v>1004</v></c></row>' +
+  '</sheetData><mergeCells count="1"><mergeCell ref="A1:B1"/></mergeCells></worksheet>';
+const sheetShared = ['Order ID', 'Customer', 'Placed', 'Amount', 'Shipped', 'ACME'];
+const sheet = global.xlsParseSheet(sheetXml, {
+  shared: sheetShared, dateXf: styles.dateXf, date1904: false
+});
+
+// Data starts at row 3; handing the two blank rows through would make the
+// header detector key the JSON by "A", "B", "C".
+eq('xlsx: empty leading rows are trimmed', sheet.skippedTop, 2);
+eq('xlsx: rows counted from the first non-empty one', sheet.rows.length, 6);
+eq('xlsx: shared strings resolved in the header', sheet.rows[0].join('|'),
+  'Order ID|Customer|Placed|Amount|Shipped');
+eq('xlsx: a plain number stays a number', sheet.rows[1][0], 1001);
+eq('xlsx: a date-styled number becomes an ISO date', sheet.rows[1][2], '2024-03-01');
+// numFmtId 4 is "#,##0.00" — a number that must NOT be read as a date.
+eq('xlsx: a numeric-styled number is left alone', sheet.rows[1][3], 1234.5);
+eq('xlsx: TRUE booleans are booleans', sheet.rows[1][4], true);
+eq('xlsx: FALSE booleans are booleans', sheet.rows[2][4], false);
+eq('xlsx: an inline string is read', sheet.rows[2][1], 'Inline <Name>');
+eq('xlsx: a custom date format keeps the time', sheet.rows[2][2], '2024-03-02T12:00:00');
+// A converter wants the cached result, not the formula text.
+eq('xlsx: a formula cell yields its cached value', sheet.rows[2][3], 2469);
+eq('xlsx: an error cell is surfaced verbatim', sheet.rows[3][4], '#N/A');
+eq('xlsx: a gap between cells leaves the columns empty', sheet.rows[3][1], undefined);
+// Row 7 has no <row> element at all, and must stay a row rather than closing
+// the gap — its position is data.
+eq('xlsx: an interior empty row is preserved', sheet.rows[4].length, 0);
+eq('xlsx: rows after an interior gap keep their values', sheet.rows[5][0], 1004);
+eq('xlsx: merged ranges are counted', sheet.merged, 1);
+
+// The serial escape hatch: some pipelines want the raw number back.
+const serialSheet = global.xlsParseSheet(sheetXml, {
+  shared: sheetShared, dateXf: styles.dateXf, date1904: false, dates: 'serial'
+});
+eq('xlsx: dates:serial leaves the raw serial number', serialSheet.rows[1][2], 45352);
+
+eq('xlsx: a sheet with no rows parses to nothing',
+  global.xlsParseSheet('<worksheet><sheetData/></worksheet>', {}).rows.length, 0);
+// A cell with no r= attribute is positional — writers do emit these.
+eq('xlsx: cells without a reference fall back to their position',
+  global.xlsParseSheet('<worksheet><sheetData><row r="1"><c><v>7</v></c><c><v>8</v></c></row></sheetData></worksheet>', {})
+    .rows[0].join('|'), '7|8');
+eq('xlsx: a self-closing row is an empty row',
+  global.xlsParseSheet('<worksheet><sheetData><row r="1"/><row r="2"><c r="A2"><v>1</v></c></row></sheetData></worksheet>', {})
+    .rows.length, 1);
+
+// ── Header names ────────────────────────────────────────────────────────────
+eq('xlsx: header cells become field names',
+  global.xlsHeaderNames(['Id', 'Name'], 2).join(), 'Id,Name');
+eq('xlsx: header names are trimmed',
+  global.xlsHeaderNames(['  Id  '], 1)[0], 'Id');
+// A blank header still needs an addressable field, and a repeated one must not
+// overwrite the first column.
+eq('xlsx: a blank header cell falls back to its column letter',
+  global.xlsHeaderNames(['Id', '', 'Name'], 3).join(), 'Id,B,Name');
+eq('xlsx: duplicate headers are suffixed, never dropped',
+  global.xlsHeaderNames(['Name', 'Name', 'Name'], 3).join(), 'Name,Name_2,Name_3');
+eq('xlsx: columns past the header row still get names',
+  global.xlsHeaderNames(['Id'], 3).join(), 'Id,B,C');
+
+// ── rows → JSON ─────────────────────────────────────────────────────────────
+const json = global.xlsRowsToJson(sheet.rows, { mode: 'objects' });
+eq('xlsx: the header row is not a record', json.length, 5);
+eq('xlsx: values are keyed by header name', json[0]['Order ID'], 1001);
+eq('xlsx: dates arrive as ISO strings', json[0].Placed, '2024-03-01');
+eq('xlsx: booleans stay booleans in JSON', json[0].Shipped, true);
+// Rectangular shape: a missing cell is null, not an absent key — consumers
+// should not have to distinguish "no column" from "no value".
+eq('xlsx: an empty cell is null', json[2].Customer, null);
+eq('xlsx: every record has every key', Object.keys(json[3]).join(), 'Order ID,Customer,Placed,Amount,Shipped');
+const jsonArrays = global.xlsRowsToJson(sheet.rows, { mode: 'arrays' });
+eq('xlsx: array mode keeps the header row', jsonArrays.length, 6);
+eq('xlsx: array mode pads rows to a rectangle', jsonArrays[4].length, 5);
+eq('xlsx: array mode nulls the padding', jsonArrays[4][0], null);
+eq('xlsx: an empty sheet converts to an empty array',
+  global.xlsRowsToJson([], { mode: 'objects' }).length, 0);
+
+// ── rows → CSV ──────────────────────────────────────────────────────────────
+const xlsCsv = global.xlsRowsToCsv(sheet.rows, {});
+eq('xlsx: CSV starts with the header row', xlsCsv.split('\r\n')[0],
+  '"Order ID","Customer","Placed","Amount","Shipped"');
+eq('xlsx: CSV renders booleans the way Excel does', xlsCsv.split('\r\n')[1].indexOf('"TRUE"') > -1, true);
+eq('xlsx: CSV leaves missing cells empty', xlsCsv.split('\r\n')[3], '"1003","","","","#N/A"');
+// The interior blank row keeps its line — dropping it would shift every row
+// number below it relative to the workbook.
+eq('xlsx: an interior empty row is still a CSV line', xlsCsv.split('\r\n')[4], '"","","","",""');
+eq('xlsx: CSV has one line per row plus the header', xlsCsv.split('\r\n').length, 6);
+const csvSemi = global.xlsRowsToCsv(sheet.rows, { delimiter: ';' });
+// A Polish/German Excel reads ',' as the decimal separator, so ';' is what
+// makes a double-click open in columns rather than one mashed field.
+eq('xlsx: the delimiter is configurable', csvSemi.split('\r\n')[0],
+  '"Order ID";"Customer";"Placed";"Amount";"Shipped"');
+eq('xlsx: an empty sheet produces no CSV', global.xlsRowsToCsv([], {}), '');
+
+// The shared exporter grew these options instead of the tool getting its own
+// CSV writer — check the original behaviour is untouched.
+eq('csv helper: default quoting is unchanged',
+  global.mtExportToCsv(['a', 'b'], [['1', '2']]), '"a","b"\r\n"1","2"');
+eq('csv helper: minimal quoting leaves clean fields bare',
+  global.mtExportToCsv(['a', 'b'], [['1', 'x,y']], { quote: 'minimal' }), 'a,b\r\n1,"x,y"');
+eq('csv helper: minimal quoting still quotes embedded newlines',
+  global.mtExportToCsv(['a'], [['x\ny']], { quote: 'minimal' }), 'a\r\n"x\ny"');
+eq('csv helper: a semicolon delimiter triggers quoting on semicolons',
+  global.mtExportToCsv(['a'], [['x;y']], { delimiter: ';', quote: 'minimal' }), 'a\r\n"x;y"');
+eq('csv helper: embedded quotes are doubled',
+  global.mtExportToCsv(['a'], [['say "hi"']]), '"a"\r\n"say ""hi"""');
+
+// ── ZIP reader + full workbook read (async) ─────────────────────────────────
+// DecompressionStream is async, so these run in a promise and the summary
+// waits for them.
+async function runXlsxAsyncTests() {
+  console.log('\nExcel Converter — archive reading');
+
+  const parts = [
+    { name: '[Content_Types].xml', data: '<Types/>', store: true },
+    { name: 'xl/workbook.xml', data:
+      '<workbook><sheets>' +
+      '<sheet name="Orders &amp; Lines" sheetId="1" r:id="rId3"/>' +
+      '<sheet name="Archive" sheetId="2" state="hidden" r:id="rId1"/>' +
+      '</sheets></workbook>' },
+    { name: 'xl/_rels/workbook.xml.rels', data:
+      '<Relationships>' +
+      '<Relationship Id="rId3" Target="worksheets/sheet1.xml"/>' +
+      '<Relationship Id="rId1" Target="/xl/worksheets/sheet2.xml"/>' +
+      '</Relationships>' },
+    { name: 'xl/sharedStrings.xml', data:
+      '<sst><si><t>Order ID</t></si><si><t>Customer</t></si><si><t>Placed</t></si>' +
+      '<si><t>Amount</t></si><si><t>Shipped</t></si>' +
+      '<si><t>Zażółć &amp; gęślą jaźń</t></si></sst>' },
+    { name: 'xl/styles.xml', data: stylesXml, store: true },
+    { name: 'xl/worksheets/sheet1.xml', data: sheetXml },
+    { name: 'xl/worksheets/sheet2.xml', data: '<worksheet><sheetData/></worksheet>', store: true }
+  ];
+  const buf = toArrayBuffer(buildZip(parts));
+
+  const zip = global.xlsOpenZip(buf);
+  eq('zip: every entry is listed', zip.names.length, parts.length);
+  eq('zip: an entry is found by name', zip.has('xl/workbook.xml'), true);
+  eq('zip: a missing entry is reported missing', zip.has('xl/nope.xml'), false);
+  const wbText = await zip.text('xl/workbook.xml');
+  eq('zip: a deflated entry inflates back to its source', wbText, parts[1].data);
+  const ctText = await zip.text('[Content_Types].xml');
+  eq('zip: a stored entry is read without inflating', ctText, '<Types/>');
+
+  // Non-ASCII must survive the ZIP → UTF-8 → JSON path intact; this is the
+  // single most likely thing to break silently for a Polish user.
+  const sstText = await zip.text('xl/sharedStrings.xml');
+  eq('zip: UTF-8 content survives decompression',
+    sstText.indexOf('Zażółć') > -1, true);
+
+  const book = await global.xlsReadWorkbook(buf, { fileName: 'orders.xlsx' });
+  eq('workbook: the file name is carried through', book.fileName, 'orders.xlsx');
+  eq('workbook: both sheets are read', book.sheets.length, 2);
+  eq('workbook: sheets keep tab order, not file order', book.sheets[0].name, 'Orders & Lines');
+  eq('workbook: the hidden sheet is still read and flagged', book.sheets[1].hidden, true);
+  eq('workbook: the first sheet has its rows', book.sheets[0].rows.length, 6);
+  eq('workbook: a date cell decoded end to end', book.sheets[0].rows[1][2], '2024-03-01');
+  eq('workbook: a shared string decoded end to end', book.sheets[0].rows[1][1], 'Zażółć & gęślą jaźń');
+  // An absolute rels target ("/xl/worksheets/sheet2.xml") resolves to the same
+  // entry as a relative one.
+  eq('workbook: an absolute relationship target resolves', book.sheets[1].missing, undefined);
+  eq('workbook: an empty sheet reports no rows', book.sheets[1].rows.length, 0);
+
+  // Failure modes must name the problem, not throw a parse error at the user.
+  let msg = '';
+  try { global.xlsOpenZip(toArrayBuffer(Buffer.from('this is not a zip at all'))); }
+  catch (e) { msg = e.message; }
+  eq('workbook: a non-ZIP file is rejected by name', /not a valid \.xlsx/i.test(msg), true);
+
+  msg = '';
+  const ole = Buffer.alloc(64);
+  ole[0] = 0xD0; ole[1] = 0xCF; ole[2] = 0x11; ole[3] = 0xE0;
+  try { global.xlsOpenZip(toArrayBuffer(ole)); } catch (e) { msg = e.message; }
+  eq('workbook: a legacy .xls is named as such, with the fix',
+    /legacy \.xls/i.test(msg) && /Save As/i.test(msg), true);
+
+  msg = '';
+  const plainZip = toArrayBuffer(buildZip([{ name: 'readme.txt', data: 'hello' }]));
+  try { await global.xlsReadWorkbook(plainZip); } catch (e) { msg = e.message; }
+  eq('workbook: a ZIP that is not a workbook says so',
+    /not an Excel workbook/i.test(msg), true);
+
+  // The demo workbook the screenshot pipeline builds — asserted here so a
+  // broken fixture surfaces in `npm test` rather than as a wrong-looking PNG
+  // nobody re-reads.
+  const demo = await global.xlsReadWorkbook(toArrayBuffer(buildDemoWorkbook()), { fileName: 'demo.xlsx' });
+  eq('demo workbook: three sheets', demo.sheets.length, 3);
+  eq('demo workbook: sheet names', demo.sheets.map(s => s.name).join(), 'Products,Categories,Scratch notes');
+  eq('demo workbook: the scratch sheet is hidden', demo.sheets[2].hidden, true);
+  eq('demo workbook: the leading empty row is trimmed', demo.sheets[0].skippedTop, 1);
+  eq('demo workbook: header row intact', demo.sheets[0].rows[0].join('|'),
+    'Product code|Name|Category|Price|Updated|Active');
+  eq('demo workbook: Polish characters survive', demo.sheets[0].rows[1][1], 'Zażółć gęślą jaźń');
+  eq('demo workbook: a date column converts', demo.sheets[0].rows[1][4], '2026-03-01');
+  eq('demo workbook: a date-time column keeps its time', demo.sheets[0].rows[2][4], '2026-03-02T09:30:00');
+  // The money column is numFmtId 4 — the format most likely to be misread as a
+  // date, since it sits right next to one.
+  eq('demo workbook: the money column stays numeric', demo.sheets[0].rows[1][3], 129.99);
+  eq('demo workbook: a formula yields its cached value', demo.sheets[0].rows[4][3], 1.78);
+  eq('demo workbook: booleans survive', demo.sheets[0].rows[3][5], false);
+  eq('demo workbook: an empty cell stays empty', demo.sheets[0].rows[5][2], undefined);
+
+  const demoJson = global.xlsRowsToJson(demo.sheets[0].rows, { mode: 'objects' });
+  eq('demo workbook: six product records', demoJson.length, 6);
+  eq('demo workbook: records keyed by header', demoJson[0]['Product code'], 'PRD-1001');
+  eq('demo workbook: a blank cell is null in JSON', demoJson[4].Category, null);
+}
+
+// =========================================================================
+// DATA FACTORY — SCHEMA IMPORT (DDL / mendixsystem$)
+// =========================================================================
+// Two things decide whether an imported schema is useful or quietly wrong:
+// the DDL splitter (a comma inside numeric(10,2) or CHECK (x IN (1,2)) is NOT
+// a column boundary) and the generator inference, where an ordered rule list
+// has to resolve real collisions — EmailAddress is an email, not an address;
+// PhoneNumber is a phone, not a number; and a name rule must never win over
+// an incompatible column type (city_id is an integer, not a city).
+console.log('\nData Factory — schema import');
+require('../public/js/tools/data-factory-import.js');
+
+// ── DDL: structure ──────────────────────────────────────────────────────────
+const ddlSimple = global.dfParseDdl(`
+  CREATE TABLE customer (
+    id bigint NOT NULL,
+    fullname character varying(200),
+    emailaddress varchar(255)
+  );`);
+eq('ddl: one table parsed', ddlSimple.tables.length, 1);
+eq('ddl: table name', ddlSimple.tables[0].name, 'customer');
+eq('ddl: three columns', ddlSimple.tables[0].columns.length, 3);
+eq('ddl: column name', ddlSimple.tables[0].columns[1].name, 'fullname');
+eq('ddl: multi-word type kept whole', ddlSimple.tables[0].columns[1].sqlType, 'character varying');
+eq('ddl: length captured', ddlSimple.tables[0].columns[1].length, 200);
+eq('ddl: NOT NULL captured', ddlSimple.tables[0].columns[0].notNull, true);
+
+// A Mendix table name is quoted because of the `$`; the quotes are not part of
+// the identifier and must not leak into the column/field names either.
+const ddlMx = global.dfParseDdl('CREATE TABLE public."eshop$order" ("id" bigint, "ordernumber" varchar(20));');
+eq('ddl: quoted Mendix table name unquoted', ddlMx.tables[0].name, 'eshop$order');
+eq('ddl: schema captured separately', ddlMx.tables[0].schema, 'public');
+eq('ddl: quoted column name unquoted', ddlMx.tables[0].columns[1].name, 'ordernumber');
+
+eq('ddl: IF NOT EXISTS tolerated',
+  global.dfParseDdl('CREATE TABLE IF NOT EXISTS t (a int);').tables[0].name, 't');
+
+// The splitter must respect parentheses. Splitting on every comma turns three
+// columns into five and invents columns called "2)" — the classic failure.
+const ddlParens = global.dfParseDdl(`
+  CREATE TABLE t (
+    price numeric(10,2),
+    status integer CHECK (status IN (1, 2, 3)),
+    label varchar(50)
+  );`);
+eq('ddl: a comma inside numeric(p,s) is not a column boundary', ddlParens.tables[0].columns.length, 3);
+eq('ddl: precision captured', ddlParens.tables[0].columns[0].precision, 10);
+eq('ddl: scale captured', ddlParens.tables[0].columns[0].scale, 2);
+eq('ddl: a comma inside CHECK (...) is not a column boundary', ddlParens.tables[0].columns[1].name, 'status');
+
+// Table-level constraints look exactly like columns to a naive parser.
+const ddlConstraints = global.dfParseDdl(`
+  CREATE TABLE t (
+    id uuid,
+    owner bigint,
+    PRIMARY KEY (id),
+    CONSTRAINT fk_owner FOREIGN KEY (owner) REFERENCES other (id),
+    UNIQUE (owner)
+  );`);
+eq('ddl: table-level constraints are not columns', ddlConstraints.tables[0].columns.length, 2);
+eq('ddl: PRIMARY KEY (col) marks the column', ddlConstraints.tables[0].columns[0].isPrimary, true);
+eq('ddl: a non-key column stays unmarked', ddlConstraints.tables[0].columns[1].isPrimary, false);
+eq('ddl: inline PRIMARY KEY marks the column',
+  global.dfParseDdl('CREATE TABLE t (id bigint PRIMARY KEY, a int);').tables[0].columns[0].isPrimary, true);
+
+// Comments must go — but only real comments.
+eq('ddl: line comment removed',
+  global.dfParseDdl('CREATE TABLE t (\n a int, -- the id, really\n b int\n);').tables[0].columns.length, 2);
+eq('ddl: block comment removed',
+  global.dfParseDdl('CREATE TABLE t (a int, /* b int, */ c int);').tables[0].columns.length, 2);
+// A `--` inside a string literal is data, not a comment. Stripping it swallows
+// the rest of the line and takes the following columns with it.
+const ddlLiteral = global.dfParseDdl("CREATE TABLE t (a varchar(10) DEFAULT 'x--y', b int, c int);");
+eq('ddl: -- inside a string literal is not a comment', ddlLiteral.tables[0].columns.length, 3);
+
+eq('ddl: multiple tables parsed',
+  global.dfParseDdl('CREATE TABLE a (x int); CREATE TABLE b (y int);').tables.length, 2);
+
+// SQL Server and Oracle: Mendix runs on all three databases, so a DDL export
+// will not always be PostgreSQL.
+const ddlMssql = global.dfParseDdl('CREATE TABLE [dbo].[Customer] ([Id] bigint, [Name] nvarchar(200), [Active] bit);');
+eq('ddl: bracket-quoted table name', ddlMssql.tables[0].name, 'Customer');
+eq('ddl: bracket-quoted column name', ddlMssql.tables[0].columns[1].name, 'Name');
+const ddlOracle = global.dfParseDdl('CREATE TABLE t (a VARCHAR2(50), b NUMBER(10,0), c NUMBER(10,2));');
+eq('ddl: Oracle VARCHAR2 recognised', ddlOracle.tables[0].columns[0].sqlType, 'varchar2');
+
+// Nothing to parse must say so rather than return an empty success.
+eq('ddl: input without CREATE TABLE yields no tables', global.dfParseDdl('SELECT 1;').tables.length, 0);
+ok('ddl: input without CREATE TABLE explains itself', global.dfParseDdl('SELECT 1;').warnings.length > 0);
+ok('ddl: unbalanced parentheses reported, not crashed',
+  global.dfParseDdl('CREATE TABLE t (a int,').warnings.length > 0);
+
+// ── SQL type → generator ────────────────────────────────────────────────────
+function sqlGen(type, name, extra) {
+  const col = Object.assign({ name: name || 'col', sqlType: type, length: 0, precision: 0, scale: 0 }, extra || {});
+  return global.dfInferColumn(col).type;
+}
+eq('type: uuid → UUID', sqlGen('uuid'), 'UUID');
+eq('type: varchar → String', sqlGen('varchar'), 'String');
+eq('type: text → String', sqlGen('text'), 'String');
+eq('type: integer → Integer', sqlGen('integer'), 'Integer');
+eq('type: bigint → Number', sqlGen('bigint'), 'Number');
+eq('type: numeric with scale → Decimal', sqlGen('numeric', 'col', { precision: 10, scale: 2 }), 'Decimal');
+// NUMBER(10,0) is Oracle's integer. Treating it as a decimal produces "12.34"
+// where the column only ever holds whole numbers.
+eq('type: numeric with zero scale → Integer', sqlGen('numeric', 'col', { precision: 10, scale: 0 }), 'Integer');
+// A bare `numeric` is unconstrained arbitrary precision — in practice money.
+// Reading its absent precision as "scale 0" turns every price into an integer.
+eq('type: numeric without precision → Decimal', sqlGen('numeric'), 'Decimal');
+eq('type: boolean → Boolean', sqlGen('boolean'), 'Boolean');
+eq('type: SQL Server bit → Boolean', sqlGen('bit'), 'Boolean');
+eq('type: timestamp → Date', sqlGen('timestamp'), 'Date');
+eq('type: datetime2 → Date', sqlGen('datetime2'), 'Date');
+eq('type: jsonb → String', sqlGen('jsonb'), 'String');
+eq('type: uniqueidentifier → UUID', sqlGen('uniqueidentifier'), 'UUID');
+// An unknown type is a String with a stated reason — never a silent guess.
+eq('type: unknown type falls back to String', sqlGen('geography'), 'String');
+ok('type: unknown type says why', /geography/i.test(global.dfInferColumn({ name: 'c', sqlType: 'geography' }).note || ''));
+// Binary columns are dropped rather than filled with random text: a mock BLOB
+// is not data, it is noise that breaks the import it was made for.
+eq('type: bytea is not a generator', global.dfInferColumn({ name: 'c', sqlType: 'bytea' }).type, null);
+ok('type: bytea is reported as skipped', global.dfInferColumn({ name: 'c', sqlType: 'bytea' }).skip === true);
+
+// ── Name → generator, and the collisions that matter ────────────────────────
+eq('name: email → Email', sqlGen('varchar', 'email'), 'Email');
+// "emailaddress" contains "address"; the email rule has to win.
+eq('name: EmailAddress → Email, not Address', sqlGen('varchar', 'EmailAddress'), 'Email');
+// "phonenumber" contains "number"; the phone rule has to win.
+eq('name: PhoneNumber → Phone, not Number', sqlGen('varchar', 'PhoneNumber'), 'Phone');
+// "companyname" contains "name"; the company rule has to win.
+eq('name: CompanyName → Company', sqlGen('varchar', 'CompanyName'), 'Company');
+eq('name: first_name → Name', sqlGen('varchar', 'first_name'), 'Name');
+eq('name: LastName → Surname', sqlGen('varchar', 'LastName'), 'Surname');
+eq('name: FullName → FullName', sqlGen('varchar', 'FullName'), 'FullName');
+eq('name: City → City', sqlGen('varchar', 'City'), 'City');
+eq('name: Country → Country', sqlGen('varchar', 'Country'), 'Country');
+eq('name: StreetLine1 → Address', sqlGen('varchar', 'StreetLine1'), 'Address');
+eq('name: IPAddress → IP Address', sqlGen('varchar', 'IPAddress'), 'IP Address');
+eq('name: Price → Decimal', sqlGen('numeric', 'Price', { precision: 10, scale: 2 }), 'Decimal');
+eq('name: Quantity → Positive value', sqlGen('integer', 'Quantity'), 'Positive value');
+// A generic *Name is NOT a person. FullName here would fill a product column
+// with "John Smith" — plausible-looking and wrong.
+eq('name: ProductName stays a String', sqlGen('varchar', 'ProductName'), 'String');
+// Mendix lower-cases and concatenates column names in the DATABASE, so the DDL
+// path hands over one unsplittable token. These have no camel-case or
+// underscore to tokenise on and must still resolve — this is the main DDL case,
+// not an edge case.
+eq('name: mainphonenumber (no separators) → Phone', sqlGen('varchar', 'mainphonenumber'), 'Phone');
+eq('name: shippingstreet (no separators) → Address', sqlGen('varchar', 'shippingstreet'), 'Address');
+eq('name: buyercity (no separators) → City', sqlGen('varchar', 'buyercity'), 'City');
+eq('name: emailaddress (no separators) → Email', sqlGen('varchar', 'emailaddress'), 'Email');
+eq('name: customername (no separators) → FullName', sqlGen('varchar', 'customername'), 'FullName');
+// …while the short words stay strict, or "ip" would claim shippingstreet and
+// zipcode, and "tel" would claim hotel.
+eq('name: shippingstreet is not an IP address', sqlGen('varchar', 'shippingstreet'), 'Address');
+eq('name: zipcode is not an IP address', sqlGen('varchar', 'zipcode'), 'String');
+eq('name: hotelname is not a phone number', sqlGen('varchar', 'hotelname'), 'String');
+// Substring matching on the whole name is not a near-miss, it is wrong: these
+// three are real attribute names from the reference database that a substring
+// rule mis-classified. Tokenising the name first is what fixes them.
+eq('name: BankAccountOwner is not a City ("accoun"+"towner" contains "town")',
+  sqlGen('varchar', 'BankAccountOwner'), 'String');
+eq('name: Capacity is not a City ("capa"+"city")', sqlGen('integer', 'Capacity'), 'Integer');
+eq('name: Discount is a Decimal, not a count', sqlGen('numeric', 'Discount', { precision: 8, scale: 2 }), 'Decimal');
+// A URL is text and is not the organisation that owns it.
+eq('name: OrganizationURL stays a String', sqlGen('varchar', 'OrganizationURL'), 'String');
+eq('name: organizationurl (no separators) stays a String', sqlGen('varchar', 'organizationurl'), 'String');
+eq('name: BuyerPhoneNo → Phone', sqlGen('varchar', 'BuyerPhoneNo'), 'Phone');
+// The decisive rule: a name hint may never override the column's type family.
+eq('name: city_id is an integer, not a City', sqlGen('integer', 'city_id'), 'Integer');
+eq('name: CountryId is an integer, not a Country', sqlGen('bigint', 'CountryId'), 'Number');
+eq('name: an email column typed boolean stays Boolean', sqlGen('boolean', 'email_verified'), 'Boolean');
+// A primary key is positive by nature; a uuid key is a UUID.
+eq('name: numeric primary key → Positive value', sqlGen('bigint', 'id', { isPrimary: true }), 'Positive value');
+eq('name: uuid primary key → UUID', sqlGen('uuid', 'id', { isPrimary: true }), 'UUID');
+
+// ── Building a Data Factory schema from a parsed table ──────────────────────
+const built = global.dfSchemaFromTable(global.dfParseDdl(`
+  CREATE TABLE "eshop$customer" (
+    id bigint PRIMARY KEY,
+    fullname varchar(200),
+    emailaddress varchar(255),
+    photo bytea,
+    createddate timestamp
+  );`).tables[0]);
+eq('schema: binary column excluded', built.schema.length, 4);
+eq('schema: field names preserved verbatim', built.schema[1].name, 'fullname');
+eq('schema: inferred generator applied', built.schema[2].type, 'Email');
+eq('schema: skipped column reported', built.skipped.length, 1);
+ok('schema: skipped column names the reason', /binary/i.test(built.skipped[0].reason));
+// A table with no usable column must produce an explicit note, not an empty
+// schema that looks like a successful import.
+const allBinary = global.dfSchemaFromTable({ name: 't', columns: [{ name: 'a', sqlType: 'bytea' }] });
+eq('schema: a table of only binary columns yields no schema', allBinary.schema.length, 0);
+ok('schema: and says so', allBinary.notes.length > 0);
+
+// ── Mendix attribute types (mendixsystem$attribute, via /livedb/model) ──────
+function mxGen(type, name) {
+  return global.dfInferAttribute({ name: name || 'attr', type: type }).type;
+}
+eq('mx: String(200) → String', mxGen('String(200)'), 'String');
+eq('mx: Integer → Integer', mxGen('Integer'), 'Integer');
+eq('mx: Long → Integer', mxGen('Long'), 'Integer');
+eq('mx: Decimal → Decimal', mxGen('Decimal'), 'Decimal');
+eq('mx: Boolean → Boolean', mxGen('Boolean'), 'Boolean');
+eq('mx: DateTime → Date', mxGen('DateTime'), 'Date');
+eq('mx: AutoNumber → Positive value', mxGen('AutoNumber'), 'Positive value');
+eq('mx: name inference works on Mendix types too', mxGen('String(255)', 'EmailAddress'), 'Email');
+// Enumeration values are NOT in the database metadata, so the tool must not
+// pretend it knows them — it maps to String and says what to do instead.
+eq('mx: Enum → String', mxGen('Enum'), 'String');
+ok('mx: Enum explains that values are not in the metadata',
+  /enumer/i.test(global.dfInferAttribute({ name: 'Status', type: 'Enum' }).note || ''));
+// An enum is a closed set of codes, so the name must NOT steer the generator —
+// AddressType and CompanyType (both real) would otherwise be filled with
+// street addresses and company names.
+eq('mx: an enum named AddressType is still text', mxGen('Enum', 'AddressType'), 'String');
+eq('mx: an enum named CompanyType is still text', mxGen('Enum', 'CompanyType'), 'String');
+eq('mx: Binary is skipped', global.dfInferAttribute({ name: 'Contents', type: 'Binary' }).type, null);
+// An attribute code this build has never seen must be surfaced, not guessed.
+eq('mx: an unknown Mendix type falls back to String', mxGen('Type77'), 'String');
+
+const entSchema = global.dfSchemaFromEntity({
+  name: 'eShop.Customer', shortName: 'Customer', table: 'eshop$customer',
+  attributes: [
+    { name: 'FullName', type: 'String(200)' },
+    { name: 'EmailAddress', type: 'String(255)' },
+    { name: 'Contents', type: 'Binary' },
+    { name: 'CreatedDate', type: 'DateTime' }
+  ]
+});
+eq('entity: binary attribute excluded from the schema', entSchema.schema.length, 3);
+eq('entity: attribute names used as field names', entSchema.schema[0].name, 'FullName');
+eq('entity: email attribute inferred', entSchema.schema[1].type, 'Email');
+eq('entity: skipped attribute reported', entSchema.skipped.length, 1);
+// An entity with no attributes at all is a real shape in Mendix (an empty
+// specialization) — it must not render as a successful empty import.
+ok('entity: an attribute-less entity is explained',
+  global.dfSchemaFromEntity({ name: 'A.B', attributes: [] }).notes.length > 0);
+
 // ── Summary ─────────────────────────────────────────────────────────────────
-console.log('\n' + passed + ' passed, ' + failed + ' failed');
-process.exit(failed === 0 ? 0 : 1);
+runXlsxAsyncTests().then(function () {
+  console.log('\n' + passed + ' passed, ' + failed + ' failed');
+  process.exit(failed === 0 ? 0 : 1);
+}, function (err) {
+  console.log('  ✗ async suite crashed — ' + (err && err.stack || err));
+  console.log('\n' + passed + ' passed, ' + (failed + 1) + ' failed');
+  process.exit(1);
+});

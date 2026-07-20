@@ -29,7 +29,7 @@ function qiSetTab(tabId, el) {
   document.querySelectorAll('#panel-query-intelligence .tabs .tab').forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected', 'false'); });
   if (el) { el.classList.add('active'); el.setAttribute('aria-selected', 'true'); }
   
-  const tabs = ['formatter', 'translator', 'explain', 'schema'];
+  const tabs = ['formatter', 'translator', 'explain', 'schema', 'indexes'];
   tabs.forEach(t => {
     document.getElementById('qi-tab-' + t).style.display = (t === tabId) ? 'flex' : 'none';
   });

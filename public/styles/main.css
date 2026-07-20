@@ -3287,3 +3287,75 @@ kbd {
 .nx-stream-row:hover .nx-stream-actions {
   display: flex !important;
 }
+
+/* =========================================
+   EXCEL CONVERTER (.xlsx → JSON / CSV)
+   ========================================= */
+.xls-sheet {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: var(--sp-2) var(--sp-3);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+  font: inherit;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.xls-sheet:hover { background: var(--bg-elevated); }
+.xls-sheet.active {
+  background: var(--accent-subtle);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.xls-sheet-name {
+  font-weight: 600;
+  font-size: 0.84rem;
+  word-break: break-word;
+}
+.xls-sheet-meta {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+.xls-badge {
+  display: inline-block;
+  margin-top: 2px;
+  margin-right: 4px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 6px;
+}
+.xls-grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+  font-family: var(--font-mono);
+}
+.xls-grid th,
+.xls-grid td {
+  text-align: left;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.xls-grid th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-weight: 600;
+  z-index: 1;
+}
+.xls-grid tbody tr:hover td { background: var(--bg-elevated); }

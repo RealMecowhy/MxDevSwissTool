@@ -20,6 +20,7 @@ const TOOLS_HELP = {
         <li>Use the filters in the toolbar: enter a phrase (e.g., Microflow name), toggle log levels (TRACE, DEBUG, INFO, WARN, ERROR, CRITICAL) or filter by a specific logger name (e.g., <code>ConnectionBus</code>).</li>
         <li>Narrow down to a specific time window by entering a From / To time (e.g., <code>09:00:00</code> &rarr; <code>10:00:00</code>) and optionally selecting a date.</li>
         <li>Click <strong>Aggregate Errors</strong> in the top right corner of the module bar to open a modal with a summary of unique errors and their occurrence statistics (useful for locating error loops).</li>
+        <li><strong>Data Hub &mdash; load the file once, use it everywhere:</strong> once a log is parsed, a bar above the stream reports <em>Loaded: file &middot; N records &middot; format</em> together with <strong>Open in&hellip;</strong> buttons for the Log Query Extractor, Microflow Tracer and REST &amp; WS Extractor. One click hands the very same file over &mdash; no second drag-and-drop and no re-reading a 60&nbsp;MB log. A <code>&check;</code> marks the tools that already received it; <strong>&times;</strong> makes the toolkit forget the file (the tools keep what they parsed). This is also the only way to get a gzipped <code>.gz</code> Mendix Cloud download into the other tools: the Log Viewer unpacks it and shares the decompressed text. When you drop several files at once only the last one is shared &mdash; the bar says so.</li>
         <li><strong>Bookmark lines</strong> with the <code>&#9734;</code> star at the start of any row — pinned lines are collected in a bar above the stream that survives every filter change. Click a bookmark to jump straight back to that line (if it is hidden by the current filter, filters are cleared so it can be shown). Ideal for marking the key moments of an incident while you keep filtering around them.</li>
       </ol>
     `,
@@ -158,6 +159,7 @@ const TOOLS_HELP = {
         <li>The tool will automatically group related log entries and extract all SQL queries. They will be listed on the left, displaying their type, transaction connection, execution duration, and estimated cost. Click the <strong>Time / Duration / Cost / Rows</strong> column headers to sort.</li>
         <li>The <strong>stats bar</strong> above the list shows the total and average execution time, the slowest query (click it to jump to that query) and the number of duplicated statements &mdash; all recalculated live for the current filters.</li>
         <li>Statements executed multiple times with different parameters get a <strong>&times;N</strong> badge &mdash; use the <strong>Duplicates only (N+1)</strong> filter to instantly spot N+1 query patterns. Enable <strong>Slow only &gt; X ms</strong> to hide everything below your duration threshold.</li>
+        <li><strong>Data Hub &mdash; load the file once, use it everywhere:</strong> after parsing, a bar above the list reports <em>Loaded: file &middot; N records &middot; format</em> with <strong>Open in&hellip;</strong> buttons for the Log Viewer, Microflow Tracer and REST &amp; WS Extractor. One click hands the same file over &mdash; the SQL you are looking at and the microflow that issued it come from one load, not three. A <code>&check;</code> marks tools that already have it.</li>
         <li>Use <strong>Export CSV</strong>, <strong>Copy Markdown</strong> or <strong>Export HTML</strong> (a self-contained, shareable report) in the top bar to take the currently filtered list with you &mdash; e.g. into a ticket, a wiki page or a spreadsheet.</li>
         <li>Select a query from the list to see its details neatly grouped on the right:
           <ul>
@@ -196,7 +198,9 @@ const TOOLS_HELP = {
       <ol>
         <li>Load the log with <strong>Load Log</strong> or drag &amp; drop it onto the list. Large files parse on a background thread with a progress bar.</li>
         <li>The <strong>Executions</strong> view lists every microflow run with its duration, activity-step count and direct sub-microflow calls. Sub-flows are indented under their caller; the <strong>Top-level</strong> checkbox hides them. Click <strong>Time / Duration / Steps / Sub</strong> to sort, use the search box, or enable <strong>Slow only &gt; X ms</strong>.</li>
+        <li><strong>Data Hub &mdash; load the file once, use it everywhere:</strong> after parsing, a bar above the list reports <em>Loaded: file &middot; N records &middot; format</em> with <strong>Open in&hellip;</strong> buttons for the Log Viewer, Log Query Extractor and REST &amp; WS Extractor &mdash; one click hands the same file over instead of loading it again. A <code>&check;</code> marks tools that already have it.</li>
         <li>Switch to <strong>By microflow</strong> for the aggregate view: calls, total, average and max duration per microflow &mdash; the fastest way to find hot spots. Click a row to drill into its executions.</li>
+        <li>Switch to <strong>Background</strong> for scheduled events, task-queue workers and anything else the runtime starts on its own. Per event you get the number of runs, median/max duration, the median time between starts (<em>Every</em> &mdash; for a scheduled event that is its schedule) and a duration <em>Trend</em>. Click a row to drill into the individual runs.</li>
         <li>Select an execution to open the details:
           <ul>
             <li><strong>Activity Timeline:</strong> each logged activity with its offset from the start, type, caption and the time until the next engine event &mdash; the longest bars are where the time went.</li>
@@ -216,6 +220,11 @@ const TOOLS_HELP = {
         <li><strong>REC badge:</strong> the same microflow was already on the call stack &mdash; intentional recursion is rare in Mendix; verify it terminates and isn't doing N&times; database work.</li>
         <li><strong>Unfinished (…):</strong> no Finished record in the log &mdash; usually the log window simply ends mid-execution, but combined with an ERROR nearby it can mean the microflow died with an exception.</li>
         <li><strong>Steps = 0:</strong> the log has DEBUG but not TRACE &mdash; durations are exact, only the per-activity breakdown is missing.</li>
+        <li><strong>Background vs request:</strong> the split is read from the correlation ID &mdash; the runtime numbers request-driven work (<code>1784268324436-46</code>) and gives everything it starts itself a UUID. There is no &ldquo;scheduled event&rdquo; label on the engine lines, so this is the only marker available.</li>
+        <li><strong>Every:</strong> a stable median interval is the event's schedule. A value far off the configured interval means runs are being skipped or the schedule drifted; the first/last run timestamps are in the row tooltip.</li>
+        <li><strong>Trend (↑/↓):</strong> median of the first half of the runs vs the second half &mdash; a slow creep that no single run reveals. Needs at least 4 timed runs, and only moves off <em>≈</em> beyond &plusmn;20%.</li>
+        <li><strong>⇉ overlapping:</strong> a run started while a previous run of the same event was still open. For a <em>scheduled event</em> that means the run overran its interval &mdash; two copies now compete for the same data. For a <em>task-queue worker</em> it is ordinary parallelism.</li>
+        <li><strong>No MicroflowEngine records:</strong> run statistics need DEBUG, which production logs rarely have. The view then falls back to the background failures the log <em>does</em> carry (TaskQueue and friends) &mdash; the full task &times; queue breakdown is in Log Viewer &rarr; Insights.</li>
       </ul>
     `
   },
@@ -245,6 +254,7 @@ const TOOLS_HELP = {
           </ul>
         </li>
         <li><strong>Trace microflow</strong> opens the calling microflow in the Microflow Tracer; <strong>SQL in window</strong> opens the Log Query Extractor filtered to this call's time window. If the target tool is empty, the same file is handed over automatically &mdash; one load powers all three tools.</li>
+        <li><strong>Data Hub &mdash; load the file once, use it everywhere:</strong> the bar above the list reports <em>Loaded: file &middot; N records &middot; format</em> with <strong>Open in&hellip;</strong> buttons for the Log Viewer, Log Query Extractor and Microflow Tracer. Where the cross-links above jump to a specific call or time window, these simply push the same file into any tool you want, in any order. A <code>&check;</code> marks tools that already have it.</li>
         <li><strong>Export CSV</strong> / <strong>Copy Markdown</strong> take the currently filtered list with you.</li>
       </ol>
     `,
@@ -344,6 +354,34 @@ const TOOLS_HELP = {
         <li><strong>5xx Status Codes:</strong> Indicate a failure in the Mendix backend application (e.g., Mendix server is down or dropped the connection).</li>
         <li><strong>High traffic from a single IP:</strong> If one IP sends thousands of requests per minute, it could be a DoS attack attempt or a looped client script. Consider blocking such IPs at the firewall level.</li>
         <li><strong>p95 / p99 response time:</strong> the slowest-URLs table shows the 95th and 99th percentile next to the average. A healthy average can still hide a slow tail that some users hit on every request — a high p99 with a low average points at intermittent slowness (lock contention, cold cache, GC pauses) rather than a uniformly slow endpoint.</li>
+      </ul>
+    `
+  },
+  'xlsx-converter': {
+    title: 'Excel Converter (.xlsx &rarr; JSON / CSV)',
+    description: 'Converts an Excel workbook &mdash; the whole file or one selected sheet &mdash; into JSON or CSV, replacing the usual route of opening Excel, saving as CSV and then fixing the separator and encoding by hand. Everything is parsed in your browser: the workbook is never uploaded. Useful when preparing an import file for Mendix, diffing a spreadsheet against exported data, or feeding a sheet into the Data Factory or a mock server.',
+    howToGet: `
+      <p>Any <code>.xlsx</code> or <code>.xlsm</code> workbook &mdash; that is what Excel, LibreOffice, Google Sheets ("Download &rarr; Microsoft Excel") and most Mendix export widgets produce.</p>
+      <p style="margin-top:var(--sp-2)"><strong>Not supported:</strong> the legacy binary <code>.xls</code> format (Excel 97&ndash;2003). It is not a ZIP of XML parts and cannot be read without a library. Open it in Excel and use <em>File &rarr; Save As &rarr; Excel Workbook (.xlsx)</em>; the tool tells you this rather than failing with a parse error.</p>
+    `,
+    howToUse: `
+      <ol>
+        <li>Drop the workbook onto the tool or use <strong>Load .xlsx File</strong>. Every sheet is listed on the left with its row and column count; hidden sheets are listed too and marked <code>hidden</code>.</li>
+        <li>Pick the <strong>Output</strong>: JSON as an array of objects (the first row becomes the field names), JSON as an array of rows (no header), or CSV.</li>
+        <li>Set the <strong>Scope</strong>: just the selected sheet, or all sheets. For JSON, "all sheets" produces one object keyed by sheet name; for CSV it produces one file per sheet, because a CSV file is one table by definition.</li>
+        <li>For CSV, choose the <strong>Delimiter</strong> and whether to write a <strong>UTF-8 BOM</strong> (see below &mdash; leave it on unless you know you need it off).</li>
+        <li><strong>Copy</strong> puts the result on the clipboard, <strong>Download</strong> saves it, and <strong>Open in JSON Formatter</strong> hands the JSON straight to the tree view for exploring.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>Delimiter &mdash; use the semicolon for a Polish or German Excel.</strong> Those locales read the comma as the decimal separator, so a comma-separated file opens as one mashed column. The tool does not change your regional settings; it writes the separator you pick.</li>
+        <li><strong>UTF-8 BOM &mdash; on by default, and that is deliberate.</strong> Without it, Excel reads a UTF-8 CSV using the local ANSI codepage and mangles every accented character (<code>Zażółć</code> &rarr; <code>ZaÅ¼Ã³Å‚Ä‡</code>). Turn it off only when the consumer is a script or database loader that would choke on the leading marker.</li>
+        <li><strong>Dates are read, not guessed.</strong> Excel stores a date as an ordinary number; only the cell's <em>format</em> makes it a date. The tool reads the format table and converts those cells to ISO 8601 (<code>2024-03-01</code>, or with a time when the value carries one). If a column you expected to be a date comes out as a number like <code>45352</code>, that cell is formatted as a number in Excel. Switch <strong>Dates</strong> to <em>Raw Excel serial number</em> when the receiving system wants the number instead.</li>
+        <li><strong>Formulas arrive as their last calculated value</strong> &mdash; the cached result Excel saved with the file, not the formula text. A workbook saved without recalculating carries stale values; open and re-save it in Excel if the numbers look wrong.</li>
+        <li><strong>Merged cells keep the value in the top-left cell only</strong>, which is how the file itself stores them; the other cells in the range are genuinely empty. The preview notes how many merged ranges a sheet has, so a column of unexpected blanks has an explanation.</li>
+        <li><strong>Header quirks are made visible, not silently resolved:</strong> a blank header cell becomes its column letter (<code>C</code>), and a repeated header gets a numbered suffix (<code>Name_2</code>) instead of overwriting the first column.</li>
+        <li><strong>Empty leading rows are skipped</strong> so a sheet whose table starts at row 4 still gets a real header. Empty rows <em>inside</em> the data are kept &mdash; their position is part of the data.</li>
       </ul>
     `
   },
@@ -508,7 +546,7 @@ const TOOLS_HELP = {
         <li>Paste text or XML into the left text field or drop a file.</li>
         <li>Select detection filters in the bottom panel (e.g., Invisible Spaces, Control Characters, Mojibake).</li>
         <li>In the <strong>Visual Inspector</strong> tab, you will see problematic characters highlighted. Hovering over them will display the character name and its Unicode code (e.g., <code>U+200B ZERO WIDTH SPACE</code>).</li>
-        <li>In the <strong>Statistics & Issues</strong> tab, you will find a table with a summary and count of specific anomalies.</li>
+        <li>In the <strong>Statistics & Issues</strong> tab, you will find a table with a summary and count of specific anomalies. The <strong>Location</strong> column shows the line/column of one occurrence — click it to select that exact spot in the input on the left (scrolled into view); click again to step to the next occurrence when the count is more than one.</li>
         <li>Go to the <strong>Sanitized Output</strong> tab, adjust cleaning rules (e.g., replace NBSP with a regular space, fix specific characters), and copy the cleaned text or download it as a file.</li>
       </ol>
     `,
@@ -722,6 +760,27 @@ const TOOLS_HELP = {
       </ol>
     `
   },
+  'query-intelligence-indexes': {
+    title: 'Index Advisor (Live DB)',
+    description: 'Reads the PostgreSQL catalogs and statistics of a connected Mendix database and reports duplicate, redundant, invalid and never-scanned indexes, plus tables dominated by sequential scans. Read-only — it inspects <code>pg_index</code> and the <code>pg_stat_*</code> views, never your application data.',
+    howToGet: `
+      <p>Requires the <strong>Observability Bridge</strong> (<code>npm run bridge</code>) and a reachable PostgreSQL database — connect it in the "Live database" panel on the tab. The password is kept in memory for the session only and is never saved.</p>
+      <p><strong>Which database matters more than you would think.</strong> Index usage counters live in <code>pg_stat_user_indexes</code> and restart at zero whenever statistics are reset or a dump is restored. On a fresh dev copy every index looks unused. Point the advisor at <strong>production</strong> (or a dev database you have genuinely exercised) before acting on any usage-based finding.</p>
+      <p>No database available? Every other Query Intelligence tab keeps working on pasted input, and Log Query Extractor reconstructs query behaviour from <code>ConnectionBus_Queries</code> TRACE logs without any database access at all.</p>
+    `,
+    howToUse: `
+      <ol>
+        <li>Connect the database in the "Live database" panel, then press <strong>Analyze indexes</strong>.</li>
+        <li>Read the <strong>confidence banner</strong> first. It states how many scans the counters have accumulated and since when. When the window is too thin, usage findings are withheld rather than guessed — "no findings" then means "cannot tell yet", and the banner says so.</li>
+        <li>Work through the findings top-down; they are sorted by severity, then by the storage at stake. Each card gives the observation, the evidence behind it, and how to check it — the analysis never assumes it knows your application.</li>
+        <li>Findings marked <strong>structural</strong> (duplicate / redundant / invalid indexes) come from the catalog shape alone and hold on any database, warm counters or not.</li>
+        <li>Treat a <strong>Candidate statement</strong> as a draft to review, not an instruction. For Mendix-managed tables the card says so explicitly: indexes declared on an entity are recreated on every deploy, so a <code>DROP INDEX</code> in SQL is undone by the next release — the real change belongs in the domain model in Studio Pro.</li>
+        <li>For a <em>Sequential scans</em> finding, follow it into Log Query Extractor: find the queries against that table and use <strong>Run EXPLAIN live</strong> — a Seq Scan node with a Filter names the column that wants an index.</li>
+        <li>Export the findings as CSV, or copy them as Markdown for a ticket.</li>
+      </ol>
+      <p><strong>pg_stat_statements</strong> adds per-query history when installed. It is absent on most Mendix Cloud databases; the report degrades to catalog-based findings and explains how to enable it.</p>
+    `
+  },
   'odata-builder': {
     title: 'OData Query Builder',
     description: 'Convenient OData query generator (v3/v4 standard) for communicating with Mendix Published OData Services. Structured form fields for filters, sorting, and pagination eliminate syntax errors in hand-written URLs.',
@@ -755,11 +814,14 @@ Order
 
 Customer [1] -- [*] Order : places</pre>
       <p>Supported relation forms: <code>A -> B : label</code> and <code>A [1] -- [*] B : label</code> (cardinalities are shown on the diagram).</p>
+      <p><strong>Or load the model straight from a running Mendix database</strong> (optional, read-only — needs the Observability Bridge). Mendix keeps its own model metadata in <code>mendixsystem$entity</code>, <code>$attribute</code> and <code>$association</code>, so the database can describe the domain model without Studio Pro or the <code>.mpr</code> file. Works the same on Mendix 9 and 11. Without a database nothing changes — paste JSON or pseudocode as usual.</p>
     `,
     howToUse: `
       <ol>
         <li>Type entities and their connections in the text editor on the left, then click <strong>Generate Diagram</strong>.</li>
         <li>A class diagram renders on the right side.</li>
+        <li><strong>From a live database:</strong> open "Load the domain model from a live Mendix database", connect, and press <strong>Load model from database</strong>. Then <strong>pick the modules to draw</strong> — this step is not optional in practice: a real application (the reference app has 338 entities across 40 modules) is unreadable as a single diagram, so the largest non-System module is preselected and you widen from there. The generated JSON lands in the input box, so you can edit it by hand before regenerating.</li>
+        <li>Cardinality is <em>read</em>, not guessed: the tool checks real <code>UNIQUE</code> indexes in PostgreSQL, which is what separates 1-1 from 1-*, and *-* from 1-*. Inheritance comes from <code>superentity_id</code> and is drawn as a generalization arrow.</li>
         <li>Use <strong>Download SVG</strong> to save the diagram as a vector file, or <strong>Copy Mermaid</strong> to paste the diagram code into project documentation (e.g., GitHub / Confluence).</li>
       </ol>
     `
@@ -838,9 +900,15 @@ Customer [1] -- [*] Order : places</pre>
   'data-factory': {
     title: 'Data Factory (Mock Data Generator)',
     description: 'Generator of large sets of random, realistic test data (e.g., names, surnames, email addresses, phone numbers, dates, constants). Facilitates the preparation of CSV / JSON / XML files for import into the Mendix application database for performance testing.',
-    howToGet: 'The tool generates data randomly based on selected templates. It does not require uploading files.',
+    howToGet: 'The tool generates data randomly based on selected templates. It does not require uploading files. To import a schema instead of typing it, you need either a DDL script (<code>pg_dump --schema-only</code>, or "Generate Scripts" in SQL Server Management Studio) or a Live DB connection to the application database.',
     howToUse: `
       <ol>
+        <li><strong>Import the schema instead of typing it (optional).</strong> Open <em>Import the schema</em> at the top and choose a source:
+          <ul>
+            <li><strong>Paste DDL</strong> — paste any <code>CREATE TABLE</code> script; nothing is executed, only the column list is read. Multiple tables are listed, and you pick one.</li>
+            <li><strong>Live Mendix database</strong> — with a read-only connection, the domain model is read from <code>mendixsystem$entity</code> / <code>$attribute</code>, so you can pick the entity you are actually importing into and get its real attribute names and types.</li>
+          </ul>
+          Field names are taken verbatim; the <em>generator</em> for each field is inferred and every guess is listed in a mapping table underneath with the reason for it. Correct anything that looks wrong in step 2 — the inference is a head start, not an authority.</li>
         <li>Define the schema by adding columns. For each column, select the <strong>Data Type</strong> (e.g., <code>UUID</code>, <code>FullName</code>, <code>Email</code>, <code>Constant</code>) and then specify a custom <strong>Field Name</strong> (which will be used in the exported file).</li>
         <li><em>Tip:</em> Use the drag handle on the left of each row to reorder columns. If you select the <code>Constant</code> type, a third input will appear for you to enter the static value to be applied to every record.</li>
         <li>Select the desired output format (JSON, CSV, or XML).</li>
@@ -848,6 +916,13 @@ Customer [1] -- [*] Order : places</pre>
         <li>Specify the number of records (e.g., 1000 or 10000 rows).</li>
         <li>Click <strong>Generate Data</strong> and download the generated file to disk. Then import it into Mendix using, for example, the <em>Excel Importer</em> module or a dedicated import action.</li>
       </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>Why a guessed generator can be wrong:</strong> in a Mendix model almost every attribute is a <code>String</code>, so the type alone says little and the <em>name</em> decides. A name hint is only accepted when it fits the column type — <code>city_id</code> stays an integer rather than becoming "London" — but a column whose name says nothing falls back to plain random text.</li>
+        <li><strong>Columns that are left out:</strong> binary attributes and <code>bytea</code>/<code>BLOB</code> columns are excluded and listed, because random bytes are not test data and would break the import you generated the file for. Add a placeholder by hand if you need one.</li>
+        <li><strong>Enumerations:</strong> the values of a Mendix enumeration are not stored in the database metadata, so the field is imported as text. If your import validates the value, switch that field to <code>Constant</code> and type one of the real values.</li>
+      </ul>
     `
   },
   'api-economics': {
@@ -998,14 +1073,7 @@ Customer [1] -- [*] Order : places</pre>
       <ol>
         <li><strong>Convert to Date:</strong> Enter the timestamp value (seconds or milliseconds). The tool will instantly calculate and display the calendar date.</li>
         <li><strong>Convert to Timestamp:</strong> Select a date and time from the calendar to generate the corresponding Unix Epoch timestamp.</li>
-        <li><strong>Scheduled Event Preview:</strong> Enter a recurrence (daily / weekly / every N hours or minutes) and whether it is configured in UTC or local time. The tool lists the next 10 runs in both UTC and your local timezone, flagging Daylight Saving shifts.</li>
       </ol>
-    `,
-    interpretation: `
-      <ul>
-        <li><strong>UTC vs local:</strong> Mendix Cloud executes scheduled events in UTC. A "daily at 03:00" event configured as UTC fires at a different local wall-clock time depending on your timezone &mdash; use the preview to confirm it runs when the business expects.</li>
-        <li><strong>DST shift flag:</strong> When a local-time run crosses a Daylight Saving boundary, the preview marks it. A "23:00 local" report can drift by an hour twice a year if the schedule is pinned to UTC.</li>
-      </ul>
     `
   },
   'log-anonymizer': {

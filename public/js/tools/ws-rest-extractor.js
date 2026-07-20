@@ -14,6 +14,8 @@ let wsreLastFiltered = [];
 let wsreWorker = null;
 let wsreVList = null;
 let wsreRawText = null; // kept for the MFT/LQE cross-link hand-off (same file, one load)
+// Name/size of a user-loaded file, published to the Data Hub once parsed.
+let wsrePendingFile = null;
 const WSRE_WORKER_THRESHOLD = 2 * 1024 * 1024;
 
 // RFC 7230 token characters — a continuation line is a header only if it looks
@@ -340,6 +342,7 @@ window.wsreHandleDrop = function(e) {
 
 window.wsreLoadFile = function(files) {
   if (!files || files.length === 0) return;
+  wsrePendingFile = { name: files[0].name, size: files[0].size };
   const reader = new FileReader();
   if (window.showLoader) window.showLoader('Reading log file...');
   reader.onload = function(e) {
@@ -350,6 +353,7 @@ window.wsreLoadFile = function(files) {
 };
 
 window.wsreLoadText = function(text) {
+  wsrePendingFile = null;   // the caller (cross-link / Data Hub) owns this text
   wsreParseText(text);
 };
 
@@ -432,7 +436,20 @@ function wsreApplyParseResult(res) {
 
   window.wsreFilter();
   if (window.hideLoader) window.hideLoader();
+  wsrePublishToHub(res);
 }
+
+// Registers the just-parsed file with the Data Hub so the other log tools can
+// pick it up without a second load. No-op when the text came from elsewhere
+// (a cross-link or the Hub itself already owns that source).
+function wsrePublishToHub(res) {
+  if (window.mtHub) window.mtHub.publishFromParse(wsrePendingFile, wsreRawText, res, 'ws-rest-extractor');
+  wsrePendingFile = null;
+}
+
+// Data Hub: does this tool currently show something of its own? Used to warn
+// before a one-click hand-off from another tool silently replaces it.
+window.wsreHasData = function () { return wsreCalls.length > 0; };
 
 // ── UI: filtering / sorting / stats ──────────────────────────────────────────
 

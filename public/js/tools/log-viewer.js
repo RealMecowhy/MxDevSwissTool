@@ -47,19 +47,47 @@ async function logReadFileText(f) {
 function logLoadFiles(files) {
   showLoader('Reading files...');
   (async () => {
+    const list = Array.from(files);
+    // The Data Hub carries ONE file; with a multi-file drop the last one that
+    // actually parsed is shared and the rest are reported as staying here.
+    let shareable = null;
     // Sequential to keep file order deterministic before the timestamp merge-sort
-    for (const f of Array.from(files)) {
+    for (const f of list) {
       try {
         showLoader('Parsing ' + f.name + '...');
         const text = await logReadFileText(f);
+        const before = logAllEntries.length;
         logParseContent(text, f.name);
+        const added = logAllEntries.length - before;
+        if (added > 0) {
+          shareable = {
+            name: f.name,
+            // .gz reports its compressed size, which would misdescribe the text
+            // the other tools receive, so measure the decompressed string.
+            size: f.name.toLowerCase().endsWith('.gz') ? text.length : f.size,
+            text: text,
+            records: added,
+            format: f.name.toLowerCase().endsWith('.csv') ? 'csv' : 'live'
+          };
+        }
       } catch (err) {
         console.error('Failed to load ' + f.name, err);
         alert('Could not read "' + f.name + '": ' + err.message);
       }
     }
+    // Sharing the decompressed text is what lets the other log tools consume a
+    // .gz download at all — only the Log Viewer knows how to unpack one.
+    if (shareable && window.mtHub) {
+      window.mtHub.setSource(Object.assign({ origin: 'log-viewer', siblings: list.length - 1 }, shareable));
+    }
     hideLoader();
   })();
+}
+// Cross-link / Data Hub entry point: parse raw log text as if it were a dropped
+// file, mirroring lqeLoadText / mftLoadText / wsreLoadText.
+function logLoadText(text, filename) {
+  logParseContent(text, filename || 'shared.log');
+  hideLoader();
 }
 function logHandleDrop(e) {
   e.preventDefault();
@@ -1568,9 +1596,15 @@ function logSubmitPaste() {
 }
 
 
+// Data Hub: does this tool currently show something of its own? Used to warn
+// before a one-click hand-off from another tool silently replaces it.
+function logHasData() { return logAllEntries.length > 0; }
+
 // --- AUTO-GENERATED ESM EXPORTS ---
 window.logIsContinuation = logIsContinuation;
+window.logHasData = logHasData;
 window.logLoadFiles = logLoadFiles;
+window.logLoadText = logLoadText;
 window.logHandleDrop = logHandleDrop;
 window.logParseContent = logParseContent;
 window.logBuildDateFilter = logBuildDateFilter;

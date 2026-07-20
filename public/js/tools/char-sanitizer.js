@@ -95,6 +95,7 @@ function csParseCharRef(s) {
 
 let csCurrentTab = 'inspector';
 let csAnalysisResult = null;
+let csLocateCursor = {}; // statKey -> which occurrence "Locate" jumps to next (round-robin)
 
 // Switch tab handler
 function sanitizeSwitchTab(tabId) {
@@ -120,6 +121,52 @@ function sanitizeClearInput() {
   document.getElementById('char-sanitizer-stats-table').style.display = 'none';
   document.getElementById('char-sanitizer-output-text').value = '';
   csAnalysisResult = null;
+  csLocateCursor = {};
+}
+
+// 1-based {line, col} of a character index, for the Statistics table's Location column.
+function csLineCol(text, index) {
+  const before = text.slice(0, index);
+  const nl = before.lastIndexOf('\n');
+  const line = (before.match(/\n/g) || []).length + 1;
+  const col = index - (nl === -1 ? -1 : nl);
+  return { line, col };
+}
+
+// Selects the occurrence in the raw input textarea and scrolls it into view.
+// Textareas have no per-character highlighting, so a real text selection —
+// the thing the user can then immediately copy or edit — is the honest
+// equivalent of "point at this character".
+function csSelectInInput(start, length) {
+  const ta = document.getElementById('char-sanitizer-input');
+  if (!ta) return;
+  ta.focus();
+  ta.setSelectionRange(start, start + length);
+  // setSelectionRange does not itself scroll a textarea; estimate the target
+  // line's pixel offset from the line height and scroll a little above it so
+  // the match isn't flush against the top edge.
+  const line = (ta.value.slice(0, start).match(/\n/g) || []).length + 1;
+  const lineHeight = parseFloat(getComputedStyle(ta).lineHeight) || 18;
+  ta.scrollTop = Math.max(0, (line - 3) * lineHeight);
+}
+
+// Click handler for a Statistics row's Location cell: jumps to the next
+// occurrence of that exact character/issue (round-robin), so a count of 4
+// is browsable one click at a time instead of only ever showing the first.
+// csLocateCursor[key] holds the index of the occurrence CURRENTLY selected —
+// absent until the first click, so the counter always matches what the
+// textarea just selected (Ctrl+F "match N of M" semantics), never a preview
+// of the next click.
+function csJumpToOccurrence(statKey) {
+  if (!csAnalysisResult) return;
+  const list = csAnalysisResult.occurrences[statKey];
+  if (!list || !list.length) return;
+  const has = Object.prototype.hasOwnProperty.call(csLocateCursor, statKey);
+  const cur = has ? (csLocateCursor[statKey] + 1) % list.length : 0;
+  csLocateCursor[statKey] = cur;
+  const occ = list[cur];
+  csSelectInInput(occ.index, occ.length);
+  renderStatsTable(); // refreshes the "i/N" counter on the clicked row
 }
 
 // Load a rich sample text with problems.
@@ -167,7 +214,8 @@ function sanitizeAnalyze() {
 
   const stats = {};
   const issues = [];
-  
+  const occurrences = {}; // statKey -> [{index, length}, …], for "locate in input"
+
   // Highlighting engine variables
   let htmlPreview = '';
   const maxPreviewLength = 50000;
@@ -291,10 +339,13 @@ function sanitizeAnalyze() {
     // 3. Process the match
     if (matchedIssue) {
       const matchText = raw.slice(i, i + matchedIssue.matchLength);
-      
+
       // Update statistics
       const statKey = `${matchedIssue.category}|${matchedIssue.name}|${matchedIssue.label}|${matchText}`;
       stats[statKey] = (stats[statKey] || 0) + 1;
+      // Every occurrence's position, so the Statistics table can point back at
+      // the input instead of only reporting an aggregate count.
+      (occurrences[statKey] || (occurrences[statKey] = [])).push({ index: i, length: matchedIssue.matchLength });
 
       // Add to issues list
       issues.push({
@@ -359,7 +410,8 @@ function sanitizeAnalyze() {
   document.getElementById('char-sanitizer-preview').innerHTML = htmlPreview || '<span style="color:var(--text-muted)">Empty text...</span>';
 
   // Build Stats Tab
-  csAnalysisResult = { raw, issues, stats };
+  csAnalysisResult = { raw, issues, stats, occurrences };
+  csLocateCursor = {};
   renderStatsTable();
 
   // Update badge and status
@@ -390,7 +442,7 @@ function renderStatsTable() {
 
   summaryEl.className = 'notice notice-warning';
   summaryEl.innerHTML = `Detected <strong>${csAnalysisResult.issues.length}</strong> problematic characters (unique types: ${Object.keys(csAnalysisResult.stats).length}).`;
-  
+
   let html = '';
   for (const key in csAnalysisResult.stats) {
     const parts = key.split('|');
@@ -399,7 +451,7 @@ function renderStatsTable() {
     const label = parts[2];
     const matchText = parts[3];
     const count = csAnalysisResult.stats[key];
-    
+
     // Format character column for visualization
     let charVisual = escHtml(matchText);
     if (category === 'invisible' && (matchText === '\u200B' || matchText === '\uFEFF' || matchText === '\u200C' || matchText === '\u200D' || matchText === '\u200E' || matchText === '\u200F' || matchText === '\u2060' || matchText === '\u00AD' || !CS_INVISIBLE_MAP[matchText])) {
@@ -408,17 +460,34 @@ function renderStatsTable() {
 
     const hexCodes = Array.from(matchText).map(c => 'U+' + c.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')).join(' ');
 
+    // Location: click to select that exact occurrence in the input on the left
+    // (and scroll to it); a second click steps to the next occurrence, so a
+    // count of 4 is browsable one at a time instead of only ever showing the first.
+    const occList = csAnalysisResult.occurrences[key] || [];
+    const cursor = csLocateCursor[key] || 0;
+    const shown = occList[cursor % occList.length] || occList[0];
+    const pos = shown ? csLineCol(csAnalysisResult.raw, shown.index) : null;
+    const locationCell = pos
+      ? `<button type="button" class="btn btn-ghost btn-xs" data-stat-key="${escHtml(key)}" style="font-family:var(--font-mono);font-size:0.72rem" title="Click to select this occurrence in the input on the left">
+           Ln ${pos.line}, Col ${pos.col}${occList.length > 1 ? ` <span style="color:var(--text-muted)">(${(cursor % occList.length) + 1}/${occList.length})</span>` : ''}
+         </button>`
+      : '';
+
     html += `<tr style="border-bottom:1px solid var(--border)">
       <td style="padding:var(--sp-2);font-family:var(--font-mono);font-weight:bold">${charVisual}</td>
       <td style="padding:var(--sp-2);font-family:var(--font-mono);font-size:0.75rem">${hexCodes}</td>
       <td style="padding:var(--sp-2)"><span class="badge" style="background:var(--bg-hover);color:var(--text-primary)">${category.toUpperCase()}</span></td>
       <td style="padding:var(--sp-2)">${escHtml(name)}</td>
       <td style="padding:var(--sp-2);text-align:right;font-weight:bold">${count}</td>
+      <td style="padding:var(--sp-2)">${locationCell}</td>
     </tr>`;
   }
 
   bodyEl.innerHTML = html;
   tableEl.style.display = 'table';
+  bodyEl.querySelectorAll('[data-stat-key]').forEach(btn => {
+    btn.addEventListener('click', () => csJumpToOccurrence(btn.getAttribute('data-stat-key')));
+  });
 }
 
 // Generate Sanitized Output

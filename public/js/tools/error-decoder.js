@@ -626,15 +626,46 @@ function edxCheckHtml(check) {
     + '<span class="edx-check-body">' + check.text + link + '</span></li>';
 }
 
+// PostgreSQL errors name tables (`eshop$order`), Mendix developers think in
+// entities (`eShop.Order`). When a domain model has been loaded from a live
+// database (Domain Model & Architecture → Load model from database) the map is
+// on window and we can translate. Pure so it is unit-testable; returns [] when
+// no model is loaded, so the card section simply does not appear.
+function edxMapTables(text, tableMap) {
+  if (!text || !tableMap) return [];
+  const found = [];
+  const seen = {};
+  Object.keys(tableMap).forEach(function (table) {
+    if (!table || seen[table]) return;
+    if (String(text).toLowerCase().indexOf(String(table).toLowerCase()) === -1) return;
+    seen[table] = true;
+    found.push({ table: table, entity: tableMap[table] });
+  });
+  // Longest first: `eshop$orderline` is more specific than `eshop$order`.
+  found.sort(function (a, b) { return b.table.length - a.table.length; });
+  return found;
+}
+
 function edxCardHtml(match) {
   const causes = (match.causes || []).map(function (c) { return '<li>' + c + '</li>'; }).join('');
   const checks = (match.checks || []).map(edxCheckHtml).join('');
+  const tables = (typeof window !== 'undefined')
+    ? edxMapTables(match.matchedText, window._mxTableMap)
+    : [];
+  const tableSection = tables.length
+    ? '<div class="edx-section"><div class="edx-section-label">Tables in this message</div><ul class="edx-list">'
+      + tables.map(function (t) {
+        return '<li><code>' + edxEsc(t.table) + '</code> &rarr; <strong>' + edxEsc(t.entity) + '</strong></li>';
+      }).join('')
+      + '</ul></div>'
+    : '';
   return '<div class="edx-card">'
     + '<div class="edx-card-head">'
     +   '<span class="edx-cat">' + edxEsc(match.category) + '</span>'
     +   '<span class="edx-title">' + edxEsc(match.title) + '</span>'
     + '</div>'
     + '<div class="edx-matched"><span class="edx-matched-label">Matched pattern</span>' + edxEsc(match.matchedText) + '</div>'
+    + tableSection
     + '<div class="edx-section edx-section-mechanism">'
     +   '<div class="edx-section-label"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>What happened technically</div>'
     +   '<p class="edx-mechanism">' + match.mechanism + '</p>'
@@ -707,6 +738,9 @@ window.edxClear = function () {
 
 // Cross-tool hand-off: the Log Viewer "Explain" chip navigates here and feeds the
 // ERROR record's full message (headline + stack) straight into the decoder.
+// Exposed for unit tests and for any tool that wants the same translation.
+window.edxMapTables = edxMapTables;
+
 window.edxDecodeText = function (text) {
   const input = document.getElementById('edx-input');
   if (input) input.value = text != null ? String(text) : '';

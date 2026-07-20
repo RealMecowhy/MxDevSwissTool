@@ -87,7 +87,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.17.1</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.18.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -189,6 +189,10 @@
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg></span>
       <span class="nav-label">Data Factory</span>
     </button>
+    <button type="button" class="nav-item" data-tool="xlsx-converter" onclick="navigate('xlsx-converter',this)">
+      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="9" x2="9" y2="21"/></svg></span>
+      <span class="nav-label">Excel Converter</span>
+    </button>
     <button type="button" class="nav-item" data-tool="xpath-builder" onclick="navigate('xpath-builder',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg></span>
       <span class="nav-label">XPath Formatter</span>
@@ -260,7 +264,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.17.1</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.18.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -306,6 +310,7 @@
           <label class="btn btn-primary btn-sm" for="log-file-input"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Load Log File</label>
           <input type="file" id="log-file-input" style="display:none" accept=".log,.txt,.csv,.gz" multiple onchange="logLoadFiles(this.files)">
         </div>
+      <div data-mt-hub="log-viewer" style="display:none;margin:0 var(--sp-4) var(--sp-2)"></div>
       <div class="tool-body" style="padding-top:0">
         <div class="tabs" style="margin-bottom:var(--sp-2);padding:0;border-bottom:1px solid var(--border)">
           <button type="button" class="tab active" data-help-key="log-viewer-stream" onclick="logSetTab('stream',this)">Log Stream</button>
@@ -448,6 +453,7 @@
           <button class="btn btn-secondary btn-sm" onclick="window.lqeExportHtml()" title="Download the currently filtered query list as a self-contained HTML report"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>Export HTML</button>
           <button class="btn btn-secondary btn-sm" onclick="window.lqeClear()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Clear</button>
         </div>
+      <div data-mt-hub="log-query-extractor" style="display:none;margin:0 var(--sp-4) var(--sp-2)"></div>
       <div class="tool-body" style="padding:0; display:flex; flex:1; overflow:hidden;">
         <div style="display:grid; grid-template-columns:1fr 1fr; width:100%; height:100%;">
           
@@ -581,6 +587,7 @@
           <button class="btn btn-secondary btn-sm" onclick="window.wsreCopyMarkdown(this)" title="Copy the currently filtered call list as a Markdown table"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy Markdown</button>
           <button class="btn btn-secondary btn-sm" onclick="window.wsreClear()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Clear</button>
         </div>
+      <div data-mt-hub="ws-rest-extractor" style="display:none;margin:0 var(--sp-4) var(--sp-2)"></div>
       <div class="tool-body" style="padding:0; display:flex; flex:1; overflow:hidden;">
         <div style="display:grid; grid-template-columns:1fr 1fr; width:100%; height:100%;">
 
@@ -768,6 +775,7 @@
           <button class="btn btn-secondary btn-sm" onclick="window.mftCopyMarkdown(this)" title="Copy the currently filtered list as a Markdown table"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy Markdown</button>
           <button class="btn btn-secondary btn-sm" onclick="window.mftClear()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Clear</button>
         </div>
+      <div data-mt-hub="microflow-tracer" style="display:none;margin:0 var(--sp-4) var(--sp-2)"></div>
       <div class="tool-body" style="padding:0; display:flex; flex:1; overflow:hidden;">
         <div style="display:grid; grid-template-columns:1fr 1fr; width:100%; height:100%;">
 
@@ -778,6 +786,7 @@
               <div id="mft-view-toggle" class="tabs" style="border:1px solid var(--border); border-radius:var(--r-md); padding:2px; display:flex; gap:2px; margin:0;">
                 <button type="button" class="tab active" style="padding:2px 10px; font-size:0.75rem;" onclick="window.mftSetView('exec', this)">Executions</button>
                 <button type="button" class="tab" style="padding:2px 10px; font-size:0.75rem;" onclick="window.mftSetView('flows', this)">By microflow</button>
+                <button type="button" class="tab" style="padding:2px 10px; font-size:0.75rem;" onclick="window.mftSetView('background', this)" title="Scheduled events and other work the runtime starts itself (UUID correlation IDs), aggregated per event">Background</button>
               </div>
               <input class="input input-sm" id="mft-search" placeholder="Search microflow, corr ID..." oninput="window.mftFilter()" style="flex:1; min-width:120px;">
               <label style="display:flex; align-items:center; gap:4px; font-size:0.75rem; color:var(--text-secondary); white-space:nowrap; cursor:pointer;" title="Show only executions with a measured duration above the threshold">
@@ -815,6 +824,15 @@
               <div data-sort-key="total" onclick="window.mftSort('total')" style="text-align:right; cursor:pointer" title="Summed duration of finished executions — click to sort">Total<span class="mft-sort-arrow"></span></div>
               <div data-sort-key="avg" onclick="window.mftSort('avg')" style="text-align:right; cursor:pointer" title="Average duration — click to sort">Avg<span class="mft-sort-arrow"></span></div>
               <div data-sort-key="max" onclick="window.mftSort('max')" style="text-align:right; cursor:pointer" title="Slowest single execution — click to sort">Max<span class="mft-sort-arrow"></span></div>
+            </div>
+            <!-- Background / scheduled events header (click to sort) -->
+            <div id="mft-bg-header" style="display:none; grid-template-columns:1fr 52px 78px 78px 74px 62px; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border); font-size:0.75rem; font-weight:600; color:var(--text-muted); background:var(--bg);">
+              <div>Event</div>
+              <div data-sort-key="runs" onclick="window.mftSort('runs')" style="text-align:right; cursor:pointer" title="Number of runs on a background correlation ID — click to sort">Runs<span class="mft-sort-arrow"></span></div>
+              <div data-sort-key="median" onclick="window.mftSort('median')" style="text-align:right; cursor:pointer" title="Median run duration — click to sort">Median<span class="mft-sort-arrow"></span></div>
+              <div data-sort-key="max" onclick="window.mftSort('max')" style="text-align:right; cursor:pointer" title="Slowest run — click to sort">Max<span class="mft-sort-arrow"></span></div>
+              <div data-sort-key="every" onclick="window.mftSort('every')" style="text-align:right; cursor:pointer" title="Median time between run starts — for a scheduled event this is its schedule; click to sort">Every<span class="mft-sort-arrow"></span></div>
+              <div style="text-align:right;" title="Median duration of the first half of the runs vs the second half — needs at least 4 timed runs">Trend</div>
             </div>
             <!-- List body -->
             <div id="mft-list" class="drag-drop-zone" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="window.mftHandleDrop(event)" style="flex:1; overflow-y:auto; padding:0; display:flex; flex-direction:column;">
@@ -1097,13 +1115,14 @@
                     <th style="padding:var(--sp-2)">Category</th>
                     <th style="padding:var(--sp-2)">Description</th>
                     <th style="padding:var(--sp-2);text-align:right">Count</th>
+                    <th style="padding:var(--sp-2)">Location</th>
                   </tr>
                 </thead>
                 <tbody id="char-sanitizer-stats-body">
                 </tbody>
               </table>
             </div>
-            
+
             <!-- Tab 3: Sanitized Output -->
             <div id="cs-panel-output" style="display:none;flex-direction:column;gap:var(--sp-4);height:100%">
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-3);padding:var(--sp-3);background:var(--bg-elevated);border-radius:var(--r-md);border:1px solid var(--border);">
@@ -1172,6 +1191,7 @@
           <button type="button" class="tab" data-help-key="query-intelligence-translator" onclick="qiSetTab('translator',this)">OQL &harr; SQL Translator</button>
           <button type="button" class="tab" data-help-key="query-intelligence-explain" onclick="qiSetTab('explain',this)">SQL Explain</button>
           <button type="button" class="tab" data-help-key="query-intelligence-schema" onclick="qiSetTab('schema',this)">Schema Visualizer</button>
+          <button type="button" class="tab" data-help-key="query-intelligence-indexes" onclick="qiSetTab('indexes',this)">Index Advisor</button>
         </div>
 
         <!-- FORMATTER TAB -->
@@ -1259,6 +1279,24 @@
                </div>
             </div>
           </div>
+        </div>
+
+        <!-- INDEX ADVISOR TAB (Live DB — Wave 6 R2) -->
+        <div id="qi-tab-indexes" style="display:none;flex-direction:column;flex:1;height:calc(100% - 40px);overflow:auto">
+          <div style="font-size:0.82rem;color:var(--text-secondary);line-height:1.55;margin-bottom:var(--sp-3);max-width:80ch">
+            Reads PostgreSQL's own catalogs and statistics views to find duplicate, redundant, invalid and never-scanned
+            indexes, plus tables dominated by sequential scans. Read-only: it inspects <code>pg_index</code> and
+            <code>pg_stat_*</code>, never your application data.
+            <strong>Usage counters only mean something on a database that has served real traffic</strong> — on a freshly
+            restored copy every index looks unused, so those findings are withheld and the reason is shown instead.
+          </div>
+          <div id="ixa-livedb-bar" data-mt-db-connection style="margin-bottom:var(--sp-3)"></div>
+          <div style="display:flex;gap:var(--sp-2);align-items:center;margin-bottom:var(--sp-3);flex-wrap:wrap">
+            <button class="btn btn-primary btn-sm" onclick="window.ixaAnalyze(this)">Analyze indexes</button>
+            <button class="btn btn-ghost btn-sm" onclick="window.ixaExport('csv')">Export CSV</button>
+            <button class="btn btn-ghost btn-sm" id="ixa-export-md" onclick="window.ixaExport('md')">Copy Markdown</button>
+          </div>
+          <div id="ixa-result" style="flex:1"></div>
         </div>
 
       </div>
@@ -1384,57 +1422,6 @@
           <button class="btn btn-primary" id="ts-btn-diff" style="align-self:flex-end">Calculate</button>
         </div>
         <div id="ts-diff-result" class="ts-grid" style="display:none"></div>
-
-        <div class="sep"></div>
-        <h4 style="font-size:.8rem;margin-bottom:var(--sp-2)">Scheduled Event Preview</h4>
-        <div class="notice notice-info" style="margin-bottom:var(--sp-3);font-size:0.82rem">
-          Mendix Cloud runs scheduled events in <strong>UTC</strong>, but you usually think in local time. Preview the next runs side-by-side to avoid off-by-one-day and Daylight Saving surprises.
-        </div>
-        <div class="form-row" style="margin-bottom:var(--sp-3);flex-wrap:wrap;gap:var(--sp-3);align-items:flex-end">
-          <div class="form-group">
-            <div class="form-label">Recurrence</div>
-            <select class="select" id="ts-sched-recur" style="width:150px">
-              <option value="daily">Daily</option>
-              <option value="weekly">Weekly</option>
-              <option value="hourly">Every N hours</option>
-              <option value="minutes">Every N minutes</option>
-            </select>
-          </div>
-          <div class="form-group" id="ts-sched-time-group">
-            <div class="form-label">Time (HH:MM)</div>
-            <input class="input input-mono" id="ts-sched-time" value="03:00" style="width:100px">
-          </div>
-          <div class="form-group" id="ts-sched-weekday-group" style="display:none">
-            <div class="form-label">Weekday</div>
-            <select class="select" id="ts-sched-weekday" style="width:130px">
-              <option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option>
-              <option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option><option value="0">Sunday</option>
-            </select>
-          </div>
-          <div class="form-group" id="ts-sched-interval-group" style="display:none">
-            <div class="form-label">Interval (N)</div>
-            <input type="number" class="input input-mono" id="ts-sched-interval" value="6" min="1" style="width:90px">
-          </div>
-          <div class="form-group">
-            <div class="form-label">Configured in</div>
-            <select class="select" id="ts-sched-tz" style="width:130px">
-              <option value="utc">UTC</option>
-              <option value="local">Local time</option>
-            </select>
-          </div>
-          <button class="btn btn-primary" id="ts-btn-sched" style="align-self:flex-end">Preview Runs</button>
-        </div>
-        <div id="ts-sched-result" style="display:none;overflow-x:auto">
-          <table style="width:100%;border-collapse:collapse;font-size:0.82rem">
-            <thead><tr style="text-align:left;color:var(--text-muted);background:var(--bg-elevated)">
-              <th style="padding:6px 10px">#</th>
-              <th style="padding:6px 10px">UTC (server)</th>
-              <th style="padding:6px 10px">Local (your timezone)</th>
-              <th style="padding:6px 10px">In</th>
-            </tr></thead>
-            <tbody id="ts-sched-body"></tbody>
-          </table>
-        </div>
       </div>
     </div>
 
@@ -1527,6 +1514,47 @@
     <!-- DATA FACTORY -->
     <div class="tool-panel" id="panel-data-factory">
       <div class="tool-body" style="display:flex;flex-direction:column;gap:var(--sp-4);overflow-y:auto">
+        <!-- Schema import (DDL / mendixsystem$) — optional: defining the schema
+             by hand below works exactly as it always has. -->
+        <details id="df-import" style="border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-2) var(--sp-3)">
+          <summary style="font-weight:600;font-size:0.82rem;cursor:pointer">Import the schema instead of typing it <span style="font-size:0.62rem;font-weight:700;color:var(--accent);background:var(--accent-subtle);padding:1px 6px;border-radius:999px;margin:0 4px;text-transform:uppercase;letter-spacing:0.03em">saves the most typing</span><span style="color:var(--text-muted);font-weight:400">— from DDL, or from a live Mendix database</span></summary>
+          <div style="font-size:0.78rem;color:var(--text-secondary);line-height:1.55;margin:var(--sp-2) 0">
+            Fills <em>1. Define Schema</em> from a description you already have. Field names come across verbatim;
+            the generator for each field is <strong>inferred</strong> from its name and type — <code>EmailAddress</code>
+            becomes an e-mail, <code>Price</code> a decimal — and every guess is listed afterwards so you can correct it.
+            Binary columns are left out: random bytes are not test data.
+          </div>
+          <div style="display:flex;gap:var(--sp-2);margin-bottom:var(--sp-3)">
+            <button type="button" class="btn btn-sm btn-primary" id="df-import-tab-ddl" onclick="dfImpSetSource('ddl')">Paste DDL</button>
+            <button type="button" class="btn btn-sm btn-ghost" id="df-import-tab-db" onclick="dfImpSetSource('db')">Live Mendix database</button>
+            <button type="button" class="btn btn-sm btn-ghost" style="margin-left:auto" onclick="dfImpReset()">Clear</button>
+          </div>
+
+          <div id="df-import-ddl">
+            <div class="form-label">CREATE TABLE script</div>
+            <textarea class="code-area" id="df-ddl-input" style="width:100%;min-height:110px" placeholder="CREATE TABLE &quot;eshop$customer&quot; (
+  id bigint NOT NULL,
+  fullname character varying(200),
+  emailaddress character varying(255),
+  createddate timestamp
+);"></textarea>
+            <button class="btn btn-primary btn-sm" style="margin-top:var(--sp-2)" onclick="dfImpParseDdl()">Parse DDL</button>
+          </div>
+
+          <div id="df-import-db" style="display:none">
+            <div style="font-size:0.78rem;color:var(--text-secondary);line-height:1.55;margin-bottom:var(--sp-2)">
+              Reads the domain model from <code>mendixsystem$entity</code> / <code>$attribute</code>, so the mock data
+              matches the entity you are actually importing into — attribute names and types included.
+            </div>
+            <div id="df-livedb-bar" data-mt-db-connection style="margin-bottom:var(--sp-2)"></div>
+            <button class="btn btn-primary btn-sm" onclick="dfImpLoadModel(this)">Load entities from database</button>
+          </div>
+
+          <div id="df-import-tables" style="display:none;margin-top:var(--sp-2)"></div>
+          <div id="df-import-entities" style="display:none;margin-top:var(--sp-2)"></div>
+          <div id="df-import-report" style="display:none;margin-top:var(--sp-3)"></div>
+        </details>
+
         <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-4)">
            <h4 style="margin-top:0;margin-bottom:var(--sp-3)">1. Define Schema</h4>
            <div id="df-schema-list"></div>
@@ -1559,6 +1587,97 @@
              <button class="btn btn-ghost btn-sm" onclick="dfPreview()">Refresh Preview</button>
            </div>
            <pre class="code-area" id="df-preview-area" style="max-height:250px;overflow-y:auto;background:var(--bg-base);margin:0;font-size:0.85rem">Select schema and format to preview...</pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- EXCEL CONVERTER -->
+    <div class="tool-panel" id="panel-xlsx-converter">
+      <div class="tool-actions">
+        <button class="btn btn-secondary btn-sm" onclick="xlsReset()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Clear</button>
+        <label class="btn btn-primary btn-sm" for="xls-file-input"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Load .xlsx File</label>
+        <input type="file" id="xls-file-input" style="display:none" accept=".xlsx,.xlsm" onchange="xlsLoadFile(this.files)">
+      </div>
+      <div class="tool-body" style="display:flex;flex-direction:column;flex:1;overflow:hidden">
+        <div id="xls-empty" class="drag-drop-zone" style="display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;text-align:center;gap:var(--sp-2);border:2px dashed var(--border);border-radius:var(--r-md);min-height:300px" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="xlsHandleDrop(event)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:48px;height:48px;opacity:0.3"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="9" x2="9" y2="21"/></svg>
+          <p style="font-weight:600">Drop an .xlsx workbook here or use &ldquo;Load .xlsx File&rdquo;</p>
+          <p style="font-size:0.78rem;color:var(--text-muted);max-width:560px">Converts the whole workbook or one selected sheet to JSON or CSV. Everything is parsed in your browser &mdash; the file is never uploaded.<br><strong>Note:</strong> the legacy binary <code>.xls</code> format is not supported &mdash; open it in Excel and use <em>File &rarr; Save As &rarr; Excel Workbook (.xlsx)</em> first.</p>
+        </div>
+
+        <div id="xls-results" style="display:none;flex-direction:column;gap:var(--sp-3);flex:1;min-height:0">
+          <div class="form-row" style="flex-wrap:wrap;align-items:flex-end;gap:var(--sp-3)">
+            <div>
+              <label class="form-label" for="xls-format">Output</label>
+              <select class="select select-sm" id="xls-format" onchange="xlsRender()">
+                <option value="json-objects">JSON &mdash; array of objects (first row = keys)</option>
+                <option value="json-arrays">JSON &mdash; array of rows (no header)</option>
+                <option value="csv">CSV</option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label" for="xls-scope">Scope</label>
+              <select class="select select-sm" id="xls-scope" onchange="xlsRender()">
+                <option value="sheet">Selected sheet</option>
+                <option value="all">All sheets</option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label" for="xls-dates">Dates</label>
+              <select class="select select-sm" id="xls-dates" onchange="xlsReparse()">
+                <option value="iso">ISO 8601 (2024-03-01)</option>
+                <option value="serial">Raw Excel serial number</option>
+              </select>
+            </div>
+            <div id="xls-csv-options" style="display:none;gap:var(--sp-3);align-items:flex-end">
+              <div>
+                <label class="form-label" for="xls-delimiter">Delimiter</label>
+                <select class="select select-sm" id="xls-delimiter" onchange="xlsRender()">
+                  <option value=",">Comma (,)</option>
+                  <option value=";">Semicolon (;) &mdash; PL/DE Excel</option>
+                  <option value="tab">Tab</option>
+                </select>
+              </div>
+              <label style="display:flex;align-items:center;gap:6px;font-size:0.8rem;height:var(--control-h-sm)">
+                <input type="checkbox" id="xls-bom" checked>
+                <span>UTF-8 BOM</span>
+              </label>
+            </div>
+            <div style="margin-left:auto;display:flex;gap:var(--sp-2);align-items:flex-end">
+              <button class="btn btn-ghost btn-sm" onclick="xlsOpenInJson()">Open in JSON Formatter</button>
+              <button class="btn btn-secondary btn-sm" onclick="xlsCopy(this)">Copy</button>
+              <button class="btn btn-primary btn-sm" onclick="xlsDownload()">Download</button>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:var(--sp-3);flex:1;min-height:0">
+            <div class="card" style="width:230px;flex-shrink:0;display:flex;flex-direction:column;min-height:0">
+              <div class="card-header"><span style="font-weight:600">Sheets</span></div>
+              <div class="card-body" style="padding:var(--sp-2);overflow-y:auto;display:flex;flex-direction:column;gap:2px" id="xls-sheets"></div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:var(--sp-3);flex:1;min-width:0">
+              <div class="card" style="display:flex;flex-direction:column;min-height:0;flex:1">
+                <div class="card-header">
+                  <span style="font-weight:600">Preview</span>
+                  <span id="xls-preview-note" style="font-size:0.75rem;color:var(--text-muted);margin-left:auto"></span>
+                </div>
+                <div class="card-body" style="padding:0;overflow:auto;min-height:0">
+                  <table class="xls-grid"><thead id="xls-preview-head"></thead><tbody id="xls-preview-body"></tbody></table>
+                </div>
+              </div>
+
+              <div class="card" style="display:flex;flex-direction:column;min-height:0;flex:1">
+                <div class="card-header">
+                  <span style="font-weight:600">Output</span>
+                  <span id="xls-output-note" style="font-size:0.75rem;color:var(--text-muted);margin-left:auto"></span>
+                </div>
+                <div class="card-body" style="padding:0;overflow:auto;min-height:0">
+                  <pre class="code-area" id="xls-output" style="margin:0;background:var(--bg-base);font-size:0.78rem;white-space:pre"></pre>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -2018,7 +2137,21 @@
           <button class="btn btn-secondary btn-sm" onclick="archDownloadSvg()">Download SVG</button>
           <button class="btn btn-primary btn-sm" onclick="archGenerate()">Generate Diagram</button>
         </div>
-      <div class="tool-body" style="display:flex;gap:var(--sp-4)">
+      <div class="tool-body" style="display:flex;flex-direction:column;gap:var(--sp-3)">
+        <!-- Live DB (Wave 6 R3): optional — pasting a model keeps working unchanged -->
+        <details id="arch-livedb" style="border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-2) var(--sp-3)">
+          <summary style="font-weight:600;font-size:0.82rem;cursor:pointer">Load the domain model from a live Mendix database <span style="color:var(--text-muted);font-weight:400">— optional, read-only</span></summary>
+          <div style="font-size:0.78rem;color:var(--text-secondary);line-height:1.55;margin:var(--sp-2) 0">
+            Mendix stores its own model metadata in <code>mendixsystem$entity</code>, <code>$attribute</code> and
+            <code>$association</code>, so a running database can describe the domain model without Studio Pro or the
+            <code>.mpr</code> file. Association cardinality is read from real <code>UNIQUE</code> indexes, so 1-1 and
+            1-* are distinguished rather than guessed. No database? Paste JSON or pseudocode below exactly as before.
+          </div>
+          <div id="arch-livedb-bar" data-mt-db-connection style="margin-bottom:var(--sp-2)"></div>
+          <button class="btn btn-primary btn-sm" onclick="window.archLoadFromDb(this)">Load model from database</button>
+          <div id="arch-model-summary" style="margin-top:var(--sp-2)"></div>
+        </details>
+        <div style="display:flex;gap:var(--sp-4);flex:1;min-height:0">
         <div style="flex:1;display:flex;flex-direction:column">
            <div class="form-label">Input Data (JSON or Pseudocode)</div>
            <textarea class="code-area" id="arch-input" style="flex:1" placeholder="EntityName
@@ -2032,6 +2165,7 @@ EntityName -> OtherEntity : Association"></textarea>
            <div id="arch-output" style="flex:1;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-4);display:flex;flex-direction:column">
               <div style="color:var(--text-muted)">Diagram will appear here...</div>
            </div>
+        </div>
         </div>
       </div>
     </div>

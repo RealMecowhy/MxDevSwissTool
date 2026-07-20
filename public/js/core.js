@@ -59,6 +59,8 @@ const TOOLS = [
 
   {id:'data-factory',  label:'Data Factory',               desc:'High-Volume Mock Data Generator for performance testing and mock servers',      color:'#f39c12',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>', section:'Data & Format'},
 
+  {id:'xlsx-converter',label:'Excel Converter',            desc:'Convert an .xlsx workbook — or one selected sheet — to JSON or CSV, entirely in the browser', color:'#217346', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="9" x2="9" y2="21"/></svg>', section:'Data & Format'},
+
   {id:'api-economics', label:'API Economics',              desc:'Analyze JSON payloads to optimize size and identify redundant fields',          color:'#2ecc71',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>', section:'Analytics & Estimation'},
   // WASM Profiler is a niche tool: hidden from sidebar/home, still reachable via Ctrl+K search
   {id:'wasm-profiler', label:'WASM Profiler',              desc:'Analyze WebAssembly traces and memory usage in Mendix Client',                  color:'#f1c40f',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg>', section:'Analytics & Estimation', hidden:true},
@@ -181,7 +183,7 @@ async function navigate(toolId, navEl) {
     iconEl.style.color = tool.color || 'var(--accent)';
   }
   document.getElementById('topbar-title').textContent = tool.label;
-  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.17.1' : (tool.desc || '');
+  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.18.0' : (tool.desc || '');
   const previousTool = currentTool;
   currentTool = toolId;
   window.currentTool = currentTool;
@@ -382,6 +384,10 @@ import * as apiEconomics from './tools/api-economics.js';
 import * as architecture from './tools/architecture.js';
 import * as charSanitizer from './tools/char-sanitizer.js';
 import * as dataFactory from './tools/data-factory.js';
+// Side-effect import: fills the Data Factory schema from a DDL script or from
+// mendixsystem$ via the Bridge. Attaches the pure dfParseDdl / dfInfer* layer
+// for scripts/parser-test.js plus the dfImp* UI handlers.
+import './tools/data-factory-import.js';
 import * as devStudio from './tools/dev-studio.js';
 import * as diff from './tools/diff.js';
 import * as encoder from './tools/encoder.js';
@@ -402,6 +408,9 @@ import * as incidentReport from './tools/incident-report.js';
 // Side-effect import: the Mendix Error Decoder attaches its pure edxDecode plus
 // the paste-and-render UI handlers to window (no init(), like the log parser).
 import './tools/error-decoder.js';
+// Side-effect import: the Index Advisor is a tab of Query Intelligence rather
+// than a tool of its own, so it only attaches window.ixaAnalyze / ixaExport.
+import './tools/index-advisor.js';
 import * as markdown from './tools/markdown.js';
 import * as memoryInspector from './tools/memory-inspector.js';
 import * as miscMendix from './tools/misc-mendix.js';
@@ -416,6 +425,10 @@ import * as telemetryMonitor from './tools/telemetry-monitor.js';
 import * as timestamp from './tools/timestamp.js';
 
 import * as wasmProfiler from './tools/wasm-profiler.js';
+// Side-effect import: attaches the xls* globals — the Excel Converter reads
+// .xlsx with the native DecompressionStream, no library, and exposes its pure
+// parsing layer for scripts/parser-test.js.
+import './tools/xlsx-converter.js';
 import * as xml from './tools/xml.js';
 import * as xpath from './tools/xpath.js';
 
@@ -484,6 +497,9 @@ import './components/virtual-list.js';
 // Side-effect import: attaches window.mtExport + the pure mtExportTo* builders —
 // the shared CSV / Markdown / self-contained-HTML export helpers.
 import './components/exporters.js';
+// Side-effect import: attaches window.mtHub — the Data Hub, one loaded log file
+// shared across the log tools ("Open in…" instead of a second drag-and-drop).
+import './components/data-hub.js';
 
 function initCore() {
   // Reflect restored theme (set in index.html head) in the toggle label
@@ -495,6 +511,7 @@ function initCore() {
   buildHomeGrid();
   initCommandPalette(TOOLS, navigate);
   initDbConnection();
+  if (window.mtHubInit) window.mtHubInit();
   setupResponsiveSidebar();
 
   // Start global bridge status monitor

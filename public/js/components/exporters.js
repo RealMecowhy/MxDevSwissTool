@@ -19,11 +19,30 @@
 
   // RFC 4180: quote every field, double embedded quotes. CRLF line endings keep
   // Excel happy. header is an array of column names; rows an array of arrays.
-  function mtExportToCsv(header, rows) {
-    const q = function (v) { return '"' + esc(v).replace(/"/g, '""') + '"'; };
-    const lines = [header.map(q).join(',')];
-    for (let i = 0; i < rows.length; i++) lines.push(rows[i].map(q).join(','));
-    return lines.join('\r\n');
+  //
+  // opts (all optional, defaults reproduce the original behaviour exactly so
+  // every existing caller is unaffected):
+  //   delimiter — ',' by default; ';' is what a Polish/German Excel expects,
+  //               since those locales read ',' as the decimal separator.
+  //   quote     — 'all' (default) or 'minimal', which quotes only fields that
+  //               contain the delimiter, a quote or a newline.
+  //   eol       — '\r\n' by default.
+  // Added in wave 6 for the Excel Converter rather than giving that tool its
+  // own CSV writer — one place still owns quoting and escaping.
+  function mtExportToCsv(header, rows, opts) {
+    opts = opts || {};
+    const delimiter = opts.delimiter || ',';
+    const eol = opts.eol || '\r\n';
+    const minimal = opts.quote === 'minimal';
+    const needsQuote = new RegExp('["\\r\\n' + delimiter.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&') + ']');
+    const q = function (v) {
+      const s = esc(v);
+      if (minimal && !needsQuote.test(s)) return s;
+      return '"' + s.replace(/"/g, '""') + '"';
+    };
+    const lines = [header.map(q).join(delimiter)];
+    for (let i = 0; i < rows.length; i++) lines.push(rows[i].map(q).join(delimiter));
+    return lines.join(eol);
   }
 
   // GitHub-flavoured Markdown table. Pipes and newlines in cells are neutralized

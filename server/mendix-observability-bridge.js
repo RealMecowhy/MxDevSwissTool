@@ -1211,6 +1211,48 @@ const server = http.createServer((req, res) => {
     return sendError(req, res, 'Method Not Allowed', 405);
   }
 
+  if (url.pathname === '/livedb/indexes') {
+    if (req.method === 'POST') {
+      readBody(req, res, 1 * 1024 * 1024, (rawBody) => {
+        try {
+          const body = JSON.parse(rawBody.toString('utf8'));
+          const Client = loadPgClient();
+          if (!Client) return sendError(req, res, "PostgreSQL features require the 'pg' module. Run 'npm install pg' in the tool directory and restart the Bridge.");
+          const cfg = { host: body.host, port: body.port, user: body.user, password: body.password, database: body.database };
+          // Catalog scans on a large schema are slower than a single EXPLAIN —
+          // the reference app has ~1900 indexes and takes ~1.5 s.
+          livedb.runIndexAdvisor(Client, cfg, { timeoutMs: 30000 })
+            .then(r => sendJson(req, res, r))
+            .catch(e => sendError(req, res, `Live DB index advisor error: ${e.message}`));
+        } catch (e) {
+          sendError(req, res, `Invalid JSON body: ${e.message}`, 400);
+        }
+      });
+      return;
+    }
+    return sendError(req, res, 'Method Not Allowed', 405);
+  }
+
+  if (url.pathname === '/livedb/model') {
+    if (req.method === 'POST') {
+      readBody(req, res, 1 * 1024 * 1024, (rawBody) => {
+        try {
+          const body = JSON.parse(rawBody.toString('utf8'));
+          const Client = loadPgClient();
+          if (!Client) return sendError(req, res, "PostgreSQL features require the 'pg' module. Run 'npm install pg' in the tool directory and restart the Bridge.");
+          const cfg = { host: body.host, port: body.port, user: body.user, password: body.password, database: body.database };
+          livedb.runDomainModel(Client, cfg, { timeoutMs: 20000 })
+            .then(r => sendJson(req, res, r))
+            .catch(e => sendError(req, res, `Live DB model error: ${e.message}`));
+        } catch (e) {
+          sendError(req, res, `Invalid JSON body: ${e.message}`, 400);
+        }
+      });
+      return;
+    }
+    return sendError(req, res, 'Method Not Allowed', 405);
+  }
+
   if (url.pathname === '/prometheus') {
     // Proxy Prometheus metrics to bypass CORS
     const targetPort = url.searchParams.get('port') || '8090';
