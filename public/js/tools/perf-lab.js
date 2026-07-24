@@ -8,6 +8,20 @@ let plCharts = {};
 let plLastChartUpdate = 0;
 let plTestStartTime = 0;
 
+// Mirrors telemetry/charts.js's tmGetChartColors — same data-theme detection,
+// same shape. The axis/title/legend colors were previously hardcoded dark-theme
+// values (#333/#aaa/#fff), invisible on the light theme; the dataset accent
+// colors (pink/blue/yellow/status palette) stay fixed since they're saturated
+// enough to read on either background.
+function plGetChartColors() {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  return {
+    gridColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
+    textColor: isDark ? '#b3b3b3' : '#666666',
+    titleColor: isDark ? '#ffffff' : '#1a1a1a',
+  };
+}
+
 function plInitCharts() {
   // Destroy existing
   ['timeline', 'throughput', 'histogram', 'status'].forEach(id => {
@@ -19,12 +33,13 @@ function plInitCharts() {
 
   if (typeof Chart === 'undefined') return;
 
+  const c = plGetChartColors();
   const commonOptions = {
     responsive: true,
     maintainAspectRatio: false,
     animation: false,
     plugins: { legend: { display: false } },
-    scales: { x: { grid: { color: '#333' }, ticks: { color: '#aaa' } }, y: { grid: { color: '#333' }, ticks: { color: '#aaa' } } }
+    scales: { x: { grid: { color: c.gridColor }, ticks: { color: c.textColor } }, y: { grid: { color: c.gridColor }, ticks: { color: c.textColor } } }
   };
 
   const timelineCtx = document.getElementById('pl-chart-timeline');
@@ -34,8 +49,8 @@ function plInitCharts() {
       data: { datasets: [{ label: 'Response Time', data: [], backgroundColor: '#e84393' }] },
       options: {
         ...commonOptions,
-        plugins: { ...commonOptions.plugins, title: { display: true, text: 'Response Time over Time (ms)', color: '#fff' } },
-        scales: { x: { title: { display: true, text: 'Time since start (s)', color: '#aaa' }, ...commonOptions.scales.x }, y: { title: { display: true, text: 'Latency (ms)', color: '#aaa' }, ...commonOptions.scales.y, beginAtZero: true } }
+        plugins: { ...commonOptions.plugins, title: { display: true, text: 'Response Time over Time (ms)', color: c.titleColor } },
+        scales: { x: { title: { display: true, text: 'Time since start (s)', color: c.textColor }, ...commonOptions.scales.x }, y: { title: { display: true, text: 'Latency (ms)', color: c.textColor }, ...commonOptions.scales.y, beginAtZero: true } }
       }
     });
   }
@@ -47,7 +62,7 @@ function plInitCharts() {
       data: { labels: [], datasets: [{ label: 'Requests/sec', data: [], backgroundColor: '#0984e3' }] },
       options: {
         ...commonOptions,
-        plugins: { ...commonOptions.plugins, title: { display: true, text: 'Throughput (Requests / second)', color: '#fff' } },
+        plugins: { ...commonOptions.plugins, title: { display: true, text: 'Throughput (Requests / second)', color: c.titleColor } },
         scales: { x: { ...commonOptions.scales.x }, y: { ...commonOptions.scales.y, beginAtZero: true } }
       }
     });
@@ -60,7 +75,7 @@ function plInitCharts() {
       data: { labels: [], datasets: [{ label: 'Requests', data: [], backgroundColor: '#fdcb6e' }] },
       options: {
         ...commonOptions,
-        plugins: { ...commonOptions.plugins, title: { display: true, text: 'Latency Distribution', color: '#fff' } },
+        plugins: { ...commonOptions.plugins, title: { display: true, text: 'Latency Distribution', color: c.titleColor } },
         scales: { x: { ...commonOptions.scales.x }, y: { ...commonOptions.scales.y, beginAtZero: true } }
       }
     });
@@ -75,7 +90,7 @@ function plInitCharts() {
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
-        plugins: { legend: { position: 'right', labels: { color: '#aaa' } }, title: { display: true, text: 'Status Codes', color: '#fff' } }
+        plugins: { legend: { position: 'right', labels: { color: c.textColor } }, title: { display: true, text: 'Status Codes', color: c.titleColor } }
       }
     });
   }
@@ -378,5 +393,6 @@ window.plStart = plStart;
 window.plStop = plStop;
 window.plFinish = plFinish;
 window.plUpdateUI = plUpdateUI;
+window.plGetChartColors = plGetChartColors;
 
 export function init() {}

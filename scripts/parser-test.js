@@ -2446,8 +2446,197 @@ eq('jwt: JWKS key selected by matching kid', global.jwtSelectJwk({ keys: [jwkA, 
 eq('jwt: JWKS falls back to matching kty when no kid matches', global.jwtSelectJwk({ keys: [jwkA, jwkB] }, { alg: 'RS256', kid: 'unknown' }).kid, 'key-a');
 eq('jwt: a bare JWK (not a JWKS) is used directly', global.jwtSelectJwk(jwkA, { alg: 'RS256' }).kid, 'key-a');
 
+// =========================================================================
+// ENCODER / DECODER — auto-detect, recursive decode, binary round-trip (10.1)
+// =========================================================================
+console.log('\nEncoder / Decoder');
+require('../public/js/tools/encoder.js');
+
+// Data-driven rule: only claim a type when decoding actually succeeds and
+// produces something — plain prose must never be misdetected.
+eq('encoder detect: real Base64 text is recognized', global.encDetectType(Buffer.from('Hello Mendix world').toString('base64')), 'base64');
+eq('encoder detect: real URL-encoding is recognized', global.encDetectType('a%20b%2Fc'), 'url');
+eq('encoder detect: plain prose is not misdetected as anything', global.encDetectType('The quick brown fox jumps'), null);
+eq('encoder detect: short base64-alphabet word stays undetected (ambiguous)', global.encDetectType('Test'), null);
+eq('encoder detect: empty input detects nothing', global.encDetectType(''), null);
+
+// Recursive decode: stops as soon as the value stabilizes, never loops forever.
+const doubleUrl = encodeURIComponent(encodeURIComponent('a b/c'));
+const r1 = global.encDecodeRecursiveValue('url', doubleUrl, 10);
+eq('encoder recursive: double URL-encoding fully unwound', r1.result, 'a b/c');
+eq('encoder recursive: reports 2 layers for double-encoding', r1.layers, 2);
+const r2 = global.encDecodeRecursiveValue('url', 'plain text', 10);
+eq('encoder recursive: plain text (nothing to decode) reports 0 layers', r2.layers, 0);
+eq('encoder recursive: plain text passes through unchanged', r2.result, 'plain text');
+
+// Binary round-trip: bytes survive encode→decode exactly (the reason the file
+// path bypasses the text-based unescape/encodeURIComponent trick).
+const rawBytes = new Uint8Array([0, 1, 2, 253, 254, 255, 65, 66, 67]);
+const b64 = global.encBytesToBase64(rawBytes);
+const roundTrip = global.encBase64ToBytes(b64);
+ok('encoder binary round-trip: byte-for-byte identical', roundTrip.length === rawBytes.length && rawBytes.every((b, idx) => roundTrip[idx] === b));
+
+// =========================================================================
+// TIMESTAMP CONVERTER — epoch-aware parsing, Mendix token preview (10.2)
+// =========================================================================
+console.log('\nTimestamp Converter');
+require('../public/js/tools/timestamp.js');
+
+eq('timestamp parse: 13-digit epoch ms', global.tsParseDate('1716220800000').getTime(), 1716220800000);
+eq('timestamp parse: 10-digit epoch s', global.tsParseDate('1716220800').getTime(), 1716220800000);
+eq('timestamp parse: ISO 8601 string', global.tsParseDate('2024-05-20T12:00:00Z').getTime(), Date.parse('2024-05-20T12:00:00Z'));
+eq('timestamp parse: unparseable input returns null, not a throw', global.tsParseDate('not a date'), null);
+eq('timestamp parse: empty input returns null', global.tsParseDate(''), null);
+
+// Data-driven rule: only tokens whose value is unambiguous by construction —
+// no EndOf* (Mendix docs don't pin the boundary) and BeginOfCurrentWeek(UTC)
+// carries a note rather than being presented as authoritative.
+const tokenFixedNow = new Date(2026, 6, 24, 15, 42, 7, 0); // Friday 2026-07-24 15:42:07 local
+const tokens = global.tsMendixTokenPreview(tokenFixedNow);
+const tokenById = Object.fromEntries(tokens.map(t => [t.token, t]));
+eq('mendix tokens: CurrentDateTime is the given instant', tokenById['[%CurrentDateTime%]'].date.getTime(), tokenFixedNow.getTime());
+eq('mendix tokens: BeginOfCurrentDay truncates to local midnight', tokenById['[%BeginOfCurrentDay%]'].date.toTimeString().slice(0, 8), '00:00:00');
+eq('mendix tokens: BeginOfCurrentHour truncates to the hour', tokenById['[%BeginOfCurrentHour%]'].date.getMinutes(), 0);
+eq('mendix tokens: BeginOfCurrentMonth is day 1', tokenById['[%BeginOfCurrentMonth%]'].date.getDate(), 1);
+eq('mendix tokens: BeginOfCurrentYear is Jan 1', tokenById['[%BeginOfCurrentYear%]'].date.getMonth(), 0);
+eq('mendix tokens: BeginOfCurrentWeek lands on a Monday (ISO-8601)', tokenById['[%BeginOfCurrentWeek%]'].date.getDay(), 1);
+ok('mendix tokens: BeginOfCurrentWeek carries a locale caveat, not asserted as authoritative', !!tokenById['[%BeginOfCurrentWeek%]'].note);
+ok('mendix tokens: no EndOf* token is fabricated (Mendix docs leave the boundary unspecified)', !tokens.some(t => /EndOf/.test(t.token)));
+
+// =========================================================================
+// JAVA REGEX TESTER — Mendix/NL presets, replace preview (10.3)
+// =========================================================================
+console.log('\nRegex Tester');
+require('../public/js/tools/regex.js');
+
+const rxPresets = global.REGEX_PRESETS;
+function rxPreset(id) { return rxPresets.find(p => p.id === id); }
+ok('regex presets: email accepts a real address', new RegExp(rxPreset('email').pattern).test('dev@mendix.com'));
+ok('regex presets: email rejects a bare word', !new RegExp(rxPreset('email').pattern).test('notanemail'));
+ok('regex presets: Dutch phone accepts a mobile number', new RegExp(rxPreset('nl-phone').pattern).test('0612345678'));
+ok('regex presets: Dutch phone rejects too few digits', !new RegExp(rxPreset('nl-phone').pattern).test('061234'));
+ok('regex presets: Dutch BSN accepts 9 digits', new RegExp(rxPreset('nl-bsn').pattern).test('123456789'));
+ok('regex presets: Dutch BSN rejects 8 digits', !new RegExp(rxPreset('nl-bsn').pattern).test('12345678'));
+ok('regex presets: BSN preset is honest about being format-only, not a checksum', /11-proef/.test(rxPreset('nl-bsn').note));
+ok('regex presets: Dutch IBAN accepts NL + 4 letters + 10 digits', new RegExp(rxPreset('nl-iban').pattern).test('NL91ABNA0417164300'));
+ok('regex presets: Dutch IBAN rejects a German IBAN', !new RegExp(rxPreset('nl-iban').pattern).test('DE89370400440532013000'));
+ok('regex presets: Mendix entity path accepts Module.Entity', new RegExp(rxPreset('mx-entity-path').pattern).test('Sales.Order'));
+ok('regex presets: Mendix entity path accepts an association chain', new RegExp(rxPreset('mx-entity-path').pattern).test('Sales.Order_Customer/Sales.Customer'));
+ok('regex presets: Mendix entity path rejects a bare word', !new RegExp(rxPreset('mx-entity-path').pattern).test('Order'));
+
+const rxRepl = global.regexReplacePreview;
+eq('regex replace: group reference substitution', rxRepl('(\\w+)@(\\w+)', '', 'dev@mendix', '$2:$1').result, 'mendix:dev');
+eq('regex replace: empty replacement is skipped (returns null, not an empty result)', rxRepl('a', '', 'abc', ''), null);
+ok('regex replace: an invalid pattern reports an error instead of throwing', !!rxRepl('(', '', 'abc', 'x').error);
+
+// =========================================================================
+// PASSWORD GENERATOR — strength meter, Mendix Cloud preset charset (10.4)
+// =========================================================================
+console.log('\nPassword Generator');
+require('../public/js/tools/password-generator.js');
+
+eq('pwd entropy: 0 for empty/degenerate input', global.pwdEntropyBits(0, 26), 0);
+eq('pwd entropy: length * log2(charset size)', global.pwdEntropyBits(8, 26), 8 * Math.log2(26));
+eq('pwd strength label: short/small-charset password is Weak', global.pwdStrengthLabel(20), 'Weak');
+eq('pwd strength label: a 20-char full-charset password is Very strong', global.pwdStrengthLabel(global.pwdEntropyBits(20, 95)) , 'Very strong');
+ok('pwd crack time: near-zero entropy is near-instant', global.pwdCrackTimeSeconds(1, 1e10) < 1);
+eq('pwd duration format: sub-second stays human ("< 1 second")', global.pwdFormatDuration(0.4), '< 1 second');
+ok('pwd duration format: a multi-year duration is expressed in years', /years?$/.test(global.pwdFormatDuration(31536000 * 5)));
+eq('pwd charset: Mendix Cloud preset (upper+lower+num+spec) is all four sets combined', global.pwdBuildCharset({ up: true, low: true, num: true, spec: true }).length, 26 + 26 + 10 + 29);
+eq('pwd charset: no boxes checked yields an empty charset', global.pwdBuildCharset({}), '');
+
+// =========================================================================
+// TEXT DIFF — change stats, ignore-whitespace comparison (10.5)
+// =========================================================================
+console.log('\nText Diff');
+require('../public/js/tools/diff.js');
+
+eq('diff normalize: ignoreWs collapses internal runs and trims', global.diffNormalizeLine('  a   b  ', true), 'a b');
+eq('diff normalize: ignoreWs off leaves the line untouched', global.diffNormalizeLine('  a   b  ', false), '  a   b  ');
+
+// Data-driven rule: diffStats counts what diffCompare actually classified
+// (the 'col' array), not a separate re-derivation that could drift from it.
+eq('diff stats: counts added/removed/modified from the aligned column', JSON.stringify(global.diffStats([['equal','x'],['added','y'],['removed','z'],['mod','a','b'],['mod','c','d']])), JSON.stringify({added:1,removed:1,modified:2}));
+eq('diff stats: an all-equal diff reports zero changes', JSON.stringify(global.diffStats([['equal','x'],['equal','y']])), JSON.stringify({added:0,removed:0,modified:0}));
+
+// Ignore whitespace: a line differing only by whitespace becomes 'equal'
+// instead of a removed+added pair, once compared through the normalized key.
+const wsA = ['line one', '  line two  ', 'line three'];
+const wsB = ['line one', 'line two', 'line three'];
+const withWs = global.computeDiff(wsA, wsB);
+const withoutWs = global.computeDiff(wsA, wsB, l => global.diffNormalizeLine(l, true));
+ok('diff ignore-ws off: a whitespace-only difference shows as a real change', withWs.some(d => d[0] === 'added' || d[0] === 'removed'));
+ok('diff ignore-ws on: a whitespace-only difference is treated as equal', withoutWs.every(d => d[0] === 'equal'));
+
+// =========================================================================
+// HTTP STATUS CODES — search (already existed), "In Mendix" column (10.6)
+// =========================================================================
+console.log('\nHTTP Status Codes');
+require('../public/js/tools/http-codes.js');
+
+const httpCodes = global.HTTP_CODES;
+eq('http codes: 22 codes total (unchanged by the 10.6 content pass)', httpCodes.length, 22);
+ok('http codes: every code has a non-empty "In Mendix" note', httpCodes.every(c => c.mendix && c.mendix.trim().length > 0));
+ok('http codes: the Mendix note is distinct from the generic description (no duplication)', httpCodes.every(c => c.mendix !== c.desc));
+ok('http search: matches by code number', global.httpMatchesSearch(httpCodes.find(c => c.code === 404), '404'));
+ok('http search: matches by name', global.httpMatchesSearch(httpCodes.find(c => c.code === 404), 'not found'));
+ok('http search: matches Mendix-specific content too (not just the generic desc)', global.httpMatchesSearch(httpCodes.find(c => c.code === 403), 'microflow'));
+ok('http search: a non-matching query excludes the code', !global.httpMatchesSearch(httpCodes.find(c => c.code === 404), 'gateway timeout'));
+
+// =========================================================================
+// API ECONOMICS — real GZIP measurement, $select hint, compare mode (10.7)
+// =========================================================================
+console.log('\nAPI Economics');
+require('../public/js/tools/api-economics.js');
+
+const econPayload = { id: 1, name: 'Order 1', notes: null, tags: [], meta: {}, customer: { id: 2, name: 'Order 1', middleName: null } };
+const econTrav = global.apiEconTraverse(econPayload);
+eq('api-econ traverse: counts every key occurrence, including nested', econTrav.fieldCounts.name, 2);
+eq('api-econ traverse: id is counted at both the top level and inside the nested customer', econTrav.fieldCounts.id, 2);
+const econAlwaysEmpty = global.apiEconAlwaysEmptyFields(econTrav.fieldCounts, econTrav.fieldEmptyCounts);
+eq('api-econ $select hint: fields empty in every occurrence are flagged', econAlwaysEmpty.join(','), 'meta,middleName,notes,tags');
+ok('api-econ $select hint: a field with even one real value is not flagged (name has data)', !econAlwaysEmpty.includes('name'));
+
+async function runApiEconAsyncTests() {
+  // Data-driven rule: the size is a real CompressionStream measurement, not
+  // the old hardcoded 35% guess — must actually shrink well-compressible JSON.
+  const repetitive = JSON.stringify({ items: Array.from({ length: 50 }, () => ({ id: 1, status: 'ACTIVE' })) });
+  const gz = await global.apiEconGzipSize(repetitive);
+  ok('api-econ gzip: CompressionStream is available in this Node runtime for the test', gz !== null);
+  ok('api-econ gzip: a real measurement, smaller than the uncompressed input', gz > 0 && gz < new Blob([repetitive]).size);
+
+  const resultA = await global.apiEconAnalyzePayload(JSON.stringify({ a: 1, b: 2 }));
+  const resultB = await global.apiEconAnalyzePayload(JSON.stringify({ a: 1 }));
+  ok('api-econ analyze: parses valid JSON and measures all three sizes', resultA.error === null && resultA.minifiedSize > 0 && resultA.gzipSize > 0);
+  const invalid = await global.apiEconAnalyzePayload('{not json');
+  ok('api-econ analyze: invalid JSON reports an error instead of throwing', !!invalid.error);
+  const cmp = global.apiEconCompareSummary(resultA, resultB);
+  ok('api-econ compare: payload B (fewer fields) is smaller than A', cmp.minifiedDelta < 0);
+}
+
+// =========================================================================
+// PERFORMANCE LAB — theme-aware chart colors (10.8, section-A bug fix)
+// =========================================================================
+console.log('\nPerformance Lab');
+require('../public/js/tools/perf-lab.js');
+
+// perf-lab.js reads document.documentElement at call time (not at require
+// time), so a minimal stand-in for the theme attribute is enough here —
+// restored immediately after so it can't leak into any other section.
+const realDocument = global.document;
+global.document = { documentElement: { getAttribute: () => 'dark' } };
+const darkColors = global.plGetChartColors();
+global.document.documentElement.getAttribute = () => 'light';
+const lightColors = global.plGetChartColors();
+global.document = realDocument;
+
+ok('perf-lab colors: dark and light themes produce different grid colors (bug: was a hardcoded #333 for both)', darkColors.gridColor !== lightColors.gridColor);
+ok('perf-lab colors: dark and light themes produce different title colors (bug: was a hardcoded #fff for both, invisible on light)', darkColors.titleColor !== lightColors.titleColor);
+eq('perf-lab colors: light-theme title is dark text (readable on a light background)', lightColors.titleColor, '#1a1a1a');
+eq('perf-lab colors: dark-theme title is light text (readable on a dark background)', darkColors.titleColor, '#ffffff');
+
 // ── Summary ─────────────────────────────────────────────────────────────────
-runXlsxAsyncTests().then(function () {
+runXlsxAsyncTests().then(runApiEconAsyncTests).then(function () {
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
   process.exit(failed === 0 ? 0 : 1);
 }, function (err) {

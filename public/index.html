@@ -87,7 +87,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.21.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.22.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -268,7 +268,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.21.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.22.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -1399,6 +1399,16 @@
               <strong>Mendix uses Java regular expressions.</strong> This tool simulates Java <code>java.util.regex</code> behaviour. Note: Mendix <code>isMatch()</code> implicitly anchors to full string (like <code>^</code> and <code>$</code>). <br><span style="font-size:.75rem;opacity:.8">&#9888; Java-only features not supported in JS: possessive quantifiers (<code>a++</code>), <code>(?x)</code> verbose mode. Use <code>s</code> flag instead of <code>(?s)</code>.</span>
             </div>
           </div>
+          <div class="form-row" style="align-items:center;gap:var(--sp-2)">
+            <select class="select select-sm" id="regex-preset" style="flex:1" onchange="if(this.value) regexApplyPreset(this.value); this.selectedIndex=0;">
+              <option value="">Mendix/NL preset…</option>
+              <option value="email">Email (practical)</option>
+              <option value="nl-phone">Dutch phone</option>
+              <option value="nl-bsn">Dutch BSN (format only)</option>
+              <option value="nl-iban">IBAN (Dutch)</option>
+              <option value="mx-entity-path">Mendix entity/association path</option>
+            </select>
+          </div>
           <div class="regex-input-wrapper">
             <span class="regex-delimiter">/</span>
             <input class="regex-input" id="regex-input" placeholder="your pattern here" oninput="regexTestMendixMode()">
@@ -1418,13 +1428,20 @@
             </div>
           </div>
           <div id="regex-stats" style="display:flex;gap:var(--sp-3);flex-wrap:wrap"></div>
+          <div class="form-group">
+            <div class="form-label">Replacement (Java <code>replaceAll</code> — <code>$1</code>, <code>$2</code>… reference groups)</div>
+            <input class="input input-mono" id="regex-replacement" placeholder="Leave empty to skip" oninput="regexTestMendixMode()">
+          </div>
         </div>
         <div style="display:flex;flex-direction:column;gap:var(--sp-4);overflow-y:auto">
           <div>
             <div class="form-label">Matches &amp; Groups</div>
             <div id="regex-matches" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-3);min-height:160px;font-family:var(--font-mono);font-size:.78rem;overflow:auto;max-height:300px"><span style="color:var(--text-muted)">No pattern entered</span></div>
           </div>
-
+          <div>
+            <div class="form-label">Replace Result</div>
+            <div id="regex-replace-result" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-3);min-height:60px;font-family:var(--font-mono);font-size:.78rem;overflow:auto;white-space:pre-wrap;word-wrap:break-word"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -1438,23 +1455,44 @@
           <div class="form-row"><input class="input input-mono" id="ts-input" placeholder="1716220800000  or  2024-05-20T12:00:00Z" style="flex:1"><button class="btn btn-primary" id="ts-btn-convert">Convert</button></div>
         </div>
         <div class="ts-grid" id="ts-grid"></div>
+        <div class="form-group" style="margin-top:var(--sp-3)">
+          <div class="form-label">Also show this moment in</div>
+          <select class="select" id="ts-tz-select" style="max-width:260px">
+            <option value="UTC">UTC</option>
+            <option value="Europe/Warsaw">Europe/Warsaw</option>
+            <option value="Europe/London">Europe/London</option>
+            <option value="America/New_York">America/New_York</option>
+            <option value="America/Los_Angeles">America/Los_Angeles</option>
+            <option value="Asia/Tokyo">Asia/Tokyo</option>
+            <option value="Asia/Shanghai">Asia/Shanghai</option>
+            <option value="Australia/Sydney">Australia/Sydney</option>
+          </select>
+          <div class="ts-grid" id="ts-tz-result" style="margin-top:var(--sp-2)"></div>
+        </div>
         <div class="sep"></div>
         <h4 style="font-size:.8rem;margin-bottom:var(--sp-3)">Difference Calculator</h4>
         <div class="form-row" style="margin-bottom:var(--sp-3)">
-          <div class="form-group" style="flex:1"><div class="form-label">From</div><input class="input input-mono" id="ts-diff-from" placeholder="2024-01-01T00:00:00Z"></div>
-          <div class="form-group" style="flex:1"><div class="form-label">To</div><input class="input input-mono" id="ts-diff-to" placeholder="2024-12-31T23:59:59Z"></div>
+          <div class="form-group" style="flex:1"><div class="form-label">From</div><input class="input input-mono" id="ts-diff-from" placeholder="2024-01-01T00:00:00Z  or  epoch"></div>
+          <div class="form-group" style="flex:1"><div class="form-label">To</div><input class="input input-mono" id="ts-diff-to" placeholder="2024-12-31T23:59:59Z  or  epoch"></div>
           <button class="btn btn-primary" id="ts-btn-diff" style="align-self:flex-end">Calculate</button>
         </div>
         <div id="ts-diff-result" class="ts-grid" style="display:none"></div>
+        <div class="sep"></div>
+        <h4 style="font-size:.8rem;margin-bottom:var(--sp-1)">Mendix Token Preview <span style="font-weight:normal;color:var(--text-muted);text-transform:none;letter-spacing:normal">— what these XPath tokens resolve to right now</span></h4>
+        <div class="ts-grid" id="ts-token-grid" style="margin-top:var(--sp-2)"></div>
       </div>
     </div>
 
     <!-- TEXT DIFF -->
     <div class="tool-panel" id="panel-text-diff">
-      <div class="tool-body no-pad" style="display:grid;grid-template-rows:auto 1fr;height:100%">
-        <div style="display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--border)">
-          <div style="border-right:1px solid var(--border);padding:var(--sp-3) var(--sp-4)"><div class="form-label" style="margin-bottom:var(--sp-1)">Original</div><textarea class="json-input-area" id="diff-a" style="height:150px" placeholder="Paste original text..." oninput="diffCompare()"></textarea></div>
-          <div style="padding:var(--sp-3) var(--sp-4)"><div class="form-label" style="margin-bottom:var(--sp-1)">Modified</div><textarea class="json-input-area" id="diff-b" style="height:150px" placeholder="Paste modified text..." oninput="diffCompare()"></textarea></div>
+      <div class="tool-body no-pad" style="display:grid;grid-template-rows:auto auto 1fr;height:100%">
+        <div style="display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--border)" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')">
+          <div style="border-right:1px solid var(--border);padding:var(--sp-3) var(--sp-4)" ondrop="handleTextFileDrop(event, 'diff-a', 'diffCompare')"><div class="form-label" style="margin-bottom:var(--sp-1)">Original <span style="font-weight:normal;color:var(--text-muted)">(paste or drop a file)</span></div><textarea class="json-input-area" id="diff-a" style="height:150px" placeholder="Paste original text..." oninput="diffCompare()"></textarea></div>
+          <div style="padding:var(--sp-3) var(--sp-4)" ondrop="handleTextFileDrop(event, 'diff-b', 'diffCompare')"><div class="form-label" style="margin-bottom:var(--sp-1)">Modified <span style="font-weight:normal;color:var(--text-muted)">(paste or drop a file)</span></div><textarea class="json-input-area" id="diff-b" style="height:150px" placeholder="Paste modified text..." oninput="diffCompare()"></textarea></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:var(--sp-4);padding:var(--sp-2) var(--sp-4);border-bottom:1px solid var(--border)">
+          <label style="display:flex;align-items:center;gap:6px;font-size:.8rem;cursor:pointer"><input type="checkbox" id="diff-ignore-ws"> Ignore whitespace</label>
+          <div id="diff-stats" style="font-size:.78rem;color:var(--text-secondary)"></div>
         </div>
         <div style="overflow:auto;display:grid;grid-template-columns:1fr 1fr">
           <div id="diff-out-a" style="border-right:1px solid var(--border);overflow:auto;padding:var(--sp-2) 0"></div>
@@ -1467,17 +1505,27 @@
     <div class="tool-panel" id="panel-encoder">
       <div class="tool-body">
         <div class="tabs" style="margin-bottom:var(--sp-4);padding:0;border-bottom:1px solid var(--border)">
-          <button type="button" class="tab active" onclick="encSetMode('base64',this)">Base64</button>
-          <button type="button" class="tab" onclick="encSetMode('url',this)">URL Encode</button>
-          <button type="button" class="tab" onclick="encSetMode('html',this)">HTML Entities</button>
-          <button type="button" class="tab" onclick="encSetMode('hex',this)">Hexadecimal</button>
+          <button type="button" class="tab active" data-mode="base64" onclick="encSetMode('base64')">Base64</button>
+          <button type="button" class="tab" data-mode="url" onclick="encSetMode('url')">URL Encode</button>
+          <button type="button" class="tab" data-mode="html" onclick="encSetMode('html')">HTML Entities</button>
+          <button type="button" class="tab" data-mode="hex" onclick="encSetMode('hex')">Hexadecimal</button>
         </div>
-        <div class="encoder-grid" style="height:calc(100% - 60px)">
-          <div class="form-group"><div class="form-label">Input</div><textarea class="code-area" id="enc-input" style="height:calc(100% - 26px)" placeholder="Enter text..."></textarea></div>
+        <div id="enc-file-info" style="margin-bottom:var(--sp-2);font-size:0.8rem;color:var(--info);display:none"></div>
+        <div id="enc-status" style="margin-bottom:var(--sp-2);font-size:0.75rem;color:var(--text-muted);min-height:1em"></div>
+        <div class="encoder-grid" style="height:calc(100% - 92px)">
+          <div class="form-group">
+            <div class="form-label" style="display:flex;justify-content:space-between">
+              <span>Input</span>
+              <span style="font-size:0.75rem;font-weight:normal;color:var(--text-muted)">Drop a file here for Base64</span>
+            </div>
+            <textarea class="code-area" id="enc-input" style="height:calc(100% - 26px)" placeholder="Enter text or paste Base64/URL-encoded data..." oninput="encOnInput()"></textarea>
+          </div>
           <div style="display:flex;flex-direction:column;gap:var(--sp-2);align-items:center;justify-content:center;padding-top:26px">
             <button class="btn btn-primary" onclick="encEncode()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>Encode</button>
             <button class="btn btn-secondary" onclick="encDecode()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>Decode</button>
+            <button class="btn btn-ghost btn-sm" onclick="encDecodeRecursiveUI()" title="Keep decoding until the output stabilizes (e.g. a value that was URL-encoded twice)">Decode recursively</button>
             <button class="btn btn-ghost btn-sm" onclick="encSwap()">&#8597; Swap</button>
+            <button class="btn btn-ghost btn-sm" onclick="encDownloadAsFile()" title="Decode the Base64 input straight to a binary file">Download as file</button>
           </div>
           <div class="form-group"><div style="display:flex;gap:var(--sp-2);align-items:center;margin-bottom:var(--sp-1)"><div class="form-label" style="flex:1">Output</div><button class="btn btn-ghost btn-sm" onclick="copyToClipboard(document.getElementById('enc-output').value)">Copy</button></div><textarea class="code-area" id="enc-output" style="height:calc(100% - 26px)" readonly placeholder="Output..."></textarea></div>
         </div>
@@ -1778,11 +1826,20 @@
     <div class="tool-panel" id="panel-api-economics">
       <div class="tool-actions">
           <button class="btn btn-primary btn-sm" onclick="apiEconAnalyze()">Analyze Payload <kbd>Ctrl+Enter</kbd></button>
+          <label style="display:flex;align-items:center;gap:6px;font-size:.8rem;margin-left:var(--sp-3);cursor:pointer">
+            <input type="checkbox" id="api-econ-compare-toggle" onchange="apiEconToggleCompare()"> Compare with another payload
+          </label>
         </div>
       <div class="tool-body" style="display:flex;gap:var(--sp-4)">
-        <div style="flex:1;display:flex;flex-direction:column">
-           <div class="form-label">Paste JSON Response / Payload</div>
-           <textarea class="code-area" id="api-econ-input" style="flex:1" placeholder="Paste your API JSON response here..."></textarea>
+        <div style="flex:1;display:flex;flex-direction:column;gap:var(--sp-3)">
+           <div style="flex:1;display:flex;flex-direction:column">
+             <div class="form-label">Paste JSON Response / Payload A</div>
+             <textarea class="code-area" id="api-econ-input" style="flex:1" placeholder="Paste your API JSON response here..."></textarea>
+           </div>
+           <div id="api-econ-input-b-wrap" style="flex:1;display:none;flex-direction:column">
+             <div class="form-label">Payload B <span style="font-weight:normal;color:var(--text-muted)">(e.g. after a <code>$select</code> optimization)</span></div>
+             <textarea class="code-area" id="api-econ-input-b" style="flex:1" placeholder="Paste the payload to compare against..."></textarea>
+           </div>
         </div>
         <div style="flex:1;display:flex;flex-direction:column;overflow-y:auto">
            <div class="form-label">Analysis Results</div>
@@ -2298,16 +2355,25 @@ EntityName -> OtherEntity : Association"></textarea>
               <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="pwd-num" checked onchange="generatePassword()"> Numbers (0-9)</label>
               <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="pwd-spec" checked onchange="generatePassword()"> Special Characters (!@#$%^&*)</label>
             </div>
-            
-            <button class="btn btn-primary" style="margin-top:var(--sp-4)" onclick="generatePassword()">Generate New Password <kbd>Ctrl+Enter</kbd></button>
+
+            <label style="display:flex;align-items:center;gap:8px;margin-top:var(--sp-3);font-size:.85rem">Generate
+              <input type="number" id="pwd-count" value="1" min="1" max="50" class="input input-mono" style="width:60px" onchange="generatePassword()">
+              password(s)
+            </label>
+
+            <div style="display:flex;gap:var(--sp-2);margin-top:var(--sp-4)">
+              <button class="btn btn-primary" onclick="generatePassword()">Generate New Password <kbd>Ctrl+Enter</kbd></button>
+              <button class="btn btn-secondary" onclick="pwdApplyMendixCloudPreset()" title="12+ chars, upper+lower+digit+special — Mendix Cloud's minimum">Mendix Cloud preset</button>
+            </div>
           </div>
-          
+
           <div style="flex:1;min-width:300px;display:flex;flex-direction:column;justify-content:center">
             <div class="form-label">Generated Password</div>
-            <div style="display:flex;gap:var(--sp-2);align-items:center">
-              <input class="input input-mono" id="pwd-result" style="flex:1;font-size:1.1rem;padding:var(--sp-3);background:var(--bg-elevated)" readonly>
-              <button class="btn btn-secondary" style="height:100%" onclick="copyToClipboard(document.getElementById('pwd-result').value)">Copy</button>
+            <div style="display:flex;gap:var(--sp-2);align-items:flex-start">
+              <textarea class="input input-mono" id="pwd-result" rows="1" style="flex:1;font-size:1.1rem;padding:var(--sp-3);background:var(--bg-elevated);resize:vertical" readonly></textarea>
+              <button class="btn btn-secondary" onclick="copyToClipboard(document.getElementById('pwd-result').value)">Copy</button>
             </div>
+            <div id="pwd-strength" style="margin-top:var(--sp-3)"></div>
           </div>
         </div>
       </div>

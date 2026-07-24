@@ -1,9 +1,19 @@
 // TEXT DIFF
 // ============================================================
+// Normalizes a line for comparison only — the original raw text (with its
+// real whitespace) is always what gets rendered, "ignore whitespace" just
+// changes which lines are considered equal.
+function diffNormalizeLine(line, ignoreWs) {
+  return ignoreWs ? line.trim().replace(/\s+/g, ' ') : line;
+}
+
 function diffCompare() {
   const a=document.getElementById('diff-a').value, b=document.getElementById('diff-b').value;
-  if (!a&&!b) { document.getElementById('diff-out-a').innerHTML=''; document.getElementById('diff-out-b').innerHTML=''; return; }
-  const lA=a.split('\n'), lB=b.split('\n'), diffs=computeDiff(lA,lB);
+  const statsEl=document.getElementById('diff-stats');
+  if (!a&&!b) { document.getElementById('diff-out-a').innerHTML=''; document.getElementById('diff-out-b').innerHTML=''; if(statsEl) statsEl.innerHTML=''; return; }
+  const ignoreWs = document.getElementById('diff-ignore-ws') ? document.getElementById('diff-ignore-ws').checked : false;
+  const keyFn = line => diffNormalizeLine(line, ignoreWs);
+  const lA=a.split('\n'), lB=b.split('\n'), diffs=computeDiff(lA,lB,keyFn);
   const col = [];
   let bA=[], bB=[];
   const flush = () => {
@@ -88,13 +98,29 @@ function diffCompare() {
     }
   });
   document.getElementById('diff-out-a').innerHTML=hA; document.getElementById('diff-out-b').innerHTML=hB;
+
+  if (statsEl) {
+    const stats=diffStats(col);
+    statsEl.innerHTML='<span class="badge">Added: '+stats.added+'</span> <span class="badge">Removed: '+stats.removed+'</span> <span class="badge">Modified: '+stats.modified+'</span>';
+  }
 }
 
-function computeDiff(a,b) {
+// Pure — testable from scripts/parser-test.js. `col` is the post-alignment
+// array diffCompare builds (equal/added/removed/mod), so counts match what's
+// actually rendered, not a separate re-derivation that could drift from it.
+function diffStats(col) {
+  const s={added:0,removed:0,modified:0};
+  col.forEach(it=>{ if(it[0]==='added') s.added++; else if(it[0]==='removed') s.removed++; else if(it[0]==='mod') s.modified++; });
+  return s;
+}
+
+function computeDiff(a,b,keyFn) {
+  keyFn = keyFn || (x=>x);
+  const ka=a.map(keyFn), kb=b.map(keyFn);
   const m=a.length,n=b.length,dp=Array.from({length:m+1},()=>new Array(n+1).fill(0));
-  for(let i=m-1;i>=0;i--) for(let j=n-1;j>=0;j--) dp[i][j]=a[i]===b[j]?dp[i+1][j+1]+1:Math.max(dp[i+1][j],dp[i][j+1]);
+  for(let i=m-1;i>=0;i--) for(let j=n-1;j>=0;j--) dp[i][j]=ka[i]===kb[j]?dp[i+1][j+1]+1:Math.max(dp[i+1][j],dp[i][j+1]);
   const res=[];let i=0,j=0;
-  while(i<m||j<n){if(i<m&&j<n&&a[i]===b[j]){res.push(['equal',a[i]]);i++;j++;}else if(j<n&&(i>=m||dp[i][j+1]>=dp[i+1][j])){res.push(['added',b[j]]);j++;}else{res.push(['removed',a[i]]);i++;}}
+  while(i<m||j<n){if(i<m&&j<n&&ka[i]===kb[j]){res.push(['equal',a[i]]);i++;j++;}else if(j<n&&(i>=m||dp[i][j+1]>=dp[i+1][j])){res.push(['added',b[j]]);j++;}else{res.push(['removed',a[i]]);i++;}}
   return res;
 }
 
@@ -104,8 +130,13 @@ function computeDiff(a,b) {
 // --- AUTO-GENERATED ESM EXPORTS ---
 window.diffCompare = diffCompare;
 window.computeDiff = computeDiff;
+window.diffStats = diffStats;
+window.diffNormalizeLine = diffNormalizeLine;
 
 export function init() {
+  const ignoreWs = document.getElementById('diff-ignore-ws');
+  if (ignoreWs) ignoreWs.addEventListener('change', diffCompare);
+
   const outA = document.getElementById('diff-out-a');
   const outB = document.getElementById('diff-out-b');
   if (outA && outB) {
