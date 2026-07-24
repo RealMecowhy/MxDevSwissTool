@@ -44,6 +44,58 @@ function parseMarkdown(md){
 }
 
 // ============================================================
+// MENDIX SNIPPET LIBRARY (11.5) — common documentation patterns
+// ============================================================
+const MD_SNIPPETS = {
+  'entity': {
+    label: 'Entity description',
+    md: '## Entity: EntityName\n\n**Module:** ModuleName  \n**Purpose:** what this entity represents.\n\n' +
+      '| Attribute | Type | Description |\n|---|---|---|\n| Name | String | ... |\n| Status | Enumeration | ... |\n\n' +
+      '**Associations:**\n- 1 - * EntityName_OtherEntity — description of the relationship\n\n' +
+      '**Access rules:** which user roles can read/write this entity, and why.\n'
+  },
+  'microflow': {
+    label: 'Microflow documentation',
+    md: '## MF_Name\n\n**Module:** ModuleName  \n**Trigger:** called from / scheduled event / on-click of...\n\n' +
+      '**Parameters:**\n| Name | Type | Description |\n|---|---|---|\n\n' +
+      '**Steps:**\n1. ...\n2. ...\n\n**Error handling:** what happens on failure, which errors are caught.\n\n' +
+      '**Returns:** the object/value the microflow returns.\n'
+  },
+  'release-notes': {
+    label: 'Release notes',
+    md: '## vX.Y.Z — YYYY-MM-DD\n\n### Added\n- ...\n\n### Changed\n- ...\n\n### Fixed\n- ...\n\n### Known issues\n- ...\n'
+  }
+};
+
+// Pure: how a snippet gets spliced into existing text — a blank line is added
+// before it only when the caret isn't already at the start of a blank line,
+// so inserting into an empty editor or right after an existing blank line
+// never produces the doubled blank lines a blind "\n\n" prefix would.
+function mdSnippetInsertText(before, snippetMd) {
+  if (before.length === 0 || before.endsWith('\n\n')) return snippetMd;
+  if (before.endsWith('\n')) return '\n' + snippetMd;
+  return '\n\n' + snippetMd;
+}
+
+// Inserts a Mendix documentation snippet at the caret (or at the end, if the
+// textarea has no selection) and re-renders the preview.
+function mdInsertSnippet(key) {
+  const snippet = MD_SNIPPETS[key];
+  if (!snippet) return;
+  const ta = document.getElementById('md-input');
+  if (!ta) return;
+  const start = typeof ta.selectionStart === 'number' ? ta.selectionStart : ta.value.length;
+  const end = typeof ta.selectionEnd === 'number' ? ta.selectionEnd : ta.value.length;
+  const before = ta.value.slice(0, start);
+  const insertText = mdSnippetInsertText(before, snippet.md);
+  ta.value = before + insertText + ta.value.slice(end);
+  const caret = (before + insertText).length;
+  ta.focus();
+  ta.setSelectionRange(caret, caret);
+  mdRender();
+}
+
+// ============================================================
 // MARKDOWN TABLE GENERATOR
 // ============================================================
 let mdTableData = [
@@ -377,6 +429,9 @@ window.mdRender = mdRender;
 window.mdHandleDrop = mdHandleDrop;
 window.mdExport = mdExport;
 window.parseMarkdown = parseMarkdown;
+window.MD_SNIPPETS = MD_SNIPPETS;
+window.mdSnippetInsertText = mdSnippetInsertText;
+window.mdInsertSnippet = mdInsertSnippet;
 window.mdSetTab = mdSetTab;
 window.mdTableAddRow = mdTableAddRow;
 window.mdTableAddCol = mdTableAddCol;

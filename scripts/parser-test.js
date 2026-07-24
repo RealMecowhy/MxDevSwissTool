@@ -1578,6 +1578,29 @@ eq('xlsx: a negative serial has no date', global.xlsSerialToIso(-5, false), null
 eq('xlsx: near-integer serials snap to the second',
   global.xlsSerialToIso(45352.749999997, false), '2024-03-01T18:00:00');
 
+// ── ISO → Serial (inverse), column type override (11.4) ───────────────────
+eq('xlsx: ISO → serial round-trips a whole date', global.xlsIsoToSerial(global.xlsSerialToIso(45352, false), false), 45352);
+eq('xlsx: ISO → serial round-trips a date+time', global.xlsIsoToSerial(global.xlsSerialToIso(45353.5, false), false), 45353.5);
+eq('xlsx: a bare time of day round-trips', global.xlsIsoToSerial('12:00:00', false), 0.5);
+eq('xlsx: an unparseable string has no serial', global.xlsIsoToSerial('not a date', false), null);
+
+eq('xlsx coerce: empty stays empty regardless of target type', global.xlsCoerceCell('', 'number', false), '');
+eq('xlsx coerce: null stays null', global.xlsCoerceCell(null, 'date', false), null);
+eq('xlsx coerce: number → string', global.xlsCoerceCell(42, 'string', false), '42');
+eq('xlsx coerce: numeric text → number', global.xlsCoerceCell('42', 'number', false), 42);
+eq('xlsx coerce: a serial number reinterpreted as a date', global.xlsCoerceCell(45352, 'date', false), '2024-03-01');
+eq('xlsx coerce: an auto-detected ISO date reinterpreted back as a number is its serial', global.xlsCoerceCell('2024-03-01', 'number', false), 45352);
+eq('xlsx coerce: non-numeric text asked for "number" is left as-is, not zeroed', global.xlsCoerceCell('N/A', 'number', false), 'N/A');
+
+const xlsOverrideRows = [['Name', 'Value'], ['A', 45352], ['B', 45353]];
+const xlsOverridden = global.xlsOverriddenSheetRows(xlsOverrideRows, true, { 1: 'date' }, false);
+eq('xlsx override: the header row is untouched in object/CSV mode', xlsOverridden[0][1], 'Value');
+eq('xlsx override: data rows are coerced per the override', xlsOverridden[1][1], '2024-03-01');
+eq('xlsx override: no overrides set returns the original rows unchanged', global.xlsOverriddenSheetRows(xlsOverrideRows, true, {}, false), xlsOverrideRows);
+const xlsArrayModeRows = [['A', 45352], ['B', 45353]];
+const xlsOverriddenArrays = global.xlsOverriddenSheetRows(xlsArrayModeRows, false, { 1: 'date' }, false);
+eq('xlsx override: in array mode (no header concept) row 0 is coerced too', xlsOverriddenArrays[0][1], '2024-03-01');
+
 // ── Workbook / rels / shared strings / styles ───────────────────────────────
 const wbXml = '<workbook><workbookPr date1904="1"/><sheets>' +
   '<sheet name="Orders &amp; Lines" sheetId="1" r:id="rId3"/>' +
@@ -2280,6 +2303,16 @@ ok('output xml: special chars escaped', /Bob &quot;B&quot;|Bob "B"/.test(oXml));
 ok('output xml: a null field is an absent node', oXml.indexOf('<Note></Note>') === -1);
 ok('output xml: dispatcher routes by format', global.dfoSerialize('json', oCols, oRows) === global.dfoJson(oCols, oRows));
 
+// ── Mendix REST import payload (11.6) ──
+var oRest = JSON.parse(global.dfoMendixRest(oCols, oRows, { entityType: 'MyFirstModule.Customer' }));
+eq('output mendix-rest: one object per row', oRest.length, 2);
+eq('output mendix-rest: every object carries $entityType', oRest[0]['$entityType'], 'MyFirstModule.Customer');
+eq('output mendix-rest: attribute fields sit alongside $entityType', oRest[0].Name, 'Jane, Ann');
+eq('output mendix-rest: null values are preserved, not dropped', oRest[1].Note, null);
+ok('output mendix-rest: $entityType is always the first key (visible at a glance)', Object.keys(oRest[0])[0] === '$entityType');
+eq('output mendix-rest: no entityType supplied uses a visible placeholder, never a guess', JSON.parse(global.dfoMendixRest(oCols, oRows, {}))[0]['$entityType'], 'Module.Entity');
+ok('output mendix-rest: dispatcher routes to it too', global.dfoSerialize('mendix-rest', oCols, oRows, { entityType: 'X.Y' }) === global.dfoMendixRest(oCols, oRows, { entityType: 'X.Y' }));
+
 // =========================================================================
 // SQL / OQL FORMATTING ENGINE
 // =========================================================================
@@ -2634,6 +2667,69 @@ ok('perf-lab colors: dark and light themes produce different grid colors (bug: w
 ok('perf-lab colors: dark and light themes produce different title colors (bug: was a hardcoded #fff for both, invisible on light)', darkColors.titleColor !== lightColors.titleColor);
 eq('perf-lab colors: light-theme title is dark text (readable on a light background)', lightColors.titleColor, '#1a1a1a');
 eq('perf-lab colors: dark-theme title is light text (readable on a dark background)', darkColors.titleColor, '#ffffff');
+
+// =========================================================================
+// JSON FORMATTER — path breadcrumb + Find in JSON (11.1)
+// =========================================================================
+console.log('\nJSON Formatter');
+require('../public/js/tools/json.js');
+
+eq('json path: bare identifier key uses dot form', global.jsonPathSegment('$.orders[0]', 'customer'), '$.orders[0].customer');
+eq('json path: non-identifier key falls back to bracket form', global.jsonPathSegment('$', 'first name'), '$["first name"]');
+eq('json path: a quote in the key is escaped', global.jsonPathSegment('$', 'a"b'), '$["a\\"b"]');
+
+const jsonSample = { orders: [ { id: 1, customer: { name: 'Jane Doe', email: 'jane@example.com' } }, { id: 2, customer: { name: 'Bob' } } ], count: 2 };
+ok('json find: matches a nested string value and reports its full path', global.jsonFindMatches(jsonSample, 'jane').includes('$.orders[0].customer.name'));
+ok('json find: matches a key name too, not just values', global.jsonFindMatches(jsonSample, 'email').includes('$.orders[0].customer.email'));
+ok('json find: matches a number leaf by its string form', global.jsonFindMatches(jsonSample, '2').some(function (p) { return p === '$.count' || p === '$.orders[1].id'; }));
+eq('json find: case-insensitive', global.jsonFindMatches(jsonSample, 'JANE').length, global.jsonFindMatches(jsonSample, 'jane').length);
+eq('json find: empty query matches nothing', global.jsonFindMatches(jsonSample, '').length, 0);
+eq('json find: no match returns an empty array, not a thrown error', global.jsonFindMatches(jsonSample, 'zzzznotfound').length, 0);
+
+// =========================================================================
+// XML FORMATTER — namespace-prefix display toggle (11.2)
+// =========================================================================
+console.log('\nXML Formatter');
+require('../public/js/tools/xml.js');
+
+eq('xml ns display: shown as-is by default', global.xmlDisplayName('soap:Envelope'), 'soap:Envelope');
+eq('xml ns display: prefix stripped when hidden', global.xmlDisplayName('soap:Envelope', true), 'Envelope');
+eq('xml ns display: name without a prefix is unaffected', global.xmlDisplayName('Envelope', true), 'Envelope');
+eq('xml ns display: explicit hide=false shows the prefix even if the module default were flipped', global.xmlDisplayName('soap:Envelope', false), 'soap:Envelope');
+// (Native document.evaluate()/DOMParser XPath behavior is browser-only — verified via Puppeteer, not here.)
+
+// =========================================================================
+// CHARACTER SANITIZER — "Clean" change summary + "Why this matters" (11.3)
+// =========================================================================
+console.log('\nCharacter Sanitizer');
+require('../public/js/tools/char-sanitizer.js');
+
+eq('sanitizer summary: zero changes says so explicitly, not silence', global.csFormatCleanSummary({ mojibake: 0, invisibleControl: 0, xml: 0, nbsp: 0 }), 'No changes — nothing to clean for the selected options.');
+eq('sanitizer summary: singular wording for a count of 1', global.csFormatCleanSummary({ mojibake: 1, invisibleControl: 0, xml: 0, nbsp: 0 }), '1 character changed: 1 mojibake character repaired.');
+ok('sanitizer summary: plural wording for counts > 1', /2 mojibake characters repaired/.test(global.csFormatCleanSummary({ mojibake: 2, invisibleControl: 0, xml: 0, nbsp: 0 })));
+const csMultiSummary = global.csFormatCleanSummary({ mojibake: 1, invisibleControl: 2, xml: 3, nbsp: 4 });
+ok('sanitizer summary: multiple categories are all listed', /10 characters changed/.test(csMultiSummary) && /mojibake/.test(csMultiSummary) && /hidden\/control/.test(csMultiSummary) && /invalid XML/.test(csMultiSummary) && /NBSP/.test(csMultiSummary), csMultiSummary);
+
+// Every category the analyzer can actually emit has a "why this matters" tooltip —
+// otherwise the Statistics table silently drops the explanation for that row.
+const csCategoriesEmitted = ['invisible', 'control', 'xml-invalid', 'mojibake', 'non-ascii'];
+csCategoriesEmitted.forEach(function (c) {
+  ok('sanitizer why-matters: "' + c + '" has a non-empty tooltip', typeof global.CS_WHY_MATTERS[c] === 'string' && global.CS_WHY_MATTERS[c].length > 20);
+});
+
+// =========================================================================
+// MARKDOWN — Mendix snippet library (11.5; "Copy as HTML" already existed)
+// =========================================================================
+console.log('\nMarkdown');
+require('../public/js/tools/markdown.js');
+
+['entity', 'microflow', 'release-notes'].forEach(function (key) {
+  ok('markdown snippet: "' + key + '" is registered with non-empty markdown', typeof global.MD_SNIPPETS[key] === 'object' && global.MD_SNIPPETS[key].md.length > 10);
+});
+eq('markdown snippet insert: empty editor gets no leading blank line', global.mdSnippetInsertText('', '## X\n'), '## X\n');
+eq('markdown snippet insert: caret right after a blank line gets no extra blank line', global.mdSnippetInsertText('Some text\n\n', '## X\n'), '## X\n');
+eq('markdown snippet insert: caret at end of a single newline gets one more, not two', global.mdSnippetInsertText('Some text\n', '## X\n'), '\n## X\n');
+eq('markdown snippet insert: caret mid-paragraph gets a full blank-line separator', global.mdSnippetInsertText('Some text', '## X\n'), '\n\n## X\n');
 
 // ── Summary ─────────────────────────────────────────────────────────────────
 runXlsxAsyncTests().then(runApiEconAsyncTests).then(function () {

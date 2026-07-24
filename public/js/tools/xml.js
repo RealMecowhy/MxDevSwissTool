@@ -1,10 +1,28 @@
 ﻿// XML FORMATTER
 // ============================================================
+let xmlLastDoc = null;
+let xmlNodeIdMap = new WeakMap();
+let xmlIdCounter = 0;
+let xmlHideNamespaces = false;
+let xmlXPathResults = [];
+let xmlXPathIndex = -1;
+
+function xmlResetInteractiveState() {
+  xmlLastDoc = null;
+  xmlNodeIdMap = new WeakMap();
+  xmlIdCounter = 0;
+  xmlXPathResults = [];
+  xmlXPathIndex = -1;
+  const countEl = document.getElementById('xml-xpath-count');
+  if (countEl) countEl.textContent = '';
+}
+
 function xmlFormat() {
   const raw = document.getElementById('xml-input').value.trim();
   if (!raw) {
     document.getElementById('xml-tree-output').innerHTML = '<span style="color:var(--text-muted)">Output will appear here...</span>';
     document.getElementById('xml-status').innerHTML = '';
+    xmlResetInteractiveState();
     return;
   }
   try {
@@ -19,11 +37,17 @@ function xmlFormat() {
       if (c.nodeType === 3 && !c.nodeValue.trim()) return false;
       return true;
     });
+    xmlLastDoc = xmlDoc;
+    xmlNodeIdMap = new WeakMap();
+    xmlIdCounter = 0;
     document.getElementById('xml-tree-output').innerHTML = roots.map(r => renderXmlTree(r, 0)).join('\n');
     addXmlToggleListeners();
+    const xpathInput = document.getElementById('xml-xpath-input');
+    if (xpathInput && xpathInput.value.trim()) xmlXPathEval();
   } catch(e) {
     document.getElementById('xml-status').innerHTML = '<span class="badge badge-error">&#10007; Invalid</span>';
     document.getElementById('xml-tree-output').innerHTML = '<div class="jt-error">Parse error: ' + escHtml(e.message) + '</div>';
+    xmlResetInteractiveState();
   }
 }
 
@@ -87,20 +111,23 @@ function renderXmlTree(node, depth) {
     return '<span class="xml-cdata">' + brO + '?' + escHtml(node.nodeName + ' ' + node.nodeValue) + '?' + brC + '</span>';
   }
   if (node.nodeType === 1) {
-    const name = node.nodeName;
+    const xid = 'xid' + (xmlIdCounter++);
+    xmlNodeIdMap.set(node, xid);
+    const name = xmlDisplayName(node.nodeName);
     let attrs = '';
     for (let j = 0; j < node.attributes.length; j++) {
       const attr = node.attributes[j];
-      attrs += ' <span class="xml-attr-name">' + escHtml(attr.name) + '</span>=<span class="xml-attr-val">"' + escHtml(attr.value) + '"</span>';
+      if (xmlHideNamespaces && (attr.name === 'xmlns' || attr.name.indexOf('xmlns:') === 0)) continue;
+      attrs += ' <span class="xml-attr-name">' + escHtml(xmlDisplayName(attr.name)) + '</span>=<span class="xml-attr-val">"' + escHtml(attr.value) + '"</span>';
     }
     const children = Array.from(node.childNodes).filter(c => {
       if (c.nodeType === 3 && !c.nodeValue.trim()) return false;
       return true;
     });
+    let inner;
     if (children.length === 0) {
-      return brO + '<span class="xml-tag">' + name + '</span>' + attrs + ' ' + brS;
-    }
-    if (children.length === 1 && children[0].nodeType === 3) {
+      inner = brO + '<span class="xml-tag">' + name + '</span>' + attrs + ' ' + brS;
+    } else if (children.length === 1 && children[0].nodeType === 3) {
       const text = children[0].nodeValue.trim();
       let textHtml = '';
       if (text) {
@@ -109,18 +136,26 @@ function renderXmlTree(node, depth) {
         else if (l === 'true' || l === 'false') textHtml = '<span class="jt-bool">' + escHtml(text) + '</span>';
         else textHtml = '<span class="jt-str">' + escHtml(text) + '</span>';
       }
-      return brO + '<span class="xml-tag">' + name + '</span>' + attrs + brC + textHtml + brE + '<span class="xml-tag">' + name + '</span>' + brC;
+      inner = brO + '<span class="xml-tag">' + name + '</span>' + attrs + brC + textHtml + brE + '<span class="xml-tag">' + name + '</span>' + brC;
+    } else {
+      const id = 'xmln' + Math.random().toString(36).slice(2);
+      const openingTag = brO + '<span class="xml-tag">' + name + '</span>' + attrs + brC;
+      const closingTag = brE + '<span class="xml-tag">' + name + '</span>' + brC;
+      inner = '<span class="jt-collapse" data-target="' + id + '">▼</span>' + openingTag +
+        '<span id="' + id + '-placeholder" class="jt-placeholder" style="display:none">... ' + closingTag + '</span>' +
+        '<span id="' + id + '" class="jt-children">\n' +
+        children.map(c => ni + renderXmlTree(c, depth + 1)).filter(s => s.trim() !== '').join('\n') +
+        '\n' + i + closingTag + '</span>';
     }
-    const id = 'xmln' + Math.random().toString(36).slice(2);
-    const openingTag = brO + '<span class="xml-tag">' + name + '</span>' + attrs + brC;
-    const closingTag = brE + '<span class="xml-tag">' + name + '</span>' + brC;
-    return '<span class="jt-collapse" data-target="' + id + '">▼</span>' + openingTag +
-      '<span id="' + id + '-placeholder" class="jt-placeholder" style="display:none">... ' + closingTag + '</span>' +
-      '<span id="' + id + '" class="jt-children">\n' +
-      children.map(c => ni + renderXmlTree(c, depth + 1)).filter(s => s.trim() !== '').join('\n') +
-      '\n' + i + closingTag + '</span>';
+    return '<span class="xml-node" data-xid="' + xid + '">' + inner + '</span>';
   }
   return '';
+}
+function xmlDisplayName(name, hide) {
+  const h = hide === undefined ? xmlHideNamespaces : hide;
+  if (!h) return name;
+  const idx = name.indexOf(':');
+  return idx === -1 ? name : name.slice(idx + 1);
 }
 
 function serializeXmlPretty(node, depth) {
@@ -171,6 +206,69 @@ function addXmlToggleListeners() {
       }
     };
   });
+}
+
+// --- XPath evaluator (11.2): native document.evaluate, zero dependencies ---
+function xmlExpandAncestors(el) {
+  let node = el.parentElement;
+  while (node && node.id !== 'xml-tree-output') {
+    if (node.classList && node.classList.contains('jt-children') && node.style.display === 'none') {
+      node.style.display = '';
+      const p = document.getElementById(node.id + '-placeholder');
+      if (p) p.style.display = 'none';
+      const toggle = document.querySelector('.jt-collapse[data-target="' + node.id + '"]');
+      if (toggle) toggle.textContent = '▼';
+    }
+    node = node.parentElement;
+  }
+}
+function xmlXPathEval() {
+  const input = document.getElementById('xml-xpath-input');
+  const q = input ? input.value.trim() : '';
+  document.querySelectorAll('#xml-tree-output .jt-find-match').forEach(el => el.classList.remove('jt-find-match', 'jt-find-current'));
+  xmlXPathResults = [];
+  xmlXPathIndex = -1;
+  const countEl = document.getElementById('xml-xpath-count');
+  if (!q || !xmlLastDoc) { if (countEl) countEl.textContent = ''; return; }
+  let result;
+  try {
+    result = xmlLastDoc.evaluate(q, xmlLastDoc, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+  } catch(e) {
+    if (countEl) countEl.textContent = 'Invalid XPath';
+    return;
+  }
+  const nodes = [];
+  for (let i = 0; i < result.snapshotLength; i++) nodes.push(result.snapshotItem(i));
+  // Only element nodes are rendered as their own tree node (data-xid) — attribute/text
+  // matches are real matches too, just not individually highlightable in this tree view.
+  xmlXPathResults = nodes.map(n => xmlNodeIdMap.get(n)).filter(id => id !== undefined);
+  if (!xmlXPathResults.length) {
+    if (countEl) countEl.textContent = nodes.length ? (nodes.length + ' match(es), not shown (not element nodes)') : 'No matches';
+    return;
+  }
+  xmlXPathResults.forEach(xid => {
+    const el = document.querySelector('#xml-tree-output .xml-node[data-xid="' + xid + '"]');
+    if (el) el.classList.add('jt-find-match');
+  });
+  xmlXPathNav(1);
+}
+function xmlXPathNav(delta) {
+  if (!xmlXPathResults.length) return;
+  if (xmlXPathIndex >= 0) {
+    const prevEl = document.querySelector('#xml-tree-output .xml-node[data-xid="' + xmlXPathResults[xmlXPathIndex] + '"]');
+    if (prevEl) prevEl.classList.remove('jt-find-current');
+  }
+  xmlXPathIndex = (xmlXPathIndex + delta + xmlXPathResults.length) % xmlXPathResults.length;
+  const el = document.querySelector('#xml-tree-output .xml-node[data-xid="' + xmlXPathResults[xmlXPathIndex] + '"]');
+  if (el) { el.classList.add('jt-find-current'); xmlExpandAncestors(el); el.scrollIntoView({block:'center'}); }
+  const countEl = document.getElementById('xml-xpath-count');
+  if (countEl) countEl.textContent = (xmlXPathIndex + 1) + '/' + xmlXPathResults.length;
+}
+// --- Namespace prefix toggle (11.2) ---
+function xmlToggleNamespaces() {
+  const cb = document.getElementById('xml-hide-ns');
+  xmlHideNamespaces = !!(cb && cb.checked);
+  xmlFormat();
 }
 
 function xmlCopyOutput() {
@@ -227,5 +325,9 @@ window.addXmlToggleListeners = addXmlToggleListeners;
 window.xmlCopyOutput = xmlCopyOutput;
 window.xmlExpandAll = xmlExpandAll;
 window.xmlCollapseAll = xmlCollapseAll;
+window.xmlXPathEval = xmlXPathEval;
+window.xmlXPathNav = xmlXPathNav;
+window.xmlToggleNamespaces = xmlToggleNamespaces;
+window.xmlDisplayName = xmlDisplayName;
 
 export function init() {}

@@ -42,6 +42,7 @@ const dfw = {
   colsByEntity: {},         // entityKey -> [col]; SINGLE_KEY for manual/single
   order: [],                // entity keys in review/emit order (topo for multi)
   tableName: '',            // single mode: physical table for SQL
+  entityType: '',           // single mode: full "Module.Entity" for the Mendix REST format
   sel: {},                  // multi: entityName -> { count }
   assoc: {},                // multi: assocIndex -> { mode, skew, orphanPct, useExisting }
   detail: null,             // cached /livedb/seed-schema contract
@@ -204,6 +205,7 @@ DFW.dfwSetMode = function (mode) {
     dfw.sel = {};
     dfw.assoc = {};
     dfw.tableName = '';
+    dfw.entityType = '';
     dfw.detail = null;
     dfw.maxReachable = 2;
     // Manual mode can proceed with a default schema and needs no load.
@@ -413,6 +415,7 @@ DFW.dfwPickEntity = async function (index) {
     if (detail.error) { hideLoader(); alert(detail.message || 'Could not read the schema.'); return; }
     dfw.detail = detail;
     dfw.tableName = e.table;
+    dfw.entityType = e.name || '';
     dfw.colsByEntity[SINGLE_KEY] = dfwColsFromEntity(e, detail);
     dfw.order = [SINGLE_KEY];
     hideLoader();
@@ -816,7 +819,8 @@ const DFW_FORMATS = {
     { id: 'csv', name: 'CSV', desc: 'flat file' },
     { id: 'json', name: 'JSON', desc: 'array of rows' },
     { id: 'xml', name: 'XML', desc: 'records' },
-    { id: 'sql', name: 'SQL', desc: 'INSERT script' }
+    { id: 'sql', name: 'SQL', desc: 'INSERT script' },
+    { id: 'mendix-rest', name: 'Mendix REST', desc: '$entityType payload' }
   ],
   multi: [
     { id: 'sql', name: 'SQL', desc: 'linked INSERTs' }
@@ -838,10 +842,16 @@ function dfwRenderStep4() {
   const cntCtl = dfw.mode === 'multi' ? '' :
     '<label class="dfw-mini2">Rows <input type="number" class="input input-sm" style="width:100px" value="' + dfw.count + '" onchange="dfwSetCountFlat(this.value)"></label>';
 
+  const entityTypeCtl = dfw.format === 'mendix-rest'
+    ? dfwNote('<strong>$entityType</strong> — the fully qualified entity every object in the payload will be created as.' +
+        '<div style="margin-top:var(--sp-2)"><input class="input input-sm" style="width:280px" placeholder="Module.Entity" value="' +
+        dfwAttr(dfw.entityType) + '" oninput="dfwSetEntityType(this.value)"></div>', dfw.entityType ? 'info' : 'warn')
+    : '';
+
   dfwEl('dfw-panel').innerHTML =
     '<div class="dfw-head"><h2 class="dfw-title">Output</h2><p class="dfw-sub">' + sub + '</p></div>' +
     '<div class="dfw-fmt-grid">' + grid + '</div>' +
-    '<div id="dfw-sqlnote">' + (dfw.format === 'sql' ? dfwSqlNote() : '') + '</div>' +
+    '<div id="dfw-sqlnote">' + (dfw.format === 'sql' ? dfwSqlNote() : '') + entityTypeCtl + '</div>' +
     '<div class="dfw-subhead" style="margin-top:var(--sp-3)">Preview</div>' +
     '<pre class="dfw-preview" id="dfw-preview"></pre>' +
     '<div style="margin-top:var(--sp-3);display:flex;gap:var(--sp-3);align-items:center;flex-wrap:wrap">' +
@@ -862,6 +872,7 @@ DFW.dfwSetFormat = function (f) {
   dfwRenderStep4();
 };
 DFW.dfwSetCountFlat = function (v) { dfw.count = Math.max(1, parseInt(v, 10) || 1); dfwPreview(); };
+DFW.dfwSetEntityType = function (v) { dfw.entityType = v; dfwPreview(); };
 DFW.dfwSetRepro = function (checked) { dfw.repro = !!checked; dfwRenderStep4(); };
 DFW.dfwSetSeed = function (v) { dfw.seed = parseInt(v, 10) || 1; };
 
@@ -891,7 +902,7 @@ function dfwPreview() {
   const rows = [];
   const n = Math.min(3, dfw.count);
   for (let r = 0; r < n; r++) rows.push(cols.map(function (c) { return dfwRawValue(c, r, rng); }));
-  el.textContent = DFW.dfoSerialize(dfw.format, names, rows, { root: 'Data', record: 'Record' });
+  el.textContent = DFW.dfoSerialize(dfw.format, names, rows, { root: 'Data', record: 'Record', entityType: dfw.entityType });
 }
 
 // =========================================================================
@@ -919,9 +930,10 @@ async function dfwGenerateFlat(btn) {
       showLoader('Generating… ' + Math.round((end / count) * 100) + '%');
       await new Promise(function (res) { setTimeout(res, 0); });
     }
-    const text = DFW.dfoSerialize(dfw.format, names, rows, { root: 'Data', record: 'Record' });
+    const text = DFW.dfoSerialize(dfw.format, names, rows, { root: 'Data', record: 'Record', entityType: dfw.entityType });
     hideLoader();
-    downloadText(text, 'mock-data.' + dfw.format);
+    const ext = dfw.format === 'mendix-rest' ? 'json' : dfw.format;
+    downloadText(text, 'mock-data.' + ext);
   } catch (e) {
     hideLoader(); alert('Generation failed: ' + e.message);
   } finally { btn.disabled = false; btn.innerHTML = old; }
@@ -1203,7 +1215,7 @@ function dfwSystemValue(meta, rng, rowIndex) {
 DFW.dfwReset = function () {
   dfw.model = null; dfw.module = ''; dfw.filter = '';
   dfw.sel = {}; dfw.assoc = {}; dfw.detail = null;
-  if (dfw.mode !== 'manual') { dfw.colsByEntity = {}; dfw.order = []; dfw.tableName = ''; }
+  if (dfw.mode !== 'manual') { dfw.colsByEntity = {}; dfw.order = []; dfw.tableName = ''; dfw.entityType = ''; }
   if (dfw.step === 2) dfwRenderStep2();
 };
 

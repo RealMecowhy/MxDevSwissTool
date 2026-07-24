@@ -45,6 +45,17 @@ const CS_CTRL_NAMES = {
   31: 'US (Unit Separator)', 127: 'DEL (Delete)'
 };
 
+// Practical, category-level explanation of *why* a detected character is a problem —
+// shown as a tooltip in the Statistics table (audit: results were "technical", the
+// codepoint name alone doesn't say what actually breaks downstream).
+const CS_WHY_MATTERS = {
+  'invisible': 'Zero-width and invisible characters render as nothing but are still real characters — they can make exact-match comparisons (XPath/OQL "=" filters, deduplication keys, string equality checks) fail silently even though the text looks identical.',
+  'control': 'Control characters are non-printable bytes. They frequently break CSV/log parsers or get rejected outright when the text is later parsed as XML/JSON.',
+  'xml-invalid': 'This character is illegal in XML 1.0. Any XML parser — including the Mendix runtime — throws a hard parse error the moment this reaches it, often far from where the bad data actually originated.',
+  'mojibake': 'The text was encoded as UTF-8 but decoded using a single-byte codepage (commonly CP1250) somewhere upstream — a sign that encoding metadata was lost or ignored in the pipeline.',
+  'non-ascii': 'Flagged for visibility only — many non-ASCII characters (accented letters, e.g. Polish ą/ł) are perfectly valid data. Check case by case before assuming it is a problem.'
+};
+
 // Invisible Character Map
 const CS_INVISIBLE_MAP = {
   '\u200B': { name: 'Zero-width Space (ZWSP)', label: 'ZWSP' },
@@ -120,6 +131,8 @@ function sanitizeClearInput() {
   document.getElementById('char-sanitizer-stats-summary').textContent = 'Analyze some text to view statistics.';
   document.getElementById('char-sanitizer-stats-table').style.display = 'none';
   document.getElementById('char-sanitizer-output-text').value = '';
+  const summaryEl = document.getElementById('cs-clean-summary');
+  if (summaryEl) summaryEl.textContent = '';
   csAnalysisResult = null;
   csLocateCursor = {};
 }
@@ -473,10 +486,13 @@ function renderStatsTable() {
          </button>`
       : '';
 
+    const why = CS_WHY_MATTERS[category];
+    const whyIcon = why ? `<span class="cs-why-icon" title="${escHtml(why)}">&#9432;</span>` : '';
+
     html += `<tr style="border-bottom:1px solid var(--border)">
       <td style="padding:var(--sp-2);font-family:var(--font-mono);font-weight:bold">${charVisual}</td>
       <td style="padding:var(--sp-2);font-family:var(--font-mono);font-size:0.75rem">${hexCodes}</td>
-      <td style="padding:var(--sp-2)"><span class="badge" style="background:var(--bg-hover);color:var(--text-primary)">${category.toUpperCase()}</span></td>
+      <td style="padding:var(--sp-2)"><span class="badge" style="background:var(--bg-hover);color:var(--text-primary)">${category.toUpperCase()}</span>${whyIcon}</td>
       <td style="padding:var(--sp-2)">${escHtml(name)}</td>
       <td style="padding:var(--sp-2);text-align:right;font-weight:bold">${count}</td>
       <td style="padding:var(--sp-2)">${locationCell}</td>
@@ -490,10 +506,25 @@ function renderStatsTable() {
   });
 }
 
+// Pure: turns the per-category change counts from sanitizeOutput()'s cleaning pass
+// into a one-line human summary. Zero changes says so explicitly — never silence.
+function csFormatCleanSummary(counts) {
+  const total = counts.mojibake + counts.invisibleControl + counts.xml + counts.nbsp;
+  if (total === 0) return 'No changes — nothing to clean for the selected options.';
+  const parts = [];
+  if (counts.mojibake) parts.push(counts.mojibake + ' mojibake character' + (counts.mojibake === 1 ? '' : 's') + ' repaired');
+  if (counts.invisibleControl) parts.push(counts.invisibleControl + ' hidden/control character' + (counts.invisibleControl === 1 ? '' : 's') + ' removed');
+  if (counts.xml) parts.push(counts.xml + ' invalid XML token' + (counts.xml === 1 ? '' : 's') + ' stripped');
+  if (counts.nbsp) parts.push(counts.nbsp + ' NBSP' + (counts.nbsp === 1 ? '' : 's') + ' replaced with a normal space');
+  return total + ' character' + (total === 1 ? '' : 's') + ' changed: ' + parts.join(', ') + '.';
+}
+
 // Generate Sanitized Output
 function sanitizeOutput() {
+  const summaryEl = document.getElementById('cs-clean-summary');
   if (!csAnalysisResult) {
     document.getElementById('char-sanitizer-output-text').value = '';
+    if (summaryEl) summaryEl.textContent = '';
     return;
   }
 
@@ -503,6 +534,7 @@ function sanitizeOutput() {
   const cleanNbsp = document.getElementById('cs-clean-nbsp').checked;
 
   let text = csAnalysisResult.raw;
+  const counts = { mojibake: 0, invisibleControl: 0, xml: 0, nbsp: 0 };
 
   // 1. Repair Mojibake (replace multi-character patterns first to avoid single character collisions)
   if (cleanMojibake) {
@@ -510,6 +542,7 @@ function sanitizeOutput() {
     const sortedMojibakeKeys = Object.keys(CS_MOJIBAKE_MAP).sort((a, b) => b.length - a.length);
     for (const key of sortedMojibakeKeys) {
       if (text.includes(key)) {
+        counts.mojibake += text.split(key).length - 1;
         const replacement = CS_MOJIBAKE_MAP[key].rep;
         // Global replace
         text = text.split(key).join(replacement);
@@ -521,7 +554,9 @@ function sanitizeOutput() {
   if (cleanXml) {
     text = text.replace(/&#(x[0-9A-Fa-f]+|[0-9]+);/g, (m, num) => {
       const cp = (num[0] === 'x' || num[0] === 'X') ? parseInt(num.slice(1), 16) : parseInt(num, 10);
-      return csIsValidXmlCp(cp) ? m : '';
+      if (csIsValidXmlCp(cp)) return m;
+      counts.xml++;
+      return '';
     });
   }
 
@@ -538,16 +573,19 @@ function sanitizeOutput() {
     // Check NBSP replacement
     if (cleanNbsp && char === '\u00A0') {
       replacementChar = ' ';
+      counts.nbsp++;
     }
-    
+
     // Check general invisible characters (ZWSP, BOM, etc.)
     if (!replacementChar && cleanInvisible && CS_INVISIBLE_MAP[char] && char !== '\u00A0') {
       stripChar = true;
+      counts.invisibleControl++;
     }
 
     // Check Private Use Area / noncharacter codepoints (incl. astral planes)
     if (!replacementChar && !stripChar && cleanInvisible && csSuspiciousCpLabel(text.codePointAt(i))) {
       stripChar = true;
+      counts.invisibleControl++;
     }
 
     // Check invalid XML 1.0 tokens
@@ -571,6 +609,7 @@ function sanitizeOutput() {
 
       if (!isValidXml && !isSurrogate) {
         stripChar = true;
+        counts.xml++;
       }
     }
 
@@ -579,6 +618,7 @@ function sanitizeOutput() {
       const isControl = ((code >= 0 && code <= 31 && code !== 9 && code !== 10 && code !== 13) || (code >= 127 && code <= 159));
       if (isControl) {
         stripChar = true;
+        counts.invisibleControl++;
       }
     }
 
@@ -611,6 +651,7 @@ function sanitizeOutput() {
   }
 
   document.getElementById('char-sanitizer-output-text').value = cleanedText;
+  if (summaryEl) summaryEl.textContent = csFormatCleanSummary(counts);
 }
 
 // Copy Sanitized Output
@@ -648,6 +689,8 @@ window.sanitizeLoadSample = sanitizeLoadSample;
 window.sanitizeAnalyze = sanitizeAnalyze;
 window.renderStatsTable = renderStatsTable;
 window.sanitizeOutput = sanitizeOutput;
+window.csFormatCleanSummary = csFormatCleanSummary;
+window.CS_WHY_MATTERS = CS_WHY_MATTERS;
 window.sanitizeCopyOutput = sanitizeCopyOutput;
 window.sanitizeDownloadOutput = sanitizeDownloadOutput;
 

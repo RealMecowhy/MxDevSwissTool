@@ -73,14 +73,36 @@ function dfoXml(colNames, rows, opts) {
   return parts.join('\n');
 }
 
+// Mendix REST import payload: an array of objects, each carrying $entityType
+// so a consumed REST / import-mapping action on the Mendix side knows which
+// entity to create the object as. opts.entityType should be the fully
+// qualified "Module.Entity" name; when the caller doesn't have one (manual/DDL
+// sources have no Mendix model to read it from) a visible placeholder is used
+// instead of guessing — the field is not silently omitted, so a payload run
+// through Mendix REST would fail loudly and obviously rather than mysteriously.
+function dfoMendixRest(colNames, rows, opts) {
+  opts = opts || {};
+  const entityType = (opts.entityType && String(opts.entityType).trim()) || 'Module.Entity';
+  const arr = new Array(rows.length);
+  for (let r = 0; r < rows.length; r++) {
+    const obj = { '$entityType': entityType };
+    const row = rows[r];
+    for (let c = 0; c < colNames.length; c++) obj[colNames[c]] = row[c] === undefined ? null : row[c];
+    arr[r] = obj;
+  }
+  return JSON.stringify(arr, null, 2);
+}
+
 // Convenience dispatcher used by the wizard's single-table file output.
 function dfoSerialize(format, colNames, rows, opts) {
   if (format === 'json') return dfoJson(colNames, rows);
   if (format === 'xml') return dfoXml(colNames, rows, opts);
+  if (format === 'mendix-rest') return dfoMendixRest(colNames, rows, opts);
   return dfoCsv(colNames, rows);
 }
 
 DFO_GLOBAL.dfoCsv = dfoCsv;
 DFO_GLOBAL.dfoJson = dfoJson;
 DFO_GLOBAL.dfoXml = dfoXml;
+DFO_GLOBAL.dfoMendixRest = dfoMendixRest;
 DFO_GLOBAL.dfoSerialize = dfoSerialize;

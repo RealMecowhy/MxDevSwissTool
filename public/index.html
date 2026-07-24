@@ -87,7 +87,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.22.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.23.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -268,7 +268,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.22.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.23.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -1008,6 +1008,13 @@
         </div>
         <div class="json-pane">
           <div class="json-pane-header"><h4 id="json-out-label">Formatted Output</h4><span id="json-status"></span><button class="btn btn-ghost btn-sm" onclick="jsonCopyOutput()">Copy</button><button class="btn btn-ghost btn-sm" onclick="jsonExpandAll()">Expand</button><button class="btn btn-ghost btn-sm" onclick="jsonCollapseAll()">Collapse</button></div>
+          <div class="json-find-bar">
+            <input type="text" class="input" id="json-find-input" placeholder="Find in JSON (key or value)..." oninput="jsonFind()">
+            <span id="json-find-count" class="json-find-count"></span>
+            <button class="btn btn-ghost btn-sm" onclick="jsonFindNav(-1)" title="Previous match">&uarr;</button>
+            <button class="btn btn-ghost btn-sm" onclick="jsonFindNav(1)" title="Next match">&darr;</button>
+          </div>
+          <div id="json-breadcrumb" class="json-breadcrumb" style="display:none"></div>
           <div class="json-pane-body" id="json-output-pane"><div class="json-tree" id="json-tree-output" style="color:var(--text-muted)">Output will appear here...</div></div>
         </div>
       </div>
@@ -1035,6 +1042,13 @@
         </div>
         <div class="json-pane">
           <div class="json-pane-header"><h4 id="xml-out-label">Formatted Output</h4><span id="xml-status"></span><button class="btn btn-ghost btn-sm" onclick="xmlCopyOutput()">Copy</button><button class="btn btn-ghost btn-sm" onclick="xmlExpandAll()">Expand</button><button class="btn btn-ghost btn-sm" onclick="xmlCollapseAll()">Collapse</button></div>
+          <div class="json-find-bar">
+            <input type="text" class="input" id="xml-xpath-input" placeholder="XPath, e.g. //Customer[@id='1']" oninput="xmlXPathEval()">
+            <span id="xml-xpath-count" class="json-find-count"></span>
+            <button class="btn btn-ghost btn-sm" onclick="xmlXPathNav(-1)" title="Previous match">&uarr;</button>
+            <button class="btn btn-ghost btn-sm" onclick="xmlXPathNav(1)" title="Next match">&darr;</button>
+            <label class="json-find-ns-toggle"><input type="checkbox" id="xml-hide-ns" onchange="xmlToggleNamespaces()"> Hide namespaces</label>
+          </div>
           <div class="json-pane-body" id="xml-output-pane"><div class="json-tree" id="xml-tree-output" style="color:var(--text-muted)">Output will appear here...</div></div>
         </div>
       </div>
@@ -1146,6 +1160,7 @@
                   <input type="checkbox" id="cs-clean-nbsp" checked onchange="sanitizeOutput()"> Replace NBSP with normal space
                 </label>
               </div>
+              <div id="cs-clean-summary" class="notice notice-info" style="margin-bottom:0;font-size:0.78rem"></div>
               <textarea class="textarea" id="char-sanitizer-output-text" readonly style="flex:1;min-height:150px;font-family:var(--font-mono);font-size:0.78rem;" placeholder="Sanitized output will be displayed here..."></textarea>
               <div style="display:flex;gap:var(--sp-2);justify-content:flex-end">
                 <button class="btn btn-secondary" onclick="sanitizeCopyOutput()">Copy Cleansed</button>
@@ -2461,7 +2476,14 @@ EntityName -> OtherEntity : Association"></textarea>
         <div id="md-tab-editor" style="display:flex;flex-direction:column;flex:1;height:calc(100% - 40px)">
           <div id="md-split" style="display:grid;grid-template-columns:1fr 1fr;flex:1;overflow:hidden">
             <div class="json-pane" id="md-editor-pane">
-              <div class="json-pane-header"><h4>Markdown</h4><button class="btn btn-ghost btn-sm" onclick="document.getElementById('md-input').value='';mdRender()">Clear</button></div>
+              <div class="json-pane-header"><h4>Markdown</h4>
+                <select class="input input-sm" style="width:auto" onchange="if(this.value){mdInsertSnippet(this.value);this.value='';}">
+                  <option value="">Insert Mendix snippet...</option>
+                  <option value="entity">Entity description</option>
+                  <option value="microflow">Microflow documentation</option>
+                  <option value="release-notes">Release notes</option>
+                </select>
+                <button class="btn btn-ghost btn-sm" onclick="document.getElementById('md-input').value='';mdRender()">Clear</button></div>
               <div class="json-pane-body" style="position:relative;" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="mdHandleDrop(event)"><textarea class="json-input-area" id="md-input" placeholder="# Hello World&#10;&#10;Start writing markdown...&#10;&#10;(or drop a .md file here)" oninput="mdRender()"></textarea></div>
             </div>
             <div class="json-pane" id="md-preview-pane">

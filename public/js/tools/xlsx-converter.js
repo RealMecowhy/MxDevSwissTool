@@ -219,6 +219,70 @@ function xlsSerialToIso(serial, date1904) {
   return date + 'T' + time;
 }
 
+// Inverse of xlsSerialToIso: an ISO date/time string → Excel serial number.
+// Exact mathematical inverse for any real-world date (post-1900); the 1900
+// leap-year bug only bends the mapping for serials <= 60 (Jan/Feb 1900), which
+// no genuine Mendix export data will ever land on.
+function xlsIsoToSerial(iso, date1904) {
+  if (!iso) return null;
+  const timeOnly = /^(\d{2}):(\d{2}):(\d{2})$/.exec(iso);
+  if (timeOnly) return (Number(timeOnly[1]) * 3600 + Number(timeOnly[2]) * 60 + Number(timeOnly[3])) / 86400;
+  const isoFull = iso.indexOf('T') === -1 ? iso + 'T00:00:00Z' : (iso.charAt(iso.length - 1) === 'Z' ? iso : iso + 'Z');
+  const d = new Date(isoFull);
+  if (isNaN(d.getTime())) return null;
+  const epoch = date1904 ? Date.UTC(1904, 0, 1) : Date.UTC(1899, 11, 30);
+  // Snap to the nearest second (not the nearest whole day) — a datetime carries
+  // a fractional day (12:00:00 → .5) that rounding to an integer would erase.
+  const trueDays = Math.round((d.getTime() - epoch) / 1000) / 86400;
+  if (date1904) return trueDays;
+  return trueDays <= 60 ? trueDays - 1 : trueDays;
+}
+
+// Reinterprets one already-parsed cell value as a different logical type —
+// used only for an explicit user override of a column's auto-detected type.
+// Never invents a value: empty stays empty regardless of the target type.
+function xlsCoerceCell(v, targetType, date1904) {
+  if (v === undefined || v === null || v === '') return v;
+  if (targetType === 'string') return String(v);
+  if (targetType === 'number') {
+    if (typeof v === 'number') return v;
+    if (typeof v === 'string') {
+      if (/^\d{4}-\d{2}-\d{2}/.test(v) || /^\d{2}:\d{2}:\d{2}$/.test(v)) {
+        const serial = xlsIsoToSerial(v, date1904);
+        if (serial !== null) return serial;
+      }
+      const n = Number(v);
+      return isNaN(n) ? v : n;
+    }
+    return v;
+  }
+  if (targetType === 'date') {
+    if (typeof v === 'number') {
+      const iso = xlsSerialToIso(v, date1904);
+      return iso !== null ? iso : v;
+    }
+    return v; // already text — either already date-like, or not a serial we can reinterpret
+  }
+  return v;
+}
+
+// Applies { colIndex: 'string'|'number'|'date' } overrides to every row of a
+// grid. `objectMode` skips row 0 (the header row for object/CSV output).
+function xlsOverriddenSheetRows(rows, objectMode, overrides, date1904) {
+  rows = rows || [];
+  if (!overrides || !Object.keys(overrides).length) return rows;
+  const coerce = function (r) {
+    const out = r.slice();
+    Object.keys(overrides).forEach(function (ci) {
+      const idx = parseInt(ci, 10);
+      out[idx] = xlsCoerceCell(r[idx], overrides[ci], date1904);
+    });
+    return out;
+  };
+  if (!objectMode || !rows.length) return rows.map(coerce);
+  return [rows[0]].concat(rows.slice(1).map(coerce));
+}
+
 // ── Sheet ─────────────────────────────────────────────────────────────────
 
 // Parses one worksheet into a dense grid of JS values.
@@ -542,6 +606,9 @@ XLS_GLOBAL.xlsParseSharedStrings = xlsParseSharedStrings;
 XLS_GLOBAL.xlsParseStyles = xlsParseStyles;
 XLS_GLOBAL.xlsIsDateFormat = xlsIsDateFormat;
 XLS_GLOBAL.xlsSerialToIso = xlsSerialToIso;
+XLS_GLOBAL.xlsIsoToSerial = xlsIsoToSerial;
+XLS_GLOBAL.xlsCoerceCell = xlsCoerceCell;
+XLS_GLOBAL.xlsOverriddenSheetRows = xlsOverriddenSheetRows;
 XLS_GLOBAL.xlsParseSheet = xlsParseSheet;
 XLS_GLOBAL.xlsHeaderNames = xlsHeaderNames;
 XLS_GLOBAL.xlsRowsToJson = xlsRowsToJson;
@@ -556,8 +623,10 @@ XLS_GLOBAL.xlsReadWorkbook = xlsReadWorkbook;
 let xlsBook = null;        // last parsed workbook
 let xlsActiveSheet = 0;    // index into xlsBook.sheets
 let xlsRawBuffer = null;   // kept so toggling "dates as serial" can re-read
+let xlsColumnOverrides = {}; // { colIndex: 'string'|'number'|'date' } — active sheet only
 
 const XLS_PREVIEW_ROWS = 50;
+const XLS_TYPE_CYCLE = ['auto', 'string', 'number', 'date'];
 
 function xlsEsc(s) {
   return String(s === undefined || s === null ? '' : s)
@@ -574,6 +643,7 @@ function xlsReset() {
   xlsBook = null;
   xlsRawBuffer = null;
   xlsActiveSheet = 0;
+  xlsColumnOverrides = {};
   const empty = document.getElementById('xls-empty');
   const results = document.getElementById('xls-results');
   if (empty) empty.style.display = 'flex';
@@ -598,6 +668,7 @@ function xlsLoadFile(files) {
   }).then(function (book) {
     xlsBook = book;
     xlsActiveSheet = 0;
+    xlsColumnOverrides = {};
     // Land on the first sheet that actually has rows — opening on an empty
     // cover sheet reads as "the file failed to parse".
     for (let i = 0; i < book.sheets.length; i++) {
@@ -635,7 +706,18 @@ function xlsReparse() {
 
 function xlsSelectSheet(i) {
   xlsActiveSheet = i;
+  xlsColumnOverrides = {};
   xlsRender();
+}
+
+// Click-to-cycle a column's type override: auto → String → Number → Date → auto.
+function xlsCycleColumnType(colIndex) {
+  const cur = xlsColumnOverrides[colIndex] || 'auto';
+  const next = XLS_TYPE_CYCLE[(XLS_TYPE_CYCLE.indexOf(cur) + 1) % XLS_TYPE_CYCLE.length];
+  if (next === 'auto') delete xlsColumnOverrides[colIndex];
+  else xlsColumnOverrides[colIndex] = next;
+  xlsRenderPreview();
+  xlsRenderOutput();
 }
 
 function xlsRender() {
@@ -692,12 +774,18 @@ function xlsRenderPreview() {
   const width = xlsGridWidth(sheet.rows);
   const objectMode = xlsOpt('xls-format', 'json-objects') === 'json-objects';
   const names = objectMode ? xlsHeaderNames(sheet.rows[0], width) : null;
-  const dataRows = objectMode ? sheet.rows.slice(1) : sheet.rows;
+  const effectiveRows = xlsOverriddenSheetRows(sheet.rows, objectMode, xlsColumnOverrides, xlsBook.date1904);
+  const dataRows = objectMode ? effectiveRows.slice(1) : effectiveRows;
 
   head.innerHTML = '<tr>'
     + '<th style="width:48px;text-align:right;color:var(--text-muted)">#</th>'
     + (names || Array.from({ length: width }, function (_, i) { return xlsIndexToCol(i); }))
-        .map(function (n) { return '<th>' + xlsEsc(n) + '</th>'; }).join('')
+        .map(function (n, i) {
+          const override = xlsColumnOverrides[i];
+          const badge = override ? ' <span class="xls-type-badge">' + override + '</span>' : '';
+          return '<th class="xls-col-header" title="Click to override this column\'s type (currently: '
+            + (override || 'auto-detected') + ')" onclick="xlsCycleColumnType(' + i + ')">' + xlsEsc(n) + badge + '</th>';
+        }).join('')
     + '</tr>';
 
   const shown = dataRows.slice(0, XLS_PREVIEW_ROWS);
@@ -727,6 +815,12 @@ function xlsBuildOutput() {
   const format = xlsOpt('xls-format', 'json-objects');
   const scope = xlsOpt('xls-scope', 'sheet');
   const sheets = scope === 'all' ? xlsBook.sheets : [xlsBook.sheets[xlsActiveSheet]];
+  // Column overrides were set while looking at the active sheet's columns, so
+  // they apply only there — another sheet's same column index means something else.
+  const rowsOf = function (s, objectMode) {
+    const overrides = (s === xlsBook.sheets[xlsActiveSheet]) ? xlsColumnOverrides : null;
+    return xlsOverriddenSheetRows(s.rows, objectMode, overrides, xlsBook.date1904);
+  };
 
   if (format === 'csv') {
     const delimiter = xlsOpt('xls-delimiter', ',');
@@ -736,19 +830,20 @@ function xlsBuildOutput() {
     const files = sheets.filter(Boolean).map(function (s) {
       return {
         name: xlsSafeName(s.name) + '.csv',
-        text: xlsRowsToCsv(s.rows, { delimiter: delimiter === 'tab' ? '\t' : delimiter })
+        text: xlsRowsToCsv(rowsOf(s, true), { delimiter: delimiter === 'tab' ? '\t' : delimiter })
       };
     });
     return { files: files, ext: 'csv', mime: 'text/csv', text: files.length ? files[0].text : '' };
   }
 
   const mode = format === 'json-arrays' ? 'arrays' : 'objects';
+  const objectMode = mode === 'objects';
   let value;
   if (scope === 'all') {
     value = {};
-    xlsBook.sheets.forEach(function (s) { value[s.name] = xlsRowsToJson(s.rows, { mode: mode }); });
+    xlsBook.sheets.forEach(function (s) { value[s.name] = xlsRowsToJson(rowsOf(s, objectMode), { mode: mode }); });
   } else {
-    value = xlsRowsToJson(sheets[0] ? sheets[0].rows : [], { mode: mode });
+    value = xlsRowsToJson(sheets[0] ? rowsOf(sheets[0], objectMode) : [], { mode: mode });
   }
   return { text: JSON.stringify(value, null, 2), ext: 'json', mime: 'application/json' };
 }
@@ -839,6 +934,7 @@ if (typeof document !== 'undefined') {
   XLS_GLOBAL.xlsHandleDrop = xlsHandleDrop;
   XLS_GLOBAL.xlsReset = xlsReset;
   XLS_GLOBAL.xlsSelectSheet = xlsSelectSheet;
+  XLS_GLOBAL.xlsCycleColumnType = xlsCycleColumnType;
   XLS_GLOBAL.xlsRender = xlsRender;
   XLS_GLOBAL.xlsReparse = xlsReparse;
   XLS_GLOBAL.xlsDownload = xlsDownload;

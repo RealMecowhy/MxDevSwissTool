@@ -1686,6 +1686,60 @@ kbd {
 [data-theme="light"] .jt-null {
   color: #6e7781;
 }
+.json-find-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-3);
+  border-bottom: 1px solid var(--border);
+}
+.json-find-bar .input {
+  flex: 1;
+  min-width: 0;
+}
+.json-find-ns-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  margin-left: var(--sp-2);
+  cursor: pointer;
+}
+.json-find-count {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  min-width: 70px;
+  text-align: right;
+  white-space: nowrap;
+}
+.json-breadcrumb {
+  padding: var(--sp-1) var(--sp-3);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  background: var(--bg-overlay);
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.jt-find-match {
+  background: #ffeb0040;
+  border-radius: 2px;
+}
+.jt-find-current {
+  background: #f0e050;
+  color: #1a1a1a;
+  border-radius: 2px;
+}
+[data-theme="light"] .jt-find-match {
+  background: #ffc40059;
+}
+[data-theme="light"] .jt-find-current {
+  background: #ffc400;
+  color: #1a1a1a;
+}
 .xml-tag {
   color: #7ee787;
 }
@@ -2681,6 +2735,12 @@ kbd {
 .char-highlight[data-tooltip]:hover:after {
   opacity: 1;
 }
+.cs-why-icon {
+  margin-left: 4px;
+  cursor: help;
+  color: var(--text-muted);
+  font-size: 0.85em;
+}
 .char-preview-container {
   font-family: var(--font-mono);
   white-space: pre-wrap;
@@ -3377,6 +3437,26 @@ kbd {
   border: 1px solid var(--border);
   border-radius: 999px;
   padding: 0 6px;
+}
+.xls-col-header {
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.xls-col-header:hover {
+  background: var(--bg-hover);
+}
+.xls-type-badge {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-subtle);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 0 5px;
 }
 .xls-grid {
   width: 100%;
