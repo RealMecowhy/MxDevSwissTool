@@ -12,6 +12,15 @@ let cleanViewer = null;
 function anonymizeInit() {
   if (anonymizerInitialized) return;
   anonymizerInitialized = true;
+
+  // 8.7: custom keyword list used to be per-session only (audit finding #6) —
+  // restore it from toolState (metadata-sized text, never log content).
+  const kwInput = document.getElementById('anon-opt-keywords');
+  if (kwInput && window.mtStateGet) {
+    const savedKeywords = window.mtStateGet('log-anonymizer', 'keywords', '');
+    if (savedKeywords) kwInput.value = savedKeywords;
+  }
+
   const container = document.getElementById('anonymizer-input-container');
   if (container) {
     container.addEventListener('dragover', e => { e.preventDefault(); container.classList.add('drag-over'); });
@@ -107,6 +116,9 @@ function anonymizeInit() {
       });
       if (id === 'anon-opt-keywords' || id === 'anon-opt-regex') {
         el.addEventListener('input', () => {
+          if (id === 'anon-opt-keywords' && window.mtStateSet) {
+            window.mtStateSet('log-anonymizer', 'keywords', el.value);
+          }
           if (document.getElementById('anon-opt-autorun').checked) {
             clearTimeout(anonymizerDebounceTimer);
             anonymizerDebounceTimer = setTimeout(anonymizeProcess, 300);

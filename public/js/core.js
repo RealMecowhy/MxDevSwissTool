@@ -160,7 +160,7 @@ function updateFavoritesUI(toolId) {
 // ============================================================
 // NAVIGATION
 // ============================================================
-async function navigate(toolId, navEl) {
+async function navigate(toolId, navEl, initialTab) {
   // Guard: a stale mt-last-tool may reference a removed/merged panel
   if (toolId !== 'home' && !document.getElementById('panel-' + toolId)) {
     toolId = 'home';
@@ -184,7 +184,7 @@ async function navigate(toolId, navEl) {
     iconEl.style.color = tool.color || 'var(--accent)';
   }
   document.getElementById('topbar-title').textContent = tool.label;
-  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.19.0' : (tool.desc || '');
+  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.20.0' : (tool.desc || '');
   const previousTool = currentTool;
   currentTool = toolId;
   window.currentTool = currentTool;
@@ -234,7 +234,57 @@ async function navigate(toolId, navEl) {
   }
 
   try { localStorage.setItem('mt-last-tool', toolId); } catch(e){}
+
+  // Restore the requested tab (deep link / 8.1 view restore) by clicking its
+  // button — reuses each tool's own onclick wiring instead of needing to know
+  // its individual setTab() signature, which differs from tool to tool.
+  if (initialTab && panel) {
+    const tabBtn = panel.querySelector('.tab[data-help-key="' + CSS.escape(initialTab) + '"]') ||
+      panel.querySelector('.tab[data-target="' + CSS.escape(initialTab) + '"]');
+    if (tabBtn) tabBtn.click();
+  }
+  mtUpdateHash(toolId, initialTab || null);
 }
+
+// ============================================================
+// DEEP LINKS (#tool=…&tab=…)
+// ============================================================
+// Bookmarkable/shareable URLs for a specific tool (and, where the tab button
+// carries a stable identifier, a specific tab within it). No tool DATA ever
+// goes in the URL — only ids already present in the DOM.
+function mtParseHash() {
+  const m = location.hash.match(/^#tool=([^&]+)(?:&tab=([^&]+))?/);
+  return m ? { tool: decodeURIComponent(m[1]), tab: m[2] ? decodeURIComponent(m[2]) : null } : null;
+}
+
+function mtUpdateHash(toolId, tab) {
+  try {
+    if (toolId === 'home') { history.replaceState(null, '', location.pathname + location.search); return; }
+    let hash = '#tool=' + encodeURIComponent(toolId);
+    if (tab) hash += '&tab=' + encodeURIComponent(tab);
+    history.replaceState(null, '', hash);
+  } catch (e) {}
+}
+
+// Generic: doesn't need to know each tool's own setTab() — clicking *any*
+// `.tab` button in the active panel is how every tool switches tabs, so this
+// alone keeps the hash's `tab=` param in sync regardless of which tool is open.
+document.addEventListener('click', function (e) {
+  const btn = e.target.closest && e.target.closest('.tool-panel.active .tab');
+  if (!btn) return;
+  const key = btn.getAttribute('data-help-key') || btn.getAttribute('data-target');
+  if (key) mtUpdateHash(currentTool, key);
+});
+
+// A hash pasted/edited into the address bar of an already-open tab fires
+// hashchange without a full reload; our own mtUpdateHash() writes use
+// replaceState, which never fires hashchange, so there is no feedback loop.
+window.addEventListener('hashchange', function () {
+  const parsed = mtParseHash();
+  if (!parsed || parsed.tool === currentTool) return;
+  const el = document.querySelector('.nav-item[data-tool="' + parsed.tool + '"]');
+  navigate(parsed.tool, el, parsed.tab);
+});
 
 // ============================================================
 // CROSS-TOOL RETURN CHIP
@@ -520,6 +570,10 @@ import './components/exporters.js';
 // Side-effect import: attaches window.mtHub — the Data Hub, one loaded log file
 // shared across the log tools ("Open in…" instead of a second drag-and-drop).
 import './components/data-hub.js';
+// Side-effect import: attaches window.mtStateGet/Set/SetFileMeta/GetFileMeta —
+// the shared per-tool settings persistence helper (8.1). Metadata only, never
+// file content; individual tools opt in from their own code.
+import './components/tool-state.js';
 
 function initCore() {
   // Reflect restored theme (set in index.html head) in the toggle label
@@ -529,6 +583,16 @@ function initCore() {
   }
   updateSidebarFavorites();
   buildHomeGrid();
+
+  // Deep link: a bookmarked/shared #tool=…&tab=… URL lands directly on that
+  // tool instead of Home. Invalid/removed tool ids fall through to navigate()'s
+  // own guard, which already redirects to Home.
+  const deepLink = mtParseHash();
+  if (deepLink) {
+    const el = document.querySelector('.nav-item[data-tool="' + deepLink.tool + '"]');
+    navigate(deepLink.tool, el, deepLink.tab);
+  }
+
   initCommandPalette(TOOLS, navigate);
   initDbConnection();
   if (window.mtHubInit) window.mtHubInit();

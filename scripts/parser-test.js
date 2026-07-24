@@ -2342,6 +2342,26 @@ eq('xpath hops: a URL-valued attribute yields no fake hops',
 eq('xpath hops: a dd/mm/yyyy-style date string yields no fake hops',
   global.xpathDeepHops("[CreatedDate = '31/12/2026']").length, 0);
 
+// =========================================================================
+// JWT DECODER — signature verification helpers (8.3/8.4)
+// =========================================================================
+console.log('\nJWT Decoder');
+require('../public/js/tools/jwt.js');
+
+const jwtB64 = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64')
+  .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+eq('jwt: base64url JSON decodes', global.jwtBase64UrlDecodeJson(jwtB64).alg, 'RS256');
+eq('jwt: malformed base64url returns null, not a throw', global.jwtBase64UrlDecodeJson('not-json-!!!'), null);
+
+ok('jwt: a known claim (exp) gets a title tooltip', /title="[^"]*[Ee]xpiration/.test(global.jwtClaimCell('exp')));
+eq('jwt: an unknown claim gets no tooltip wrapper', global.jwtClaimCell('custom_claim'), 'custom_claim');
+
+const jwkA = { kty: 'RSA', kid: 'key-a', n: 'x', e: 'AQAB' };
+const jwkB = { kty: 'RSA', kid: 'key-b', n: 'y', e: 'AQAB' };
+eq('jwt: JWKS key selected by matching kid', global.jwtSelectJwk({ keys: [jwkA, jwkB] }, { alg: 'RS256', kid: 'key-b' }).kid, 'key-b');
+eq('jwt: JWKS falls back to matching kty when no kid matches', global.jwtSelectJwk({ keys: [jwkA, jwkB] }, { alg: 'RS256', kid: 'unknown' }).kid, 'key-a');
+eq('jwt: a bare JWK (not a JWKS) is used directly', global.jwtSelectJwk(jwkA, { alg: 'RS256' }).kid, 'key-a');
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 runXlsxAsyncTests().then(function () {
   console.log('\n' + passed + ' passed, ' + failed + ' failed');

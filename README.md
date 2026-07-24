@@ -79,7 +79,7 @@ The toolkit is divided into logical categories to assist you across the entire d
 * **API Economics**: Analyze JSON payloads to cut response size and spot redundant fields.
 
 ### 5. Security & Utilities
-* **JWT Decoder**: Inspect JWT tokens securely without transmitting them externally.
+* **JWT Decoder**: Inspect JWT tokens securely without transmitting them externally, with hover explanations for standard claims. Verify **RS256/ES256 signatures** against a pasted public key (PEM or JWK/JWKS) via native WebCrypto — without a key the signature is shown as unverified, never a false "OK". Paste a second token to compare claims side-by-side, e.g. before/after a refresh.
   ![JWT Decoder](assets/screenshot-jwt-decoder.png)
 * **SAML / OIDC Debugger**: Decode SAML responses/requests (Base64, URL-encoded or DEFLATE-compressed) and OIDC id_tokens locally to debug SSO integrations — inspect assertions, claims, and validity windows without pasting tokens online.
   ![SAML / OIDC Debugger](assets/screenshot-saml-debugger.png)

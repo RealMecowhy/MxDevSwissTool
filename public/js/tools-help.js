@@ -1017,9 +1017,11 @@ Customer [1] -- [*] Order : places</pre>
         <li>Paste the entire JWT token (three parts separated by dots) into the text field.</li>
         <li>The tool will instantly decode the token and show:
           <br>– <strong>Header:</strong> encryption algorithm and token type.
-          <br>– <strong>Payload (Claims):</strong> encoded information about the user, their roles, and permissions.
+          <br>– <strong>Payload (Claims):</strong> encoded information about the user, their roles, and permissions. Standard claims (<code>iss</code>, <code>sub</code>, <code>aud</code>, <code>exp</code>, <code>nbf</code>, <code>iat</code>, <code>jti</code>…) show an explanation on hover.
           <br>– <strong>Expiration Status:</strong> information whether the token is active or expired, along with exact date &amp; time.
         </li>
+        <li><strong>Verify Signature</strong> (RS256/ES256 only): paste the issuer's public key — a PEM block or a JWK/JWKS JSON — and click Verify. Without a key the signature is shown as <em>not verified</em>, never as a false "OK"; HS256 and other algorithms show an explicit "not supported" message rather than a misleading result.</li>
+        <li><strong>Compare with another token:</strong> paste a second token (e.g. the same token after a refresh) to see a claim-by-claim diff, with changed values highlighted.</li>
       </ol>
     `
   },
