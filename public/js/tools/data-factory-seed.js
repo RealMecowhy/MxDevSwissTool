@@ -251,7 +251,18 @@ function seedSqlLiteral(value, colMeta) {
       const num = Number(value);
       if (!isFinite(num)) return 'NULL';
       const scale = colMeta.numericScale != null ? Math.max(0, colMeta.numericScale | 0) : 0;
-      return num.toFixed(scale);
+      // numeric(precision, scale) holds at most (precision - scale) integer
+      // digits; clamp so a value the generator produced above the column's range
+      // can't overflow it. Only when precision is actually known — unbounded
+      // numeric reports none and needs no clamp.
+      const prec = colMeta.numericPrecision;
+      let out = num;
+      if (typeof prec === 'number' && prec > 0) {
+        const maxAbs = Math.pow(10, prec - scale) - Math.pow(10, -scale);
+        if (out > maxAbs) out = maxAbs;
+        else if (out < -maxAbs) out = -maxAbs;
+      }
+      return out.toFixed(scale);
     }
     case 'float': {
       const num = Number(value);

@@ -2183,6 +2183,14 @@ eq('literal: a string is clamped to character_maximum_length',
 eq('literal: an integer is rounded and unquoted', global.seedSqlLiteral(3.9, { family: 'int' }), '4');
 eq('literal: exact honours numeric scale', global.seedSqlLiteral(3.14159, { family: 'exact', numericScale: 2 }), '3.14');
 eq('literal: exact with scale 0 is a whole number', global.seedSqlLiteral(3.99, { family: 'exact', numericScale: 0 }), '4');
+eq('literal: exact clamps a value that would overflow numeric(precision, scale)',
+  global.seedSqlLiteral(9999.99, { family: 'exact', numericScale: 2, numericPrecision: 5 }), '999.99');
+eq('literal: exact clamps a negative overflow too',
+  global.seedSqlLiteral(-9999.99, { family: 'exact', numericScale: 2, numericPrecision: 5 }), '-999.99');
+eq('literal: exact leaves an in-range value untouched when precision is known',
+  global.seedSqlLiteral(42.5, { family: 'exact', numericScale: 2, numericPrecision: 5 }), '42.50');
+eq('literal: exact without a known precision is not clamped (unbounded numeric)',
+  global.seedSqlLiteral(9999.99, { family: 'exact', numericScale: 2 }), '9999.99');
 eq('literal: boolean true', global.seedSqlLiteral(true, { family: 'bool' }), 'true');
 eq('literal: boolean false', global.seedSqlLiteral(false, { family: 'bool' }), 'false');
 eq('literal: a date value is quoted',
@@ -2944,6 +2952,12 @@ eq('x509: empty input is not an error, just nothing to show', global.x509ParseCe
 ok('x509: garbage Base64-looking input reports a parse error, not a crash', !!global.x509ParseCertificate('AAAA').error);
 ok('x509: invalid Base64 reports an error', !!global.x509ParseCertificate('not-base64!!!').error);
 
+// A validity field whose bytes are not a real date must decode to null, not to an
+// Invalid Date that throws when the renderer calls toISOString() on it.
+const samlBadTimeBytes = new Uint8Array(Array.from('ZZ0101000000Z').map(function (c) { return c.charCodeAt(0); }));
+eq('x509: an unparseable UTCTime decodes to null, not a throwing Invalid Date',
+  global.x509DecodeTime(samlBadTimeBytes, { tag: 0x17, valueStart: 0, valueEnd: samlBadTimeBytes.length }), null);
+
 eq('clock skew: NotBefore in the past → no warning', global.samlClockSkewMinutes('2020-01-01T00:00:00Z', Date.now()), null);
 eq('clock skew: no NotBefore → no warning', global.samlClockSkewMinutes(null, Date.now()), null);
 eq('clock skew: NotBefore 5 minutes in the future → 5', global.samlClockSkewMinutes(new Date(Date.now() + 5 * 60000).toISOString(), Date.now()), 5);
@@ -3101,6 +3115,9 @@ bcryptVectors.forEach(([pw, hash]) => {
 });
 eq('bcrypt verify: wrong password on a real hash reports no match', global.bcryptVerify('wrongpassword', bcryptVectors[3][1]).match, false);
 eq('bcrypt verify: cost 12 (slower, still correct)', global.bcryptVerify('test', '$2b$12$y6x9caHz5tu/TfNL9S0pRed4BzBk7CiH6dPCFUx1gihmMHiBZwWj2').match, true);
+// A pathologically high cost (2^cost rounds) would freeze the browser rather than
+// finish — refuse it with an honest error instead of running the digest.
+ok('bcrypt verify: an impractically high cost is refused, not run', !!global.bcryptVerify('x', '$2b$25$' + 'A'.repeat(53)).error);
 ok('bcrypt verify: malformed input reports an honest error, not a crash or a false match', !!global.bcryptVerify('x', 'not-a-hash-at-all').error);
 eq('bcrypt parse: rejects an out-of-range cost factor', global.bcryptParseHash('$2b$99$' + 'A'.repeat(53)), null);
 eq('bcrypt parse: null for empty input', global.bcryptParseHash(''), null);

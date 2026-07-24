@@ -424,6 +424,11 @@ function bcryptParseHash(hashStr) {
 function bcryptVerify(password, hashStr) {
   const parsed = bcryptParseHash(hashStr);
   if (!parsed) return { error: 'Not a valid bcrypt hash — expected $2a$/$2b$/$2y$, a 2-digit cost, and a 22-character salt (e.g. $2b$10$N9qo8uLOickgx2ZMRZoMy...).' };
+  // The digest runs 2^cost rounds synchronously in the browser. Real hashes use
+  // cost 10–12 (14 for high security); above 17 the round count makes an
+  // in-browser verify freeze the tab for many seconds to minutes, so refuse
+  // honestly rather than appear hung.
+  if (parsed.rounds > 17) return { error: 'Cost factor ' + parsed.rounds + ' (2^' + parsed.rounds + ' rounds) is too high to verify in the browser without freezing — real bcrypt hashes use cost 10–12.' };
   const pwStr = parsed.minor >= 'a' ? String(password) + '\0' : String(password);
   const passwordBytes = Array.from(new TextEncoder().encode(pwStr));
   const saltBytes = bcryptBase64Decode(parsed.realSalt, 16);

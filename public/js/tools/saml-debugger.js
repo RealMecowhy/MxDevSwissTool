@@ -217,12 +217,14 @@ function x509DecodeTime(bytes, node) {
   if (node.tag === 0x17) {
     const yy = parseInt(str.slice(0, 2), 10);
     const year = yy < 50 ? 2000 + yy : 1900 + yy;
-    return new Date(Date.UTC(year, parseInt(str.slice(2, 4), 10) - 1, parseInt(str.slice(4, 6), 10),
+    const d = new Date(Date.UTC(year, parseInt(str.slice(2, 4), 10) - 1, parseInt(str.slice(4, 6), 10),
       parseInt(str.slice(6, 8), 10), parseInt(str.slice(8, 10), 10), parseInt(str.slice(10, 12), 10)));
+    return isNaN(d.getTime()) ? null : d;
   }
   if (node.tag === 0x18) {
-    return new Date(Date.UTC(parseInt(str.slice(0, 4), 10), parseInt(str.slice(4, 6), 10) - 1, parseInt(str.slice(6, 8), 10),
+    const d = new Date(Date.UTC(parseInt(str.slice(0, 4), 10), parseInt(str.slice(4, 6), 10) - 1, parseInt(str.slice(6, 8), 10),
       parseInt(str.slice(8, 10), 10), parseInt(str.slice(10, 12), 10), parseInt(str.slice(12, 14), 10)));
+    return isNaN(d.getTime()) ? null : d;
   }
   return null;
 }
@@ -452,6 +454,7 @@ window.samlDecodeOidc = samlDecodeOidc;
 
 // Exposed for scripts/parser-test.js (pure functions, no DOM).
 window.x509ParseCertificate = x509ParseCertificate;
+window.x509DecodeTime = x509DecodeTime;
 window.samlClockSkewMinutes = samlClockSkewMinutes;
 
 export function init() {}

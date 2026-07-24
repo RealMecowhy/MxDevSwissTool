@@ -533,7 +533,7 @@ function dfwColsFromEntity(entity, detail) {
   (columnsByTable[table] || []).forEach(function (c) {
     cm[String(c.column).toLowerCase()] = {
       column: c.column, dataType: c.dataType, udtName: c.udtName, maxLength: c.maxLength,
-      numericScale: c.numericScale, isNullable: c.isNullable, hasDefault: c.hasDefault,
+      numericScale: c.numericScale, numericPrecision: c.numericPrecision, isNullable: c.isNullable, hasDefault: c.hasDefault,
       family: DFW.seedColumnFamily ? DFW.seedColumnFamily(c) : 'text'
     };
   });
@@ -1044,7 +1044,7 @@ function dfwBuildSqlSingle(sampleRows, preview) {
   const cm = {};
   ((detail.columns || {})[table] || []).forEach(function (c) {
     cm[String(c.column).toLowerCase()] = { column: c.column, family: DFW.seedColumnFamily(c),
-      isNullable: c.isNullable, hasDefault: c.hasDefault, maxLength: c.maxLength, numericScale: c.numericScale, dataType: c.dataType, udtName: c.udtName };
+      isNullable: c.isNullable, hasDefault: c.hasDefault, maxLength: c.maxLength, numericScale: c.numericScale, numericPrecision: c.numericPrecision, dataType: c.dataType, udtName: c.udtName };
   });
 
   // Emit list: id + reviewed columns, then any required NOT-NULL-without-default
@@ -1115,7 +1115,7 @@ function dfwBuildSqlMulti(sampleRows, preview) {
     if (cmCache[table]) return cmCache[table];
     const map = {};
     (columnsByTable[table] || []).forEach(function (c) {
-      map[String(c.column).toLowerCase()] = { column: c.column, family: DFW.seedColumnFamily(c), isNullable: c.isNullable, hasDefault: c.hasDefault, maxLength: c.maxLength, numericScale: c.numericScale, dataType: c.dataType, udtName: c.udtName };
+      map[String(c.column).toLowerCase()] = { column: c.column, family: DFW.seedColumnFamily(c), isNullable: c.isNullable, hasDefault: c.hasDefault, maxLength: c.maxLength, numericScale: c.numericScale, numericPrecision: c.numericPrecision, dataType: c.dataType, udtName: c.udtName };
     });
     cmCache[table] = map;
     return map;
