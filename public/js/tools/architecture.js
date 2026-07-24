@@ -30,6 +30,9 @@ function archDownloadSvg() {
 function archGenerate() {
   const input = document.getElementById('arch-input').value.trim();
   const out = document.getElementById('arch-output');
+  archViewMode = 'entities';
+  const toggle = document.getElementById('arch-view-toggle');
+  if (toggle) toggle.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.view === 'entities'));
   if (!input) {
     out.innerHTML = '<div style="color:var(--text-muted)">Paste Domain Model JSON or Pseudo-code to generate diagram...</div>';
     return;
@@ -120,15 +123,7 @@ function archGenerate() {
   }
   
   archLastMermaidCode = mermaidCode;
-
-  // Render using Mermaid API if loaded
-  if (window.mermaid) {
-    out.innerHTML = `<div class="mermaid">${mermaidCode}</div>`;
-    mermaid.init(undefined, document.querySelectorAll('.mermaid'));
-  } else {
-    out.innerHTML = `<pre style="font-family:var(--font-mono);font-size:0.8rem;background:var(--bg-base);padding:var(--sp-4);border-radius:var(--r-md);overflow-x:auto">${escHtml(mermaidCode)}</pre>
-    <div class="notice notice-info" style="margin-top:var(--sp-2)">Mermaid.js library is not loaded. The raw syntax is shown above. To visualize, copy this into the <a href="https://mermaid.live/" target="_blank" style="color:var(--primary)">Mermaid Live Editor</a>.</div>`;
-  }
+  archRenderMermaid(mermaidCode);
 }
 
 
@@ -236,6 +231,103 @@ function archRenderModelSummary(model) {
     </div>`;
 }
 
+// =========================================================================
+// Module dependency diagram (12.2) — node per module, edge per cross-module
+// association. Only meaningful with a full model (Live DB), since the pasted-
+// JSON/pseudocode path never carries a module list. Pure graph construction,
+// separate from the mermaid string builder so it is unit-testable without mermaid.
+// =========================================================================
+function archModuleOf(fullName) {
+  const s = String(fullName == null ? '' : fullName);
+  return s.indexOf('.') === -1 ? '(none)' : s.split('.')[0];
+}
+
+function archMermaidId(name) {
+  return 'm_' + String(name).replace(/[^A-Za-z0-9_]/g, '_');
+}
+
+// Builds the module graph from the FULL model (not the module-filtered
+// projection used for the entity diagram) — a dependency overview is only
+// useful if it can show edges to modules the user hasn't selected.
+function archBuildModuleGraph(model) {
+  const nodes = (model.modules || []).map(m => ({ name: m.name, entityCount: m.entityCount }));
+  const edgeCounts = new Map();
+  (model.associations || []).forEach(a => {
+    const m1 = archModuleOf(a.one);
+    const m2 = archModuleOf(a.many);
+    if (m1 === m2) return;
+    const key = [m1, m2].sort().join('||');
+    edgeCounts.set(key, (edgeCounts.get(key) || 0) + 1);
+  });
+  const edges = Array.from(edgeCounts.entries()).map(([key, count]) => {
+    const [a, b] = key.split('||');
+    return { a, b, count };
+  }).sort((x, y) => y.count - x.count);
+  return { nodes, edges };
+}
+
+function archModuleGraphToMermaid(graph) {
+  let code = 'graph LR\n';
+  graph.nodes.forEach(n => {
+    code += `  ${archMermaidId(n.name)}["${archEsc(n.name)} (${n.entityCount})"]\n`;
+  });
+  graph.edges.forEach(e => {
+    code += `  ${archMermaidId(e.a)} ---|"${e.count}"| ${archMermaidId(e.b)}\n`;
+  });
+  if (!graph.nodes.length) code += '  empty["No modules loaded"]\n';
+  return code;
+}
+
+let archViewMode = 'entities'; // 'entities' | 'modules'
+
+window.archSetViewMode = function (mode) {
+  archViewMode = mode;
+  document.querySelectorAll('#arch-view-toggle button').forEach(b => b.classList.toggle('active', b.dataset.view === mode));
+  if (mode === 'modules') {
+    if (!archLiveModel) { alert('Load a domain model from a live database first — the module dependency view needs the full module list.'); archViewMode = 'entities'; return; }
+    const graph = archBuildModuleGraph(archLiveModel);
+    archLastMermaidCode = archModuleGraphToMermaid(graph);
+    archRenderMermaid(archLastMermaidCode);
+  } else {
+    archGenerate();
+  }
+};
+
+function archRenderMermaid(mermaidCode) {
+  const out = document.getElementById('arch-output');
+  if (window.mermaid) {
+    out.innerHTML = `<div class="mermaid">${mermaidCode}</div>`;
+    mermaid.init(undefined, document.querySelectorAll('.mermaid'));
+  } else {
+    out.innerHTML = `<pre style="font-family:var(--font-mono);font-size:0.8rem;background:var(--bg-base);padding:var(--sp-4);border-radius:var(--r-md);overflow-x:auto">${escHtml(mermaidCode)}</pre>
+    <div class="notice notice-info" style="margin-top:var(--sp-2)">Mermaid.js library is not loaded. The raw syntax is shown above. To visualize, copy this into the <a href="https://mermaid.live/" target="_blank" style="color:var(--primary)">Mermaid Live Editor</a>.</div>`;
+  }
+}
+
+// =========================================================================
+// Entity search (12.2) — scrolls to and highlights a matching class node.
+// True canvas zoom would need a pan/zoom library this diagram doesn't have
+// (unlike QI's hand-rolled Schema Visualizer canvas); scroll + a temporary
+// highlight is the honest equivalent for a plain Mermaid SVG.
+// =========================================================================
+window.archSearchEntity = function () {
+  const q = (document.getElementById('arch-entity-search').value || '').trim().toLowerCase();
+  const status = document.getElementById('arch-entity-search-status');
+  if (!q) { if (status) status.textContent = ''; return; }
+  const svg = document.querySelector('#arch-output svg');
+  if (!svg) { if (status) status.textContent = 'Generate a diagram first.'; return; }
+  const nodes = Array.from(svg.querySelectorAll('g.node, g.classGroup, g[class*="class"]'));
+  const match = nodes.find(n => {
+    const label = n.textContent || '';
+    return label.toLowerCase().indexOf(q) !== -1;
+  });
+  if (!match) { if (status) status.textContent = `No entity matching "${q}".`; return; }
+  match.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+  match.classList.add('arch-search-hit');
+  setTimeout(() => match.classList.remove('arch-search-hit'), 2000);
+  if (status) status.textContent = 'Found.';
+};
+
 window.archLoadFromDb = async function (btn) {
   const box = document.getElementById('arch-model-summary');
   if (!window.mtDb || !window.mtDb.isConnected()) {
@@ -285,5 +377,11 @@ window.archLoadFromDb = async function (btn) {
 window.archGenerate = archGenerate;
 window.archCopyMermaid = archCopyMermaid;
 window.archDownloadSvg = archDownloadSvg;
+
+// Exposed for scripts/parser-test.js (pure functions, no DOM/mermaid needed).
+window.archModuleOf = archModuleOf;
+window.archMermaidId = archMermaidId;
+window.archBuildModuleGraph = archBuildModuleGraph;
+window.archModuleGraphToMermaid = archModuleGraphToMermaid;
 
 export function init() {}

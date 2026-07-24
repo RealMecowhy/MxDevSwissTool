@@ -130,6 +130,165 @@ function samlValidityRow(label, value) {
     <td style="padding:6px 10px">${status}</td></tr>`;
 }
 
+// ── X.509 certificate parsing (12.6) ────────────────────────────────────────
+// Minimal DER/ASN.1 walker — WebCrypto can import a certificate's key but
+// exposes none of Issuer/Subject/Validity, and there's no vendored X.509
+// library in this project (offline-first, zero new deps). Bounded to exactly
+// the fields this tool shows: no extension/SAN parsing, no signature check —
+// this is a reader, not a validator.
+// Bounds-checked: truncated/garbage input must throw (→ x509ParseCertificate's
+// catch turns it into an honest {error}), never silently read past the buffer
+// and hand back plausible-looking garbage as if it were real cert data.
+function derReadLength(bytes, pos) {
+  if (pos >= bytes.length) throw new Error('Unexpected end of data');
+  let len = bytes[pos];
+  pos++;
+  if (len & 0x80) {
+    const numBytes = len & 0x7f;
+    len = 0;
+    for (let i = 0; i < numBytes; i++) {
+      if (pos >= bytes.length) throw new Error('Unexpected end of data');
+      len = (len << 8) | bytes[pos]; pos++;
+    }
+  }
+  return { len, pos };
+}
+
+function derReadTLV(bytes, pos) {
+  if (pos >= bytes.length) throw new Error('Unexpected end of data');
+  const tag = bytes[pos]; pos++;
+  const l = derReadLength(bytes, pos);
+  if (l.pos + l.len > bytes.length) throw new Error('Unexpected end of data');
+  return { tag, len: l.len, valueStart: l.pos, valueEnd: l.pos + l.len, nextPos: l.pos + l.len };
+}
+
+// First byte encodes the first two OID components (X*40+Y); the rest are
+// base-128 varints. Only used against well-known short X.509 attribute OIDs
+// (2.5.4.x), where this simplified decoding is exact.
+function x509ParseOid(bytes, start, end) {
+  const first = bytes[start];
+  const parts = [Math.floor(first / 40), first % 40];
+  let val = 0;
+  for (let i = start + 1; i < end; i++) {
+    val = (val << 7) | (bytes[i] & 0x7f);
+    if (!(bytes[i] & 0x80)) { parts.push(val); val = 0; }
+  }
+  return parts.join('.');
+}
+
+const X509_OID_NAMES = {
+  '2.5.4.3': 'CN', '2.5.4.10': 'O', '2.5.4.11': 'OU', '2.5.4.6': 'C',
+  '2.5.4.7': 'L', '2.5.4.8': 'ST', '2.5.4.5': 'serialNumber',
+  '1.2.840.113549.1.9.1': 'emailAddress'
+};
+
+function x509DecodeString(bytes, node) {
+  const slice = bytes.slice(node.valueStart, node.valueEnd);
+  try { return new TextDecoder('utf-8').decode(slice); }
+  catch (e) { return Array.from(slice).map(b => String.fromCharCode(b)).join(''); }
+}
+
+function x509ParseName(bytes, nameNode) {
+  const parts = [];
+  let p = nameNode.valueStart;
+  while (p < nameNode.valueEnd) {
+    const rdn = derReadTLV(bytes, p); // SET OF AttributeTypeAndValue
+    let q = rdn.valueStart;
+    while (q < rdn.valueEnd) {
+      const atv = derReadTLV(bytes, q); // SEQUENCE
+      let r = atv.valueStart;
+      const oidNode = derReadTLV(bytes, r); r = oidNode.nextPos;
+      const valNode = derReadTLV(bytes, r);
+      const oid = x509ParseOid(bytes, oidNode.valueStart, oidNode.valueEnd);
+      const label = X509_OID_NAMES[oid] || oid;
+      parts.push(label + '=' + x509DecodeString(bytes, valNode));
+      q = atv.nextPos;
+    }
+    p = rdn.nextPos;
+  }
+  return parts.join(', ');
+}
+
+// UTCTime (tag 0x17, YYMMDDHHMMSSZ, 2-digit year pivoted at 50 per X.690) or
+// GeneralizedTime (tag 0x18, YYYYMMDDHHMMSSZ) — the only two time encodings
+// X.509 validity fields use.
+function x509DecodeTime(bytes, node) {
+  const str = x509DecodeString(bytes, node);
+  if (node.tag === 0x17) {
+    const yy = parseInt(str.slice(0, 2), 10);
+    const year = yy < 50 ? 2000 + yy : 1900 + yy;
+    return new Date(Date.UTC(year, parseInt(str.slice(2, 4), 10) - 1, parseInt(str.slice(4, 6), 10),
+      parseInt(str.slice(6, 8), 10), parseInt(str.slice(8, 10), 10), parseInt(str.slice(10, 12), 10)));
+  }
+  if (node.tag === 0x18) {
+    return new Date(Date.UTC(parseInt(str.slice(0, 4), 10), parseInt(str.slice(4, 6), 10) - 1, parseInt(str.slice(6, 8), 10),
+      parseInt(str.slice(8, 10), 10), parseInt(str.slice(10, 12), 10), parseInt(str.slice(12, 14), 10)));
+  }
+  return null;
+}
+
+// Returns null (not an error) when there's simply nothing to parse; returns
+// { error } when there IS a certificate but this reader can't make sense of
+// it — the caller shows that honestly instead of pretending nothing was found.
+function x509ParseCertificate(base64) {
+  const clean = String(base64 == null ? '' : base64).replace(/-----[^-]+-----/g, '').replace(/[\r\n\s]+/g, '');
+  if (!clean) return null;
+  let bytes;
+  try { bytes = b64ToBytes(clean); } catch (e) { return { error: 'Not valid Base64.' }; }
+  try {
+    const cert = derReadTLV(bytes, 0);
+    const tbs = derReadTLV(bytes, cert.valueStart);
+    let p = tbs.valueStart;
+    let node = derReadTLV(bytes, p);
+    if (node.tag === 0xA0) { p = node.nextPos; node = derReadTLV(bytes, p); } // optional [0] version; node now = serialNumber
+    p = node.nextPos;
+    node = derReadTLV(bytes, p); p = node.nextPos; // signature AlgorithmIdentifier
+    const issuerNode = derReadTLV(bytes, p); p = issuerNode.nextPos;
+    const validityNode = derReadTLV(bytes, p); p = validityNode.nextPos;
+    const subjectNode = derReadTLV(bytes, p);
+
+    let vp = validityNode.valueStart;
+    const nbNode = derReadTLV(bytes, vp); vp = nbNode.nextPos;
+    const naNode = derReadTLV(bytes, vp);
+    const notBefore = x509DecodeTime(bytes, nbNode);
+    const notAfter = x509DecodeTime(bytes, naNode);
+
+    return {
+      issuer: x509ParseName(bytes, issuerNode),
+      subject: x509ParseName(bytes, subjectNode),
+      notBefore, notAfter,
+      isExpired: notAfter ? Date.now() > notAfter.getTime() : null
+    };
+  } catch (e) {
+    return { error: 'Could not parse this certificate (unsupported or malformed DER structure).' };
+  }
+}
+
+function x509RenderCertificate(cert) {
+  if (!cert) return '';
+  if (cert.error) return `<div class="notice notice-warning" style="margin-bottom:var(--sp-3)">Certificate found but could not be parsed: ${window.escHtml(cert.error)}</div>`;
+  const fmt = d => d ? d.toISOString() : '(unparsed)';
+  const expiredBadge = cert.isExpired === true ? '<span style="color:var(--danger)">expired</span>'
+    : cert.isExpired === false ? '<span style="color:var(--success)">valid</span>' : '';
+  return `<div style="font-size:0.75rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:var(--sp-2)">Signing Certificate (X.509)</div>
+    <table style="width:100%;border-collapse:collapse;font-size:0.82rem;margin-bottom:var(--sp-3);background:var(--bg-elevated);border-radius:var(--r-md)">
+      <tr><td style="padding:6px 10px;color:var(--text-muted);width:150px">Issuer</td><td style="padding:6px 10px;font-family:var(--font-mono)">${window.escHtml(cert.issuer || '(unknown)')}</td></tr>
+      <tr><td style="padding:6px 10px;color:var(--text-muted)">Subject</td><td style="padding:6px 10px;font-family:var(--font-mono)">${window.escHtml(cert.subject || '(unknown)')}</td></tr>
+      <tr><td style="padding:6px 10px;color:var(--text-muted)">Valid From</td><td style="padding:6px 10px;font-family:var(--font-mono)">${window.escHtml(fmt(cert.notBefore))}</td></tr>
+      <tr><td style="padding:6px 10px;color:var(--text-muted)">Valid To</td><td style="padding:6px 10px;font-family:var(--font-mono)">${window.escHtml(fmt(cert.notAfter))} ${expiredBadge}</td></tr>
+    </table>`;
+}
+
+// ── Clock-skew hint (12.6) ──────────────────────────────────────────────────
+// Pure: minutes NotBefore sits in the future relative to `nowMs`, or null when
+// NotBefore is absent/unparseable/not in the future (nothing to warn about).
+function samlClockSkewMinutes(notBeforeIso, nowMs) {
+  if (!notBeforeIso) return null;
+  const t = Date.parse(notBeforeIso);
+  if (isNaN(t) || t <= nowMs) return null;
+  return Math.round((t - nowMs) / 60000);
+}
+
 async function samlDecodeSaml() {
   const raw = document.getElementById('saml-input').value;
   const xmlEl = document.getElementById('saml-xml-output');
@@ -155,6 +314,7 @@ async function samlDecodeSaml() {
     const audiences = findByLocal(doc, 'Audience');
     const authnStmt = findByLocal(doc, 'AuthnStatement')[0];
     const attributes = findByLocal(doc, 'Attribute');
+    const x509CertEl = findByLocal(doc, 'X509Certificate')[0];
     const hasSignature = findByLocal(doc, 'Signature').length > 0;
 
     let html = '';
@@ -185,7 +345,15 @@ async function samlDecodeSaml() {
       html += samlValidityRow('NotOnOrAfter', noa);
       html += samlValidityRow('SessionNotOnOrAfter', sessionNoa);
       html += '</table>';
+
+      const skewMins = samlClockSkewMinutes(nb, Date.now());
+      if (skewMins !== null) {
+        html += `<div class="notice notice-warning" style="margin-bottom:var(--sp-3)"><strong>NotBefore is ${skewMins} min in the future.</strong> Your server clock is likely behind the IdP by roughly that much — check NTP sync on this machine (or the IdP's clock-skew allowance is unusually large).</div>`;
+      }
     }
+
+    // Signing certificate
+    if (x509CertEl) html += x509RenderCertificate(x509ParseCertificate(x509CertEl.textContent));
 
     // Attributes
     if (attributes.length) {
@@ -281,5 +449,9 @@ window.samlSetTab = samlSetTab;
 window.samlDecodeActive = samlDecodeActive;
 window.samlDecodeSaml = samlDecodeSaml;
 window.samlDecodeOidc = samlDecodeOidc;
+
+// Exposed for scripts/parser-test.js (pure functions, no DOM).
+window.x509ParseCertificate = x509ParseCertificate;
+window.samlClockSkewMinutes = samlClockSkewMinutes;
 
 export function init() {}

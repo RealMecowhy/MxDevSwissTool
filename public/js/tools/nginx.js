@@ -40,117 +40,171 @@ function nginxHandleErrorDrop(e) {
   }
 }
 
+// Above this size, parsing runs in a Web Worker (12.8) so a 100K+ line file
+// doesn't compete with the UI thread for the whole read. Same 2 MB threshold
+// as LQE/MFT/WSRE's own worker cutoffs, for the same reason: small files parse
+// fast enough that spinning up a worker would be pure overhead.
+const NGINX_WORKER_THRESHOLD = 2 * 1024 * 1024;
+
+// Per-line hourStr derivation, shared by every call site (was duplicated 3x
+// inline before this fala). Pure.
+function nginxDeriveHourStr(dateStr) {
+  const timeMatch1 = dateStr.match(/^(\d{2}\/\w{3}\/\d{4}:\d{2})/);
+  const timeMatch2 = dateStr.match(/^(\d{4}-\d{2}-\d{2}T\d{2})/);
+  if (timeMatch1) return timeMatch1[1];
+  if (timeMatch2) return timeMatch2[1].replace('T', ' ');
+  return dateStr.substring(0, 13);
+}
+
+// Streams `file` (optionally gzip) through the given per-line parser,
+// building the records array exactly like the old inline loop did. Runs
+// directly on the main thread for small files, or is serialized via
+// `.toString()` into a Worker for large ones (nginxParseInWorker below) — so
+// it must stay self-contained: only its own parameters, `DecompressionStream`/
+// `TextDecoder` (both available in a Worker), and nginxDeriveHourStr, which
+// gets inlined alongside it when building the worker source.
+async function nginxStreamParseFile(file, isGz, type, parseLineFn, onProgress) {
+  let stream = file.stream();
+  if (isGz) stream = stream.pipeThrough(new DecompressionStream('gzip'));
+  const reader = stream.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+  const records = [];
+  let scanned = 0, matched = 0, sample = '';
+  let totalBytes = 0, chunkCount = 0;
+
+  function handleLine(raw) {
+    const line = raw.trim();
+    if (!line) return;
+    const parsed = parseLineFn(line);
+    if (type === 'error') {
+      scanned++;
+      if (parsed) matched++;
+      else if (!sample) sample = line;
+    }
+    if (parsed) {
+      parsed.hourStr = nginxDeriveHourStr(parsed.date);
+      records.push(parsed);
+    }
+  }
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (value) {
+      totalBytes += value.length;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (let i = 0; i < lines.length; i++) handleLine(lines[i]);
+      chunkCount++;
+      if (chunkCount % 20 === 0 && onProgress) {
+        onProgress(totalBytes);
+        await new Promise(r => setTimeout(r, 0)); // yield (no-op inside a Worker, harmless)
+      }
+    }
+    if (done) {
+      if (buffer.trim()) handleLine(buffer);
+      break;
+    }
+  }
+  return { records, scanned, matched, sample, totalBytes };
+}
+
+// Builds and runs a Worker from the serialized sources of the regex + parser
+// functions + nginxStreamParseFile (same .toString()-based technique as
+// lqeParseInWorker in log-query-extractor.js). Falls back to main-thread
+// parsing if the Worker can't start or errors mid-parse.
+function nginxParseInWorker(file, isGz, type, onProgress) {
+  return new Promise((resolve, reject) => {
+    let worker;
+    try {
+      const code = 'const NGINX_REGEX = ' + NGINX_REGEX.toString() + ';\n' +
+        nginxDeriveHourStr.toString() + '\n' +
+        nginxParseLine.toString() + '\n' +
+        nginxParseErrorLine.toString() + '\n' +
+        nginxStreamParseFile.toString() + '\n' +
+        'self.onmessage = async function (e) {\n' +
+        '  var parseLineFn = e.data.type === "access" ? nginxParseLine : nginxParseErrorLine;\n' +
+        '  try {\n' +
+        '    var result = await nginxStreamParseFile(e.data.file, e.data.isGz, e.data.type, parseLineFn, function (totalBytes) {\n' +
+        '      self.postMessage({ type: "progress", totalBytes: totalBytes });\n' +
+        '    });\n' +
+        '    self.postMessage({ type: "complete", result: result });\n' +
+        '  } catch (err) {\n' +
+        '    self.postMessage({ type: "error", message: err.message });\n' +
+        '  }\n' +
+        '};';
+      worker = new Worker(URL.createObjectURL(new Blob([code], { type: 'application/javascript' })));
+    } catch (err) {
+      reject(err);
+      return;
+    }
+    worker.onmessage = function (msg) {
+      const d = msg.data;
+      if (d.type === 'progress') { if (onProgress) onProgress(d.totalBytes); }
+      else if (d.type === 'complete') { worker.terminate(); resolve(d.result); }
+      else if (d.type === 'error') { worker.terminate(); reject(new Error(d.message)); }
+    };
+    worker.onerror = function (err) { worker.terminate(); reject(err); };
+    worker.postMessage({ file: file, isGz: isGz, type: type });
+  });
+}
+
 async function nginxLoadFilesFromInput(files, type = 'access') {
   if (files && files.length > 0) {
     showLoader('Reading logs...');
     await new Promise(resolve => setTimeout(resolve, 50)); // Yield to allow UI to paint
-    
+
     const file = files[0];
-    
+
     try {
-      let stream = file.stream();
       const isGz = file.name.toLowerCase().endsWith('.gz');
-      if (isGz) {
-        stream = stream.pipeThrough(new DecompressionStream('gzip'));
-      }
-      
-      const reader = stream.getReader();
-      const decoder = new TextDecoder('utf-8');
-      let buffer = '';
-      if (type === 'access') {
-        window.nginxParsedLogs = [];
+      const parseLineFn = type === 'access' ? nginxParseLine : nginxParseErrorLine;
+      const onProgress = (totalBytes) => {
+        let progressText, pct = null;
+        if (isGz) {
+          progressText = `Reading logs... (${(totalBytes / 1024 / 1024).toFixed(1)} MB decompressed)`;
+        } else {
+          pct = Math.min(100, Math.round((totalBytes / file.size) * 100));
+          progressText = `Reading logs... ${pct}%`;
+        }
+        showLoader(progressText, pct !== null ? pct : undefined);
+      };
+
+      let result;
+      if (file.size >= NGINX_WORKER_THRESHOLD && typeof Worker !== 'undefined') {
+        try {
+          result = await nginxParseInWorker(file, isGz, type, onProgress);
+        } catch (err) {
+          console.warn('Nginx worker unavailable, parsing on main thread:', err.message || err);
+          result = await nginxStreamParseFile(file, isGz, type, parseLineFn, onProgress);
+        }
       } else {
-        window.nginxErrorParsedLogs = [];
-        window.nginxErrorScanned = 0;
-        window.nginxErrorMatched = 0;
-        window.nginxErrorSample = '';
+        result = await nginxStreamParseFile(file, isGz, type, parseLineFn, onProgress);
       }
-      let totalBytes = 0;
-      let chunkCount = 0;
-      
-      while (true) {
-        const { done, value } = await reader.read();
-        if (value) {
-          totalBytes += value.length;
-          buffer += decoder.decode(value, { stream: true });
-          let lines = buffer.split('\n');
-          buffer = lines.pop(); // Keep partial line
-          
-          for (let i = 0; i < lines.length; i++) {
-            let line = lines[i].trim();
-            if (!line) continue;
-            const parsed = type === 'access' ? nginxParseLine(line) : nginxParseErrorLine(line);
-            if (type === 'error') {
-              window.nginxErrorScanned++;
-              if (parsed) window.nginxErrorMatched++;
-              else if (!window.nginxErrorSample) window.nginxErrorSample = line;
-            }
-            if (parsed) {
-              let hourStr = 'Unknown';
-              const timeMatch1 = parsed.date.match(/^(\d{2}\/\w{3}\/\d{4}:\d{2})/);
-              const timeMatch2 = parsed.date.match(/^(\d{4}-\d{2}-\d{2}T\d{2})/);
-              if (timeMatch1) hourStr = timeMatch1[1];
-              else if (timeMatch2) hourStr = timeMatch2[1].replace('T', ' ');
-              else hourStr = parsed.date.substring(0, 13);
-              parsed.hourStr = hourStr;
-              
-              if (type === 'access') window.nginxParsedLogs.push(parsed);
-              else window.nginxErrorParsedLogs.push(parsed);
-            }
-          }
-          
-          chunkCount++;
-          if (chunkCount % 20 === 0) {
-             let progressText;
-             let pct = null;
-             if (isGz) {
-               progressText = `Reading logs... (${(totalBytes/1024/1024).toFixed(1)} MB decompressed)`;
-             } else {
-               pct = Math.min(100, Math.round((totalBytes / file.size) * 100));
-               progressText = `Reading logs... ${pct}%`;
-             }
-             showLoader(progressText, pct !== null ? pct : undefined);
-             // Yield to keep UI responsive on massive files
-             await new Promise(r => setTimeout(r, 0));
-          }
-        }
-        if (done) {
-          if (buffer.trim()) {
-            const parsed = type === 'access' ? nginxParseLine(buffer.trim()) : nginxParseErrorLine(buffer.trim());
-            if (type === 'error') {
-              window.nginxErrorScanned++;
-              if (parsed) window.nginxErrorMatched++;
-              else if (!window.nginxErrorSample) window.nginxErrorSample = buffer.trim();
-            }
-            if (parsed) {
-              let hourStr = 'Unknown';
-              const timeMatch1 = parsed.date.match(/^(\d{2}\/\w{3}\/\d{4}:\d{2})/);
-              const timeMatch2 = parsed.date.match(/^(\d{4}-\d{2}-\d{2}T\d{2})/);
-              if (timeMatch1) hourStr = timeMatch1[1];
-              else if (timeMatch2) hourStr = timeMatch2[1].replace('T', ' ');
-              else hourStr = parsed.date.substring(0, 13);
-              parsed.hourStr = hourStr;
-              if (type === 'access') window.nginxParsedLogs.push(parsed);
-              else window.nginxErrorParsedLogs.push(parsed);
-            }
-          }
-          break;
-        }
+
+      if (type === 'access') {
+        window.nginxParsedLogs = result.records;
+      } else {
+        window.nginxErrorParsedLogs = result.records;
+        window.nginxErrorScanned = result.scanned;
+        window.nginxErrorMatched = result.matched;
+        window.nginxErrorSample = result.sample;
       }
-      
+
       if (type === 'access') {
         window.nginxLoadedText = '[PRE-PARSED]';
-        document.getElementById('nginx-log-input').value = `[File loaded: ${file.name}]\nSize: ${(file.size/1024/1024).toFixed(2)} MB${isGz ? ` (Decompressed: ${(totalBytes/1024/1024).toFixed(2)} MB)` : ''}\n\nClick Analyze Logs to re-run.`;
+        document.getElementById('nginx-log-input').value = `[File loaded: ${file.name}]\nSize: ${(file.size/1024/1024).toFixed(2)} MB${isGz ? ` (Decompressed: ${(result.totalBytes/1024/1024).toFixed(2)} MB)` : ''}\n\nClick Analyze Logs to re-run.`;
       } else {
         window.nginxErrorLoadedText = '[PRE-PARSED]';
-        document.getElementById('nginx-error-log-input').value = `[File loaded: ${file.name}]\nSize: ${(file.size/1024/1024).toFixed(2)} MB${isGz ? ` (Decompressed: ${(totalBytes/1024/1024).toFixed(2)} MB)` : ''}\n\nClick Analyze Logs to re-run.`;
+        document.getElementById('nginx-error-log-input').value = `[File loaded: ${file.name}]\nSize: ${(file.size/1024/1024).toFixed(2)} MB${isGz ? ` (Decompressed: ${(result.totalBytes/1024/1024).toFixed(2)} MB)` : ''}\n\nClick Analyze Logs to re-run.`;
       }
       showLoader('Analyzing logs...');
       setTimeout(() => {
         if (type === 'access') nginxAnalyzeLogs();
         else nginxAnalyzeErrorLogs();
       }, 50);
-      
+
     } catch (err) {
       console.error("Log file reading error:", err);
       hideLoader();
@@ -223,6 +277,23 @@ function nginxParseLine(line) {
     userAgent: match[11],
     rawLine: line
   };
+}
+
+// Pure: distinct client IPs per URL (12.8) — separates "one client hammering
+// an endpoint" from "many real users hitting it", which the existing per-URL
+// hit COUNT alone can't distinguish. A second pass over filteredLogs (the
+// same list nginxAggregateAndRender already builds referrersMap from in a
+// separate pass below), not folded into the main stats loop, so it stays
+// independently testable without the DOM-heavy render function around it.
+function nginxUniqueIpsPerUrl(records) {
+  const sets = {};
+  records.forEach(r => {
+    if (!sets[r.url]) sets[r.url] = new Set();
+    sets[r.url].add(r.ip);
+  });
+  const counts = {};
+  Object.keys(sets).forEach(url => { counts[url] = sets[url].size; });
+  return counts;
 }
 
 function nginxGetOS(ua) {
@@ -534,7 +605,11 @@ async function nginxAggregateAndRender() {
   });
   const topReferrers = Object.entries(referrersMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
 
-  document.getElementById('nx-url-table').querySelector('tbody').innerHTML = toRows(topUrls, stats.total, false, true);
+  const urlUniqueIps = nginxUniqueIpsPerUrl(filteredLogs);
+  document.getElementById('nx-url-table').querySelector('tbody').innerHTML = topUrls.map(([url, c]) => {
+    const uniqueIps = urlUniqueIps[url] || 0;
+    return `<tr><td style="padding:4px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--info);text-decoration:underline" title="${url}" onclick="nginxSetFilter('url', '${url.replace(/'/g, "\\'")}')">${url}</td><td style="padding:4px 8px">${c.toLocaleString('pl-PL')}</td><td style="padding:4px 8px">${((c / stats.total) * 100).toFixed(1)}%</td><td style="padding:4px 8px">${uniqueIps.toLocaleString('pl-PL')}</td></tr>`;
+  }).join('');
   document.getElementById('nx-404-table').querySelector('tbody').innerHTML = toRows(top404s, 0, false, true);
   document.getElementById('nx-os-table').querySelector('tbody').innerHTML = toRows(topOs, 0);
   document.getElementById('nx-ip-table').querySelector('tbody').innerHTML = toRows(topIps, stats.total, true);
@@ -877,6 +952,12 @@ window.nginxSetFilter = nginxSetFilter;
 window.nginxAnalyzeLogs = nginxAnalyzeLogs;
 window.nginxAggregateAndRender = nginxAggregateAndRender;
 window.nginxSendToAnonymizer = nginxSendToAnonymizer;
+
+// Exposed for scripts/parser-test.js (pure functions, no DOM).
+window.nginxUniqueIpsPerUrl = nginxUniqueIpsPerUrl;
+window.nginxDeriveHourStr = nginxDeriveHourStr;
+window.nginxStreamParseFile = nginxStreamParseFile;
+window.NGINX_WORKER_THRESHOLD = NGINX_WORKER_THRESHOLD;
 
 
 // --- Stream Viewer Logic ---

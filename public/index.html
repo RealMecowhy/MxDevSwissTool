@@ -87,7 +87,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.23.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.24.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -268,7 +268,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.23.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.24.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -1179,6 +1179,7 @@
           <div class="card-header">
             <h4 style="flex:1;margin:0;font-size:0.75rem;color:var(--text-secondary)">Input XPath Expression</h4>
             <button class="btn btn-ghost btn-sm" onclick="formatXPathClick()">Format XPath <kbd>Ctrl+Enter</kbd></button>
+            <button class="btn btn-ghost btn-sm" onclick="window.xpathConvertToOql()" title="Convert to an OQL SELECT statement (opens Query Intelligence &rarr; OQL Formatter). Association hops and not(...) are flagged, not guessed.">Convert to OQL &rarr;</button>
             <button class="btn btn-ghost btn-sm" onclick="document.getElementById('xpath-input').value='';document.getElementById('xpath-output').value='';document.getElementById('xpath-result').style.display='none'">Clear</button>
           </div>
           <div class="card-body" style="display:flex;flex:1;padding:0;">
@@ -1220,7 +1221,14 @@
         <div id="qi-tab-formatter" style="display:flex;flex-direction:column;flex:1;height:calc(100% - 40px)">
           <div id="oql-split" style="display:grid;grid-template-columns:1fr 1fr;flex:1;overflow:hidden">
             <div class="json-pane">
-              <div class="json-pane-header"><h4>Input OQL</h4><button class="btn btn-ghost btn-sm" onclick="formatOql()">Format <kbd>Ctrl+Enter</kbd></button><button class="btn btn-ghost btn-sm" onclick="document.getElementById('oql-input').value='';formatOql()">Clear</button></div>
+              <div class="json-pane-header"><h4>Input OQL</h4>
+                <select class="select select-sm" onchange="if(this.value){window.qiInsertOqlPattern(this.value);this.value='';}" title="Insert a common OQL pattern" style="margin-left:auto;margin-right:var(--sp-2)">
+                  <option value="">Insert pattern…</option>
+                  <option value="duplicates">Find duplicates</option>
+                  <option value="countByAssociation">Count by association</option>
+                  <option value="dateRangeFilter">Date range filter with [%tokens%]</option>
+                </select>
+                <button class="btn btn-ghost btn-sm" onclick="formatOql()">Format <kbd>Ctrl+Enter</kbd></button><button class="btn btn-ghost btn-sm" onclick="document.getElementById('oql-input').value='';formatOql()">Clear</button></div>
               <div class="json-pane-body"><textarea class="json-input-area" id="oql-input" placeholder="Paste OQL query here..." oninput="formatOql()"></textarea></div>
             </div>
             <div class="json-pane">
@@ -1234,7 +1242,7 @@
         <div id="qi-tab-translator" style="display:none;flex-direction:column;flex:1;height:calc(100% - 40px)">
           <div class="notice notice-warning" style="margin-bottom:var(--sp-3)">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;width:16px;height:16px"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-            <div style="font-size:0.85rem"><strong>Approximate translation.</strong> This performs token-level substitution (entity paths, CAST types, system tokens) but does <strong>not</strong> translate association-to-JOIN structure. Always verify the result before running it against a database.</div>
+            <div style="font-size:0.85rem"><strong>Approximate translation.</strong> This performs token-level substitution (entity paths, CAST types, system tokens) and, on OQL&rarr;SQL, rewrites association join paths (<code>alias/Module.Assoc/Module.Entity</code>) into a real <code>JOIN</code> with the correct table. The FK <strong>column</strong> in the generated <code>ON</code> clause is a best guess flagged with a comment — Mendix's physical column name isn't recoverable from OQL text alone; verify it against <code>mendixsystem$association</code> or the Domain Model tool. Always verify the result before running it against a database.</div>
           </div>
           <div id="sql-split" style="display:grid;grid-template-columns:1fr 1fr;flex:1;overflow:hidden">
             <div class="json-pane">
@@ -1295,9 +1303,18 @@
                </div>
             </div>
             <div style="flex:1;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-3);display:flex;flex-direction:column">
-               <h4 style="margin-bottom:var(--sp-2)">Schema Visualization (Extracted from OQL)</h4>
-               <div id="qi-schema-canvas" style="flex:1;border:1px dashed var(--border);background:var(--bg-base);position:relative;overflow:auto;display:flex;align-items:center;justify-content:center;">
-                  <span style="color:var(--text-muted)">Awaiting OQL query...</span>
+               <div style="display:flex;align-items:center;gap:var(--sp-2);margin-bottom:var(--sp-2)">
+                 <h4 style="margin:0">Schema Visualization (Extracted from OQL)</h4>
+                 <div class="btn-group" style="margin-left:auto">
+                   <button type="button" class="btn btn-ghost btn-xs" onclick="window.qiSchemaZoomBy(1.2)" title="Zoom in">+</button>
+                   <button type="button" class="btn btn-ghost btn-xs" onclick="window.qiSchemaZoomBy(1/1.2)" title="Zoom out">&minus;</button>
+                   <button type="button" class="btn btn-ghost btn-xs" onclick="window.qiSchemaResetView()" title="Reset pan/zoom">Reset</button>
+                 </div>
+               </div>
+               <div id="qi-schema-canvas" style="flex:1;border:1px dashed var(--border);background:var(--bg-base);position:relative;overflow:hidden;">
+                  <div id="qi-schema-viewport" style="transform-origin:0 0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;">
+                    <span style="color:var(--text-muted)">Awaiting OQL query...</span>
+                  </div>
                </div>
             </div>
           </div>
@@ -1608,7 +1625,11 @@
 
     <!-- ODATA BUILDER -->
     <div class="tool-panel" id="panel-odata-builder">
-      <div class="tool-actions"><button class="btn btn-secondary btn-sm" onclick="odataCopyUrl()">Copy URL</button></div>
+      <div class="tool-actions">
+        <select class="select select-sm" id="odata-history" style="display:none;max-width:280px" onchange="if(this.value)window.odataLoadFromHistory(this.value);this.value=''"></select>
+        <button class="btn btn-secondary btn-sm" onclick="window.odataTest(this)" title="Send one GET request via the Observability Bridge (localhost/private targets by default — see notice on refusal)">Test</button>
+        <button class="btn btn-secondary btn-sm" onclick="odataCopyUrl()">Copy URL</button>
+      </div>
       <div class="tool-body">
         <div class="form-group" style="margin-bottom:var(--sp-4)"><div class="form-label">Service Base URL</div><input class="input input-mono" id="odata-base" placeholder="https://myapp.mendixcloud.com/odata/PublishedService/v1" oninput="odataBuild()"></div>
         <div class="grid-2" style="gap:var(--sp-4);margin-bottom:var(--sp-4)">
@@ -1616,11 +1637,21 @@
           <div class="form-group"><div class="form-label">$format</div><select class="select" id="odata-format" onchange="odataBuild()"><option value="">default (JSON)</option><option value="json">json</option><option value="xml">xml</option></select></div>
         </div>
         <div class="grid-2" style="gap:var(--sp-4);margin-bottom:var(--sp-4)">
-          <div class="form-group"><div class="form-label">$filter</div><input class="input input-mono" id="odata-filter" placeholder="Name eq 'Alice' and Age gt 18" oninput="odataBuild()"></div>
+          <div class="form-group">
+            <div class="form-label">$filter</div>
+            <input class="input input-mono" id="odata-filter" placeholder="Name eq 'Alice' and Age gt 18" oninput="odataBuild()">
+            <div id="odata-filter-rows" style="margin-top:var(--sp-2)"></div>
+            <button type="button" class="btn btn-ghost btn-xs" onclick="window.odataAddFilterRow()">+ Add condition</button>
+          </div>
           <div class="form-group"><div class="form-label">$select</div><input class="input input-mono" id="odata-select" placeholder="Name,Age,Email" oninput="odataBuild()"></div>
         </div>
         <div class="grid-2" style="gap:var(--sp-4);margin-bottom:var(--sp-4)">
-          <div class="form-group"><div class="form-label">$expand</div><input class="input input-mono" id="odata-expand" placeholder="Orders,Orders/Items" oninput="odataBuild()"></div>
+          <div class="form-group">
+            <div class="form-label">$expand</div>
+            <input class="input input-mono" id="odata-expand" placeholder="Orders,Orders/Items" oninput="odataBuild()">
+            <div id="odata-expand-rows" style="margin-top:var(--sp-2)"></div>
+            <button type="button" class="btn btn-ghost btn-xs" onclick="window.odataAddExpandPath()">+ Add expand path</button>
+          </div>
           <div class="form-group"><div class="form-label">$orderby</div><input class="input input-mono" id="odata-orderby" placeholder="Name asc, CreatedDate desc" oninput="odataBuild()"></div>
         </div>
         <div class="form-row" style="margin-bottom:var(--sp-4)">
@@ -1630,6 +1661,7 @@
         </div>
         <div class="form-label" style="margin-bottom:var(--sp-2)">Generated URL</div>
         <div class="odata-url-display" id="odata-url-display"><span style="color:var(--text-muted)">Fill in the fields above...</span></div>
+        <div id="odata-test-result" style="display:none;margin-top:var(--sp-3)"></div>
       </div>
     </div>
 
@@ -2160,6 +2192,7 @@
                   <span class="badge badge-info" id="ds-status-proj-ver" style="font-size:0.75rem">—</span>
                 </div>
                 <div id="ds-status-endpoint" style="font-size:0.75rem; color:var(--text-muted); font-family:var(--font-mono)">http://localhost:8080</div>
+                <div id="ds-status-note" style="font-size:0.7rem; color:var(--warning); margin-top:2px; display:none"></div>
               </div>
             </div>
             <div style="display:flex; gap:var(--sp-2)">
@@ -2325,8 +2358,16 @@
 EntityName -> OtherEntity : Association"></textarea>
         </div>
         <div style="flex:1;display:flex;flex-direction:column;overflow-y:auto">
-           <div class="form-label">Architecture Visualization</div>
-           <div id="arch-output" style="flex:1;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-4);display:flex;flex-direction:column">
+           <div style="display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;margin-bottom:var(--sp-1)">
+             <div class="form-label" style="margin:0">Architecture Visualization</div>
+             <div id="arch-view-toggle" class="btn-group" style="margin-left:var(--sp-2)">
+               <button type="button" class="btn btn-secondary btn-xs active" data-view="entities" onclick="window.archSetViewMode('entities')">Entities</button>
+               <button type="button" class="btn btn-secondary btn-xs" data-view="modules" onclick="window.archSetViewMode('modules')" title="Requires a model loaded from a live database">Modules</button>
+             </div>
+             <input type="text" id="arch-entity-search" placeholder="Find entity…" style="margin-left:auto;width:160px;font-size:0.78rem;padding:2px 6px" oninput="window.archSearchEntity()" onkeydown="if(event.key==='Enter')window.archSearchEntity()">
+             <span id="arch-entity-search-status" style="font-size:0.72rem;color:var(--text-muted);white-space:nowrap"></span>
+           </div>
+           <div id="arch-output" style="flex:1;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-4);display:flex;flex-direction:column;overflow:auto">
               <div style="color:var(--text-muted)">Diagram will appear here...</div>
            </div>
         </div>
@@ -2353,6 +2394,34 @@ EntityName -> OtherEntity : Association"></textarea>
         </div>
         <div id="hash-file-info" style="margin-bottom:var(--sp-3);font-size:0.8rem;color:var(--info);display:none"></div>
         <div id="hash-results" style="display:flex;flex-direction:column;gap:var(--sp-2)"></div>
+
+        <details style="margin-top:var(--sp-4);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-2) var(--sp-3)">
+          <summary style="font-weight:600;font-size:0.82rem;cursor:pointer">BCrypt Verify — Mendix password hash + plaintext &rarr; match</summary>
+          <div style="display:flex;gap:var(--sp-4);margin:var(--sp-2) 0">
+            <div class="form-group" style="flex:1">
+              <div class="form-label">Plaintext password</div>
+              <input class="input input-mono" id="hash-bcrypt-password" placeholder="candidate password" oninput="window.hashBcryptVerify()">
+            </div>
+            <div class="form-group" style="flex:1">
+              <div class="form-label">BCrypt hash (from the database)</div>
+              <input class="input input-mono" id="hash-bcrypt-hash" placeholder="$2a$10$..." oninput="window.hashBcryptVerify()">
+            </div>
+          </div>
+          <div id="hash-bcrypt-result"></div>
+        </details>
+
+        <details style="margin-top:var(--sp-3);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-2) var(--sp-3)">
+          <summary style="font-weight:600;font-size:0.82rem;cursor:pointer">HMAC-SHA256 — webhook signature verification</summary>
+          <div class="form-group" style="margin:var(--sp-2) 0">
+            <div class="form-label">Message</div>
+            <textarea class="code-area" id="hash-hmac-message" rows="3" placeholder="Raw webhook payload..." oninput="window.hashHmacCompute()"></textarea>
+          </div>
+          <div class="form-group" style="margin-bottom:var(--sp-2)">
+            <div class="form-label">Secret key</div>
+            <input class="input input-mono" id="hash-hmac-key" placeholder="webhook signing secret" oninput="window.hashHmacCompute()">
+          </div>
+          <div id="hash-hmac-result"></div>
+        </details>
       </div>
     </div>
 
@@ -2435,6 +2504,16 @@ EntityName -> OtherEntity : Association"></textarea>
             <textarea class="code-area" id="thread-dump-input" rows="8" placeholder="Paste your thread dump here, or drag & drop a file..."></textarea>
           </div>
           <div id="thread-dump-result" style="margin-top:var(--sp-4);display:none;"></div>
+
+          <details style="margin-top:var(--sp-4);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-2) var(--sp-3)">
+            <summary style="font-weight:600;font-size:0.82rem;cursor:pointer">Compare with another dump — highlights threads that changed state</summary>
+            <div class="form-group" style="margin:var(--sp-2) 0">
+              <div class="form-label">Second dump ("after") — the dump above is treated as "before"</div>
+              <textarea class="code-area" id="thread-dump-compare-input" rows="6" placeholder="Paste a second thread dump of the SAME running JVM, taken later..."></textarea>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="window.jvmCompareDumpsClick()">Compare</button>
+            <div id="thread-dump-compare-result" style="margin-top:var(--sp-3);display:none"></div>
+          </details>
         </div>
 
         <!-- GC & MEMORY TAB -->
@@ -2621,7 +2700,7 @@ EntityName -> OtherEntity : Association"></textarea>
               <div class="card-body" style="padding:0;overflow-x:auto">
                 <table style="width:100%;border-collapse:collapse;font-size:0.8rem" id="nx-url-table">
                   <thead style="background:var(--bg-elevated);border-bottom:1px solid var(--border);text-align:left">
-                    <tr><th style="padding:var(--sp-2)">URL</th><th style="padding:var(--sp-2)">Hits</th><th style="padding:var(--sp-2)">%</th></tr>
+                    <tr><th style="padding:var(--sp-2)">URL</th><th style="padding:var(--sp-2)">Hits</th><th style="padding:var(--sp-2)">%</th><th style="padding:var(--sp-2)" title="Distinct client IPs that hit this endpoint — separates one client hammering an endpoint from many real users">Unique IPs</th></tr>
                   </thead>
                   <tbody></tbody>
                 </table>
@@ -2877,8 +2956,8 @@ EntityName -> OtherEntity : Association"></textarea>
           </div>
 
           <div class="card">
-            <div class="card-header"><span style="font-weight:600">Chronological XAS Calls</span><span id="har-timeline-note" style="font-size:0.75rem;color:var(--text-muted);margin-left:auto"></span></div>
-            <div class="card-body" style="padding:0;max-height:280px;overflow-y:auto" id="har-timeline"></div>
+            <div class="card-header"><span style="font-weight:600">Chronological XAS Calls (waterfall)</span><span id="har-timeline-note" style="font-size:0.75rem;color:var(--text-muted);margin-left:auto"></span></div>
+            <div class="card-body" style="padding:0;max-height:380px;overflow-y:auto" id="har-timeline"></div>
           </div>
         </div>
       </div>
@@ -3711,6 +3790,35 @@ EntityName -> OtherEntity : Association"></textarea>
       <div style="display:flex; justify-content:flex-end; gap:var(--sp-2)">
         <button class="btn btn-secondary" onclick="logClosePasteModal()">Cancel</button>
         <button class="btn btn-primary" onclick="logSubmitPaste()">Parse Logs</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- HAR CALL DETAIL MODAL (request/response body) -->
+<div class="modal-overlay" id="har-detail-modal" onclick="if(event.target===this)harCloseDetailModal()">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5" style="width:20px;height:20px;margin-right:var(--sp-2)"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>
+        <span id="har-detail-title">XAS call</span>
+      </div>
+      <button class="modal-close" onclick="harCloseDetailModal()" aria-label="Close dialog"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="modal-body" style="padding:var(--sp-4); display:flex; flex-direction:column; gap:var(--sp-3);">
+      <div id="har-detail-meta" style="font-size:0.78rem;color:var(--text-muted);font-family:var(--font-mono)"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span style="font-weight:600;font-size:0.82rem">Request body</span>
+        <button class="btn btn-ghost btn-sm" onclick="harCopyDetailBody('request', this)">Copy</button>
+      </div>
+      <div id="har-detail-request" style="background:var(--bg-elevated); padding:var(--sp-3); border-radius:var(--r-md); border:1px solid var(--border); font-size:0.8rem; font-family:var(--font-mono); max-height:25vh; overflow:auto; white-space:pre-wrap; word-break:break-word;"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span style="font-weight:600;font-size:0.82rem">Response body</span>
+        <button class="btn btn-ghost btn-sm" onclick="harCopyDetailBody('response', this)">Copy</button>
+      </div>
+      <div id="har-detail-response" style="background:var(--bg-elevated); padding:var(--sp-3); border-radius:var(--r-md); border:1px solid var(--border); font-size:0.8rem; font-family:var(--font-mono); max-height:30vh; overflow:auto; white-space:pre-wrap; word-break:break-word;"></div>
+      <div style="display:flex; justify-content:flex-end;">
+        <button class="btn btn-primary btn-sm" onclick="harCloseDetailModal()">Close</button>
       </div>
     </div>
   </div>

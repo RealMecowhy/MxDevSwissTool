@@ -1,9 +1,53 @@
 // DEVELOPER STUDIO (Module L)
 
-let dsPollInterval = null;
+let dsPollTimer = null;
 let dsIsConnected = false;
 let dsProjectData = null;
 let dsProjectsList = [];
+let dsReconnectAttempts = 0;
+
+// ── Auto-reconnect with backoff (12.11) ─────────────────────────────────────
+// Before this, once connected the poll loop only ever re-ran auto-detect
+// while DISconnected — nothing ever checked the Bridge was still there, so a
+// Bridge restart left the dashboard showing stale data forever, silently.
+const DS_POLL_INTERVAL_MS = 3000;
+const DS_BACKOFF_MAX_MS = 30000;
+
+// Exponential, not fixed-interval retry — a Bridge that's down for a while
+// (a rebuild, a crash needing a manual restart) shouldn't get hammered every
+// 3s indefinitely. Capped at 30s so a quick restart is still picked up soon.
+function dsBackoffDelay(attempts) {
+  return Math.min(DS_BACKOFF_MAX_MS, 1000 * Math.pow(2, attempts));
+}
+
+// Lightweight liveness probe — /status (already used elsewhere in the app,
+// e.g. the topbar Bridge indicator) rather than re-running the heavier
+// /detect-project auto-detect flow just to check the Bridge is still up.
+async function dsCheckAlive() {
+  try {
+    const res = await fetch('http://localhost:9999/status');
+    return res.ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+function dsSetReconnecting(isReconnecting, attempts) {
+  const indicator = document.getElementById('ds-status-indicator');
+  const note = document.getElementById('ds-status-note');
+  if (indicator) {
+    indicator.style.background = isReconnecting ? 'var(--warning)' : 'var(--success)';
+    indicator.style.boxShadow = isReconnecting ? '0 0 8px var(--warning)' : '0 0 8px var(--success)';
+  }
+  if (note) {
+    if (isReconnecting) {
+      note.textContent = 'Bridge unreachable — retrying (attempt ' + attempts + ')…';
+      note.style.display = 'block';
+    } else {
+      note.style.display = 'none';
+    }
+  }
+}
 
 async function dsAutoDetectProject() {
   if (dsIsConnected) return;
@@ -322,9 +366,10 @@ async function dsFetchProjectInsights() {
 
 function dsInitState() {
   dsIsConnected = false;
-  if (dsPollInterval) {
-    clearInterval(dsPollInterval);
-    dsPollInterval = null;
+  dsReconnectAttempts = 0;
+  if (dsPollTimer) {
+    clearTimeout(dsPollTimer);
+    dsPollTimer = null;
   }
 }
 
@@ -333,9 +378,28 @@ function dsDisconnect() {
   dsShowOfflineView();
 }
 
+function dsSchedulePoll(delayMs) {
+  if (dsPollTimer) clearTimeout(dsPollTimer);
+  dsPollTimer = setTimeout(dsPollData, delayMs);
+}
+
 async function dsPollData() {
   if (!dsIsConnected) {
     await dsAutoDetectProject();
+    dsSchedulePoll(DS_POLL_INTERVAL_MS);
+    return;
+  }
+  // Connected: confirm the Bridge is still alive. A restart (rebuild, crash,
+  // manual stop/start) previously left the dashboard showing stale data with
+  // no indication anything was wrong — this is the fix.
+  const alive = await dsCheckAlive();
+  if (alive) {
+    if (dsReconnectAttempts > 0) { dsReconnectAttempts = 0; dsSetReconnecting(false); }
+    dsSchedulePoll(DS_POLL_INTERVAL_MS);
+  } else {
+    dsReconnectAttempts++;
+    dsSetReconnecting(true, dsReconnectAttempts);
+    dsSchedulePoll(dsBackoffDelay(dsReconnectAttempts));
   }
 }
 
@@ -344,12 +408,7 @@ async function dsPollData() {
 function dsShowDashboard() {
   document.getElementById('ds-offline-view').style.display = 'none';
   document.getElementById('ds-dashboard-view').style.display = 'flex';
-  
-  const statusIndicator = document.getElementById('ds-status-indicator');
-  if (statusIndicator) {
-    statusIndicator.style.background = 'var(--success)';
-    statusIndicator.style.boxShadow = '0 0 8px var(--success)';
-  }
+  dsSetReconnecting(false);
 }
 
 function dsShowOfflineView() {
@@ -361,15 +420,17 @@ function dsShowOfflineView() {
 window.dsDisconnect = dsDisconnect;
 window.dsPollData = dsPollData;
 
+// Exposed for scripts/parser-test.js (pure function, no DOM).
+window.dsBackoffDelay = dsBackoffDelay;
+
 export function cleanup() {
-  if (dsPollInterval) {
-    clearInterval(dsPollInterval);
-    dsPollInterval = null;
+  if (dsPollTimer) {
+    clearTimeout(dsPollTimer);
+    dsPollTimer = null;
   }
 }
 
 export function init() {
   dsInitState();
-  dsPollInterval = setInterval(dsPollData, 3000);
   dsPollData();
 }

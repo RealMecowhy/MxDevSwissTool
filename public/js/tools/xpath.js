@@ -87,6 +87,147 @@ function xpathDeepHops(val) {
   return hops;
 }
 
+// ── XPath → OQL conversion (12.4) ───────────────────────────────────────────
+// Best-effort, like xpathDeepHops above — not a full XPath grammar. Two things
+// are honestly refused rather than guessed, with the reason kept as a `-- `
+// comment AND a bare string literal in the WHERE clause that fails loudly if
+// run as-is (a string is not a boolean — Postgres rejects it), rather than a
+// placeholder that would silently widen or narrow the real result set:
+//  - not(...) and any parenthesized sub-group — precedence gets ambiguous
+//    fast, and a wrong guess here silently changes query semantics.
+//  - association hops (a '/' in the left-hand path): raw XPath only names the
+//    ASSOCIATION, never the target entity, but this app's own OQL join syntax
+//    (alias/Module.Assoc/Module.Entity — see query-intelligence.js) requires
+//    that entity name explicitly. It isn't in the XPath text, so it can't be
+//    filled in without guessing.
+// This tool's input is normally a bare constraint (`[Status = 'Active']`, per
+// its own placeholder) rather than a full `//Module.Entity[...]` — a leading
+// `//Module.Entity` is still recognized when present (e.g. pasted from a cross
+// link elsewhere in the app), but its absence just means the FROM clause gets
+// an honest `<Module.Entity>` placeholder instead of a guessed entity name.
+function xpathToOql(xpath) {
+  const val = String(xpath == null ? '' : xpath).trim();
+  if (!val) return { oql: '', notes: [] };
+
+  const masked = sqeMask(val);
+  const text = masked.masked;
+  const unmaskFrag = s => sqeUnmask(s, masked.tokens);
+  const notes = [];
+  const rootAlias = 'e';
+
+  const rootMatch = text.match(/^\/\/([A-Za-z_]\w*)\.([A-Za-z_]\w*)/);
+  let fromEntity, bodyStart;
+  if (rootMatch) {
+    fromEntity = rootMatch[1] + '.' + rootMatch[2];
+    bodyStart = rootMatch[0].length;
+  } else {
+    fromEntity = '<Module.Entity>';
+    bodyStart = 0;
+    notes.push("No root entity in the input (this tool accepts bare constraints like [Status = 'Active']) — replace <Module.Entity> below with the real entity.");
+  }
+
+  // Top-level [...] blocks — XPath ANDs them together implicitly.
+  const blocks = [];
+  {
+    let depth = 0, cur = '';
+    for (let i = bodyStart; i < text.length; i++) {
+      const c = text[i];
+      if (c === '[') { if (depth === 0) cur = ''; else cur += c; depth++; continue; }
+      if (c === ']') { depth--; if (depth === 0) blocks.push(cur); else cur += c; continue; }
+      if (depth > 0) cur += c;
+    }
+  }
+
+  function splitBoolean(block) {
+    const exprs = [], joiners = [];
+    let depth = 0, cur = '', i = 0;
+    while (i < block.length) {
+      const c = block[i];
+      if (c === '(') { depth++; cur += c; i++; continue; }
+      if (c === ')') { depth--; cur += c; i++; continue; }
+      if (depth === 0) {
+        const rest = block.slice(i);
+        const andM = rest.match(/^\s+and\s+/i);
+        const orM = rest.match(/^\s+or\s+/i);
+        if (andM) { exprs.push(cur.trim()); joiners.push('AND'); cur = ''; i += andM[0].length; continue; }
+        if (orM) { exprs.push(cur.trim()); joiners.push('OR'); cur = ''; i += orM[0].length; continue; }
+      }
+      cur += c; i++;
+    }
+    exprs.push(cur.trim());
+    return { exprs, joiners };
+  }
+
+  function translatePath(path) {
+    const segs = path.split('/').map(s => s.trim()).filter(Boolean);
+    if (segs.length <= 1) return { ref: rootAlias + '.' + (segs[0] || path), hop: false };
+    return { hop: true };
+  }
+
+  function hopNote(path) {
+    return "association hop not translated — XPath does not name the target entity, but this app's OQL join syntax (alias/Module.Assoc/Module.Entity) requires it: `" + unmaskFrag(path) + '`';
+  }
+
+  function translateAtomic(expr) {
+    const t = expr.trim();
+    if (/^not\s*\(/i.test(t)) return { sql: null, note: 'not(...) condition not translated: `' + unmaskFrag(t) + '`' };
+    if (/^\(.*\)$/.test(t)) return { sql: null, note: 'grouped condition not translated: `' + unmaskFrag(t) + '`' };
+
+    let m = t.match(/^contains\(\s*([^,]+?)\s*,\s*(.+)\)$/i);
+    if (m) {
+      const col = translatePath(m[1].trim());
+      if (col.hop) return { sql: null, note: hopNote(m[1].trim()) };
+      const raw = unmaskFrag(m[2].trim()).replace(/^'(.*)'$/, '$1');
+      return { sql: col.ref + " LIKE '%" + raw + "%'" };
+    }
+    m = t.match(/^starts-with\(\s*([^,]+?)\s*,\s*(.+)\)$/i);
+    if (m) {
+      const col = translatePath(m[1].trim());
+      if (col.hop) return { sql: null, note: hopNote(m[1].trim()) };
+      const raw = unmaskFrag(m[2].trim()).replace(/^'(.*)'$/, '$1');
+      return { sql: col.ref + " LIKE '" + raw + "%'" };
+    }
+    m = t.match(/^(.+?)\s*(!=|>=|<=|=|>|<)\s*(.+)$/);
+    if (!m) return { sql: null, note: 'unrecognized condition not translated: `' + unmaskFrag(t) + '`' };
+    const col = translatePath(m[1].trim());
+    if (col.hop) return { sql: null, note: hopNote(m[1].trim()) };
+    return { sql: col.ref + ' ' + m[2] + ' ' + unmaskFrag(m[3].trim()) };
+  }
+
+  const blockStrings = blocks.map(block => {
+    const { exprs, joiners } = splitBoolean(block);
+    const pieces = [];
+    exprs.forEach((expr, idx) => {
+      const r = translateAtomic(expr);
+      if (r.sql) { pieces.push(r.sql); }
+      else { notes.push(r.note); pieces.push('/* UNTRANSLATED: ' + r.note + " */ '#FIX_ME#'"); }
+      if (idx < joiners.length) pieces.push(joiners[idx]);
+    });
+    const joined = pieces.join(' ');
+    return exprs.length > 1 ? '(' + joined + ')' : joined;
+  });
+
+  const whereClause = blockStrings.join(' AND ');
+  let oql = 'SELECT * FROM ' + fromEntity + ' ' + rootAlias;
+  if (whereClause) oql += '\nWHERE ' + whereClause;
+  if (notes.length) oql = notes.map(n => '-- ' + n).join('\n') + '\n' + oql;
+  return { oql, notes };
+}
+
+window.xpathConvertToOql = function () {
+  const input = document.getElementById('xpath-input');
+  const result = xpathToOql(input ? input.value : '');
+  if (!result.oql) { alert('Enter an XPath expression or constraint first.'); return; }
+  window.navigateWithReturn('query-intelligence');
+  const tabBtn = document.querySelector('#panel-query-intelligence .tabs .tab[data-help-key="query-intelligence-formatter"]');
+  if (window.qiSetTab) window.qiSetTab('formatter', tabBtn);
+  const oqlInput = document.getElementById('oql-input');
+  if (oqlInput) {
+    oqlInput.value = result.oql;
+    if (window.formatOql) window.formatOql();
+  }
+};
+
 function formatXPathClick() {
   let val = document.getElementById('xpath-input').value;
   if (!val) { document.getElementById('xpath-output').value = ''; return; }
@@ -118,5 +259,6 @@ function formatXPathClick() {
 window.xpathAnalyze = xpathAnalyze;
 window.formatXPathClick = formatXPathClick;
 window.xpathDeepHops = xpathDeepHops;
+window.xpathToOql = xpathToOql;
 
 export function init() {}

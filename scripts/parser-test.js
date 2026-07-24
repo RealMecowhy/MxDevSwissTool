@@ -2731,8 +2731,394 @@ eq('markdown snippet insert: caret right after a blank line gets no extra blank 
 eq('markdown snippet insert: caret at end of a single newline gets one more, not two', global.mdSnippetInsertText('Some text\n', '## X\n'), '\n## X\n');
 eq('markdown snippet insert: caret mid-paragraph gets a full blank-line separator', global.mdSnippetInsertText('Some text', '## X\n'), '\n\n## X\n');
 
+// =========================================================================
+// HAR ANALYZER — waterfall grouping, duplicate-call detection, body decoding (12.1)
+// =========================================================================
+console.log('\nHAR Analyzer');
+require('../public/js/tools/har-analyzer.js');
+
+// harDetectDuplicates: back-to-back identical calls, not just "same group somewhere".
+const harNoDups = [
+  { action: 'ExecuteAction', detail: 'A', time: 10, startMs: 0 },
+  { action: 'ExecuteAction', detail: 'B', time: 10, startMs: 10 },
+  { action: 'ExecuteAction', detail: 'A', time: 10, startMs: 20 }
+];
+eq('duplicate detection: non-adjacent repeats are not flagged', global.harDetectDuplicates(harNoDups).length, 0);
+
+const harWithDups = [
+  { action: 'RetrieveByXPath', detail: 'X', time: 15, startMs: 0 },
+  { action: 'RetrieveByXPath', detail: 'X', time: 12, startMs: 20 },
+  { action: 'RetrieveByXPath', detail: 'X', time: 11, startMs: 45 },
+  { action: 'ExecuteAction', detail: 'Y', time: 5, startMs: 60 }
+];
+const harDups = global.harDetectDuplicates(harWithDups);
+eq('duplicate detection: finds one run of 3', harDups.length, 1);
+eq('duplicate detection: run count is 3', harDups[0].count, 3);
+eq('duplicate detection: span is last.startMs - first.startMs', harDups[0].spanMs, 45);
+eq('duplicate detection: wasted time excludes the first call', harDups[0].wastedMs, 23);
+eq('duplicate detection: single call never counts as a run', global.harDetectDuplicates([harWithDups[3]]).length, 0);
+
+// harGroupByPage: buckets by pageref, preserving first-appearance order; falls back
+// to a single unlabeled group (title=null) when the HAR has no `pages` array.
+const harPageItems = [
+  { action: 'a', detail: '', pageref: 'page_1' },
+  { action: 'b', detail: '', pageref: 'page_2' },
+  { action: 'c', detail: '', pageref: 'page_1' }
+];
+const harPages = [{ id: 'page_1', title: 'Home' }, { id: 'page_2', title: 'Detail' }];
+const harGrouped = global.harGroupByPage(harPageItems, harPages);
+eq('page grouping: two pages, first-appearance order', harGrouped.map(function (g) { return g.pageId; }).join(','), 'page_1,page_2');
+eq('page grouping: titles resolved from har.log.pages', harGrouped[0].title, 'Home');
+eq('page grouping: items stay in original chronological order within a page', harGrouped[0].items.map(function (x) { return x.action; }).join(','), 'a,c');
+const harUngrouped = global.harGroupByPage([{ action: 'a', detail: '' }], []);
+eq('page grouping: no pages array → single group with null title', harUngrouped.length, 1);
+eq('page grouping: no pages array → title is null, not a guess', harUngrouped[0].title, null);
+
+// harContentText: base64-encoded response content decodes to real UTF-8 bytes
+// (not the escape/unescape textual trick, which mangles multi-byte characters).
+eq('content decode: plain text passes through', global.harContentText({ text: 'hello' }), 'hello');
+eq('content decode: empty content is empty string', global.harContentText(null), '');
+const harUtf8Sample = '{"city":"Zürich"}';
+const harB64 = Buffer.from(harUtf8Sample, 'utf-8').toString('base64');
+eq('content decode: base64-encoded UTF-8 (incl. multi-byte char) decodes correctly', global.harContentText({ text: harB64, encoding: 'base64' }), harUtf8Sample);
+
+// harBarColor: pure classification used to color the waterfall bars.
+eq('bar color: retrieve → info', global.harBarColor('RetrieveByXPath'), 'var(--info)');
+eq('bar color: execute → accent', global.harBarColor('ExecuteAction'), 'var(--accent)');
+eq('bar color: commit → success', global.harBarColor('CommitObjects'), 'var(--success)');
+eq('bar color: unknown action → muted, not a guess', global.harBarColor('xas'), 'var(--text-muted)');
+
+// =========================================================================
+// DOMAIN MODEL & ARCHITECTURE — module dependency graph (12.2)
+// =========================================================================
+console.log('\nDomain Model & Architecture — module dependency graph');
+require('../public/js/tools/architecture.js');
+
+eq('module of: qualified name', global.archModuleOf('eShop.Customer'), 'eShop');
+eq('module of: unqualified name → (none)', global.archModuleOf('Customer'), '(none)');
+eq('mermaid id: sanitizes non-alnum', global.archMermaidId('My Module!'), 'm_My_Module_');
+
+const archModel = {
+  modules: [{ name: 'eShop', entityCount: 3 }, { name: 'System', entityCount: 10 }, { name: 'Admin', entityCount: 2 }],
+  associations: [
+    { one: 'eShop.Customer', many: 'eShop.Order' },
+    { one: 'eShop.Customer', many: 'System.User' },
+    { one: 'eShop.Customer', many: 'System.User' },
+    { one: 'Admin.Role', many: 'System.User' }
+  ]
+};
+const archGraph = global.archBuildModuleGraph(archModel);
+eq('module graph: one node per module', archGraph.nodes.length, 3);
+eq('module graph: same-module association produces no edge', archGraph.edges.filter(function (e) { return e.a === e.b; }).length, 0);
+eq('module graph: two distinct cross-module edges', archGraph.edges.length, 2);
+const archEdgeES = archGraph.edges.find(function (e) { return (e.a === 'System' && e.b === 'eShop') || (e.a === 'eShop' && e.b === 'System'); });
+ok('module graph: repeated cross-module association is counted, not deduped to 1', !!archEdgeES && archEdgeES.count === 2);
+
+const archCode = global.archModuleGraphToMermaid(archGraph);
+ok('module mermaid: starts with graph LR', archCode.indexOf('graph LR') === 0);
+ok('module mermaid: node label includes entity count', /eShop \(3\)/.test(archCode));
+ok('module mermaid: edge label includes cross-module count', /---\|"2"\|/.test(archCode));
+ok('module mermaid: empty model shows an explicit placeholder, not a blank diagram', /No modules loaded/.test(global.archModuleGraphToMermaid({ nodes: [], edges: [] })));
+
+// =========================================================================
+// QUERY INTELLIGENCE — OQL association-join → SQL JOIN translation (12.3)
+// =========================================================================
+console.log('\nQuery Intelligence — OQL association joins');
+require('../public/js/tools/query-intelligence.js');
+
+const qiJoinOql = 'SELECT c.Name, o.Amount FROM eShop.Customer c INNER JOIN c/eShop.Customer_Order/eShop.Order o WHERE o.Amount > 100';
+const qiJoinSql = global.oqlTranslateAssociationJoins(qiJoinOql);
+ok('association join: rewrites to a real JOIN keyword', /INNER JOIN eshop\$order o/.test(qiJoinSql));
+ok('association join: ON clause references the parent alias id', /ON c\.id = o\./.test(qiJoinSql));
+ok('association join: FK column guess is flagged with a verification comment, not presented as fact', /verify the FK column/.test(qiJoinSql));
+ok('association join: association name appears in the comment for the reader to check', /Customer_Order/.test(qiJoinSql));
+eq('association join: FROM clause (no JOIN keyword) is left untouched by this step', global.oqlTranslateAssociationJoins('FROM eShop.Customer c'), 'FROM eShop.Customer c');
+
+const qiLeftJoin = global.oqlTranslateAssociationJoins('LEFT JOIN c/eShop.Customer_Order/eShop.Order o');
+ok('association join: LEFT JOIN keyword preserved', /^LEFT JOIN eshop\$order o ON/.test(qiLeftJoin));
+
+const qiNoAlias = global.oqlTranslateAssociationJoins('JOIN c/eShop.Customer_Order/eShop.Order');
+ok('association join: missing target alias falls back to a derived one, not a blank', /ON c\.id = eshop_order\./.test(qiNoAlias));
+
+['duplicates', 'countByAssociation', 'dateRangeFilter'].forEach(function (key) {
+  const p = global.OQL_PATTERNS[key];
+  ok('OQL pattern "' + key + '" is registered with non-empty OQL and a label', !!p && typeof p.oql === 'string' && p.oql.length > 10 && typeof p.label === 'string');
+});
+ok('OQL pattern "dateRangeFilter" uses only verified Mendix tokens (no invented EndOf*/BeginOfNext*)', !/EndOf|BeginOfNext/.test(global.OQL_PATTERNS.dateRangeFilter.oql));
+
+// =========================================================================
+// XPATH FORMATTER — XPath → OQL conversion (12.4)
+// =========================================================================
+console.log('\nXPath → OQL conversion');
+require('../public/js/tools/xpath.js');
+
+const xoSimple = global.xpathToOql("[Status = 'Active']");
+eq('xpath→oql: bare constraint gets an honest entity placeholder', xoSimple.oql.indexOf('FROM <Module.Entity> e') !== -1, true);
+ok('xpath→oql: bare constraint notes the missing root entity', xoSimple.notes.some(function (n) { return /No root entity/.test(n); }));
+ok('xpath→oql: simple comparison translated to alias.Attr', /e\.Status = 'Active'/.test(xoSimple.oql));
+
+const xoRoot = global.xpathToOql("//eShop.Customer[Status = 'Active']");
+eq('xpath→oql: root entity recognized when the //Module.Entity prefix is present', xoRoot.notes.length, 0);
+ok('xpath→oql: FROM clause uses the real entity', /FROM eShop\.Customer e/.test(xoRoot.oql));
+ok('xpath→oql: WHERE clause is correct', /WHERE e\.Status = 'Active'/.test(xoRoot.oql));
+
+const xoAndOr = global.xpathToOql("//eShop.Customer[Status = 'Active' and Age > 18]");
+ok('xpath→oql: AND preserved between two conditions', /e\.Status = 'Active' AND e\.Age > 18/.test(xoAndOr.oql));
+
+const xoContains = global.xpathToOql("//eShop.Customer[contains(Name, 'Corp')]");
+ok('xpath→oql: contains() becomes a LIKE wildcard on both sides', /e\.Name LIKE '%Corp%'/.test(xoContains.oql));
+
+const xoStartsWith = global.xpathToOql("//eShop.Customer[starts-with(Name, 'Acme')]");
+ok('xpath→oql: starts-with() becomes a trailing-wildcard LIKE', /e\.Name LIKE 'Acme%'/.test(xoStartsWith.oql));
+
+const xoHop = global.xpathToOql("//eShop.Customer[Orders/Amount > 100]");
+ok('xpath→oql: association hop is flagged, not guessed', xoHop.notes.some(function (n) { return /association hop not translated/.test(n); }));
+ok('xpath→oql: untranslated condition fails loudly instead of silently widening the query', /UNTRANSLATED/.test(xoHop.oql) && /#FIX_ME#/.test(xoHop.oql));
+
+const xoNot = global.xpathToOql("//eShop.Customer[not(Status = 'Blocked')]");
+ok('xpath→oql: not(...) is flagged, not guessed', xoNot.notes.some(function (n) { return /not\(\.\.\.\) condition/.test(n); }));
+
+eq('xpath→oql: empty input produces empty output, not a placeholder query', global.xpathToOql('').oql, '');
+
+const xoSlashInString = global.xpathToOql("//eShop.Customer[WebsiteUrl = 'https://example.com/path']");
+eq('xpath→oql: a slash inside a string literal is never mistaken for an association hop', xoSlashInString.notes.length, 0);
+ok('xpath→oql: the URL value survives untouched', /e\.WebsiteUrl = 'https:\/\/example\.com\/path'/.test(xoSlashInString.oql));
+
+// =========================================================================
+// ODATA BUILDER — filter builder, expand paths, URL history (12.5)
+// =========================================================================
+console.log('\nOData Builder');
+require('../public/js/tools/odata.js');
+
+eq('filter value: number stays unquoted', global.odataFormatFilterValue('42'), '42');
+eq('filter value: decimal stays unquoted', global.odataFormatFilterValue('3.14'), '3.14');
+eq('filter value: boolean stays unquoted and lowercased', global.odataFormatFilterValue('TRUE'), 'true');
+eq('filter value: string gets single-quoted', global.odataFormatFilterValue('Alice'), "'Alice'");
+eq('filter value: embedded quote is doubled (OData string escape)', global.odataFormatFilterValue("O'Brien"), "'O''Brien'");
+
+const odFilterRows = [
+  { attr: 'Name', op: 'eq', value: 'Alice' },
+  { attr: 'Age', op: 'gt', value: '18' },
+  { attr: 'Email', op: 'contains', value: 'corp.com' },
+  { attr: '', op: 'eq', value: 'ignored — no attribute' },
+  { attr: 'Ignored', op: 'eq', value: '' }
+];
+eq('filter builder: comparisons + function form, incomplete rows dropped',
+  global.odataBuildFilterExpr(odFilterRows),
+  "Name eq 'Alice' and Age gt 18 and contains(Email,'corp.com')");
+eq('filter builder: empty row list yields empty string, not "and"', global.odataBuildFilterExpr([]), '');
+
+const odUrl = global.odataBuildUrl({ base: 'https://app.example.com/odata/Svc/v1', entity: 'Customers', filter: "Name eq 'Alice'", select: '', expand: '', orderby: '', top: '10', skip: '', count: '', format: '' });
+eq('build URL: entity + $filter + $top, value URL-encoded', odUrl, "https://app.example.com/odata/Svc/v1/Customers?$filter=Name%20eq%20'Alice'&$top=10");
+
+const odParsed = global.odataParseUrl(odUrl);
+eq('parse URL: base recovered', odParsed.base, 'https://app.example.com/odata/Svc/v1');
+eq('parse URL: entity recovered', odParsed.entity, 'Customers');
+eq('parse URL: $filter recovered and decoded', odParsed.filter, "Name eq 'Alice'");
+eq('parse URL: $top recovered', odParsed.top, '10');
+eq('parse URL round-trips through build again', global.odataBuildUrl(Object.assign({ format: '', count: '' }, odParsed)), odUrl);
+
+const odNoParams = global.odataBuildUrl({ base: 'https://app.example.com/odata/Svc/v1', entity: '', filter: '', select: '', expand: '', orderby: '', top: '', skip: '', count: '', format: '' });
+eq('build URL: no entity/params falls back to base URL only', odNoParams, 'https://app.example.com/odata/Svc/v1');
+
+// =========================================================================
+// SAML / OIDC DEBUGGER — X.509 certificate parsing + clock-skew hint (12.6)
+// =========================================================================
+console.log('\nSAML Debugger — X.509 + clock skew');
+require('../public/js/tools/saml-debugger.js');
+
+// Synthetic self-signed cert (openssl req -x509 -newkey rsa:2048 -days 365
+// -subj "/C=NL/O=MxDevTest/CN=idp.example.com"), not a real IdP — generated
+// purely to give the DER walker a real ASN.1 structure to parse. Verified
+// against `openssl x509 -noout -subject -issuer -dates` before pasting here.
+const samlTestCertB64 = 'MIIDVzCCAj+gAwIBAgIUJGgIt6rFQnUHq9WXkw1P+PnnhHkwDQYJKoZIhvcNAQELBQAwOzELMAkGA1UEBhMCTkwxEjAQBgNVBAoMCU14RGV2VGVzdDEYMBYGA1UEAwwPaWRwLmV4YW1wbGUuY29tMB4XDTI2MDcyNDIxMTg1M1oXDTI3MDcyNDIxMTg1M1owOzELMAkGA1UEBhMCTkwxEjAQBgNVBAoMCU14RGV2VGVzdDEYMBYGA1UEAwwPaWRwLmV4YW1wbGUuY29tMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsunyxgFuPobeDljc1v6C0SAzno6AFp8G2L6HGAyU2UmOFozSgrPfgkKk/C9S/Gkn8/o8ezzJIuI0265dlcckuFXj21YPuJD1xy8L3mGr9OfZUrQGcL28bI4uRKle99HoHJU2BPEl/SrMXAlRfB93c/G/W+f4WDipeHwEuszBKYycxJWe6R87c1SLQX5Y5F7c++3tfzdmThqTsXyvoBy6dur3Suo/HpdgjhGGx2EE2N+m64jPoRea9zR5k65w9sO9LcAOUa7cgTipIpKBFzuX47nfYnPRAh5XiyWeSG0DF2hDU48L8QPsQBLtNgjonSKD4/jpUtCSrGc07gy+a7xy3QIDAQABo1MwUTAdBgNVHQ4EFgQUHx/Y3rXDWZZEbsJBrCGi74OdHU0wHwYDVR0jBBgwFoAUHx/Y3rXDWZZEbsJBrCGi74OdHU0wDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAN3tFl3ILd9FZSiGiNKWZ4fVQHHmPskSb3FWNM2x+6xGkK26FshtsVr+5M28CreljptXsZHSzr1kRBWkJNarjwEZZ7vE9MyEJ4uLMdQdKHpV2L0Tp5nVNTQDMNYPrbTbGysDWTpBRVqx4HIqbiuj9OXMjB9/iOz9HEM2fkM6NQ3To1Wc3aKcVfSuw8t1Q04/oQxTtsnA4Wu04ykOo27RdIbvOkM2WGmiXqnFdSdsQ+UZ57AJ1hbYWWfAE0RBhq502PfdZXJdrn/K5+waJNZ7Bk8zSe7wa2qewP7pLc5oj6xUCKEQNyWsTpFcd0TC92z1c3h8q8N4ZxqUIpbhrr1FHFA==';
+
+const samlCert = global.x509ParseCertificate(samlTestCertB64);
+eq('x509: Issuer matches `openssl x509 -noout -issuer`', samlCert.issuer, 'C=NL, O=MxDevTest, CN=idp.example.com');
+eq('x509: Subject matches `openssl x509 -noout -subject`', samlCert.subject, 'C=NL, O=MxDevTest, CN=idp.example.com');
+eq('x509: notBefore matches openssl (2026-07-24 21:18:53 UTC)', samlCert.notBefore.toISOString(), '2026-07-24T21:18:53.000Z');
+eq('x509: notAfter matches openssl (2027-07-24 21:18:53 UTC, 365 days later)', samlCert.notAfter.toISOString(), '2027-07-24T21:18:53.000Z');
+eq('x509: not expired (notAfter is in 2027)', samlCert.isExpired, false);
+
+eq('x509: empty input is not an error, just nothing to show', global.x509ParseCertificate(''), null);
+ok('x509: garbage Base64-looking input reports a parse error, not a crash', !!global.x509ParseCertificate('AAAA').error);
+ok('x509: invalid Base64 reports an error', !!global.x509ParseCertificate('not-base64!!!').error);
+
+eq('clock skew: NotBefore in the past → no warning', global.samlClockSkewMinutes('2020-01-01T00:00:00Z', Date.now()), null);
+eq('clock skew: no NotBefore → no warning', global.samlClockSkewMinutes(null, Date.now()), null);
+eq('clock skew: NotBefore 5 minutes in the future → 5', global.samlClockSkewMinutes(new Date(Date.now() + 5 * 60000).toISOString(), Date.now()), 5);
+eq('clock skew: unparseable NotBefore → no warning, not NaN', global.samlClockSkewMinutes('not-a-date', Date.now()), null);
+
+// =========================================================================
+// MEMORY INSPECTOR — GC log format auto-detection (12.7)
+// =========================================================================
+console.log('\nMemory Inspector — GC log parsing');
+require('../public/js/tools/memory-inspector.js');
+
+const miUnifiedLog = [
+  '[2026-07-24T10:15:23.456+0200][123.456s][info][gc] GC(0) Pause Young (Normal) (G1 Evacuation Pause) 512M->128M(2048M) 12.345ms',
+  '[2026-07-24T10:16:23.456+0200][183.456s][info][gc] GC(1) Pause Young (Normal) (G1 Evacuation Pause) 600M->150M(2048M) 15.000ms',
+  '[2026-07-24T10:20:23.456+0200][423.456s][info][gc] GC(2) Pause Full (System.gc()) 1024M->256M(2048M) 45.678ms'
+].join('\n');
+const miVerboseLog = [
+  '2026-07-24T10:15:23.456+0200: 123.456: [GC (Allocation Failure) [PSYoungGen: 524288K->65536K(611328K)] 1048576K->602112K(2097152K), 0.0234567 secs] [Times: user=0.05 sys=0.01, real=0.02 secs]',
+  '2026-07-24T10:15:25.789+0200: 125.789: [Full GC (Ergonomics) [PSYoungGen: 65536K->0K(611328K)] [ParOldGen: 536576K->450000K(1398272K)] 602112K->450000K(2009600K), 0.1234567 secs]'
+].join('\n');
+
+eq('GC format: unified (-Xlog:gc) detected', global.miDetectGcFormat(miUnifiedLog), 'unified');
+eq('GC format: classic (-verbose:gc) detected', global.miDetectGcFormat(miVerboseLog), 'verbose');
+eq('GC format: a jmap histogram is not mistaken for a GC log', global.miDetectGcFormat('   1:       12450      152043000  com.mendix.core.objectmanagement.MendixObjectImpl'), null);
+
+const miUnifiedParsed = global.miParseGcLog(miUnifiedLog);
+eq('unified parse: all 3 GC(N) lines parsed (regression: G1 annotation text contains a digit)', miUnifiedParsed.events.length, 3);
+eq('unified parse: units normalized to KB (512M -> 524288K)', miUnifiedParsed.events[0].beforeKb, 524288);
+eq('unified parse: 3rd event is the Full GC', miUnifiedParsed.events[2].type, 'Full');
+
+const miVerboseParsed = global.miParseGcLog(miVerboseLog);
+eq('verbose parse: both lines parsed', miVerboseParsed.events.length, 2);
+eq('verbose parse: overall total taken (last K->K(K) triple), not the nested PSYoungGen one', miVerboseParsed.events[0].beforeKb, 1048576);
+eq('verbose parse: Full GC line classified as Full', miVerboseParsed.events[1].type, 'Full');
+eq('verbose parse: seconds converted to ms', miVerboseParsed.events[0].durationMs, 23.4567);
+
+const miGcSummary = global.miSummarizeGc(miUnifiedParsed.events);
+eq('GC summary: 2 Young events counted', miGcSummary.Young.count, 2);
+eq('GC summary: max duration is the larger of the two Young pauses', miGcSummary.Young.maxMs, 15);
+
+// =========================================================================
+// JVM HEALTH — thread dump comparison + group-by-lock (12.7)
+// =========================================================================
+console.log('\nJVM Health — thread dump comparison + group-by-lock');
+require('../public/js/tools/jvm-health.js');
+
+const jvmDumpBefore = [
+  '"pool-1-thread-1" #10 prio=5',
+  '   java.lang.Thread.State: RUNNABLE',
+  '        at com.mendix.core.Work.run(Work.java:1)',
+  '',
+  '"pool-1-thread-2" #11 prio=5',
+  '   java.lang.Thread.State: BLOCKED (on object monitor)',
+  '        at com.mendix.core.Lock.acquire(Lock.java:1)',
+  '        - waiting to lock <0x1> (a java.lang.Object)',
+  '',
+  '"pool-1-thread-3" #12 prio=5',
+  '   java.lang.Thread.State: BLOCKED (on object monitor)',
+  '        - waiting to lock <0x1> (a java.lang.Object)'
+].join('\n');
+const jvmDumpAfter = [
+  '"pool-1-thread-1" #10 prio=5',
+  '   java.lang.Thread.State: BLOCKED (on object monitor)',
+  '        - waiting to lock <0x1> (a java.lang.Object)',
+  '',
+  '"pool-1-thread-2" #11 prio=5',
+  '   java.lang.Thread.State: RUNNABLE',
+  '        at com.mendix.core.Work.run(Work.java:2)',
+  '',
+  '"pool-1-thread-4" #13 prio=5',
+  '   java.lang.Thread.State: RUNNABLE',
+  '        at com.mendix.core.Work.run(Work.java:3)'
+].join('\n');
+
+const jvmParsedBefore = global.jvmParseThreadDump(jvmDumpBefore);
+eq('thread dump parse: 3 threads found', jvmParsedBefore.all.length, 3);
+eq('thread dump parse: 2 blocked', jvmParsedBefore.blocked.length, 2);
+
+const jvmLockGroups = global.jvmGroupByLock(jvmParsedBefore.blocked);
+eq('group by lock: one lock group (both blocked threads wait on <0x1>)', jvmLockGroups.length, 1);
+eq('group by lock: 2 waiters on that lock', jvmLockGroups[0].waiters.length, 2);
+ok('group by lock: waiter names extracted without quotes', jvmLockGroups[0].waiters.indexOf('pool-1-thread-2') !== -1);
+
+const jvmChanges = global.jvmCompareDumps(jvmDumpBefore, jvmDumpAfter);
+const jvmChangeByName = {};
+jvmChanges.forEach(function (c) { jvmChangeByName[c.name] = c; });
+eq('dump compare: thread-1 changed RUNNABLE -> BLOCKED', jvmChangeByName['pool-1-thread-1'].from + '->' + jvmChangeByName['pool-1-thread-1'].to, 'java.lang.Thread.State: RUNNABLE->java.lang.Thread.State: BLOCKED (on object monitor)');
+eq('dump compare: thread-3 is gone in the second dump', jvmChangeByName['pool-1-thread-3'].to, '(thread gone)');
+eq('dump compare: thread-4 is new in the second dump', jvmChangeByName['pool-1-thread-4'].from, '(new thread)');
+eq('dump compare: exactly 4 threads changed (1 flipped, 2 flipped, 3 gone, 4 new — total distinct)', jvmChanges.length, 4);
+
+// =========================================================================
+// NGINX LOG ANALYZER — unique IPs per endpoint + Worker-based streaming parse (12.8)
+// =========================================================================
+console.log('\nNginx Log Analyzer');
+global.addEventListener = function () {}; // nginx.js registers a popstate handler at module load
+require('../public/js/tools/nginx.js');
+
+const nginxSampleRecords = [
+  { url: '/api/orders', ip: '203.0.113.5' },
+  { url: '/api/orders', ip: '198.51.100.9' },
+  { url: '/api/orders', ip: '203.0.113.5' }, // repeat — not double-counted
+  { url: '/api/customers', ip: '203.0.113.5' }
+];
+eq('unique IPs per URL: two different IPs on the same URL count as 2', JSON.stringify(global.nginxUniqueIpsPerUrl(nginxSampleRecords)), '{"/api/orders":2,"/api/customers":1}');
+eq('unique IPs per URL: empty record list yields an empty object', JSON.stringify(global.nginxUniqueIpsPerUrl([])), '{}');
+
+eq('hour derivation: nginx access-log timestamp format', global.nginxDeriveHourStr('24/Jul/2026:10:15:23 +0000'), '24/Jul/2026:10');
+eq('hour derivation: ISO/Mendix-style timestamp format', global.nginxDeriveHourStr('2026-07-24T10:15:23'), '2026-07-24 10');
+eq('hour derivation: unrecognized format falls back to a 13-char slice, not a crash', global.nginxDeriveHourStr('unrecognized-format-string'), 'unrecognized-'.slice(0, 13));
+
+ok('worker threshold: matches the 2 MB convention shared with LQE/MFT/WSRE', global.NGINX_WORKER_THRESHOLD === 2 * 1024 * 1024);
+
+// nginxStreamParseFile is async (it streams a Blob) — chained into the same
+// async sequence as the other async suites below so its assertions land
+// before the final pass/fail count is printed, not racing it.
+async function runNginxAsyncTests() {
+  const line1 = '203.0.113.5 - - [24/Jul/2026:10:15:23 +0000] "GET /api/orders HTTP/1.1" 200 1234 "-" "Mozilla/5.0"';
+  const line2 = '198.51.100.9 - - [24/Jul/2026:10:16:00 +0000] "GET /api/orders HTTP/1.1" 200 999 "-" "curl/8.0"';
+  const blob = new Blob([line1 + '\n' + line2 + '\n']);
+  const result = await global.nginxStreamParseFile(blob, false, 'access', global.nginxParseLine, undefined);
+  eq('stream parse: both lines parsed into records', result.records.length, 2);
+  eq('stream parse: hourStr derived per record', result.records[0].hourStr, '24/Jul/2026:10');
+  eq('stream parse: unique IPs on the shared URL', JSON.stringify(global.nginxUniqueIpsPerUrl(result.records)), '{"/api/orders":2}');
+
+  const errBlob = new Blob(['not an nginx line at all\ngarbage\n']);
+  const errResult = await global.nginxStreamParseFile(errBlob, false, 'error', global.nginxParseErrorLine, undefined);
+  eq('stream parse (error type): unmatched lines are scanned but not matched', errResult.scanned, 2);
+  eq('stream parse (error type): first unmatched line kept as the hint sample', errResult.matched, 0);
+  ok('stream parse (error type): sample captured for the format-mismatch hint', errResult.sample.length > 0);
+}
+
+// =========================================================================
+// HASH GENERATOR — BCrypt verification (12.9)
+// =========================================================================
+// Fixtures generated with the independent `bcryptjs` library (not this app's
+// code) so this is a real cross-implementation check, not just "does my
+// code agree with itself". A wrong bcrypt verifier would silently tell
+// someone their password does or doesn't match — this had to be checked
+// against ground truth before it could ship, not just internally consistent.
+console.log('\nHash Generator — BCrypt verification');
+require('../public/js/tools/hash.js');
+
+const bcryptVectors = [
+  ['', '$2b$10$Am9T0RYjCCum4exhX5c5FuqixCKJvcu7IWmUf9akIZdQkru0o70hy'],
+  ['a', '$2b$10$Onqr0rfKXmr.FsqSFtnMYeZVzhgVq/Qqi4s8D7pj.lz.6u.YcwD7O'],
+  ['abc', '$2b$10$m2OksgQRzhBIBdr.roMH8ed7VhlEp/VFneoV.41B8sQWlC5nTkVIe'],
+  ['password123', '$2b$10$QRrKB1oGDD9shEJKfv36ueW/t4DlCkAhzIXl6gAOTffP1Q1r3Z23e'],
+  ['MendixCloud!2026', '$2b$10$9piOgBNZys21FOJ7WqvUSO1gqUFThgehontGnjzXkNjCnC2TTkFXS'],
+  ['test', '$2b$04$ejKGb8CBDrRVQc6rXaqSoukPi7W54eu8tDOR807wTzBVdfFWNqipO'],
+  ['legacyFormat', '$2a$10$yD1XmCr3edRIfSn7LmthgusARh1wT7rBe/5cqvkFJT2QH7NjUXDbK']
+];
+bcryptVectors.forEach(([pw, hash]) => {
+  ok('bcrypt verify: "' + pw + '" matches its known-good hash (' + hash.slice(0, 7) + '…, from an independent implementation)', global.bcryptVerify(pw, hash).match === true);
+});
+eq('bcrypt verify: wrong password on a real hash reports no match', global.bcryptVerify('wrongpassword', bcryptVectors[3][1]).match, false);
+eq('bcrypt verify: cost 12 (slower, still correct)', global.bcryptVerify('test', '$2b$12$y6x9caHz5tu/TfNL9S0pRed4BzBk7CiH6dPCFUx1gihmMHiBZwWj2').match, true);
+ok('bcrypt verify: malformed input reports an honest error, not a crash or a false match', !!global.bcryptVerify('x', 'not-a-hash-at-all').error);
+eq('bcrypt parse: rejects an out-of-range cost factor', global.bcryptParseHash('$2b$99$' + 'A'.repeat(53)), null);
+eq('bcrypt parse: null for empty input', global.bcryptParseHash(''), null);
+
+// =========================================================================
+// DEVELOPER STUDIO — auto-reconnect backoff (12.11)
+// =========================================================================
+console.log('\nDeveloper Studio — reconnect backoff');
+require('../public/js/tools/dev-studio.js');
+
+eq('backoff: 1st attempt is 2s (2^1)', global.dsBackoffDelay(1), 2000);
+eq('backoff: 2nd attempt is 4s (2^2)', global.dsBackoffDelay(2), 4000);
+eq('backoff: 5th attempt is 32s, capped to 30s', global.dsBackoffDelay(5), 30000);
+eq('backoff: stays capped at 30s for a long outage (attempt 20)', global.dsBackoffDelay(20), 30000);
+ok('backoff: monotonically non-decreasing up to the cap', global.dsBackoffDelay(3) >= global.dsBackoffDelay(2) && global.dsBackoffDelay(2) >= global.dsBackoffDelay(1));
+
 // ── Summary ─────────────────────────────────────────────────────────────────
-runXlsxAsyncTests().then(runApiEconAsyncTests).then(function () {
+runXlsxAsyncTests().then(runApiEconAsyncTests).then(runNginxAsyncTests).then(function () {
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
   process.exit(failed === 0 ? 0 : 1);
 }, function (err) {

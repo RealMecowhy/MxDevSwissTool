@@ -85,6 +85,73 @@ function harFormatBytes(b) {
   return (b / (1024 * 1024)).toFixed(2) + ' MB';
 }
 
+// Flags runs of 2+ back-to-back identical XAS calls (same action+detail, strictly
+// adjacent in the chronological xasList — not just "same group somewhere in the
+// capture", which is what the N+1 detector above already covers). This catches the
+// narrower "widget fired the same call twice in a row" symptom that N+1's count>=5
+// threshold misses. Pure function of the already-built xasList (needs `startMs`).
+function harDetectDuplicates(xasList) {
+  const runs = [];
+  let i = 0;
+  while (i < xasList.length) {
+    let j = i;
+    while (j + 1 < xasList.length && xasList[j + 1].action === xasList[i].action && xasList[j + 1].detail === xasList[i].detail) j++;
+    const count = j - i + 1;
+    if (count >= 2) {
+      let wastedMs = 0;
+      for (let k = i + 1; k <= j; k++) wastedMs += xasList[k].time;
+      runs.push({
+        firstIndex: i,
+        count: count,
+        action: xasList[i].action,
+        detail: xasList[i].detail,
+        spanMs: xasList[j].startMs - xasList[i].startMs,
+        wastedMs: wastedMs
+      });
+    }
+    i = j + 1;
+  }
+  return runs;
+}
+
+// Buckets the chronological xasList by HAR page (entry.pageref / har.log.pages),
+// preserving first-appearance order. Falls back to a single unlabeled group when
+// the HAR carries no `pages` array (older exports, synthetic fixtures) — callers
+// treat a lone group with title=null as "don't show page headers".
+function harGroupByPage(xasList, pages) {
+  const pageMeta = new Map();
+  (pages || []).forEach(p => pageMeta.set(p.id, p.title || p.id));
+  const order = [];
+  const buckets = new Map();
+  xasList.forEach(item => {
+    const pid = item.pageref || '__none__';
+    if (!buckets.has(pid)) { buckets.set(pid, []); order.push(pid); }
+    buckets.get(pid).push(item);
+  });
+  return order.map(pid => ({
+    pageId: pid,
+    title: pageMeta.has(pid) ? pageMeta.get(pid) : null,
+    items: buckets.get(pid)
+  }));
+}
+
+// Decodes HAR response content, handling the base64 encoding Chrome/Firefox use
+// for binary or non-UTF8-safe bodies. Uses TextDecoder over real bytes (like
+// encBytesToBase64/encBase64ToBytes in encoder.js) instead of the escape/unescape
+// textual trick, which mangles genuinely binary or multi-byte UTF-8 content.
+function harContentText(content) {
+  if (!content || !content.text) return '';
+  if (content.encoding === 'base64') {
+    try {
+      const bin = atob(content.text);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return new TextDecoder('utf-8').decode(bytes);
+    } catch (e) { return content.text; }
+  }
+  return content.text;
+}
+
 function harAnalyze(har) {
   if (window.hideLoader) window.hideLoader();
   const entries = (har && har.log && har.log.entries) || [];
@@ -96,7 +163,7 @@ function harAnalyze(har) {
   const groups = new Map(); // key -> {action, detail, count, total, max, bytes, xpath}
   const xasList = [];
 
-  entries.forEach(entry => {
+  entries.forEach((entry, idx) => {
     totalTime += entry.time || 0;
     totalBytes += harBytes(entry);
     const op = harClassify(entry);
@@ -123,9 +190,16 @@ function harAnalyze(har) {
       detail: op.detail,
       time: t,
       bytes: bytes,
-      status: entry.response ? entry.response.status : ''
+      status: entry.response ? entry.response.status : '',
+      entryIndex: idx,
+      pageref: entry.pageref || null
     });
   });
+
+  // Relative offsets for the waterfall — origin is the first XAS call, not the
+  // first HAR entry, so the bars use the resolution that matters for this tool.
+  const origin = xasList.length ? Date.parse(xasList[0].started) || 0 : 0;
+  xasList.forEach(x => { x.startMs = (Date.parse(x.started) || origin) - origin; });
 
   const groupArr = Array.from(groups.values()).sort((a, b) => b.total - a.total);
 
@@ -142,8 +216,14 @@ function harAnalyze(har) {
   bigResponses.slice(0, 3).forEach(x => {
     detections.push({ level: 'warn', text: `<strong>Large response:</strong> ${window.escHtml(x.action)}${x.detail ? ' (' + window.escHtml(x.detail.substring(0, 60)) + ')' : ''} transferred <strong>${harFormatBytes(x.bytes)}</strong>.` });
   });
+  const dupRuns = harDetectDuplicates(xasList);
+  dupRuns.forEach(d => {
+    detections.push({ level: 'warn', text: `<strong>Duplicate calls:</strong> ${window.escHtml(d.action)}${d.detail ? ' (' + window.escHtml(d.detail.substring(0, 60)) + (d.detail.length > 60 ? '…' : '') + ')' : ''} fired <strong>${d.count}×</strong> back-to-back (${d.spanMs.toFixed(0)} ms span, ${d.wastedMs.toFixed(0)} ms in the repeats). Check for a widget re-render loop or duplicate event binding.` });
+  });
 
-  harRender({ total: entries.length, xasCount, totalTime, totalBytes, xasBytes, xasTime, groupArr, xasList, detections });
+  const pageGroups = harGroupByPage(xasList, (har.log && har.log.pages) || []);
+
+  harRender({ total: entries.length, xasCount, totalTime, totalBytes, xasBytes, xasTime, groupArr, xasList, detections, pageGroups });
 }
 
 function harRender(d) {
@@ -189,22 +269,146 @@ function harRender(d) {
     }).join('');
   }
 
-  // Chronological list (capped)
+  // Chronological waterfall (capped, grouped by HAR page when the export has one).
+  // Each row doubles as: a timing bar (waterfall), a duplicate-run marker, and a
+  // click target that opens the full request/response body (#har-detail-modal).
   const CAP = 300;
   const listEl = document.getElementById('har-timeline');
-  const shown = d.xasList.slice(0, CAP);
-  listEl.innerHTML = shown.map(x => {
-    const time = x.started ? x.started.split('T')[1] || x.started : '';
-    return `<div style="display:grid;grid-template-columns:90px 140px 1fr 70px 80px;gap:8px;padding:3px 8px;border-bottom:1px solid var(--border-subtle);font-size:0.75rem">
-      <span style="color:var(--text-muted)">${window.escHtml((time || '').substring(0, 12))}</span>
-      <span style="color:var(--accent);font-family:var(--font-mono)">${window.escHtml(x.action)}</span>
-      <span style="font-family:var(--font-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${window.escHtml(x.detail)}">${window.escHtml(x.detail || '')}</span>
-      <span style="text-align:right">${x.time.toFixed(0)} ms</span>
-      <span style="text-align:right;color:var(--text-muted)">${harFormatBytes(x.bytes)}</span>
-    </div>`;
-  }).join('');
+  d.xasList.forEach((x, i) => { x.listIndex = i; });
+  const totalSpan = Math.max(1, ...d.xasList.map(x => x.startMs + x.time));
+  const dupMap = new Map();
+  harDetectDuplicates(d.xasList).forEach(r => {
+    for (let k = r.firstIndex; k < r.firstIndex + r.count; k++) dupMap.set(k, { count: r.count, isFirst: k === r.firstIndex });
+  });
+  const showPageHeaders = d.pageGroups.length > 1 || (d.pageGroups.length === 1 && d.pageGroups[0].title);
+  let shown = 0;
+  const rowsHtml = [];
+  for (const group of d.pageGroups) {
+    if (shown >= CAP) break;
+    if (showPageHeaders) rowsHtml.push(`<div class="har-wf-page-header">Page: ${window.escHtml(group.title || group.pageId)}</div>`);
+    for (const x of group.items) {
+      if (shown >= CAP) break;
+      shown++;
+      const time = x.started ? x.started.split('T')[1] || x.started : '';
+      const dup = dupMap.get(x.listIndex);
+      const dupBadge = dup && dup.isFirst ? `<span style="color:var(--warning);font-weight:700;margin-right:4px" title="${dup.count} identical calls fired back-to-back">dup×${dup.count}</span>` : '';
+      const leftPct = (x.startMs / totalSpan * 100).toFixed(2);
+      const widthPct = Math.max(x.time / totalSpan * 100, 0.4).toFixed(2);
+      rowsHtml.push(`<div class="har-row${dup ? ' har-row-dup' : ''}" style="display:grid;grid-template-columns:70px 110px 1fr 140px 55px 65px;gap:8px;padding:3px 8px;border-bottom:1px solid var(--border-subtle);font-size:0.75rem;align-items:center" onclick="harShowDetail(${x.entryIndex})" title="Click to view request/response body">
+        <span style="color:var(--text-muted)">${window.escHtml((time || '').substring(0, 12))}</span>
+        <span style="color:var(--accent);font-family:var(--font-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${dupBadge}${window.escHtml(x.action)}</span>
+        <span style="font-family:var(--font-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${window.escHtml(x.detail)}">${window.escHtml(x.detail || '')}</span>
+        <span class="har-wf-track" title="${x.time.toFixed(0)} ms, started +${x.startMs.toFixed(0)} ms"><span class="har-wf-bar" style="left:${leftPct}%;width:${widthPct}%;background:${harBarColor(x.action)}"></span></span>
+        <span style="text-align:right">${x.time.toFixed(0)} ms</span>
+        <span style="text-align:right;color:var(--text-muted)">${harFormatBytes(x.bytes)}</span>
+      </div>`);
+    }
+  }
+  listEl.innerHTML = rowsHtml.join('');
   document.getElementById('har-timeline-note').textContent =
-    d.xasList.length > CAP ? `Showing first ${CAP} of ${d.xasList.length} XAS calls (chronological)` : `${d.xasList.length} XAS calls (chronological)`;
+    d.xasList.length > CAP ? `Showing first ${CAP} of ${d.xasList.length} XAS calls (chronological, click a row for details)` : `${d.xasList.length} XAS calls (chronological, click a row for details)`;
+}
+
+function harBarColor(action) {
+  if (/retrieve/i.test(action)) return 'var(--info)';
+  if (/executeaction|execute/i.test(action)) return 'var(--accent)';
+  if (/change|commit/i.test(action)) return 'var(--success)';
+  return 'var(--text-muted)';
+}
+
+let harCurrentDetail = null;
+
+function harPretty(text) {
+  if (!text) return '';
+  const t = text.trim();
+  if (t[0] === '{' || t[0] === '[') {
+    try { return JSON.stringify(JSON.parse(t), null, 2); } catch (e) { return text; }
+  }
+  if (t[0] === '<' && typeof DOMParser !== 'undefined' && window.serializeXmlPretty) {
+    try {
+      const doc = new DOMParser().parseFromString(t, 'application/xml');
+      if (!doc.querySelector('parsererror')) return window.serializeXmlPretty(doc.documentElement, 0);
+    } catch (e) { /* keep raw */ }
+  }
+  return text;
+}
+
+// Reuses the JSON Formatter's and XML Formatter's own highlighters (already
+// exposed on window for exactly this kind of reuse — see WSRE's wsreHighlightBody,
+// which does the same thing for REST call bodies) instead of growing a third
+// copy of JSON/XML pretty-printing in this tool.
+function harHighlightBody(text) {
+  const pretty = harPretty(text);
+  const t = pretty.trim();
+  if ((t[0] === '{' || t[0] === '[') && window.highlightJsonSimple) {
+    try { JSON.parse(t); return { html: window.highlightJsonSimple(pretty), isXml: false }; } catch (e) { /* fall through */ }
+  }
+  if (t[0] === '<' && typeof DOMParser !== 'undefined' && window.renderXmlTree) {
+    try {
+      const doc = new DOMParser().parseFromString(t, 'application/xml');
+      if (!doc.querySelector('parsererror')) return { html: window.renderXmlTree(doc.documentElement, 0), isXml: true };
+    } catch (e) { /* fall through */ }
+  }
+  return { html: window.escHtml ? window.escHtml(pretty) : pretty, isXml: false };
+}
+
+// xml.js's own toggle binder is hardcoded to its #xml-tree-output container (same
+// constraint WSRE hit — see wsreBindXmlToggles there), so a body rendered into this
+// modal needs its own scoped collapse/expand wiring.
+function harBindXmlToggles(container) {
+  if (!container) return;
+  container.querySelectorAll('.jt-collapse').forEach(el => {
+    el.onclick = function () {
+      const target = document.getElementById(this.dataset.target);
+      const placeholder = document.getElementById(this.dataset.target + '-placeholder');
+      if (!target) return;
+      const collapsed = target.style.display === 'none';
+      target.style.display = collapsed ? '' : 'none';
+      if (placeholder) placeholder.style.display = collapsed ? 'none' : 'inline';
+      this.textContent = collapsed ? '▼' : '▶';
+    };
+  });
+}
+
+function harRenderBody(elId, text, emptyMsg) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  if (!text) { el.innerHTML = `<span style="color:var(--text-muted)">${window.escHtml(emptyMsg)}</span>`; return; }
+  const r = harHighlightBody(text);
+  el.innerHTML = r.html;
+  if (r.isXml) harBindXmlToggles(el);
+}
+
+// Opens the per-call detail modal: full request/response body, prettified. This is
+// the "response body is not shown" gap from the audit — everything else in this
+// tool only ever showed aggregated counts/durations.
+function harShowDetail(entryIndex) {
+  const entry = harEntries[entryIndex];
+  if (!entry) return;
+  const op = harClassify(entry) || { action: 'xas', detail: '' };
+  const reqBody = entry.request && entry.request.postData ? entry.request.postData.text : '';
+  const resBody = harContentText(entry.response && entry.response.content);
+  harCurrentDetail = { reqBody, resBody };
+  document.getElementById('har-detail-title').textContent = op.action + (op.detail ? ' — ' + op.detail.substring(0, 100) : '');
+  document.getElementById('har-detail-meta').textContent =
+    `${entry.startedDateTime || ''} · ${(entry.time || 0).toFixed(0)} ms · status ${entry.response ? entry.response.status : '—'} · ${harFormatBytes(harBytes(entry))}`;
+  harRenderBody('har-detail-request', reqBody, 'No request body.');
+  harRenderBody('har-detail-response', resBody, 'No response body captured (the HAR may have been saved without response content, or the body was empty).');
+  document.getElementById('har-detail-modal').classList.add('active');
+}
+
+function harCloseDetailModal() {
+  document.getElementById('har-detail-modal').classList.remove('active');
+}
+
+function harCopyDetailBody(which, btn) {
+  if (!harCurrentDetail) return;
+  const text = which === 'request' ? harCurrentDetail.reqBody : harCurrentDetail.resBody;
+  if (!text) return;
+  window.copyToClipboard(text);
+  const oldHtml = btn.innerHTML;
+  btn.innerHTML = 'Copied!';
+  setTimeout(() => btn.innerHTML = oldHtml, 2000);
 }
 
 // In-place preview modal: shows the full XPath without leaving the HAR analysis
@@ -250,5 +454,14 @@ window.harShowXpath = harShowXpath;
 window.harCloseXpathModal = harCloseXpathModal;
 window.harCopyXpath = harCopyXpath;
 window.harOpenXpathInFormatter = harOpenXpathInFormatter;
+window.harShowDetail = harShowDetail;
+window.harCloseDetailModal = harCloseDetailModal;
+window.harCopyDetailBody = harCopyDetailBody;
+
+// Exposed for scripts/parser-test.js (pure functions, no DOM).
+window.harDetectDuplicates = harDetectDuplicates;
+window.harGroupByPage = harGroupByPage;
+window.harContentText = harContentText;
+window.harBarColor = harBarColor;
 
 export function init() {}

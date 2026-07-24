@@ -98,11 +98,66 @@ function buildJoinTreeHtml(node, isRoot = true) {
   return html;
 }
 
+// ── Schema visualizer pan/zoom (12.3) ───────────────────────────────────────
+// The canvas is plain positioned HTML (not SVG/canvas drawing), so pan/zoom is
+// a CSS transform on an inner viewport div — no new dependency. Zoom/pan state
+// persists across re-extraction (typing in the query box shouldn't reset the
+// user's view), which is why render targets #qi-schema-viewport, not the outer
+// #qi-schema-canvas that owns the wheel/drag listeners.
+let qiSchemaZoom = 1, qiSchemaPanX = 0, qiSchemaPanY = 0;
+let qiSchemaDragging = false, qiSchemaDragStartX = 0, qiSchemaDragStartY = 0, qiSchemaPanStartX = 0, qiSchemaPanStartY = 0;
+
+function qiSchemaClampZoom(z) {
+  return Math.min(3, Math.max(0.3, z));
+}
+
+function qiApplySchemaTransform() {
+  const vp = document.getElementById('qi-schema-viewport');
+  if (vp) vp.style.transform = `translate(${qiSchemaPanX}px, ${qiSchemaPanY}px) scale(${qiSchemaZoom})`;
+}
+
+window.qiSchemaZoomBy = function (factor) {
+  qiSchemaZoom = qiSchemaClampZoom(qiSchemaZoom * factor);
+  qiApplySchemaTransform();
+};
+
+window.qiSchemaResetView = function () {
+  qiSchemaZoom = 1; qiSchemaPanX = 0; qiSchemaPanY = 0;
+  qiApplySchemaTransform();
+};
+
+function qiInitSchemaPanZoom() {
+  const canvas = document.getElementById('qi-schema-canvas');
+  if (!canvas || canvas.dataset.panZoomBound) return;
+  canvas.dataset.panZoomBound = '1';
+  canvas.style.cursor = 'grab';
+  canvas.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    qiSchemaZoom = qiSchemaClampZoom(qiSchemaZoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
+    qiApplySchemaTransform();
+  }, { passive: false });
+  canvas.addEventListener('mousedown', function (e) {
+    qiSchemaDragging = true;
+    qiSchemaDragStartX = e.clientX; qiSchemaDragStartY = e.clientY;
+    qiSchemaPanStartX = qiSchemaPanX; qiSchemaPanStartY = qiSchemaPanY;
+    canvas.style.cursor = 'grabbing';
+  });
+  window.addEventListener('mousemove', function (e) {
+    if (!qiSchemaDragging) return;
+    qiSchemaPanX = qiSchemaPanStartX + (e.clientX - qiSchemaDragStartX);
+    qiSchemaPanY = qiSchemaPanStartY + (e.clientY - qiSchemaDragStartY);
+    qiApplySchemaTransform();
+  });
+  window.addEventListener('mouseup', function () { qiSchemaDragging = false; canvas.style.cursor = 'grab'; });
+}
+
 function qiExtractSchema() {
   const query = document.getElementById('qi-schema-query').value;
-  const canvas = document.getElementById('qi-schema-canvas');
+  const canvas = document.getElementById('qi-schema-viewport');
+  qiInitSchemaPanZoom();
   if (!query.trim()) {
     canvas.innerHTML = '<span style="color:var(--text-muted)">Awaiting OQL query...</span>';
+    window.qiSchemaResetView();
     return;
   }
 
@@ -157,7 +212,34 @@ function qiExtractSchema() {
   });
   html += '</div>';
   canvas.innerHTML = html;
+  qiApplySchemaTransform();
 }
+
+// ── OQL pattern library (12.3) ──────────────────────────────────────────────
+// The three patterns the audit named. Dates use only tokens verified in 10.2
+// (tsMendixTokenPreview) — no invented `EndOf*`/`BeginOfNext*` token, which is
+// why the range below is a lower bound rather than a closed [start, end) window.
+const OQL_PATTERNS = {
+  duplicates: {
+    label: 'Find duplicates',
+    oql: 'SELECT c.Email, COUNT(c.Email) AS DuplicateCount\nFROM eShop.Customer c\nGROUP BY c.Email\nHAVING COUNT(c.Email) > 1'
+  },
+  countByAssociation: {
+    label: 'Count by association',
+    oql: 'SELECT c.Name, COUNT(o.Amount) AS OrderCount\nFROM eShop.Customer c\nLEFT JOIN c/eShop.Customer_Order/eShop.Order o\nGROUP BY c.Name\nORDER BY OrderCount DESC'
+  },
+  dateRangeFilter: {
+    label: 'Date range filter with [%tokens%]',
+    oql: "SELECT o.OrderNumber, o.OrderDate\nFROM eShop.Order o\nWHERE o.OrderDate >= [%BeginOfCurrentMonth%]\n  AND o.OrderDate < [%CurrentDateTime%]"
+  }
+};
+
+window.qiInsertOqlPattern = function (key) {
+  const p = OQL_PATTERNS[key];
+  if (!p) return;
+  document.getElementById('oql-input').value = p.oql;
+  formatOql();
+};
 
 // ── OQL Formatter ──────────────────────────────────────────────────────────
 // Same string/comment-safe engine as sql.js (see sql-engine.js): a naive
@@ -209,6 +291,31 @@ function oqlHighlight(oql) {
 
 // ── OQL <-> SQL translator ─────────────────────────────────────────────────
 
+// Recognizes the same association-path join syntax qiExtractSchema already
+// parses for the Schema Visualizer (`parentAlias/Module.Association/Module.
+// TargetEntity targetAlias`) and rewrites it to a real SQL JOIN with the
+// correct table name and alias. The one thing genuinely NOT derivable from
+// OQL text alone is the physical FK column Mendix generated for that
+// association — that lives in `mendixsystem$association.child_column_name`
+// (see server/livedb.js), which this translator has no connection to. Rather
+// than guess a column name and present it as fact (breaks "zasada danych"),
+// the ON clause names the association explicitly and flags it for the one
+// manual check that's actually required — the JOIN shape and target table are
+// still 100% derived, not guessed.
+function oqlTranslateAssociationJoins(text) {
+  const joinRegex = /((?:INNER|LEFT(?: OUTER)?|RIGHT(?: OUTER)?|FULL(?: OUTER)?|CROSS)?\s*JOIN)\s+([a-zA-Z0-9_]+)\/([a-zA-Z0-9_.\/]+)\/([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)(?:\s+(?!WHERE|GROUP|ORDER|HAVING|LIMIT|ON)([a-zA-Z0-9_]+))?/gi;
+  return text.replace(joinRegex, function (m, joinKw, parentAlias, assocPath, targetModule, targetEntity, targetAliasRaw) {
+    const targetTable = (targetModule + '$' + targetEntity).toLowerCase();
+    const targetAlias = targetAliasRaw || (targetModule + '_' + targetEntity).toLowerCase();
+    const pathParts = assocPath.split('/');
+    const assocFull = pathParts[pathParts.length - 1];
+    const assocShort = assocFull.indexOf('.') === -1 ? assocFull : assocFull.slice(assocFull.indexOf('.') + 1);
+    const sqlJoinKw = joinKw.replace(/\s+/g, ' ').trim().toUpperCase();
+    return `${sqlJoinKw} ${targetTable} ${targetAlias} ON ${parentAlias}.id = ${targetAlias}.${assocShort.toLowerCase()} ` +
+      `/* verify the FK column for association '${assocFull}' — check mendixsystem$association.child_column_name or the Domain Model tool */`;
+  });
+}
+
 function translateOqlSql() {
   const dir = document.getElementById('oql-sql-dir').value;
   let val = document.getElementById('oql-sql-input').value;
@@ -216,7 +323,10 @@ function translateOqlSql() {
   if (!val.trim()) { out.value = ''; return; }
 
   if (dir === 'o2s') {
-    // OQL -> SQL (PostgreSQL)
+    // OQL -> SQL (PostgreSQL). Association joins first — this consumes the
+    // `alias/Module.Assoc/Module.Entity` path into real SQL syntax before the
+    // generic entity-path regex below would otherwise corrupt it.
+    val = oqlTranslateAssociationJoins(val);
     val = val.replace(/\b([A-Z][a-zA-Z0-9_]*)\.([A-Z][a-zA-Z0-9_]*)\b/g, (m, p1, p2) => (p1 + '$' + p2).toLowerCase());
     val = val.replace(/\bCAST\s*\(\s*(.*?)\s+AS\s+String\s*\)/gi, 'CAST($1 AS VARCHAR)');
     val = val.replace(/\bCAST\s*\(\s*(.*?)\s+AS\s+DateTime\s*\)/gi, 'CAST($1 AS TIMESTAMP)');
@@ -447,4 +557,10 @@ window.formatOql = formatOql;
 window.translateOqlSql = translateOqlSql;
 window.visualizeSqlExplain = visualizeSqlExplain;
 
-export function init() {}
+// Exposed for scripts/parser-test.js (pure functions, no DOM).
+window.oqlTranslateAssociationJoins = oqlTranslateAssociationJoins;
+window.OQL_PATTERNS = OQL_PATTERNS;
+
+export function init() {
+  qiInitSchemaPanZoom();
+}

@@ -3482,4 +3482,48 @@ kbd {
   font-weight: 600;
   z-index: 1;
 }
+/* ── HAR waterfall / chronological rows (clickable → body preview) ── */
+.har-row {
+  cursor: pointer;
+  transition: background var(--t-fast);
+}
+.har-row:hover {
+  background: var(--bg-hover);
+}
+.har-row-dup {
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+}
+.har-wf-page-header {
+  padding: 6px 8px;
+  font-weight: 600;
+  font-size: 0.78rem;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+.har-wf-track {
+  position: relative;
+  flex: 1;
+  height: 14px;
+  background: var(--bg-elevated);
+  border-radius: 2px;
+}
+.har-wf-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 2px;
+  min-width: 2px;
+}
+/* ── Domain Model entity search hit (scroll + flash) ── */
+.arch-search-hit rect,
+.arch-search-hit polygon {
+  stroke: var(--accent) !important;
+  stroke-width: 3px !important;
+  animation: arch-search-pulse 0.6s ease-in-out 2;
+}
+@keyframes arch-search-pulse {
+  0%, 100% { filter: none; }
+  50% { filter: drop-shadow(0 0 6px var(--accent)); }
+}
 .xls-grid tbody tr:hover td { background: var(--bg-elevated); }

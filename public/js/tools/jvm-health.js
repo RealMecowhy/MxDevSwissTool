@@ -24,15 +24,16 @@ function jvmAnalyzeActive() {
   }
 }
 
-function analyzeThreadDump() {
-  const input = document.getElementById('thread-dump-input').value;
-  const res = document.getElementById('thread-dump-result');
-  if (!input.trim()) {
-    res.style.display = 'none';
-    return;
-  }
-
-  let blocked = [], waiting = [], runnable = [];
+// Pure: parses a thread dump (m2ee JSON or plain jstack text) into
+// {blocked, waiting, runnable, all}. Extracted from analyzeThreadDump so the
+// same parsing can drive dump comparison (12.7) without a second copy of this
+// logic. `all` captures every thread regardless of state classification —
+// blocked/waiting/runnable already silently drop anything that doesn't match
+// BLOCKED/WAITING/RUNNABLE (e.g. TIMED_WAITING is real and common), which is
+// unchanged pre-existing behavior; `all` exists so comparison doesn't inherit
+// that gap for a feature that specifically needs every thread's state.
+function jvmParseThreadDump(input) {
+  let blocked = [], waiting = [], runnable = [], all = [];
   let currentThread = null, currentTrace = [];
 
   let m2eeJsonStr = null;
@@ -75,6 +76,7 @@ function analyzeThreadDump() {
           thread.state = 'RUNNABLE';
           runnable.push(thread);
         }
+        all.push(thread);
       }
       parsedAsJson = true;
     } catch (e) {
@@ -92,6 +94,7 @@ function analyzeThreadDump() {
           if (currentThread.state.includes('BLOCKED')) blocked.push(currentThread);
           else if (currentThread.state.includes('WAITING')) waiting.push(currentThread);
           else if (currentThread.state.includes('RUNNABLE')) runnable.push(currentThread);
+          all.push(currentThread);
         }
         currentThread = { name: line, state: 'UNKNOWN', trace: '' };
         currentTrace = [];
@@ -106,8 +109,64 @@ function analyzeThreadDump() {
       if (currentThread.state.includes('BLOCKED')) blocked.push(currentThread);
       else if (currentThread.state.includes('WAITING')) waiting.push(currentThread);
       else if (currentThread.state.includes('RUNNABLE')) runnable.push(currentThread);
+      all.push(currentThread);
     }
   }
+
+  return { blocked, waiting, runnable, all };
+}
+
+// ── Group by lock (12.7) — every blocked thread bucketed by the lock id it's
+// waiting on, not just the subset already paired into a deadlock cycle below.
+// A lock held briefly by a RUNNABLE thread (no deadlock, real contention) is
+// invisible in the deadlock list but shows up here as a >1-waiter group.
+function jvmGroupByLock(blocked) {
+  const groups = new Map();
+  blocked.forEach(t => {
+    const m = t.trace.match(/waiting to lock <([0-9a-fx]+)>/);
+    if (!m) return;
+    const lockId = m[1];
+    if (!groups.has(lockId)) groups.set(lockId, { lockId, waiters: [] });
+    groups.get(lockId).waiters.push(t.name.split('"')[1] || t.name);
+  });
+  return Array.from(groups.values()).sort((a, b) => b.waiters.length - a.waiters.length);
+}
+
+// ── Thread dump comparison (12.7) — state changes between two dumps of the
+// SAME running JVM, matched by thread name (the one stable identifier jstack/
+// m2ee dumps share across snapshots; thread IDs aren't printed in m2ee dumps).
+function jvmThreadKey(name) {
+  const m = String(name).match(/^"([^"]*)"/);
+  return m ? m[1] : String(name);
+}
+
+function jvmCompareDumps(textA, textB) {
+  const a = jvmParseThreadDump(textA);
+  const b = jvmParseThreadDump(textB);
+  const mapA = new Map(a.all.map(t => [jvmThreadKey(t.name), t.state]));
+  const mapB = new Map(b.all.map(t => [jvmThreadKey(t.name), t.state]));
+  const changes = [];
+  mapB.forEach((stateB, name) => {
+    const stateA = mapA.get(name);
+    if (stateA === undefined) changes.push({ name, from: '(new thread)', to: stateB });
+    else if (stateA !== stateB) changes.push({ name, from: stateA, to: stateB });
+  });
+  mapA.forEach((stateA, name) => {
+    if (!mapB.has(name)) changes.push({ name, from: stateA, to: '(thread gone)' });
+  });
+  return changes;
+}
+
+function analyzeThreadDump() {
+  const input = document.getElementById('thread-dump-input').value;
+  const res = document.getElementById('thread-dump-result');
+  if (!input.trim()) {
+    res.style.display = 'none';
+    return;
+  }
+
+  const parsed = jvmParseThreadDump(input);
+  const blocked = parsed.blocked, waiting = parsed.waiting, runnable = parsed.runnable;
 
   // Detect deadlocks: threads waiting for locks held by other blocked/waiting threads
   const deadlocks = [];
@@ -168,6 +227,17 @@ function analyzeThreadDump() {
     });
   }
 
+  const lockGroups = jvmGroupByLock(blocked).filter(g => g.waiters.length > 1);
+  if (lockGroups.length) {
+    html += `<h4 style="margin-top:var(--sp-4);margin-bottom:var(--sp-2)">Lock Contention (grouped)</h4>`;
+    lockGroups.forEach(g => {
+      html += `<div style="background:var(--bg-elevated);border:1px solid var(--warning-subtle);padding:var(--sp-2);border-radius:var(--r-md);margin-bottom:var(--sp-2);font-size:0.82rem">
+        <strong>${g.waiters.length} threads</strong> waiting on lock <code>${escHtml(g.lockId)}</code>:
+        <div style="font-family:var(--font-mono);color:var(--text-muted);margin-top:4px">${g.waiters.map(escHtml).join('<br>')}</div>
+      </div>`;
+    });
+  }
+
   const foundDeadlockMatch = input.match(/Found (\d+) deadlock/);
   if (foundDeadlockMatch && deadlocks.length === 0) {
     html = `<div class="notice notice-error" style="margin-bottom:var(--sp-3)"><strong>⚠️ Java detected ${foundDeadlockMatch[1]} deadlock(s) in this thread dump.</strong> Look for "waiting to lock" entries above.</div>` + html;
@@ -177,6 +247,33 @@ function analyzeThreadDump() {
   res.style.display = 'block';
 }
 
+// ── Compare button wiring (12.7) ────────────────────────────────────────────
+function jvmCompareDumpsClick() {
+  const a = document.getElementById('thread-dump-input').value;
+  const b = document.getElementById('thread-dump-compare-input').value;
+  const out = document.getElementById('thread-dump-compare-result');
+  if (!a.trim() || !b.trim()) {
+    out.innerHTML = '<div class="notice notice-warning">Paste both dumps — the main dump above (as "before") and the second dump below (as "after").</div>';
+    out.style.display = 'block';
+    return;
+  }
+  const changes = jvmCompareDumps(a, b);
+  if (!changes.length) {
+    out.innerHTML = '<div class="notice notice-success">No thread state changes between the two dumps.</div>';
+    out.style.display = 'block';
+    return;
+  }
+  let html = `<div style="font-size:0.75rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:var(--sp-2)">${changes.length} thread(s) changed state</div>`;
+  html += '<table class="jwt-claim-table" style="width:100%"><tr><th style="text-align:left">Thread</th><th style="text-align:left">Before</th><th style="text-align:left">After</th></tr>';
+  changes.forEach(c => {
+    const toColor = /BLOCKED/.test(c.to) ? 'var(--danger)' : /gone/.test(c.to) ? 'var(--text-muted)' : 'var(--text)';
+    html += `<tr><td style="font-family:var(--font-mono)">${escHtml(c.name)}</td><td style="font-family:var(--font-mono);color:var(--text-muted)">${escHtml(c.from)}</td><td style="font-family:var(--font-mono);color:${toColor}">${escHtml(c.to)}</td></tr>`;
+  });
+  html += '</table>';
+  out.innerHTML = html;
+  out.style.display = 'block';
+}
+
 // ============================================================
 
 
@@ -184,6 +281,12 @@ function analyzeThreadDump() {
 window.jvmSetTab = jvmSetTab;
 window.jvmAnalyzeActive = jvmAnalyzeActive;
 window.analyzeThreadDump = analyzeThreadDump;
+window.jvmCompareDumpsClick = jvmCompareDumpsClick;
+
+// Exposed for scripts/parser-test.js (pure functions, no DOM).
+window.jvmParseThreadDump = jvmParseThreadDump;
+window.jvmGroupByLock = jvmGroupByLock;
+window.jvmCompareDumps = jvmCompareDumps;
 // Incident Report source: the last analyzed thread dump. Point-in-time, so the
 // fromMs/toMs window is accepted for a uniform signature but not applied. Returns
 // null until a dump has been analyzed in the JVM Health tool (data-driven rule).
