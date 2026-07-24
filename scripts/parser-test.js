@@ -1999,6 +1999,203 @@ eq('entity: skipped attribute reported', entSchema.skipped.length, 1);
 ok('entity: an attribute-less entity is explained',
   global.dfSchemaFromEntity({ name: 'A.B', attributes: [] }).notes.length > 0);
 
+// =========================================================================
+// DATA FACTORY — RELATIONAL DB SEED
+// =========================================================================
+// The relational seed builds a SQL INSERT script from the live schema. Three
+// pure pieces decide whether the script is correct: the topological order (a
+// parent must be inserted before the child that references it), the FK
+// distribution (skew is what makes "some customers have hundreds of orders, some
+// none" instead of everyone having the same), and the literal formatting (an
+// over-long string or over-precise decimal must be clamped to the real column).
+console.log('\nData Factory — relational DB seed');
+require('../public/js/tools/data-factory-seed.js');
+
+// ── Topological order ───────────────────────────────────────────────────────
+const seedAssoc = [
+  { storage: 'column', one: 'S.Customer', many: 'S.Order', cardinality: '1-*', columns: ['customer'] },
+  { storage: 'column', one: 'S.Order', many: 'S.OrderLine', cardinality: '1-*', columns: ['order'] },
+  { storage: 'junction', one: 'S.Order', many: 'S.Tag', cardinality: '*-*', columns: ['a', 'b'] }
+];
+const seedTopo = global.seedTopoOrder(['S.OrderLine', 'S.Order', 'S.Customer'], seedAssoc);
+ok('topo: the ONE side comes before the MANY side (Customer before Order)',
+  seedTopo.order.indexOf('S.Customer') < seedTopo.order.indexOf('S.Order'));
+ok('topo: Order before OrderLine', seedTopo.order.indexOf('S.Order') < seedTopo.order.indexOf('S.OrderLine'));
+eq('topo: a junction association imposes no ordering', seedTopo.cyclic.length, 0);
+// A mutual dependency cannot be ordered — it must be reported, not silently
+// dropped, so the caller can warn and fall back to nullable/existing ids.
+const seedCyc = global.seedTopoOrder(['A', 'B'], [
+  { storage: 'column', one: 'A', many: 'B', columns: ['a'] },
+  { storage: 'column', one: 'B', many: 'A', columns: ['b'] }
+]);
+ok('topo: a mutual dependency is reported as a cycle', seedCyc.cyclic.length > 0);
+eq('topo: every node is still returned despite the cycle', seedCyc.order.length, 2);
+
+// ── FK distribution ─────────────────────────────────────────────────────────
+const seedParents = []; for (let i = 1; i <= 50; i++) seedParents.push(i);
+const seedSkew = global.seedDistribute(seedParents, 500,
+  { mode: 'skew', cardinality: '1-*', optional: false, orphanFraction: 0.2, skew: 1.2 }, global.seedRng(42));
+eq('distribute: exactly one assignment per child row', seedSkew.length, 500);
+ok('distribute: every assignment is a real parent id',
+  seedSkew.every(function (x) { return seedParents.indexOf(x) !== -1; }));
+const seedSkewStats = global.seedDistributionStats(seedParents, seedSkew);
+ok('distribute: a guaranteed orphan fraction really leaves parents with none', seedSkewStats.zero >= 10);
+ok('distribute: skew produces a heavy head (max far above the median)',
+  seedSkewStats.max > seedSkewStats.median * 3);
+
+const seedUni = global.seedDistribute([1, 2, 3, 4], 400,
+  { mode: 'uniform', cardinality: '1-*', optional: false }, global.seedRng(7));
+const seedUniStats = global.seedDistributionStats([1, 2, 3, 4], seedUni);
+ok('distribute: uniform spreads across every parent (none left at zero)', seedUniStats.zero === 0);
+
+// 1-1 draws without replacement — the FK carries a UNIQUE index.
+const seed11 = global.seedDistribute([1, 2, 3, 4, 5], 5,
+  { cardinality: '1-1', optional: false }, global.seedRng(1));
+const seed11NonNull = seed11.filter(function (x) { return x !== null; });
+eq('distribute 1-1: no parent is used twice', new Set(seed11NonNull).size, seed11NonNull.length);
+const seed11Short = global.seedDistribute([1, 2], 5,
+  { cardinality: '1-1', optional: true, nullFraction: 0 }, global.seedRng(1));
+ok('distribute 1-1: children beyond the parent count get null',
+  seed11Short.filter(function (x) { return x !== null; }).length <= 2);
+
+// ── Column family + SQL literal ─────────────────────────────────────────────
+eq('family: character varying → text', global.seedColumnFamily({ dataType: 'character varying' }), 'text');
+eq('family: bigint → bigint', global.seedColumnFamily({ dataType: 'bigint' }), 'bigint');
+eq('family: numeric → exact', global.seedColumnFamily({ dataType: 'numeric' }), 'exact');
+eq('family: boolean → bool', global.seedColumnFamily({ dataType: 'boolean' }), 'bool');
+eq('family: timestamp → date', global.seedColumnFamily({ dataType: 'timestamp without time zone' }), 'date');
+eq('family: uuid → uuid', global.seedColumnFamily({ dataType: 'uuid' }), 'uuid');
+eq('family: falls back to udt_name when data_type is opaque',
+  global.seedColumnFamily({ dataType: '', udtName: 'int8' }), 'bigint');
+
+eq('literal: null → NULL', global.seedSqlLiteral(null, { family: 'text' }), 'NULL');
+eq('literal: text is quoted and single-quotes are doubled',
+  global.seedSqlLiteral("O'Brien", { family: 'text' }), "'O''Brien'");
+eq('literal: a string is clamped to character_maximum_length',
+  global.seedSqlLiteral('abcdefghij', { family: 'text', maxLength: 5 }), "'abcde'");
+eq('literal: an integer is rounded and unquoted', global.seedSqlLiteral(3.9, { family: 'int' }), '4');
+eq('literal: exact honours numeric scale', global.seedSqlLiteral(3.14159, { family: 'exact', numericScale: 2 }), '3.14');
+eq('literal: exact with scale 0 is a whole number', global.seedSqlLiteral(3.99, { family: 'exact', numericScale: 0 }), '4');
+eq('literal: boolean true', global.seedSqlLiteral(true, { family: 'bool' }), 'true');
+eq('literal: boolean false', global.seedSqlLiteral(false, { family: 'bool' }), 'false');
+eq('literal: a date value is quoted',
+  global.seedSqlLiteral('2020-01-01 12:00:00', { family: 'date' }), "'2020-01-01 12:00:00'");
+
+// (value generation moved to the shared engine — see "generator engine" tests)
+
+// ── INSERT assembly ─────────────────────────────────────────────────────────
+const seedIns = global.seedInsertStatement('eshop$order', ['id', 'customer'], [['1', '10'], ['2', 'NULL']]);
+ok('insert: table and columns are quoted identifiers',
+  seedIns.indexOf('INSERT INTO "eshop$order" ("id", "customer") VALUES') === 0);
+ok('insert: every row is present', /\(1, 10\)/.test(seedIns) && /\(2, NULL\)/.test(seedIns));
+ok('insert: the statement is terminated', /;\s*$/.test(seedIns));
+
+// =========================================================================
+// DATA FACTORY — GENERATOR ENGINE (declarative, parametrized)
+// =========================================================================
+// The value engine shared by every output. What matters is that PARAMETERS
+// actually constrain the value (a Date stays inside its range, a Number inside
+// min/max), that the two cross-cutting knobs work (emptyPercent makes holes,
+// unique never collides — a duplicate would abort the whole SQL transaction),
+// and that weighting a Custom list biases the pick (skew = realism).
+console.log('\nData Factory — generator engine');
+require('../public/js/tools/data-factory-generators.js');
+var gRng = global.dfgRng(20260724);
+
+// ── parameters actually constrain the value ──
+var nums = [], i;
+for (i = 0; i < 500; i++) nums.push(global.dfgGenerate('Integer', { min: 10, max: 20 }, { rowIndex: i }, gRng));
+ok('gen: Number min/max is respected', nums.every(function (n) { return n >= 10 && n <= 20; }));
+var dec = global.dfgGenerate('Decimal', { min: 0, max: 100, scale: 2 }, { rowIndex: 0 }, gRng);
+ok('gen: Decimal honours scale (≤ 2 places)', /^\d+(\.\d{1,2})?$/.test(String(dec)));
+
+var lo = Date.parse('2025-01-01'), hi = Date.parse('2025-12-31T23:59:59Z');
+var dates = [];
+for (i = 0; i < 300; i++) dates.push(global.dfgGenerate('Date', { from: '2025-01-01', to: '2025-12-31' }, { rowIndex: i }, gRng));
+ok('gen: Date stays inside the given range', dates.every(function (d) { var t = Date.parse(d.replace(' ', 'T') + 'Z'); return t >= lo - 86400000 && t <= hi + 86400000; }));
+
+// ── Boolean % biases the coin ──
+var trues = 0;
+for (i = 0; i < 2000; i++) if (global.dfgGenerate('Boolean', { truePercent: 90 }, { rowIndex: i }, gRng) === true) trues++;
+ok('gen: Boolean truePercent≈90 skews strongly true', trues > 1650 && trues < 1950);
+
+// ── region pools ──
+var euCountries = { Poland:1, Germany:1, France:1, Spain:1, Italy:1, Netherlands:1, Sweden:1, Austria:1, Czechia:1, Portugal:1, Denmark:1, Ireland:1, Belgium:1, Norway:1, Finland:1, Greece:1 };
+var okEu = true;
+for (i = 0; i < 200; i++) if (!euCountries[global.dfgGenerate('Country', { region: 'europe' }, { rowIndex: i }, gRng)]) okEu = false;
+ok('gen: Country region=europe stays European', okEu);
+var plNames = {};
+['Jan','Anna','Piotr','Katarzyna','Andrzej','Małgorzata','Tomasz','Agnieszka','Marcin','Barbara','Krzysztof','Ewa','Paweł','Magdalena','Michał','Joanna'].forEach(function (n) { plNames[n] = 1; });
+ok('gen: Name region=polish yields a Polish first name',
+  plNames[global.dfgGenerate('Name', { region: 'polish' }, { rowIndex: 0 }, gRng)] === 1);
+
+// ── Pattern mask ──
+var pat = global.dfgGenerate('Pattern', { mask: 'ORD-#####' }, { rowIndex: 0 }, gRng);
+ok('gen: Pattern fills # with digits and keeps literals', /^ORD-\d{5}$/.test(pat));
+var pat2 = global.dfgGenerate('Pattern', { mask: '??-##' }, { rowIndex: 0 }, gRng);
+ok('gen: Pattern ? is an uppercase letter', /^[A-Z]{2}-\d{2}$/.test(pat2));
+
+// ── Sequence is sequential AND unique ──
+eq('gen: Sequence pads and prefixes', global.dfgGenerate('Sequence', { prefix: 'INV-', start: 1, width: 5 }, { rowIndex: 0 }), 'INV-00001');
+eq('gen: Sequence advances with rowIndex', global.dfgGenerate('Sequence', { prefix: 'INV-', start: 1, width: 5 }, { rowIndex: 41 }), 'INV-00042');
+var seqSet = {};
+for (i = 0; i < 1000; i++) seqSet[global.dfgGenerate('Sequence', { prefix: 'X', start: 0, width: 4 }, { rowIndex: i })] = 1;
+eq('gen: Sequence never repeats', Object.keys(seqSet).length, 1000);
+
+// ── Custom list weights bias the pick ──
+var wc = { A: 0, B: 0, C: 0 };
+for (i = 0; i < 500; i++) wc[global.dfgGenerate('Custom list', { values: ['A', 'B', 'C'], weights: [0, 10, 0] }, { rowIndex: i }, gRng)]++;
+ok('gen: a zero-weight value is never picked', wc.A === 0 && wc.C === 0);
+eq('gen: the only weighted value is always picked', wc.B, 500);
+
+// ── cross-cutting: emptyPercent + uniqueness ──
+var allNull = true;
+for (i = 0; i < 100; i++) if (global.dfgGenerate('Name', {}, { emptyPercent: 100, rowIndex: i }, gRng) !== null) allNull = false;
+ok('gen: emptyPercent=100 always yields null', allNull);
+var noNull = true;
+for (i = 0; i < 100; i++) if (global.dfgGenerate('Name', {}, { emptyPercent: 0, rowIndex: i }, gRng) === null) noNull = false;
+ok('gen: emptyPercent=0 never yields null', noNull);
+var mails = {};
+for (i = 0; i < 1000; i++) mails[global.dfgGenerate('Email', {}, { unique: true, rowIndex: i }, gRng)] = 1;
+eq('gen: unique e-mails never collide across 1000 rows', Object.keys(mails).length, 1000);
+ok('gen: a unique e-mail is still a valid address',
+  /^[^@\s]+@[^@\s]+$/.test(global.dfgGenerate('Email', {}, { unique: true, rowIndex: 7 }, gRng)));
+
+// ── metadata for the UI ──
+var meta = global.dfgList();
+ok('gen: dfgList exposes generators with params', Array.isArray(meta) && meta.length > 15);
+ok('gen: Date generator declares from/to params',
+  meta.find(function (g) { return g.id === 'Date'; }).params.map(function (p) { return p.key; }).join(',') === 'from,to');
+eq('gen: dfgFamily maps Boolean to bool', global.dfgFamily('Boolean'), 'bool');
+
+// =========================================================================
+// DATA FACTORY — OUTPUT LAYER (CSV / JSON / XML serializers)
+// =========================================================================
+console.log('\nData Factory — output layer');
+require('../public/js/tools/data-factory-output.js');
+
+var oCols = ['Name', 'Note', 'Active', 'Score'];
+var oRows = [['Jane, Ann', 'line1\nline2', true, 3], ['Bob "B"', null, false, null]];
+
+var oCsv = global.dfoCsv(oCols, oRows);
+ok('output csv: header present', oCsv.split('\n')[0] === 'Name,Note,Active,Score');
+ok('output csv: a comma forces quoting', /"Jane, Ann"/.test(oCsv));
+ok('output csv: an embedded quote is doubled', /"Bob ""B"""/.test(oCsv));
+ok('output csv: a newline in a field is quoted, not a new row', oCsv.split('\n').length === 4);
+ok('output csv: boolean rendered as true/false', /,true,/.test(oCsv) && /,false,/.test(oCsv));
+
+var oJson = JSON.parse(global.dfoJson(oCols, oRows));
+eq('output json: one object per row', oJson.length, 2);
+eq('output json: values keyed by column', oJson[0].Name, 'Jane, Ann');
+eq('output json: boolean preserved as boolean', oJson[0].Active, true);
+eq('output json: null preserved as null', oJson[1].Note, null);
+
+var oXml = global.dfoXml(oCols, oRows, { root: 'People', record: 'Person' });
+ok('output xml: custom root/record used', /<People>/.test(oXml) && /<Person>/.test(oXml));
+ok('output xml: special chars escaped', /Bob &quot;B&quot;|Bob "B"/.test(oXml));
+ok('output xml: a null field is an absent node', oXml.indexOf('<Note></Note>') === -1);
+ok('output xml: dispatcher routes by format', global.dfoSerialize('json', oCols, oRows) === global.dfoJson(oCols, oRows));
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 runXlsxAsyncTests().then(function () {
   console.log('\n' + passed + ' passed, ' + failed + ' failed');

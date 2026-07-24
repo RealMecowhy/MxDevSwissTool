@@ -851,9 +851,140 @@ async function runDomainModel(Client, dbConfig, opts) {
   }
 }
 
+// =========================================================================
+// SEED SCHEMA (Data Factory — relational test data) — READ ONLY
+// =========================================================================
+// The relational seed feature builds a downloadable INSERT script; the Bridge
+// never writes. This read-only helper hands the browser the one thing the
+// Mendix metadata does NOT carry: the physical column contract from
+// information_schema (nullability, defaults, exact length/scale), plus a start
+// id (MAX(id)+1 over the requested tables) and, for "link to existing", a bounded
+// sample of real parent ids. Everything runs in the same READ ONLY transaction
+// as every other Live DB helper.
+
+// A table name here is used as a quoted identifier, so it must be a plain Mendix
+// table name — never free text. Reject anything else outright.
+function isSafeTableName(t) {
+  return typeof t === 'string' && t.length > 0 && t.length <= 128 && /^[A-Za-z0-9_$]+$/.test(t);
+}
+
+async function runSeedSchema(Client, dbConfig, opts) {
+  opts = opts || {};
+  const timeoutMs = opts.timeoutMs || 20000;
+  const tables = (Array.isArray(opts.tables) ? opts.tables : []).filter(isSafeTableName);
+  const sampleExisting = opts.sampleExisting || {};
+  if (!tables.length) return { error: true, message: 'No valid tables were requested.' };
+
+  const client = new Client(mapDbConfig(dbConfig));
+  try {
+    await client.connect();
+    await client.query('BEGIN TRANSACTION READ ONLY');
+    await client.query('SET LOCAL statement_timeout = ' + Number(timeoutMs));
+
+    // The physical contract. Parameterised — the first bound value in this file,
+    // and the reason table names above are still validated: only this list is a
+    // parameter, the identifiers below are interpolated.
+    const colRes = await client.query(
+      `SELECT table_name, column_name, data_type, udt_name,
+              character_maximum_length, numeric_precision, numeric_scale,
+              is_nullable, column_default
+         FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = ANY($1)
+        ORDER BY table_name, ordinal_position`, [tables]);
+
+    const columns = {};
+    const hasId = {};
+    colRes.rows.forEach(function (r) {
+      if (!columns[r.table_name]) columns[r.table_name] = [];
+      columns[r.table_name].push({
+        column: r.column_name,
+        dataType: r.data_type,
+        udtName: r.udt_name,
+        maxLength: r.character_maximum_length,
+        numericPrecision: r.numeric_precision,
+        numericScale: r.numeric_scale,
+        isNullable: r.is_nullable,               // 'YES' | 'NO'
+        hasDefault: r.column_default != null
+      });
+      if (String(r.column_name).toLowerCase() === 'id') hasId[r.table_name] = true;
+    });
+
+    // Start id: MAX(id)+1 over the requested tables that actually have an id.
+    // Mendix ids are one global space, so a single counter from here up never
+    // collides with existing rows in any table we insert into.
+    let startId = 1;
+    for (const t of tables) {
+      if (!hasId[t]) continue;
+      const m = await client.query('SELECT COALESCE(MAX(id), 0) AS m FROM ' + quoteIdent(t));
+      const v = Number(m.rows[0].m) + 1;
+      if (v > startId) startId = v;
+    }
+
+    // Bounded sample of existing parent ids for "link to existing".
+    const existingIds = {};
+    for (const t of Object.keys(sampleExisting)) {
+      if (!isSafeTableName(t) || !hasId[t]) continue;
+      const k = Math.max(1, Math.min(5000, Number(sampleExisting[t]) || 0));
+      const r = await client.query('SELECT id FROM ' + quoteIdent(t) + ' LIMIT ' + k);
+      existingIds[t] = r.rows.map(function (row) { return row.id; });
+    }
+
+    // Single-column UNIQUE indexes on the requested tables. A generated value
+    // that duplicates one of these aborts the whole INSERT transaction, so the
+    // client must generate these columns uniquely. Same catalog the domain model
+    // reads for cardinality, scoped here to the tables we touch.
+    const uniqRes = await client.query(
+      `SELECT c.relname AS tbl, a.attname AS col
+         FROM pg_index i
+         JOIN pg_class c ON c.oid = i.indrelid
+         JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+        WHERE i.indisunique AND i.indnatts = 1 AND c.relname = ANY($1)`, [tables]);
+    const uniqueColumns = uniqRes.rows.map(function (r) { return r.tbl + '|' + r.col; });
+
+    await client.query('ROLLBACK');
+    return { columns: columns, startId: startId, existingIds: existingIds, uniqueColumns: uniqueColumns };
+  } catch (e) {
+    try { await client.query('ROLLBACK'); } catch (_) {}
+    return { error: true, message: e.message };
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
+
+// Read-only DISTINCT sniff of one column — used to pre-fill an enum's allowed
+// values from the keys already present in the data (Mendix does not store the
+// enumeration's values in metadata, but a populated column reveals the real
+// ones). Bounded and identifier-validated.
+async function runDistinctValues(Client, dbConfig, opts) {
+  opts = opts || {};
+  const table = opts.table, column = opts.column;
+  const limit = Math.max(1, Math.min(200, Number(opts.limit) || 50));
+  const timeoutMs = opts.timeoutMs || 8000;
+  if (!isSafeTableName(table) || !isSafeTableName(column)) {
+    return { error: true, message: 'Invalid table or column name.' };
+  }
+  const client = new Client(mapDbConfig(dbConfig));
+  try {
+    await client.connect();
+    await client.query('BEGIN TRANSACTION READ ONLY');
+    await client.query('SET LOCAL statement_timeout = ' + Number(timeoutMs));
+    const r = await client.query(
+      'SELECT DISTINCT ' + quoteIdent(column) + ' AS v FROM ' + quoteIdent(table) +
+      ' WHERE ' + quoteIdent(column) + ' IS NOT NULL ORDER BY 1 LIMIT ' + limit);
+    await client.query('ROLLBACK');
+    return { values: r.rows.map(function (row) { return row.v; }) };
+  } catch (e) {
+    try { await client.query('ROLLBACK'); } catch (_) {}
+    return { error: true, message: e.message };
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
+
 module.exports = {
   isReadOnlySelect, stripSqlComments, runPing, runExplain,
   assessStatsWindow, findRedundantIndexes, buildIndexAdvice, runIndexAdvisor,
   buildDomainModel, domainModelToArchJson, mxTypeName, runDomainModel,
+  runSeedSchema, runDistinctValues, isSafeTableName,
   IDX_DEFAULTS, MX_ATTR_TYPES
 };

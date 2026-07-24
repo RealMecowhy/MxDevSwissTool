@@ -57,7 +57,7 @@ const TOOLS = [
 
   {id:'mock-server',   label:'Mock Server & Chaos',         desc:'Simulate API endpoints with custom latency and chaos engineering',              color:'#e67e22',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>', section:'Performance & Testing'},
 
-  {id:'data-factory',  label:'Data Factory',               desc:'High-Volume Mock Data Generator for performance testing and mock servers',      color:'#f39c12',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>', section:'Data & Format'},
+  {id:'data-factory',  label:'Data Factory',               desc:'High-Volume Mock Data Generator for performance testing and mock servers',      color:'#f39c12',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h16"/><path d="M18 20V6l-4 2V6l-4 2V6l-4 2v12"/><path d="M4 20v-6h4"/><path d="M4 14v-3a1 1 0 0 1 1-1h3"/></svg>', section:'Data & Format'},
 
   {id:'xlsx-converter',label:'Excel Converter',            desc:'Convert an .xlsx workbook — or one selected sheet — to JSON or CSV, entirely in the browser', color:'#217346', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="9" x2="9" y2="21"/></svg>', section:'Data & Format'},
 
@@ -183,7 +183,7 @@ async function navigate(toolId, navEl) {
     iconEl.style.color = tool.color || 'var(--accent)';
   }
   document.getElementById('topbar-title').textContent = tool.label;
-  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.18.1' : (tool.desc || '');
+  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.19.0' : (tool.desc || '');
   const previousTool = currentTool;
   currentTool = toolId;
   window.currentTool = currentTool;
@@ -384,10 +384,21 @@ import * as apiEconomics from './tools/api-economics.js';
 import * as architecture from './tools/architecture.js';
 import * as charSanitizer from './tools/char-sanitizer.js';
 import * as dataFactory from './tools/data-factory.js';
-// Side-effect import: fills the Data Factory schema from a DDL script or from
-// mendixsystem$ via the Bridge. Attaches the pure dfParseDdl / dfInfer* layer
-// for scripts/parser-test.js plus the dfImp* UI handlers.
+// Side-effect import: the declarative generator engine (parametrized value
+// generators + region-aware pools). Shared by the flat generator and the
+// relational seed; attaches the pure dfg* layer for scripts/parser-test.js.
+import './tools/data-factory-generators.js';
+// Side-effect import: the output serializers (CSV/JSON/XML) — the format layer
+// kept separate from the value engine. Attaches the pure dfo* layer.
+import './tools/data-factory-output.js';
+// Side-effect import: schema inference from a pasted DDL script or from
+// mendixsystem$ via the Bridge — attaches the pure dfParseDdl / dfInfer* layer
+// the wizard (data-factory.js) drives directly for its Manual/Single sources.
 import './tools/data-factory-import.js';
+// Side-effect import: the relational seed maths (topo order, skewed FK
+// distribution, SQL literal formatting) the wizard drives for its "Multiple
+// linked tables" source. Attaches the pure seed* layer for scripts/parser-test.js.
+import './tools/data-factory-seed.js';
 import * as devStudio from './tools/dev-studio.js';
 import * as diff from './tools/diff.js';
 import * as encoder from './tools/encoder.js';

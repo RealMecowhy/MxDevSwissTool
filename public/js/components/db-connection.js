@@ -93,6 +93,13 @@ const mtDb = {
   },
   isConnected() { return state.status === 'connected'; },
   getStatus() { return state.status; },
+  // Mount a connection bar that was inserted into the DOM after startup (e.g. a
+  // tool that renders its `[data-mt-db-connection]` host dynamically). With no
+  // argument it re-scans the document for any unmounted bars.
+  mount(el) {
+    if (el) { mounts.add(el); renderBar(el); return; }
+    document.querySelectorAll('[data-mt-db-connection]').forEach(e => { mounts.add(e); renderBar(e); });
+  },
   onChange(cb) { listeners.add(cb); return () => listeners.delete(cb); },
   async test() {
     state.status = 'testing';
