@@ -76,8 +76,15 @@ export const state = {
     ticksSinceGc: 0
   },
 
-  tmChartGroupsWired: false
+  tmChartGroupsWired: false,
+
+  // 8.7: alert thresholds — overwritten by tmLoadThresholds() from toolState
+  // at startup, but always populated so tmCheckThresholds() never reads
+  // undefined before that runs.
+  tmThresholds: { heapWarn: 75, heapDanger: 90, threadsWarn: 75, threadsDanger: 90, dbWarn: 500, dbDanger: 1000 }
 };
+
+export const TM_THRESHOLD_DEFAULTS = { heapWarn: 75, heapDanger: 90, threadsWarn: 75, threadsDanger: 90, dbWarn: 500, dbDanger: 1000 };
 
 export const TM_USED_METRICS = new Set([
   'jvm_memory_used_bytes', 'jvm_memory_used', 'jvm_memory_committed_bytes',

@@ -68,6 +68,7 @@ window.tmParseOtelMetrics = mod_otel.tmParseOtelMetrics;
 window.tmParsePrometheusText = mod_prometheus.tmParsePrometheusText;
 window.tmGetMetricValue = mod_prometheus.tmGetMetricValue;
 window.tmGetMetricSum = mod_prometheus.tmGetMetricSum;
+window.tmLoadThresholds = mod_alerts.tmLoadThresholds;
 
 export function init() {
   if (document.getElementById('tm-conn-profile')) {
@@ -77,4 +78,6 @@ export function init() {
   if (typeof window.tmInitChartGroups === 'function') {
     window.tmInitChartGroups();
   }
+  // 8.7: restore configured alert thresholds (defaults if never customized)
+  mod_alerts.tmLoadThresholds();
 }

@@ -38,7 +38,7 @@ The toolkit is divided into logical categories to assist you across the entire d
   ![Nginx Log Analyzer](assets/screenshot-nginx-analyzer.png)
 * **Client Traffic Analyzer (HAR)**: Decode a browser HAR into named Mendix client operations (microflows, XPath retrieves) to spot client-side N+1 patterns, chatty microflows, and oversized responses that raw DevTools can't surface.
   ![Client Traffic Analyzer](assets/screenshot-har-analyzer.png)
-* **Metrics & Telemetry**: Visualize Mendix Prometheus metrics (heap, threads, request rate, database queries) as live dashboards and explore OpenTelemetry traces/logs, locally or from cloud endpoints. Set **threshold alerts** on heap, threads or the database pool to catch a leak or pool exhaustion as it builds. Includes a sandbox mode for exploring without a running app.
+* **Metrics & Telemetry**: Visualize Mendix Prometheus metrics (heap, threads, request rate, database queries) as live dashboards and explore OpenTelemetry traces/logs, locally or from cloud endpoints. Set **configurable threshold alerts** on heap, threads or the database pool — Warning/Danger levels are per-browser, not fixed, since every app has a different baseline — to catch a leak or pool exhaustion as it builds. Includes a sandbox mode for exploring without a running app.
   ![Metrics & Telemetry](assets/screenshot-telemetry.png)
 * **JVM Health Analyzer**: Analyze JVM thread dumps, garbage collector logs, and heap histograms to locate blocked threads, diagnose GC pauses, and spot memory leaks.
   ![JVM Health Analyzer](assets/screenshot-thread-dump.png)

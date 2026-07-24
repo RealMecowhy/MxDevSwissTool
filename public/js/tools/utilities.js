@@ -19,8 +19,26 @@ function handleTextFileDrop(e, inputId, callbackName) {
   }
 }
 
-// Keyboard shortcuts
-document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){if(window.currentTool==='json-formatter')jsonFormat();else if(window.currentTool==='xml-formatter')xmlFormat();else if(window.currentTool==='sql-formatter')sqlFormat();else if(window.currentTool==='microflow-expression')mefFormatClick();}});
+// Keyboard shortcuts (8.6): Ctrl+Enter triggers a tool's primary action.
+// Generic by design — it doesn't hold a per-tool registry of functions to
+// call. Instead, a tool opts in simply by putting a <kbd>Ctrl+Enter</kbd>
+// hint inside its primary action button's label (already the case for
+// Format buttons in SQL/JSON/XML/Microflow Expression); this handler finds
+// that hint in the active panel and replays a real click on its button,
+// reusing whatever onclick the tool already wired up. One button per panel
+// is expected to carry the hint — if a tool ever needs a second one, it
+// should not also add a second <kbd>, since only the first match fires.
+document.addEventListener('keydown', e => {
+  if (!(e.ctrlKey || e.metaKey) || e.key !== 'Enter') return;
+  const panel = document.querySelector('.tool-panel.active');
+  if (!panel) return;
+  // A multi-tab tool (Query Intelligence, JVM Health) has one hinted button
+  // PER TAB, all in the DOM at once — only the tab that's actually visible
+  // (not display:none) may own the shortcut right now.
+  const kbd = Array.from(panel.querySelectorAll('kbd')).find(k => k.offsetParent !== null);
+  const btn = kbd && kbd.closest('button');
+  if (btn) { e.preventDefault(); btn.click(); }
+});
 
 // Load fonts
 (function(){

@@ -699,7 +699,7 @@
 
     <div class="tool-panel" id="panel-error-decoder">
       <div class="tool-actions">
-        <button class="btn btn-primary btn-sm" onclick="window.edxAnalyze()" title="Decode the pasted error message or stack trace"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="11.5"/><line x1="11" y1="14" x2="11.01" y2="14"/></svg>Decode</button>
+        <button class="btn btn-primary btn-sm" onclick="window.edxAnalyze()" title="Decode the pasted error message or stack trace"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="11.5"/><line x1="11" y1="14" x2="11.01" y2="14"/></svg>Decode <kbd>Ctrl+Enter</kbd></button>
         <button class="btn btn-secondary btn-sm" onclick="window.edxLoadExample()" title="Fill the input with a sample Mendix stack trace"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Load example</button>
         <button class="btn btn-secondary btn-sm" onclick="window.edxClear()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Clear</button>
       </div>
@@ -1160,7 +1160,7 @@
         <div class="card" style="display:flex;flex-direction:column;flex:1;min-height:0;">
           <div class="card-header">
             <h4 style="flex:1;margin:0;font-size:0.75rem;color:var(--text-secondary)">Input XPath Expression</h4>
-            <button class="btn btn-ghost btn-sm" onclick="formatXPathClick()">Format XPath</button>
+            <button class="btn btn-ghost btn-sm" onclick="formatXPathClick()">Format XPath <kbd>Ctrl+Enter</kbd></button>
             <button class="btn btn-ghost btn-sm" onclick="document.getElementById('xpath-input').value='';document.getElementById('xpath-output').value='';document.getElementById('xpath-result').style.display='none'">Clear</button>
           </div>
           <div class="card-body" style="display:flex;flex:1;padding:0;">
@@ -1202,7 +1202,7 @@
         <div id="qi-tab-formatter" style="display:flex;flex-direction:column;flex:1;height:calc(100% - 40px)">
           <div id="oql-split" style="display:grid;grid-template-columns:1fr 1fr;flex:1;overflow:hidden">
             <div class="json-pane">
-              <div class="json-pane-header"><h4>Input OQL</h4><button class="btn btn-ghost btn-sm" onclick="formatOql()">Format</button><button class="btn btn-ghost btn-sm" onclick="document.getElementById('oql-input').value='';formatOql()">Clear</button></div>
+              <div class="json-pane-header"><h4>Input OQL</h4><button class="btn btn-ghost btn-sm" onclick="formatOql()">Format <kbd>Ctrl+Enter</kbd></button><button class="btn btn-ghost btn-sm" onclick="document.getElementById('oql-input').value='';formatOql()">Clear</button></div>
               <div class="json-pane-body"><textarea class="json-input-area" id="oql-input" placeholder="Paste OQL query here..." oninput="formatOql()"></textarea></div>
             </div>
             <div class="json-pane">
@@ -1226,7 +1226,7 @@
                   <option value="o2s">OQL &rarr; SQL (Postgres)</option>
                   <option value="s2o">SQL &rarr; OQL</option>
                 </select>
-                <button class="btn btn-primary btn-sm" onclick="translateOqlSql()">Translate</button>
+                <button class="btn btn-primary btn-sm" onclick="translateOqlSql()">Translate <kbd>Ctrl+Enter</kbd></button>
               </div>
               <div class="json-pane-body"><textarea class="json-input-area" id="oql-sql-input" placeholder="Paste your query here..." oninput="translateOqlSql()"></textarea></div>
             </div>
@@ -1263,7 +1263,7 @@
             <div class="form-label">PostgreSQL EXPLAIN Output</div>
             <textarea class="code-area" id="sql-explain-input" rows="8" placeholder="Paste EXPLAIN (or EXPLAIN ANALYZE) text here..."></textarea>
           </div>
-          <button class="btn btn-primary btn-sm" onclick="visualizeSqlExplain()" style="align-self:flex-start">Visualize Query Plan</button>
+          <button class="btn btn-primary btn-sm" onclick="visualizeSqlExplain()" style="align-self:flex-start">Visualize Query Plan <kbd>Ctrl+Enter</kbd></button>
           <div id="sql-explain-result" style="margin-top:var(--sp-4);display:none;background:var(--bg-elevated);padding:var(--sp-4);border-radius:var(--r-md);border:1px solid var(--border);flex:1;overflow:auto;"></div>
         </div>
         
@@ -1296,7 +1296,7 @@
           </div>
           <div id="ixa-livedb-bar" data-mt-db-connection style="margin-bottom:var(--sp-3)"></div>
           <div style="display:flex;gap:var(--sp-2);align-items:center;margin-bottom:var(--sp-3);flex-wrap:wrap">
-            <button class="btn btn-primary btn-sm" onclick="window.ixaAnalyze(this)">Analyze indexes</button>
+            <button class="btn btn-primary btn-sm" onclick="window.ixaAnalyze(this)">Analyze indexes <kbd>Ctrl+Enter</kbd></button>
             <button class="btn btn-ghost btn-sm" onclick="window.ixaExport('csv')">Export CSV</button>
             <button class="btn btn-ghost btn-sm" id="ixa-export-md" onclick="window.ixaExport('md')">Copy Markdown</button>
           </div>
@@ -1344,7 +1344,7 @@
     <!-- SAML / OIDC DEBUGGER -->
     <div class="tool-panel" id="panel-saml-debugger">
       <div class="tool-actions">
-          <button class="btn btn-primary btn-sm" onclick="samlDecodeActive()">Decode</button>
+          <button class="btn btn-primary btn-sm" onclick="samlDecodeActive()">Decode <kbd>Ctrl+Enter</kbd></button>
         </div>
       <div class="tool-body" style="padding-top:0">
         <div class="tabs" style="margin-bottom:var(--sp-3);padding:0;border-bottom:1px solid var(--border)">
@@ -1774,7 +1774,7 @@
     <!-- API ECONOMICS -->
     <div class="tool-panel" id="panel-api-economics">
       <div class="tool-actions">
-          <button class="btn btn-primary btn-sm" onclick="apiEconAnalyze()">Analyze Payload</button>
+          <button class="btn btn-primary btn-sm" onclick="apiEconAnalyze()">Analyze Payload <kbd>Ctrl+Enter</kbd></button>
         </div>
       <div class="tool-body" style="display:flex;gap:var(--sp-4)">
         <div style="flex:1;display:flex;flex-direction:column">
@@ -2296,7 +2296,7 @@ EntityName -> OtherEntity : Association"></textarea>
               <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="pwd-spec" checked onchange="generatePassword()"> Special Characters (!@#$%^&*)</label>
             </div>
             
-            <button class="btn btn-primary" style="margin-top:var(--sp-4)" onclick="generatePassword()">Generate New Password</button>
+            <button class="btn btn-primary" style="margin-top:var(--sp-4)" onclick="generatePassword()">Generate New Password <kbd>Ctrl+Enter</kbd></button>
           </div>
           
           <div style="flex:1;min-width:300px;display:flex;flex-direction:column;justify-content:center">
@@ -2331,7 +2331,7 @@ EntityName -> OtherEntity : Association"></textarea>
     <!-- JVM HEALTH ANALYZER (Thread Dump + GC & Memory) -->
     <div class="tool-panel" id="panel-thread-dump">
       <div class="tool-actions">
-          <button class="btn btn-primary btn-sm" id="jvm-analyze-btn" onclick="jvmAnalyzeActive()">Analyze Thread Dump</button>
+          <button class="btn btn-primary btn-sm" id="jvm-analyze-btn" onclick="jvmAnalyzeActive()">Analyze Thread Dump <kbd>Ctrl+Enter</kbd></button>
         </div>
       <div class="tool-body" style="padding-top:0">
         <div class="tabs" style="margin-bottom:var(--sp-3);padding:0;border-bottom:1px solid var(--border)">
@@ -2960,6 +2960,41 @@ EntityName -> OtherEntity : Association"></textarea>
               <div style="font-size:0.7rem;color:var(--text-muted);margin-top:2px" id="tm-card-db-breakdown">S:0 I:0 U:0 D:0</div>
             </div>
           </div>
+
+          <!-- Alert Thresholds (8.7) — different apps have different baselines, so the
+               heap/thread/DB alert levels are configurable instead of fixed at 90%/75%/1000tx/s -->
+          <details class="tm-chart-group" data-group-id="alert-thresholds">
+            <summary>Alert Thresholds</summary>
+            <div style="display:flex;flex-wrap:wrap;gap:var(--sp-4);padding:var(--sp-3) 0;align-items:flex-end">
+              <div class="form-group" style="margin:0">
+                <div class="form-label">Heap — Warning %</div>
+                <input type="number" class="input input-sm" id="tm-thr-heap-warn" min="1" max="100" style="width:80px">
+              </div>
+              <div class="form-group" style="margin:0">
+                <div class="form-label">Heap — Danger %</div>
+                <input type="number" class="input input-sm" id="tm-thr-heap-danger" min="1" max="100" style="width:80px">
+              </div>
+              <div class="form-group" style="margin:0">
+                <div class="form-label">Threads — Warning %</div>
+                <input type="number" class="input input-sm" id="tm-thr-threads-warn" min="1" max="100" style="width:80px">
+              </div>
+              <div class="form-group" style="margin:0">
+                <div class="form-label">Threads — Danger %</div>
+                <input type="number" class="input input-sm" id="tm-thr-threads-danger" min="1" max="100" style="width:80px">
+              </div>
+              <div class="form-group" style="margin:0">
+                <div class="form-label">DB tx/s — Warning</div>
+                <input type="number" class="input input-sm" id="tm-thr-db-warn" min="1" style="width:80px">
+              </div>
+              <div class="form-group" style="margin:0">
+                <div class="form-label">DB tx/s — Danger</div>
+                <input type="number" class="input input-sm" id="tm-thr-db-danger" min="1" style="width:80px">
+              </div>
+              <button class="btn btn-primary btn-sm" onclick="tmSaveThresholdsFromInputs()">Save Thresholds</button>
+              <button class="btn btn-ghost btn-sm" onclick="tmResetThresholds()">Reset to Defaults</button>
+              <span id="tm-thr-status" style="font-size:0.8rem"></span>
+            </div>
+          </details>
 
           <!-- Charts Area — grouped into collapsible sections (state persisted per group) -->
           <details class="tm-chart-group" data-group-id="jvm" open>

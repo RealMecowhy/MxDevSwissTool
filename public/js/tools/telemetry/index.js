@@ -8,6 +8,7 @@ import { tmConnectAgent, tmStartAgentPolling, tmStopAgentPolling, tmFetchAgentLo
 import { tmFetchMetrics, tmChangePollInterval, tmStopPolling, tmParsePastedMetrics, tmDumpAllMetrics } from './poller.js';
 import { tmToggleMock, tmResetData, tmGenerateMockTick, tmGenerateMockPgStats } from './mock.js';
 import { tmLoadMockTraceJSON, tmClearTraces, tmParseTraces, tmRenderTraceWaterfall, tmSelectSpan, tmSetOtelSubtab, tmGetTraceList, tmRenderOtelTracesTable, tmRenderOtelLogsTable, tmSelectTrace, tmCloseSelectedTrace } from './traces.js';
+import { tmLoadThresholds } from './alerts.js';
 
 const tmThemeObserver = new MutationObserver(() => {
   if (state.tmActiveTab === 'dashboard') {
@@ -94,5 +95,6 @@ export function init() {
     tmChangeConnectionProfile();
   }
   tmInitChartGroups();
+  tmLoadThresholds();
 }
 

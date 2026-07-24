@@ -441,7 +441,7 @@ const TOOLS_HELP = {
         <li>Click <strong>Connect Agent</strong> (agent profiles) or <strong>Fetch Metrics</strong> (direct mode). Charts for JVM memory usage, database connection pool, and request counts will start updating live.</li>
         <li>Go to the <strong>OTLP Traces (Waterfall)</strong> tab to see waterfall charts of Microflow / SQL executions. Click on individual spans to see details.</li>
         <li>No running Mendix app at hand? Click <strong>Start Sandbox</strong> to explore the dashboard with simulated data.</li>
-        <li>Use the <strong>Alerts</strong> card to set <strong>threshold alerts</strong> — when a metric such as JVM heap, thread count or database-pool usage crosses the limit you set, the tool flags the breach as the data updates, so you are not left watching charts.</li>
+        <li>Open the <strong>Alert Thresholds</strong> section on the Live Dashboard tab to customize the Warning/Danger levels for heap %, thread-pool % and DB transactions/sec — different apps have different baselines, so these are not fixed. Click <strong>Save Thresholds</strong> to persist your values in this browser, or <strong>Reset to Defaults</strong> to go back to 75%/90% (heap, threads) and 500/1000 tx/s (DB).</li>
       </ol>
     `,
     interpretation: `
@@ -449,7 +449,7 @@ const TOOLS_HELP = {
         <li><strong>JVM Heap Memory:</strong> If memory usage constantly increases (staircase chart upwards) and does not drop after Garbage Collection, the application might have a memory leak.</li>
         <li><strong>Database Connection Pool:</strong> If the number of used connections approaches the limit (e.g., 50), subsequent user requests will be blocked waiting for a free connection, drastically slowing down the system.</li>
         <li><strong>Waterfall (Traces):</strong> A long horizontal bar means the longest running activity. If you see dozens of small SQL query bars to the same table underneath, you've detected an <strong>N+1 queries</strong> problem, which should be optimized (e.g., by fetching data at once using an association or modifying a loop).</li>
-        <li><strong>Threshold alerts:</strong> rather than eyeballing the charts, set an alert on heap, threads or the DB pool — a breach is surfaced immediately, so you catch a leak or pool exhaustion while it is building rather than after it takes the app down.</li>
+        <li><strong>Threshold alerts:</strong> rather than eyeballing the charts, a breach of your configured Warning/Danger level is surfaced immediately as a toast, so you catch a leak or pool exhaustion while it is building rather than after it takes the app down.</li>
       </ul>
     `
   },
