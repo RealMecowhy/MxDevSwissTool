@@ -93,6 +93,10 @@
         }).join('') + '</div>'
       : '';
 
+    // Report-level free-text context (e.g. Incident Report's "Notes" field) —
+    // distinct from the per-section note, shown once near the top.
+    const noteHtml = opts.note ? '<div class="context">' + htmlEscape(opts.note) + '</div>' : '';
+
     const bodyInner = (opts.sections && opts.sections.length)
       ? opts.sections.map(sectionHtml).join('')
       : (opts.title || opts.columns
@@ -109,6 +113,7 @@
       + '.wrap{max-width:1200px;margin:0 auto}h1{font-size:1.5rem;margin:0 0 4px}h2{font-size:1.05rem;margin:28px 0 6px}'
       + '.subtitle{color:var(--muted);margin:0 0 16px}.sub{color:var(--muted);margin:0 0 10px;font-size:0.85rem}'
       + '.meta{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 20px}.chip{background:var(--panel);border:1px solid var(--border);border-radius:999px;padding:4px 12px;font-size:0.8rem;color:var(--muted)}.chip b{color:var(--text);font-weight:600}'
+      + '.context{background:var(--panel);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:6px;padding:10px 14px;margin:0 0 20px;font-size:0.85rem;white-space:pre-wrap;word-break:break-word}'
       + '.tw{overflow-x:auto;border:1px solid var(--border);border-radius:8px;background:var(--panel)}'
       + 'table{border-collapse:collapse;width:100%;font-size:0.82rem}th,td{text-align:left;padding:7px 12px;border-bottom:1px solid var(--border);vertical-align:top;white-space:pre-wrap;word-break:break-word;max-width:520px}'
       + 'th{background:var(--th);position:sticky;top:0;font-weight:600}tbody tr:last-child td{border-bottom:none}tbody tr:hover td{background:color-mix(in srgb,var(--accent) 6%,transparent)}'
@@ -119,6 +124,7 @@
       + '<h1>' + htmlEscape(opts.title || 'MxDev Swiss Tool report') + '</h1>'
       + (opts.subtitle ? '<p class="subtitle">' + htmlEscape(opts.subtitle) + '</p>' : '')
       + metaHtml
+      + noteHtml
       + bodyInner
       + '<footer>Generated ' + htmlEscape(generated) + ' by MxDev Swiss Tool. Fully self-contained — no external resources. '
       + 'Review for sensitive data before sharing; the Log &amp; Text Anonymizer can scrub logs first.</footer>'
@@ -133,6 +139,55 @@
     const p = function (n) { return String(n).length < 2 ? '0' + n : '' + n; };
     return d.getUTCFullYear() + '-' + p(d.getUTCMonth() + 1) + '-' + p(d.getUTCDate()) + ' ' +
       p(d.getUTCHours()) + ':' + p(d.getUTCMinutes()) + ':' + p(d.getUTCSeconds()) + ' UTC';
+  }
+
+  // One-line executive summary built ONLY from numbers already present in the
+  // collected sections — no invented metrics (e.g. no heap % when no included
+  // source actually carries one). A source that isn't included, or whose data
+  // doesn't support a given count, simply contributes no clause (data-driven rule).
+  function mtIncidentSummary(sections, windowLabel) {
+    const bits = [];
+    const byId = {};
+    sections.forEach(function (s) { byId[s.id] = s; });
+
+    const logSec = byId['log-viewer'];
+    if (logSec && logSec.columns) {
+      const lvlIdx = logSec.columns.indexOf('Level');
+      if (lvlIdx !== -1) {
+        let errs = 0;
+        logSec.rows.forEach(function (r) { if (r[lvlIdx] === 'ERROR' || r[lvlIdx] === 'CRITICAL') errs++; });
+        bits.push(errs + ' error' + (errs === 1 ? '' : 's'));
+      }
+    }
+
+    const lqeSec = byId['log-query-extractor'];
+    if (lqeSec && lqeSec.columns) {
+      const durIdx = lqeSec.columns.indexOf('Duration (ms)');
+      if (durIdx !== -1) {
+        let slow = 0;
+        lqeSec.rows.forEach(function (r) { const d = parseFloat(r[durIdx]); if (!isNaN(d) && d > 1000) slow++; });
+        bits.push(slow + ' slow quer' + (slow === 1 ? 'y' : 'ies') + ' (>1s)');
+      }
+    }
+
+    const wsreSec = byId['ws-rest-extractor'];
+    if (wsreSec) {
+      const m = /(\d+) with error status/.exec(wsreSec.subtitle || '');
+      if (m) bits.push(m[1] + ' failed call' + (m[1] === '1' ? '' : 's'));
+    }
+
+    const jvmSec = byId['thread-dump'];
+    if (jvmSec && jvmSec.columns) {
+      const metricIdx = jvmSec.columns.indexOf('Metric');
+      const valueIdx = jvmSec.columns.indexOf('Value');
+      if (metricIdx !== -1 && valueIdx !== -1) {
+        const dl = jvmSec.rows.find(function (r) { return r[metricIdx] === 'Deadlocks detected'; });
+        const dlCount = dl ? parseInt(dl[valueIdx], 10) : 0;
+        if (dlCount > 0) bits.push(dlCount + ' deadlock' + (dlCount === 1 ? '' : 's'));
+      }
+    }
+
+    return 'Period: ' + windowLabel + (bits.length ? '  ·  ' + bits.join('  ·  ') : '');
   }
 
   // Assembles the Incident Report model from the per-tool report sections the
@@ -160,7 +215,8 @@
     ];
     return {
       title: opts.title || 'Mendix Incident Report',
-      subtitle: opts.notes ? opts.notes : 'Correlated view across the loaded diagnostics tools for the selected time window.',
+      subtitle: mtIncidentSummary(sections, windowLabel),
+      note: opts.notes ? opts.notes : '',
       meta: meta,
       sections: sections.map(function (s) { return { title: s.title, subtitle: s.subtitle, columns: s.columns, rows: s.rows }; })
     };
@@ -171,6 +227,7 @@
   root.mtExportToHtml = mtExportToHtml;
   root.mtFmtTs = mtFmtTs;
   root.mtBuildIncidentReport = mtBuildIncidentReport;
+  root.mtIncidentSummary = mtIncidentSummary;
 
   // ── Browser-only convenience wrappers ──────────────────────────────────────
   if (typeof document !== 'undefined') {

@@ -63,6 +63,11 @@ window.lqeClear = function() {
   lqeSourceFormat = null;
   window._lqeSlowestId = null;
   window._lqeActiveSqlId = null;
+  lqeCompareSelection = [];
+  const compareBtn = document.getElementById('lqe-compare-btn');
+  if (compareBtn) compareBtn.disabled = true;
+  const compareCount = document.getElementById('lqe-compare-count');
+  if (compareCount) compareCount.textContent = '(0/2)';
   if (lqeVList) { lqeVList.destroy(); lqeVList = null; }
   if (lqeTimeWindow) window.lqeSetTimeWindow(null, null);
   const statsBar = document.getElementById('lqe-stats');
@@ -625,6 +630,8 @@ window.lqeSelectSlowest = function() {
   selectQuery(lqeVList.itemAt(idx));
 };
 
+// Exposed on window so other tools (REST & WS Extractor) can reuse the same
+// JSON highlighting for payload previews instead of duplicating the regex.
 function highlightJsonSimple(json) {
   if (typeof json != 'string') json = JSON.stringify(json, undefined, 2);
   json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -645,6 +652,64 @@ function lqeRowSelected(q) {
   return window._lqeActiveSqlId != null && q.sqlId === window._lqeActiveSqlId;
 }
 
+// ── "Compare" — pick two rows, diff their SQL side-by-side in Text Diff ──
+let lqeCompareSelection = []; // up to 2 sqlIds
+
+function lqeRowCompareChecked(q) {
+  return lqeCompareSelection.indexOf(q.sqlId) !== -1;
+}
+
+window.lqeToggleCompare = function (sqlId, checkbox) {
+  if (checkbox.checked) {
+    if (lqeCompareSelection.length >= 2) { checkbox.checked = false; return; }
+    lqeCompareSelection.push(sqlId);
+  } else {
+    lqeCompareSelection = lqeCompareSelection.filter(id => id !== sqlId);
+  }
+  const btn = document.getElementById('lqe-compare-btn');
+  const count = document.getElementById('lqe-compare-count');
+  if (btn) btn.disabled = lqeCompareSelection.length !== 2;
+  if (count) count.textContent = '(' + lqeCompareSelection.length + '/2)';
+};
+
+window.lqeCompareSelected = function () {
+  if (lqeCompareSelection.length !== 2) return;
+  const qa = extractedQueries.find(q => q.sqlId === lqeCompareSelection[0]);
+  const qb = extractedQueries.find(q => q.sqlId === lqeCompareSelection[1]);
+  if (!qa || !qb) return;
+  window.navigateWithReturn('text-diff');
+  const a = document.getElementById('diff-a'), b = document.getElementById('diff-b');
+  if (a) a.value = lqeBuildRunnableSql(qa);
+  if (b) b.value = lqeBuildRunnableSql(qb);
+  if (window.diffCompare) window.diffCompare();
+};
+
+// Best-effort "table + operation" label so a long SQL blob scans in one glance
+// (e.g. "SELECT customers$order"). Falls back to just the operation when the
+// statement doesn't match a plain single-table shape (subselects, no FROM, etc.)
+// rather than guessing — an unlabeled row is honest, a wrong label isn't.
+function lqeSmartLabel(q) {
+  const sql = q.sql || '';
+  let m = null;
+  if (q.type === 'UPDATE') m = sql.match(/^UPDATE\s+"?([A-Za-z0-9_.$]+)"?/i);
+  else if (q.type === 'INSERT') m = sql.match(/^INSERT\s+INTO\s+"?([A-Za-z0-9_.$]+)"?/i);
+  else m = sql.match(/\bFROM\s+"?([A-Za-z0-9_.$]+)"?/i); // SELECT and DELETE both use FROM
+  if (!m) return q.type;
+  return q.type + ' ' + m[1].replace(/^public\./i, '');
+}
+
+// Duration heat-map: fixed bands (not relative to the visible set, so the same
+// number always means the same color as filters change) — <100ms fine, <1s
+// worth a look, otherwise slow.
+function lqeDurationColor(duration) {
+  if (!duration) return null;
+  const ms = parseFloat(duration);
+  if (isNaN(ms)) return null;
+  if (ms < 100) return 'var(--success)';
+  if (ms < 1000) return 'var(--warning)';
+  return 'var(--danger)';
+}
+
 // Builds one query row. Passed to the virtual list, which positions it and only
 // keeps the visible window in the DOM — so a 2 000-query result stays responsive.
 function lqeRenderRow(q) {
@@ -652,7 +717,7 @@ function lqeRenderRow(q) {
   el.className = 'lqe-list-item';
   el.dataset.sqlid = q.sqlId;
   el.style.display = 'grid';
-  el.style.gridTemplateColumns = '96px 92px 112px 70px 60px 1fr 60px';
+  el.style.gridTemplateColumns = '22px 96px 92px 112px 70px 60px 1fr 60px';
   el.style.padding = 'var(--sp-2) var(--sp-3)';
   el.style.borderBottom = '1px solid var(--border)';
   el.style.fontSize = '0.8rem';
@@ -662,6 +727,7 @@ function lqeRenderRow(q) {
 
   let summary = q.sql.substring(0, 100);
   if (q.sql.length > 100) summary += '...';
+  const durColor = lqeDurationColor(q.duration) || 'var(--accent)';
 
   let typeColor = 'var(--text)';
   if (q.type === 'SELECT') typeColor = '#3498db';
@@ -678,12 +744,15 @@ function lqeRenderRow(q) {
     : '';
 
   el.innerHTML = `
+    <div style="display:flex;align-items:center" onclick="event.stopPropagation()">
+      <input type="checkbox" title="Select for Compare (max 2)" ${lqeRowCompareChecked(q) ? 'checked' : ''} onchange="window.lqeToggleCompare('${q.sqlId}', this)">
+    </div>
     <div style="font-weight:600; color:${typeColor}; white-space:nowrap; overflow:hidden">${q.type}${dupBadge}${slowBadge}</div>
     <div style="color:var(--text-muted); font-family:var(--font-mono); font-size:0.75rem">${q.txConn}</div>
     <div style="color:var(--text-muted)">${q.timestamp}</div>
-    <div style="color:var(--accent); font-weight:600;">${q.duration || '-'}</div>
+    <div style="color:${durColor}; font-weight:600;">${q.duration || '-'}</div>
     <div style="color:var(--text-muted)">${q.cost || '-'}</div>
-    <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${q.sql.replace(/"/g, '&quot;')}">${summary}</div>
+    <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${q.sql.replace(/"/g, '&quot;')}"><span style="font-weight:600">${lqeSmartLabel(q)}</span> <span style="color:var(--text-muted)">— ${summary}</span></div>
     <div style="text-align:right">${q.rows}</div>
   `;
 
@@ -715,7 +784,9 @@ function renderQueryList(list) {
   lqeVList.setItems(list);
 }
 
-function selectQuery(q) {
+// Substitutes bound params into the logged SQL and breaks it onto multiple
+// lines at the major clause keywords — shared by the SQL tab and Compare.
+function lqeBuildRunnableSql(q) {
   let runnableSql = q.sql;
   if (q.params && q.params.length > 0) {
     let paramIndex = 0;
@@ -731,17 +802,20 @@ function selectQuery(q) {
       return '?';
     });
   }
-  
-  runnableSql = runnableSql.replace(/ FROM /gi, '\nFROM ')
-                           .replace(/ WHERE /gi, '\nWHERE ')
-                           .replace(/ INNER JOIN /gi, '\nINNER JOIN ')
-                           .replace(/ LEFT JOIN /gi, '\nLEFT JOIN ')
-                           .replace(/ ORDER BY /gi, '\nORDER BY ')
-                           .replace(/ GROUP BY /gi, '\nGROUP BY ')
-                           .replace(/ LIMIT /gi, '\nLIMIT ')
-                           .replace(/ SET /gi, '\nSET ')
-                           .replace(/ VALUES /gi, '\nVALUES ');
-                           
+
+  return runnableSql.replace(/ FROM /gi, '\nFROM ')
+                     .replace(/ WHERE /gi, '\nWHERE ')
+                     .replace(/ INNER JOIN /gi, '\nINNER JOIN ')
+                     .replace(/ LEFT JOIN /gi, '\nLEFT JOIN ')
+                     .replace(/ ORDER BY /gi, '\nORDER BY ')
+                     .replace(/ GROUP BY /gi, '\nGROUP BY ')
+                     .replace(/ LIMIT /gi, '\nLIMIT ')
+                     .replace(/ SET /gi, '\nSET ')
+                     .replace(/ VALUES /gi, '\nVALUES ');
+}
+
+function selectQuery(q) {
+  const runnableSql = lqeBuildRunnableSql(q);
   const sqlEl = document.getElementById('lqe-sql-content');
   if (window.sqlHighlight) {
     sqlEl.innerHTML = window.sqlHighlight(runnableSql);
@@ -1039,3 +1113,4 @@ window.lqeCopyContent = function(elementId, btn) {
 
 // Expose the pure extractor for unit tests (Node points `window` at the global).
 (typeof window !== 'undefined' ? window : self).lqeExtractQueries = lqeExtractQueries;
+window.highlightJsonSimple = highlightJsonSimple;

@@ -703,6 +703,24 @@ ok('stats: total matches', wsreOut.stats.total === 8);
 eq('stats: uncertain count', wsreOut.stats.uncertain, 2);
 eq('stats: unanswered count', wsreOut.stats.unanswered, 1);
 
+// ── 9.8: per-endpoint "Total Transferred" (wsreEndpointTotals) ───────────────
+// Byte size uses .length as a Node fallback (no Blob global) — fine for these
+// ASCII fixtures where UTF-8 byte count equals character count.
+console.log('\nWSRE — per-endpoint transferred bytes');
+const wsreEndpointTotals = global.wsreEndpointTotals;
+const wsreEndpointFn = global.wsreEndpoint;
+const shipmentCalls = calls.filter(c => wsreEndpointFn(c) === 'https://api.example.com/rest/ship/v1/shipment');
+eq('endpoint totals: two calls share the shipment endpoint', shipmentCalls.length, 2);
+const totals = wsreEndpointTotals(calls);
+const shipmentTotal = totals.get('https://api.example.com/rest/ship/v1/shipment');
+ok('endpoint totals: shipment entry present', !!shipmentTotal);
+eq('endpoint totals: call count aggregated per endpoint', shipmentTotal.count, 2);
+const expectedShipmentBytes = shipmentCalls.reduce((sum, c) => sum + (c.requestBody || '').length + (c.responseBody || '').length, 0);
+eq('endpoint totals: bytes summed across calls to the same endpoint', shipmentTotal.bytes, expectedShipmentBytes);
+ok('endpoint totals: an endpoint with a single call is not conflated with others',
+  totals.get('https://api.example.com/rest/send/v1/data').count === 1);
+eq('endpoint totals: empty call list yields an empty map', wsreEndpointTotals([]).size, 0);
+
 // Reference: the same real trace log used by MFT/LQE reference tests (local only)
 if (fs.existsSync(refTrace)) {
   const text = fs.readFileSync(refTrace, 'utf8');
@@ -985,6 +1003,37 @@ eq('errdec: DB deadlock outranks NPE', edxTop(mixed).id, 'pg-deadlock');
 // A single-line message with no stack still decodes and reports no stack trace.
 ok('errdec: single-line message → no stack flag', !edxDecode('java.lang.OutOfMemoryError: Java heap space').input.hasStackTrace);
 
+// ── Wave 9 ruleset expansion (30+ patterns) ──────────────────────────────────
+ok('errdec: too many clients', edxIds('FATAL: sorry, too many clients already').indexOf('pg-too-many-clients') !== -1);
+ok('errdec: transaction aborted', edxIds('ERROR: current transaction is aborted, commands ignored until end of transaction block').indexOf('pg-transaction-aborted') !== -1);
+ok('errdec: value too long', edxIds('ERROR: value too long for type character varying(50)').indexOf('pg-value-too-long') !== -1);
+ok('errdec: out of shared memory', edxIds('ERROR: out of shared memory\nHINT: You might need to increase max_locks_per_transaction').indexOf('pg-out-of-shared-memory') !== -1);
+ok('errdec: disk full', edxIds('ERROR: could not extend file "base/16400/16490": No space left on device').indexOf('pg-disk-full') !== -1);
+ok('errdec: Mendix optimistic lock conflict', edxIds('com.mendix.systemwideinterfaces.connectionbus.data.ConcurrentModificationRuntimeException').indexOf('mendix-concurrent-modification') !== -1);
+ok('errdec: StackOverflowError', edxIds('java.lang.StackOverflowError').indexOf('stack-overflow') !== -1);
+ok('errdec: plain-Java ConcurrentModificationException', edxIds('java.util.ConcurrentModificationException').indexOf('java-concurrent-modification') !== -1);
+ok('errdec: NoClassDefFoundError', edxIds('java.lang.NoClassDefFoundError: com/foo/Bar').indexOf('no-class-def-found') !== -1);
+ok('errdec: NoSuchMethodError', edxIds("java.lang.NoSuchMethodError: 'void com.foo.Bar.baz()'").indexOf('no-such-method-error') !== -1);
+ok('errdec: UnknownHostException', edxIds('java.net.UnknownHostException: api.example.internal').indexOf('unknown-host') !== -1);
+ok('errdec: ruleset has at least 30 patterns', global.EDX_RULES.length >= 30, global.EDX_RULES.length);
+
+// Clean stack trace: strips per-line Mendix Cloud log prefixes, leaves raw
+// "at ..."/"Caused by:" continuation lines (which never carry one) untouched,
+// and drops blank lines — never touches matching (edxDecode doesn't anchor to
+// line starts), only readability.
+const edxCleanStackTrace = global.edxCleanStackTrace;
+const dirtyTrace = [
+  "2026-07-18T09:14:22.517 [runtime-container/abc]  ERROR - Connector: com.mendix.systemwideinterfaces.core.UserException: boom",
+  "",
+  "\tat com.mendix.modules.microflowengine.MicroflowEngine.executeMicroflow(MicroflowEngine.java:120)",
+  "Caused by: java.lang.NullPointerException"
+].join('\n');
+const cleaned = edxCleanStackTrace(dirtyTrace);
+ok('errdec: clean strips the cloud log prefix', cleaned.indexOf('com.mendix.systemwideinterfaces.core.UserException: boom') === 0, cleaned);
+ok('errdec: clean keeps unprefixed stack frames verbatim', cleaned.indexOf('\tat com.mendix.modules.microflowengine.MicroflowEngine.executeMicroflow(MicroflowEngine.java:120)') !== -1);
+ok('errdec: clean drops blank lines', cleaned.split('\n').every(function (l) { return l.trim() !== ''; }));
+eq('errdec: clean is a no-op on already-plain text', edxCleanStackTrace('Caused by: java.lang.NullPointerException'), 'Caused by: java.lang.NullPointerException');
+
 // ── Shared export helpers (public/js/components/exporters.js) ────────────────
 // Pure builders attach to window/self; the browser-only download/copy wrappers
 // are guarded by `typeof document`, so require() in Node loads just the builders.
@@ -1029,7 +1078,8 @@ const secB = { id: 'nginx-log', title: 'Nginx', subtitle: '1 request', columns: 
 const model = buildIncident([secA, null, secB], { title: 'Checkout incident', notes: 'prod, morning' });
 eq('incident: null sections dropped', model.sections.length, 2);
 eq('incident: title carried', model.title, 'Checkout incident');
-eq('incident: notes become the subtitle', model.subtitle, 'prod, morning');
+ok('incident: subtitle is the auto-summary, starting with the period', /^Period: /.test(model.subtitle), model.subtitle);
+eq('incident: notes carried as the separate top-level note (not the subtitle)', model.note, 'prod, morning');
 ok('incident: meta lists both source ids', model.meta.some(function (m) { return m.label === 'Sources' && /log-viewer/.test(m.value) && /nginx-log/.test(m.value); }));
 ok('incident: total rows summed across sections', model.meta.some(function (m) { return m.label === 'Total rows' && m.value === 3; }));
 ok('incident: default window spans min→max of section data', model.meta.some(function (m) { return m.label === 'Time window' && /1970-01-01 00:00:01.*1970-01-01 00:00:08/.test(m.value); }), JSON.stringify(model.meta[0]));
@@ -1042,6 +1092,40 @@ eq('incident: no sections → empty sections array', buildIncident([], {}).secti
 const incidentHtml = toHtml(model);
 ok('incident: renders both section headings', (incidentHtml.match(/<h2>/g) || []).length === 2);
 ok('incident: self-contained, no external refs', /^<!doctype html>/i.test(incidentHtml) && !/https?:\/\//.test(incidentHtml));
+ok('incident: notes render as a distinct context box in the HTML', incidentHtml.indexOf('class="context"') !== -1 && incidentHtml.indexOf('prod, morning') !== -1);
+ok('incident: no notes → no context box', toHtml(buildIncident([secA], {})).indexOf('class="context"') === -1);
+
+// ── Executive summary (mtIncidentSummary) — 9.7: data-driven, no invented metrics ──
+console.log('\nIncident Report — executive summary');
+const summarize = global.mtIncidentSummary;
+const logSecWithLevels = {
+  id: 'log-viewer', title: 'Log Viewer', subtitle: '3 entries',
+  columns: ['Time', 'Level', 'Node', 'Message'],
+  rows: [['t1', 'ERROR', 'Core', 'x'], ['t2', 'WARN', 'Core', 'y'], ['t3', 'CRITICAL', 'Core', 'z']]
+};
+const lqeSecWithDurations = {
+  id: 'log-query-extractor', title: 'LQE', subtitle: '3 queries',
+  columns: ['Type', 'Tx-Conn', 'Timestamp', 'Duration (ms)', 'Cost', 'Rows', 'Dup', 'SQL'],
+  rows: [['SELECT', 'a', 't', 50, '', '', '', 'x'], ['SELECT', 'a', 't', 1500, '', '', '', 'y'], ['SELECT', 'a', 't', 3000, '', '', '', 'z']]
+};
+const wsreSecWithErrors = { id: 'ws-rest-extractor', title: 'WSRE', subtitle: '5 calls · 2 with error status', columns: [], rows: [] };
+const jvmSecWithDeadlock = {
+  id: 'thread-dump', title: 'JVM', subtitle: '',
+  columns: ['Metric', 'Value'],
+  rows: [['BLOCKED', 1], ['Deadlocks detected', 2]]
+};
+
+ok('summary: counts errors+critical from Log Viewer, not warnings',
+  summarize([logSecWithLevels], 'W1 → W2').indexOf('2 errors') !== -1);
+ok('summary: counts LQE queries over 1s as slow',
+  summarize([lqeSecWithDurations], 'W').indexOf('2 slow queries (>1s)') !== -1);
+ok('summary: pulls WSRE failed-call count from its own subtitle',
+  summarize([wsreSecWithErrors], 'W').indexOf('2 failed calls') !== -1);
+ok('summary: surfaces JVM deadlocks when present',
+  summarize([jvmSecWithDeadlock], 'W').indexOf('2 deadlocks') !== -1);
+eq('summary: always leads with the period', summarize([], 'X → Y'), 'Period: X → Y');
+ok('summary: a source with no matching columns contributes no clause',
+  summarize([{ id: 'nginx-log', title: 'n', subtitle: '', columns: ['Time', 'Status'], rows: [['t', 500]] }], 'W') === 'Period: W');
 
 // ── Live DB — EXPLAIN live guard (Wave 6, server/livedb.js) ──────────────────
 // The whitelist is the first of three safety layers (whitelist + EXPLAIN-without-

@@ -1241,6 +1241,50 @@ kbd {
   color: #7a5800;
   background: #ffc40059;
 }
+/* ── Row context menu (right-click → Filter by Correlation ID) ── */
+.log-ctxmenu {
+  position: absolute;
+  z-index: 1000;
+  min-width: 220px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lg, 0 4px 16px rgba(0,0,0,0.3));
+  padding: var(--sp-1);
+  font-size: 0.8rem;
+}
+.log-ctxmenu-item {
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.log-ctxmenu-item:hover {
+  background: var(--bg-hover);
+}
+.log-ctxmenu-item.log-ctxmenu-disabled {
+  color: var(--text-muted);
+  cursor: default;
+  white-space: normal;
+}
+.log-ctxmenu-item.log-ctxmenu-disabled:hover {
+  background: none;
+}
+/* ── File-origin badge (multi-file merge) ── */
+.log-row-file-badge {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: var(--r-sm);
+  background: var(--bg-overlay);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+  cursor: default;
+}
 /* ── Line bookmarks ── */
 .log-bm-toggle {
   color: var(--text-muted);

@@ -87,7 +87,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.20.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.21.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -268,7 +268,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.20.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.21.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -479,6 +479,7 @@
               </label>
               <input class="input input-sm" type="number" id="lqe-slow-ms" value="100" min="0" step="50" oninput="window.lqeFilter()" style="width:70px;" title="Slow-query threshold in milliseconds">
               <span style="font-size:0.75rem; color:var(--text-muted);">ms</span>
+              <button class="btn btn-secondary btn-sm" id="lqe-compare-btn" onclick="window.lqeCompareSelected()" disabled title="Tick the checkbox on two rows, then compare their SQL side-by-side in Text Diff">Compare <span id="lqe-compare-count" style="opacity:.7">(0/2)</span></button>
               <div style="font-size:0.75rem; color:var(--text-muted); white-space:nowrap;"><span id="lqe-count">0</span> queries<span id="lqe-skipped" style="display:none; cursor:help; color:var(--warning);"></span><span id="lqe-timewindow" style="display:none; color:var(--accent); margin-left:6px;"></span></div>
             </div>
             <!-- Stats bar — recalculated for the currently filtered list -->
@@ -490,13 +491,14 @@
               <span class="log-stat" title="Number of distinct statements executed more than once (possible N+1)">Duplicated: <strong id="lqe-stat-dups">0</strong></span>
             </div>
             <!-- Table Header (click Time / Duration / Cost / Rows to sort) -->
-            <div id="lqe-list-header" style="display:grid; grid-template-columns:96px 92px 112px 70px 60px 1fr 60px; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border); font-size:0.75rem; font-weight:600; color:var(--text-muted); background:var(--bg);">
+            <div id="lqe-list-header" style="display:grid; grid-template-columns:22px 96px 92px 112px 70px 60px 1fr 60px; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border); font-size:0.75rem; font-weight:600; color:var(--text-muted); background:var(--bg);">
+              <div title="Select two rows to compare in Text Diff"></div>
               <div>Type</div>
               <div>Tx-Conn</div>
               <div data-sort-key="time" onclick="window.lqeSort('time')" style="cursor:pointer" title="Click to sort by log order">Time<span class="lqe-sort-arrow"></span></div>
               <div data-sort-key="duration" onclick="window.lqeSort('duration')" style="cursor:pointer" title="Execution Time (if EXPLAIN is enabled) — click to sort">Duration<span class="lqe-sort-arrow"></span></div>
               <div data-sort-key="cost" onclick="window.lqeSort('cost')" style="cursor:pointer" title="Total Cost (from Query Plan) — click to sort">Cost<span class="lqe-sort-arrow"></span></div>
-              <div>Summary</div>
+              <div>Table · SQL</div>
               <div data-sort-key="rows" onclick="window.lqeSort('rows')" style="text-align:right;cursor:pointer" title="Click to sort by returned rows">Rows<span class="lqe-sort-arrow"></span></div>
             </div>
             <!-- Table Body -->
@@ -700,6 +702,7 @@
     <div class="tool-panel" id="panel-error-decoder">
       <div class="tool-actions">
         <button class="btn btn-primary btn-sm" onclick="window.edxAnalyze()" title="Decode the pasted error message or stack trace"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="11.5"/><line x1="11" y1="14" x2="11.01" y2="14"/></svg>Decode <kbd>Ctrl+Enter</kbd></button>
+        <button class="btn btn-secondary btn-sm" onclick="window.edxCleanInput()" title="Strip log timestamps/level/node prefixes from each pasted line, leaving the plain Java stack trace"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6h12z"/></svg>Clean stack trace</button>
         <button class="btn btn-secondary btn-sm" onclick="window.edxLoadExample()" title="Fill the input with a sample Mendix stack trace"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Load example</button>
         <button class="btn btn-secondary btn-sm" onclick="window.edxClear()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Clear</button>
       </div>

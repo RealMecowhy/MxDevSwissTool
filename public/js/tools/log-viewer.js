@@ -1,6 +1,20 @@
 // LOG VIEWER
 // ============================================================
 let logAllEntries = [], logFilteredEntries = [];
+// True once >1 distinct file is loaded (chronological merge) — gates the
+// per-row file-origin badge so single-file logs stay uncluttered.
+let logMultiFileActive = false;
+// Cache of filename → short badge label, so two files sharing a long common
+// prefix still render distinguishable abbreviations without recomputing per row.
+let logFileBadgeCache = new Map();
+function logFileBadgeLabel(file) {
+  const key = file || '';
+  if (logFileBadgeCache.has(key)) return logFileBadgeCache.get(key);
+  const base = key.replace(/\.[^./\\]+$/, '').split(/[\\/]/).pop() || key;
+  const label = base.length > 14 ? base.slice(0, 13) + '…' : base;
+  logFileBadgeCache.set(key, label);
+  return label;
+}
 // Parser normalizes WARNING -> WARN, so the filter set only needs WARN
 let logActiveLevels = new Set(['TRACE','DEBUG','INFO','WARN','ERROR','CRITICAL']);
 // Pinned lines for cross-filter navigation. Keyed by file#line (unique across the
@@ -274,7 +288,8 @@ function logParseContent(text, filename) {
   // incident spanning several files reads as one timeline. Entries without a
   // parseable full timestamp keep their relative order (stable sort).
   const distinctFiles = new Set(logAllEntries.map(e => e.file));
-  if (distinctFiles.size > 1) {
+  logMultiFileActive = distinctFiles.size > 1;
+  if (logMultiFileActive) {
     logAllEntries.forEach(e => {
       if (e._t === undefined) {
         const t = Date.parse(e.ts);
@@ -441,6 +456,13 @@ function logLoadMore() {
       ? '<span class="log-explain-chip" onclick="event.stopPropagation();window.logExplainError('+(start+i)+')" title="Decode this error\'s mechanism in the Mendix Error Decoder">Explain</span>'
       : '';
 
+    // When >1 file is loaded (merged chronological timeline), show which file
+    // this line came from — badge text is the filename without extension,
+    // truncated, so two similarly-named files stay distinguishable via title.
+    const fileBadge = logMultiFileActive
+      ? '<span class="log-row-file-badge" title="' + escHtml(e.file || '') + '">' + escHtml(logFileBadgeLabel(e.file)) + '</span>'
+      : '';
+
     let stackHtml = '';
     if (stackLines.length > 0) {
       const id = 'st' + (e.file||'').replace(/[^a-z0-9]/gi,'').slice(-10) + e.line;
@@ -452,9 +474,10 @@ function logLoadMore() {
         + '</div></div>';
     }
 
-    return '<div class="log-row '+cls+(isBm ? ' log-row-bookmarked' : '')+'" style="flex-wrap:wrap">'
+    return '<div class="log-row '+cls+(isBm ? ' log-row-bookmarked' : '')+'" style="flex-wrap:wrap" oncontextmenu="logShowRowContextMenu(event,'+(start+i)+')">'
       + bmToggle
       + '<span class="log-row-num">'+e.line+'</span>'
+      + fileBadge
       + '<span class="log-row-ts">'+escHtml(e.ts)+'</span>'
       + '<span class="log-row-level">'+logBadge(e.level)+'</span>'
       + '<span class="log-row-node" title="'+escHtml(e.node)+'">'+escHtml(e.node)+'</span>'
@@ -507,6 +530,8 @@ function logUpdateStats() {
 function logScrollTo(pos) { const c = document.getElementById('log-container'); c.scrollTop = pos==='top'?0:c.scrollHeight; }
 function logClear() {
   logAllEntries=[]; logFilteredEntries=[];
+  logMultiFileActive = false; logFileBadgeCache.clear();
+  logCloseRowContextMenu();
   document.getElementById('log-virtual-list').innerHTML=''; document.getElementById('log-virtual-list').style.display='none';
   
   const spacer = document.getElementById('log-vs-spacer');
@@ -595,6 +620,48 @@ function logExplainError(idx) {
   if (window.navigateWithReturn) window.navigateWithReturn('error-decoder');
   else if (window.navigate) window.navigate('error-decoder', null);
   if (window.edxDecodeText) window.edxDecodeText(e.msg);
+}
+
+// ============================================================
+// ROW CONTEXT MENU — right-click a line → "Filter by this Correlation ID"
+// ============================================================
+// A dedicated Correlation ID input already exists in the Correlation tab; this
+// adds the other half of audit finding #7 — jumping straight from a stream row
+// to a filter, without first having to spot/copy the ID by hand. Since parsed
+// entries have no structured corrId field, the heuristic is the first
+// UUID/GUID-like token on the line (how Mendix request/session IDs usually look).
+const LOG_CORRID_PAT = /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/;
+
+function logShowRowContextMenu(ev, idx) {
+  ev.preventDefault();
+  logCloseRowContextMenu();
+  const e = logFilteredEntries[idx];
+  if (!e) return;
+  const m = e.raw.match(LOG_CORRID_PAT);
+  const menu = document.createElement('div');
+  menu.id = 'log-row-ctxmenu';
+  menu.className = 'log-ctxmenu';
+  menu.style.left = ev.pageX + 'px';
+  menu.style.top = ev.pageY + 'px';
+  menu.onclick = ev2 => ev2.stopPropagation();
+  menu.innerHTML = m
+    ? '<div class="log-ctxmenu-item" onclick="logFilterByCorrId(' + logJsStr(m[0]) + ')">Filter by this Correlation ID<br><span style="font-family:var(--font-mono);font-size:0.7rem;color:var(--text-muted)">' + escHtml(m[0]) + '</span></div>'
+    : '<div class="log-ctxmenu-item log-ctxmenu-disabled">No correlation/request ID-like token found on this line</div>';
+  document.body.appendChild(menu);
+  setTimeout(() => document.addEventListener('click', logCloseRowContextMenu, { once: true }), 0);
+}
+
+function logCloseRowContextMenu() {
+  const el = document.getElementById('log-row-ctxmenu');
+  if (el) el.remove();
+}
+
+// Reuses the existing search filter — same substring match the Correlation
+// tab and the highlighter already rely on — so no new filter dimension is needed.
+function logFilterByCorrId(id) {
+  logCloseRowContextMenu();
+  document.getElementById('log-search').value = id;
+  logApplyFilters();
 }
 
 // ============================================================
@@ -1620,6 +1687,10 @@ window.logClear = logClear;
 window.logExportFiltered = logExportFiltered;
 window.logExplainError = logExplainError;
 window.logReportSection = logReportSection;
+window.logFileBadgeLabel = logFileBadgeLabel;
+window.logShowRowContextMenu = logShowRowContextMenu;
+window.logCloseRowContextMenu = logCloseRowContextMenu;
+window.logFilterByCorrId = logFilterByCorrId;
 window.logToggleBookmark = logToggleBookmark;
 window.logRemoveBookmark = logRemoveBookmark;
 window.logClearBookmarks = logClearBookmarks;

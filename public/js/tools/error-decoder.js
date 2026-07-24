@@ -152,6 +152,145 @@
       }
     },
     {
+      id: 'pg-too-many-clients',
+      title: 'Postgres connection limit reached (server-side)',
+      category: 'Database',
+      specificity: 87,
+      patterns: [/FATAL:\s*sorry, too many clients already/i, /remaining connection slots are reserved/i],
+      mechanism: function () {
+        return 'PostgreSQL itself refused the new connection because the server-wide <code>max_connections</code> ceiling was already reached — this is the database\'s own limit, not the application\'s connection pool. Every application (and every runtime instance) sharing this database competes for the same ceiling.';
+      },
+      causes: function () {
+        return [
+          'Several app instances (horizontal scaling) each hold their own pool, and the sum exceeds the server\'s max_connections.',
+          'A connection leak in one app slowly consumes slots that are never returned.',
+          'max_connections on the server is sized for a single small app, not the current deployment.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Check how many connections this app\'s pool is configured for versus how many other apps/instances share the same database server.' },
+          { text: 'Look for a steady climb in open connections rather than a sudden spike — that points to a leak.', tool: 'thread-dump' }
+        ];
+      }
+    },
+    {
+      id: 'pg-transaction-aborted',
+      title: 'Current transaction is aborted (Postgres)',
+      category: 'Database',
+      specificity: 83,
+      patterns: [/current transaction is aborted, commands ignored until end of transaction block/i],
+      mechanism: function () {
+        return 'An earlier statement inside this transaction failed, and PostgreSQL will not run any further statements until the whole transaction is rolled back — this error is reported by the *next* statement, not the one that actually broke. The real failure is further up in the same transaction/log window.';
+      },
+      causes: function () {
+        return [
+          'A constraint violation or type error earlier in the same commit was not handled, so the transaction stayed open and broken.',
+          'A microflow continued running database actions after an unhandled error instead of stopping.',
+          'A custom Java action caught an SQL exception but kept using the same (now-poisoned) transaction.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Scan backwards in this transaction/connection for the first real error — that one is the actual cause.', tool: 'log-query-extractor' },
+          { text: 'Trace the microflow to see whether it kept executing after an earlier activity failed.', tool: 'microflow-tracer' }
+        ];
+      }
+    },
+    {
+      id: 'pg-value-too-long',
+      title: 'Value too long for column type (Postgres)',
+      category: 'Database',
+      specificity: 84,
+      patterns: [/value too long for type character varying(?:\((\d+)\))?/i],
+      mechanism: function (m) {
+        const n = m[1] ? ' (limit ' + m[1] + ' characters)' : '';
+        return 'PostgreSQL rejected the write because a string value is longer than the column\'s <code>character varying(n)</code> limit' + n + '. The Mendix attribute\'s configured length does not match what was actually written to the database column.';
+      },
+      causes: function () {
+        return [
+          'An attribute\'s "Length" was reduced in the domain model after data longer than the new limit already existed or kept being generated.',
+          'Imported/integrated data (REST, import mapping, integration) is longer than the target attribute allows.',
+          'String concatenation (e.g. building a description) produced a longer value than the attribute was sized for.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Identify the entity/attribute behind this column and compare its configured Length to the value that was written.' },
+          { text: 'Find the exact INSERT/UPDATE and its parameter values around this timestamp.', tool: 'log-query-extractor' }
+        ];
+      }
+    },
+    {
+      id: 'pg-out-of-shared-memory',
+      title: 'Out of shared memory / lock table full (Postgres)',
+      category: 'Database',
+      specificity: 86,
+      patterns: [/out of shared memory/i, /You might need to increase max_locks_per_transaction/i],
+      mechanism: function () {
+        return 'PostgreSQL ran out of space in its shared lock table — every row/table lock a transaction holds uses a slot sized by <code>max_locks_per_transaction × max_connections</code>, and this transaction needed more than were available. The transaction is aborted; this is a server-configuration ceiling, not a query bug by itself.';
+      },
+      causes: function () {
+        return [
+          'A single transaction touched (locked) an unusually large number of distinct rows/tables in one commit.',
+          'A bulk operation (mass update/delete, large import) ran without batching.',
+          'max_locks_per_transaction is sized for typical transactions, not this bulk one.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Find the transaction and count how many distinct tables/rows it touched.', tool: 'log-query-extractor' },
+          { text: 'Check whether this coincides with a bulk import or mass microflow action.', tool: 'microflow-tracer' }
+        ];
+      }
+    },
+    {
+      id: 'pg-disk-full',
+      title: 'Database disk full',
+      category: 'Database',
+      specificity: 90,
+      patterns: [/could not extend file .* No space left on device/i, /No space left on device/i, /could not write to file .*: No space left/i],
+      mechanism: function () {
+        return 'PostgreSQL tried to write to disk (extend a table/index file, write WAL) and the filesystem had no free space left. Writes fail outright at this point — this is an infrastructure condition, not something the query or microflow logic caused.';
+      },
+      causes: function () {
+        return [
+          'The data volume genuinely filled up (growth, large import, unbounded logging/WAL retention).',
+          'Autovacuum/old WAL was not cleaned up, so bloat consumed the available space.',
+          'A disk sized for a smaller dataset was never grown as the app scaled.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Check the database host/volume free space directly — this is an infrastructure check, not a log one.' },
+          { text: 'Look for an unusually large import/bulk write just before this error.', tool: 'log-query-extractor' }
+        ];
+      }
+    },
+    {
+      id: 'mendix-concurrent-modification',
+      title: 'Optimistic lock conflict (object changed by someone else)',
+      category: 'Database',
+      specificity: 85,
+      patterns: [/com\.mendix\.systemwideinterfaces\.connectionbus\.data\.ConcurrentModificationRuntimeException/i],
+      mechanism: function () {
+        return 'Mendix stamps every object with a hidden <code>MxObjectVersion</code>, and compares it on every commit/delete. This object\'s version no longer matched what is in the database — someone else committed (or deleted) it after this process retrieved its copy — so the runtime blocked the write instead of silently overwriting the other change. This is Mendix\'s built-in optimistic locking doing its job, not a database error.';
+      },
+      causes: function () {
+        return [
+          'Two users (or a user and a scheduled event) opened and edited the same object at the same time; the second commit lost the race.',
+          'A long-running microflow held a retrieved object while something else changed or deleted it in the meantime.',
+          'A retry re-submitted a commit for an object that a previous, successful attempt already changed.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Find the other commit/delete of the same object right before this error — that is the "someone else".', tool: 'log-query-extractor' },
+          { text: 'Trace how long this microflow held the object between retrieve and commit.', tool: 'microflow-tracer' }
+        ];
+      }
+    },
+    {
       id: 'db-pool-exhausted',
       title: 'Database connection pool exhausted',
       category: 'Database',
@@ -300,6 +439,120 @@
         return [
           { text: 'Count threads and their states — a large blocked/waiting population points to a stuck dependency.', tool: 'thread-dump' },
           { text: 'Check whether thread count grows steadily rather than spiking once.' }
+        ];
+      }
+    },
+
+    {
+      id: 'stack-overflow',
+      title: 'Infinite recursion (StackOverflowError)',
+      category: 'JVM / Runtime',
+      specificity: 88,
+      patterns: [/java\.lang\.StackOverflowError/i],
+      mechanism: function () {
+        return 'A call chain recursed until it exceeded the JVM\'s thread stack size and the JVM aborted it. Per Mendix\'s own runtime-errors guidance, this is practically always an infinite loop — a (sub)microflow, Java action or expression that calls itself (directly or through a cycle) with no terminating condition that is ever reached.';
+      },
+      causes: function () {
+        return [
+          'A microflow calls itself (or a chain of sub-microflows loops back to an ancestor) without a condition that stops the recursion.',
+          'A custom Java action recurses on input that never reaches its base case.',
+          'An association-graph walk (e.g. resolving a tree/hierarchy) hits a cycle that was assumed to be acyclic.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Trace the call chain leading up to this point — a repeating microflow name is the recursion.', tool: 'microflow-tracer' },
+          { text: 'Check the data for a cyclic reference (e.g. an object indirectly referencing itself through an association).' }
+        ];
+      }
+    },
+    {
+      id: 'java-concurrent-modification',
+      title: 'Collection modified while iterating (ConcurrentModificationException)',
+      category: 'JVM / Runtime',
+      specificity: 60,
+      patterns: [/java\.util\.ConcurrentModificationException/i],
+      mechanism: function () {
+        return 'Java code iterated over a collection (List/Set/Map) while something — the same thread or another one — added or removed an element from it, and the iterator detected the change and failed fast rather than risk returning inconsistent results. This is unrelated to Mendix\'s object-level optimistic locking; it is a plain-Java collection bug.';
+      },
+      causes: function () {
+        return [
+          'A custom Java action removes/adds to a list while iterating over it directly instead of via an Iterator\'s own remove(), or a snapshot copy.',
+          'A shared, unsynchronized collection (e.g. a static cache) is read by one thread while another thread mutates it concurrently.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Identify the custom Java action or library call in the stack — the fix is in that code\'s iteration pattern.' },
+          { text: 'Check whether this only happens under concurrent load (points to a shared unsynchronized collection).', tool: 'thread-dump' }
+        ];
+      }
+    },
+    {
+      id: 'no-class-def-found',
+      title: 'Missing class at runtime (NoClassDefFoundError / ClassNotFoundException)',
+      category: 'JVM / Runtime',
+      specificity: 75,
+      patterns: [/java\.lang\.NoClassDefFoundError/i, /java\.lang\.ClassNotFoundException/i],
+      mechanism: function () {
+        return 'The JVM tried to load a class that was present at compile time (the code referencing it deployed successfully) but is missing from the classpath at runtime. Unlike a missing method, the whole class cannot be found at all — a dependency jar is absent, not just out of date.';
+      },
+      causes: function () {
+        return [
+          'A Marketplace module or custom Java library dependency was not included in the deployment package.',
+          'A dependency was removed/renamed in an update but a leftover compiled reference to it still ships.',
+          'The class is present in Studio Pro\'s userlib for local runs but was not packaged for this deployment target.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Read the class name in the error and locate which module/library ships it; confirm its jar is in the deployed userlib.' },
+          { text: 'Check whether this started right after a deploy that added/updated/removed a Marketplace module.' }
+        ];
+      }
+    },
+    {
+      id: 'no-such-method-error',
+      title: 'Classpath version conflict (NoSuchMethodError / NoSuchFieldError)',
+      category: 'JVM / Runtime',
+      specificity: 78,
+      patterns: [/java\.lang\.NoSuchMethodError/i, /java\.lang\.NoSuchFieldError/i],
+      mechanism: function () {
+        return 'The class needed was found on the classpath, but the specific method/field the caller expects is not on the version that actually loaded. This is the classic signature of two different versions of the same library being present at once — the compiled caller and the loaded class disagree about the API.';
+      },
+      causes: function () {
+        return [
+          'Two Marketplace modules (or a module and a custom Java action) bundle different versions of the same third-party jar.',
+          'A library was upgraded in one place but a cached/old jar from a previous deploy is still on the classpath.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Identify the class named in the error and search the deployment\'s userlib for more than one jar providing it.' },
+          { text: 'Check whether this started right after adding/upgrading a Marketplace module.' }
+        ];
+      }
+    },
+    {
+      id: 'unknown-host',
+      title: 'DNS lookup failed (UnknownHostException)',
+      category: 'Integration',
+      specificity: 76,
+      patterns: [/java\.net\.UnknownHostException/i],
+      mechanism: function () {
+        return 'The JVM tried to resolve a hostname to an IP address via DNS and got no answer at all — this happens before any network connection is attempted, so it is purely a name-resolution failure, not a reachability or firewall issue.';
+      },
+      causes: function () {
+        return [
+          'The hostname in the integration\'s configuration is misspelled or points at an environment that does not exist (e.g. an acceptance hostname used in production).',
+          'The runtime\'s DNS resolver/network (e.g. a private-cloud VPC) cannot reach the DNS server that would resolve this name.',
+          'An internal hostname is only resolvable from a specific network the runtime is not running in.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Confirm the exact hostname configured for this integration and that it resolves from the runtime\'s network.', tool: 'ws-rest-extractor' },
+          { text: 'Check whether every call to this host fails (config error) or only sometimes (DNS flakiness).' }
         ];
       }
     },
@@ -576,8 +829,26 @@
     };
   }
 
+  // Strips a leading log timestamp/level/node prefix from each line — pasting
+  // from the Mendix Cloud log viewer carries this on every visual line, not
+  // just the first. Lines without the prefix (raw "at ..."/"Caused by:"
+  // continuations) are left untouched since the pattern only matches at the
+  // very start of a line. Purely cosmetic: edxDecode's patterns already search
+  // the whole text regardless of prefixes, so this never changes what matches —
+  // it only makes the pasted trace readable.
+  const EDX_LOG_PREFIX = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?\s+(?:\[[^\]]+\]\s+)?(?:TRACE|DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL)?\s*-?\s*(?:[\w$.]+:\s*)?/;
+
+  function edxCleanStackTrace(text) {
+    if (!text) return text;
+    return String(text).split(/\r?\n/)
+      .map(function (line) { return line.replace(EDX_LOG_PREFIX, ''); })
+      .filter(function (line) { return line.trim() !== ''; })
+      .join('\n');
+  }
+
   root.edxDecode = edxDecode;
   root.EDX_RULES = EDX_RULES;
+  root.edxCleanStackTrace = edxCleanStackTrace;
 })(typeof window !== 'undefined' ? window : self);
 
 
@@ -703,7 +974,8 @@ function edxRender(result) {
       + '<div class="edx-empty">'
       + '<p style="font-weight:600; color:var(--text-primary);">No known pattern matched</p>'
       + '<p>The decoder only shows a card when it recognizes an error mechanism with confidence — it will not guess a cause for an unrecognized message.</p>'
-      + '<p>Try pasting the <strong>full stack trace</strong>, including the deepest <code>Caused by:</code> line (that root cause is usually what a pattern keys off), or open the message in the <button type="button" class="edx-tool-link" style="margin-left:0;" onclick="window.edxOpenTool(\'log-viewer\')">Log Viewer</button> to see its surrounding context.</p></div>';
+      + '<p>Try pasting the <strong>full stack trace</strong>, including the deepest <code>Caused by:</code> line (that root cause is usually what a pattern keys off), or open the message in the <button type="button" class="edx-tool-link" style="margin-left:0;" onclick="window.edxOpenTool(\'log-viewer\')">Log Viewer</button> to see its surrounding context.</p>'
+      + '<p><button type="button" class="btn btn-secondary btn-sm" onclick="window.edxCopySignature(this)" title="Copies a redacted signature (IDs/timestamps/emails replaced) — share it to request a new pattern">Report unmatched — copy signature</button></p></div>';
     return;
   }
 
@@ -721,6 +993,32 @@ window.edxAnalyze = function () {
   const input = document.getElementById('edx-input');
   const text = input ? input.value : '';
   edxRender(window.edxDecode(text));
+};
+
+// Rewrites the textarea in place with per-line log noise stripped (via the pure,
+// unit-tested edxCleanStackTrace above), then re-decodes.
+window.edxCleanInput = function () {
+  const input = document.getElementById('edx-input');
+  if (!input) return;
+  input.value = window.edxCleanStackTrace(input.value);
+  window.edxAnalyze();
+};
+
+// "Report unmatched": no rule fit, so instead of guessing, copy a shareable
+// signature (same header+stack normalization the Log Viewer's aggregator uses,
+// so ids/UUIDs/timestamps are redacted) to the clipboard for the user to file
+// as a new pattern request.
+window.edxCopySignature = function (btn) {
+  const input = document.getElementById('edx-input');
+  const text = input ? input.value : '';
+  if (!text.trim()) return;
+  const sig = window.logGetSignature ? window.logGetSignature({ msg: text }).key : text.trim().split(/\r?\n/)[0];
+  navigator.clipboard.writeText(sig).then(function () {
+    if (!btn) return;
+    const old = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(function () { btn.textContent = old; }, 2000);
+  });
 };
 
 // Debounced live decode as the user pastes/edits.

@@ -326,6 +326,8 @@ function wsreExtractCalls(records) {
 
 // Expose the pure parts for Node tests (scripts/parser-test.js)
 (typeof window !== 'undefined' ? window : self).wsreExtractCalls = wsreExtractCalls;
+(typeof window !== 'undefined' ? window : self).wsreEndpointTotals = wsreEndpointTotals;
+(typeof window !== 'undefined' ? window : self).wsreEndpoint = wsreEndpoint;
 
 // ── UI: load / parse ─────────────────────────────────────────────────────────
 
@@ -689,6 +691,86 @@ function wsrePretty(text) {
   return text;
 }
 
+// Reuses the JSON Formatter's / LQE's jt-* highlighter for JSON bodies and the
+// XML Formatter's own tree renderer for XML bodies, so all three tools render
+// payloads identically instead of WSRE growing its own highlighter. Falls back
+// to escaped plain text for anything that isn't valid JSON/XML.
+function wsreHighlightBody(text) {
+  const pretty = wsrePretty(text);
+  const t = pretty.trim();
+  if ((t[0] === '{' || t[0] === '[') && window.highlightJsonSimple) {
+    try { JSON.parse(t); return { html: window.highlightJsonSimple(pretty), isXml: false }; } catch (e) { /* not JSON after all — fall through */ }
+  }
+  if (t[0] === '<' && typeof DOMParser !== 'undefined' && window.renderXmlTree) {
+    try {
+      const prologMatch = t.match(/^<\?xml[^?]*\?>/i);
+      const xml = prologMatch ? t.substring(prologMatch[0].length).trim() : t;
+      const doc = new DOMParser().parseFromString(xml, 'application/xml');
+      if (!doc.querySelector('parsererror')) {
+        return { html: window.renderXmlTree(doc.documentElement, 0), isXml: true };
+      }
+    } catch (e) { /* not XML after all — fall through */ }
+  }
+  return { html: window.escHtml ? window.escHtml(pretty) : pretty, isXml: false };
+}
+
+// xml.js's own addXmlToggleListeners() is hardcoded to its #xml-tree-output
+// container; this is the same collapse/expand behavior scoped to whichever
+// element just received highlighted XML here.
+function wsreBindXmlToggles(container) {
+  if (!container) return;
+  container.querySelectorAll('.jt-collapse').forEach(function (el) {
+    el.onclick = function () {
+      const targetId = this.dataset.target;
+      const target = document.getElementById(targetId);
+      const placeholder = document.getElementById(targetId + '-placeholder');
+      if (!target) return;
+      const collapsed = target.style.display === 'none';
+      target.style.display = collapsed ? '' : 'none';
+      if (placeholder) placeholder.style.display = collapsed ? 'none' : 'inline';
+      this.textContent = collapsed ? '▼' : '▶';
+    };
+  });
+}
+
+function wsreRenderBody(elId, text, emptyMsg) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  if (!text) { el.textContent = emptyMsg; return; }
+  const r = wsreHighlightBody(text);
+  el.innerHTML = r.html;
+  if (r.isXml) wsreBindXmlToggles(el);
+}
+
+// Cumulative request+response payload bytes per endpoint — spots over-fetching
+// endpoints at a glance. Pure aggregation over already-extracted calls, so it is
+// unit-testable like wsreExtractCalls. UTF-8 byte size via Blob; falls back to
+// character count in environments without Blob (Node tests).
+function wsreByteLength(str) {
+  if (!str) return 0;
+  if (typeof Blob !== 'undefined') return new Blob([str]).size;
+  return str.length;
+}
+
+function wsreEndpointTotals(calls) {
+  const map = new Map(); // endpoint label -> { bytes, count }
+  (calls || []).forEach(function (c) {
+    const key = wsreEndpoint(c);
+    if (!key) return;
+    if (!map.has(key)) map.set(key, { bytes: 0, count: 0 });
+    const e = map.get(key);
+    e.bytes += wsreByteLength(c.requestBody) + wsreByteLength(c.responseBody);
+    e.count += 1;
+  });
+  return map;
+}
+
+function wsreFmtBytes(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
 function wsreHeadersRows(tbodyId, headers) {
   const tbody = document.getElementById(tbodyId);
   if (!tbody) return;
@@ -723,6 +805,12 @@ function wsreSelectCall(c) {
   if (c.uncertain) rows.push(['Pairing', '<span style="color:var(--warning)">⇅ uncertain</span> — another call to the same endpoint was in flight; FIFO pairing assumed']);
   if (c.microflow) rows.push(['Microflow', '<span style="font-family:var(--font-mono)">' + esc(c.microflow) + '</span> <span style="color:var(--text-muted)">[' + esc(c.corrId || '') + ']</span> — from the CallRest/CallWebservice activity just before this call']);
 
+  const endpointKey = wsreEndpoint(c);
+  const totals = endpointKey ? wsreEndpointTotals(wsreCalls).get(endpointKey) : null;
+  if (totals) {
+    rows.push(['Total transferred', '<strong>' + wsreFmtBytes(totals.bytes) + '</strong> request+response across ' + totals.count + ' call' + (totals.count === 1 ? '' : 's') + ' to this endpoint (this session) — helps spot over-fetching']);
+  }
+
   document.getElementById('wsre-overview-content').innerHTML =
     '<table style="width:100%; border-collapse:collapse; font-size:0.85rem;">' +
     rows.map(r =>
@@ -739,10 +827,8 @@ function wsreSelectCall(c) {
   wsreHeadersRows('wsre-req-headers-body', c.requestHeaders);
   wsreHeadersRows('wsre-resp-headers-body', c.responseHeaders);
 
-  document.getElementById('wsre-request-content').textContent =
-    c.requestBody ? wsrePretty(c.requestBody) : 'No request body logged.';
-  document.getElementById('wsre-response-content').textContent =
-    c.responseBody ? wsrePretty(c.responseBody) : (c.endTs ? 'No response body logged.' : 'No response found in the log for this request.');
+  wsreRenderBody('wsre-request-content', c.requestBody, 'No request body logged.');
+  wsreRenderBody('wsre-response-content', c.responseBody, c.endTs ? 'No response body logged.' : 'No response found in the log for this request.');
 }
 
 // ── Cross-links: the microflow → REST → SQL chain ────────────────────────────
