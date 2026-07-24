@@ -2253,6 +2253,17 @@ eq('prettify: passthrough with no keyword lists configured', sqePretty2, 'numeri
 const sqePretty3 = global.sqePrettify("SELECT 1 -- pick the columns\nFROM t", sqePrettyOpts);
 ok('prettify: a comment survives formatting unchanged', sqePretty3.indexOf('-- pick the columns') !== -1);
 
+// ── 7.6: configurable indent width + keyword case (SQL Formatter settings) ──
+const sqePretty4Space = global.sqePrettify('select a, b from t', Object.assign({}, sqePrettyOpts, { indentSize: 4 }));
+ok('prettify: indentSize=4 uses 4-space list indent', /SELECT\n {4}a,\n {4}b/.test(sqePretty4Space));
+
+const sqePrettyLower = global.sqePrettify('SELECT a FROM t WHERE a > 1', Object.assign({}, sqePrettyOpts, { keywordCase: 'lower' }));
+ok('prettify: keywordCase=lower lowercases keywords', /^select\n {2}a\nfrom t\nwhere a > 1$/.test(sqePrettyLower));
+
+const sqePrettyPreserve = global.sqePrettify('Select a From t Where a > 1', Object.assign({}, sqePrettyOpts, { keywordCase: 'preserve' }));
+ok('prettify: keywordCase=preserve keeps the original casing', sqePrettyPreserve.indexOf('Select') !== -1 && sqePrettyPreserve.indexOf('From') !== -1 && sqePrettyPreserve.indexOf('Where') !== -1);
+ok('prettify: keywordCase=preserve still recognizes mixed-case SELECT for list-splitting', /Select\n {2}a/.test(sqePrettyPreserve));
+
 // =========================================================================
 // MICROFLOW EXPRESSION FORMATTER
 // =========================================================================

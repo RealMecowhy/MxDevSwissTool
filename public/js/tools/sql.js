@@ -9,6 +9,15 @@ const SQL_BREAK_KEYWORDS = ['SELECT', 'FROM', 'WHERE', 'GROUP BY', 'ORDER BY', '
 const SQL_INDENT_KEYWORDS = ['AND', 'OR'];
 const SQL_LIST_KEYWORDS = ['SELECT', 'GROUP BY', 'ORDER BY'];
 
+// Format settings (7.6) — session-only (not persisted; toolState persistence
+// is Fala 8.1's job), default to the engine's own defaults so a fresh load
+// formats exactly as before this setting existed.
+let sqlIndentSize = 2;
+let sqlKeywordCase = 'upper';
+
+function sqlSetIndentSize(v) { sqlIndentSize = parseInt(v, 10) === 4 ? 4 : 2; sqlFormat(); }
+function sqlSetKeywordCase(v) { sqlKeywordCase = (v === 'lower' || v === 'preserve') ? v : 'upper'; sqlFormat(); }
+
 function sqlFormat() {
   const raw=document.getElementById('sql-input').value; if(!raw.trim()){document.getElementById('sql-output').innerHTML='<span style="color:var(--text-muted)">Output will appear here...</span>';return;}
   document.getElementById('sql-output').innerHTML=sqlHighlight(prettifySQL(raw));
@@ -22,8 +31,29 @@ function prettifySQL(sql) {
   return sqePrettify(sql, {
     breakKeywords: SQL_BREAK_KEYWORDS,
     indentKeywords: SQL_INDENT_KEYWORDS,
-    listKeywords: SQL_LIST_KEYWORDS
+    listKeywords: SQL_LIST_KEYWORDS,
+    indentSize: sqlIndentSize,
+    keywordCase: sqlKeywordCase
   });
+}
+
+// "Analyze in Query Intelligence" (7.6): the QI Explain tab expects a real
+// EXPLAIN plan, not a bare query (visualizeSqlExplain would just report
+// "analyzed successfully" on a query with no plan keywords in it — a false
+// success), so this never fakes a plan. It copies a ready-to-run
+// `EXPLAIN ANALYZE <query>` to the clipboard and hands off to the tab that
+// already documents this exact workflow ("Method B" in its own instructions).
+function sqlAnalyzeInQI() {
+  const raw = document.getElementById('sql-input').value;
+  if (!raw.trim()) { alert('Paste a SQL query first.'); return; }
+  const query = raw.trim().replace(/;\s*$/, '') + ';';
+  const explainSql = 'EXPLAIN ANALYZE\n' + query;
+  copyToClipboard(explainSql);
+  if (window.navigateWithReturn) window.navigateWithReturn('query-intelligence');
+  const tabBtn = document.querySelector('#panel-query-intelligence .tab[data-help-key="query-intelligence-explain"]');
+  if (tabBtn && window.qiSetTab) window.qiSetTab('explain', tabBtn);
+  alert('Copied to clipboard:\n\n' + explainSql +
+    '\n\nRun it against your database, then paste the resulting plan into the box below and click "Visualize Query Plan".');
 }
 function sqlHighlightCode(code) {
   return escHtml(code)
@@ -51,5 +81,8 @@ window.sqlFormat = sqlFormat;
 window.sqlMinify = sqlMinify;
 window.prettifySQL = prettifySQL;
 window.sqlHighlight = sqlHighlight;
+window.sqlSetIndentSize = sqlSetIndentSize;
+window.sqlSetKeywordCase = sqlSetKeywordCase;
+window.sqlAnalyzeInQI = sqlAnalyzeInQI;
 
 export function init() {}

@@ -1474,6 +1474,20 @@
             <button class="btn btn-secondary btn-sm" onclick="uiSetView('sql-split', 'raw', this)">Raw</button>
             <button class="btn btn-secondary btn-sm" onclick="uiSetView('sql-split', 'result', this)">Result</button>
           </div>
+          <label style="display:flex;align-items:center;gap:6px;font-size:0.76rem;color:var(--text-secondary);margin-left:var(--sp-3)">Indent
+            <select class="select select-sm" style="width:64px" onchange="sqlSetIndentSize(this.value)">
+              <option value="2" selected>2</option>
+              <option value="4">4</option>
+            </select>
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:0.76rem;color:var(--text-secondary)">Keywords
+            <select class="select select-sm" style="width:100px" onchange="sqlSetKeywordCase(this.value)">
+              <option value="upper" selected>UPPER</option>
+              <option value="lower">lower</option>
+              <option value="preserve">As-Is</option>
+            </select>
+          </label>
+          <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="sqlAnalyzeInQI()" title="Copy an EXPLAIN ANALYZE for this query and jump to Query Intelligence &rarr; Explain">Analyze in Query Intelligence</button>
         </div>
       <div id="sql-split" style="display:grid;grid-template-columns:1fr 1fr;flex:1;overflow:hidden">
         <div class="json-pane">

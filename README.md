@@ -56,7 +56,7 @@ The toolkit is divided into logical categories to assist you across the entire d
 ### 3. Data & Formatting
 * **JSON / XML Formatters**: Format, validate, and explore payloads with interactive tree views.
   ![JSON Formatter](assets/screenshot-json-formatter.png)
-* **SQL Formatter**: Format and highlight complex ORM-generated database queries.
+* **SQL Formatter**: Format and highlight complex ORM-generated database queries, with configurable indent (2/4) and keyword casing. **Analyze in Query Intelligence** copies a ready-to-run `EXPLAIN ANALYZE` for the query and jumps straight to the Explain tab.
 * **Microflow Expression Formatter**: Pretty-print a one-line Mendix Expression editor value into indented, syntax-highlighted `if/then/else` and arithmetic — nested `if`s read as nested blocks instead of a run-on line.
 * **Base64 / URL Encoder**: Encode and decode strings and HTML entities locally.
 * **XML & Text Sanitizer**: Detect and clean hidden control characters, zero-width spaces, Mojibake, escaped references to invalid XML 1.0 characters (like `&#14;`), and invisible Private Use Area codepoints.

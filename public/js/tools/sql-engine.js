@@ -120,13 +120,21 @@ function sqeKeywordRegex(list) {
 // `indentKeywords` start a new, indented continuation line, `listKeywords`
 // (a subset of breakKeywords, e.g. SELECT/GROUP BY/ORDER BY) additionally get
 // their following clause split on top-level commas, one item per indented
-// line. Keywords are uppercased in the output.
+// line. `keywordCase` — 'upper' (default), 'lower', or 'preserve' (as typed)
+// — and `indentSize` (default 2) are opt-in so existing callers see no change.
 function sqePrettify(text, opts) {
   opts = opts || {};
   const breakKeywords = opts.breakKeywords || [];
   const indentKeywords = opts.indentKeywords || [];
   const listKeywords = opts.listKeywords || [];
   const inlineKeywords = opts.inlineKeywords || [];
+  const indent = ' '.repeat(opts.indentSize > 0 ? opts.indentSize : 2);
+  const kwCase = opts.keywordCase || 'upper';
+  function applyCase(m) {
+    if (kwCase === 'lower') return m.toLowerCase();
+    if (kwCase === 'preserve') return m;
+    return m.toUpperCase();
+  }
 
   const masked = sqeMask(text);
   let res = masked.masked.replace(/[ \t]+/g, ' ').replace(/\s*\n\s*/g, ' ').trim();
@@ -134,25 +142,24 @@ function sqePrettify(text, opts) {
   // Inline keywords (ASC/DESC/CASE/…) are case-normalized in place — no line
   // break — so this must run before break/indent insert their own newlines.
   if (inlineKeywords.length) {
-    res = res.replace(sqeKeywordRegex(inlineKeywords), function (m) { return m.toUpperCase(); });
+    res = res.replace(sqeKeywordRegex(inlineKeywords), applyCase);
   }
   if (breakKeywords.length) {
-    res = res.replace(sqeKeywordRegex(breakKeywords), function (m) { return '\n' + m.toUpperCase(); });
+    res = res.replace(sqeKeywordRegex(breakKeywords), function (m) { return '\n' + applyCase(m); });
   }
   if (indentKeywords.length) {
-    res = res.replace(sqeKeywordRegex(indentKeywords), function (m) { return '\n  ' + m.toUpperCase(); });
+    res = res.replace(sqeKeywordRegex(indentKeywords), function (m) { return '\n' + indent + applyCase(m); });
   }
 
   if (listKeywords.length) {
     const lines = res.split('\n');
     res = lines.map(function (line) {
       for (let k = 0; k < listKeywords.length; k++) {
-        const kw = listKeywords[k].toUpperCase();
-        const re = new RegExp('^' + kw.replace(/ /g, '\\s+') + '\\s+');
+        const re = new RegExp('^(' + listKeywords[k].replace(/ /g, '\\s+') + ')\\s+', 'i');
         const m = line.match(re);
         if (m) {
           const items = sqeSplitTopLevel(line.slice(m[0].length), ',');
-          return kw + '\n  ' + items.join(',\n  ');
+          return m[1] + '\n' + indent + items.join(',\n' + indent);
         }
       }
       return line;

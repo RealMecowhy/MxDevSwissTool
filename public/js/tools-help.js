@@ -572,14 +572,17 @@ const TOOLS_HELP = {
     `,
     howToUse: `
       <ol>
-        <li>Paste a raw, one-line compressed SQL query into the text field.</li>
-        <li>Click the <strong>Format SQL</strong> button. Keywords such as SELECT, FROM, JOIN, WHERE will be moved to new lines and bolded.</li>
+        <li>Paste a raw, one-line compressed SQL query into the text field — it formats live as you type.</li>
+        <li>Keywords such as <code>SELECT</code>, <code>FROM</code>, <code>JOIN</code>, <code>WHERE</code> move to new lines; <code>SELECT</code>/<code>GROUP BY</code>/<code>ORDER BY</code> columns split one per line.</li>
+        <li><strong>Indent</strong> (2 or 4 spaces) and <strong>Keywords</strong> case (UPPER / lower / As-Is) in the toolbar control the output style.</li>
+        <li><strong>Analyze in Query Intelligence</strong> copies a ready-to-run <code>EXPLAIN ANALYZE &lt;your query&gt;</code> to the clipboard and jumps to the Query Intelligence Suite's Explain tab — run it against your database, then paste the resulting plan there.</li>
       </ol>
     `,
     interpretation: `
       <ul>
         <li><strong>For beginners:</strong> Mendix generates very long, unreadable SQL queries under the hood. Formatting them here helps you see exactly which database tables are being joined.</li>
         <li><strong>Debugging:</strong> If an OQL query fails or is slow, inspect the generated SQL to check if it's hitting the expected indexes.</li>
+        <li><strong>Why "Analyze in Query Intelligence" only copies a command:</strong> the Explain tab visualizes an actual <code>EXPLAIN</code> plan, not a bare query — pasting the query itself there would produce a misleading "analyzed successfully" with no real findings.</li>
       </ul>
     `
   },
