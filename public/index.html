@@ -173,6 +173,10 @@
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></span>
       <span class="nav-label">SQL Formatter</span>
     </button>
+    <button type="button" class="nav-item" data-tool="microflow-expression" onclick="navigate('microflow-expression',this)">
+      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-12M6 9h4M6 15h4M17 9l2 2-2 2M17 15l2-2-2-2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      <span class="nav-label">Microflow Expression</span>
+    </button>
     <button type="button" class="nav-item" data-tool="text-diff" onclick="navigate('text-diff',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></span>
       <span class="nav-label">Text Diff</span>
@@ -1479,6 +1483,27 @@
         <div class="json-pane">
           <div class="json-pane-header"><h4>Formatted Output</h4><button class="btn btn-ghost btn-sm" onclick="copyToClipboard(document.getElementById('sql-output').innerText)">Copy</button></div>
           <div class="json-pane-body"><pre id="sql-output" style="font-family:var(--font-mono);font-size:.78rem;line-height:1.6;white-space:pre-wrap;color:var(--text-muted)">Output will appear here...</pre></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MICROFLOW EXPRESSION FORMATTER -->
+    <div class="tool-panel" id="panel-microflow-expression">
+      <div class="tool-actions">
+          <div class="btn-group">
+            <button class="btn btn-secondary btn-sm active" onclick="uiSetView('mef-split', 'split', this)">Split</button>
+            <button class="btn btn-secondary btn-sm" onclick="uiSetView('mef-split', 'raw', this)">Raw</button>
+            <button class="btn btn-secondary btn-sm" onclick="uiSetView('mef-split', 'result', this)">Result</button>
+          </div>
+        </div>
+      <div id="mef-split" style="display:grid;grid-template-columns:1fr 1fr;flex:1;overflow:hidden">
+        <div class="json-pane">
+          <div class="json-pane-header"><h4>Input Expression</h4><button class="btn btn-ghost btn-sm" onclick="mefFormatClick()">Format <kbd>Ctrl+Enter</kbd></button><button class="btn btn-ghost btn-sm" onclick="document.getElementById('mef-input').value='';mefFormatClick()">Clear</button></div>
+          <div class="json-pane-body"><textarea class="json-input-area" id="mef-input" placeholder="if ($Customer/Status = 'Active' and not empty($Customer/Email)) then trim($Customer/Email) else 'unknown'" oninput="mefFormatClick()"></textarea></div>
+        </div>
+        <div class="json-pane">
+          <div class="json-pane-header"><h4>Formatted Output</h4><button class="btn btn-ghost btn-sm" onclick="copyToClipboard(document.getElementById('mef-output').innerText)">Copy</button></div>
+          <div class="json-pane-body"><pre id="mef-output" style="font-family:var(--font-mono);font-size:.78rem;line-height:1.6;white-space:pre-wrap;color:var(--text-muted)">Paste a Microflow expression above to format it.</pre></div>
         </div>
       </div>
     </div>

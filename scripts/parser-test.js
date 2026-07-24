@@ -2196,6 +2196,102 @@ ok('output xml: special chars escaped', /Bob &quot;B&quot;|Bob "B"/.test(oXml));
 ok('output xml: a null field is an absent node', oXml.indexOf('<Note></Note>') === -1);
 ok('output xml: dispatcher routes by format', global.dfoSerialize('json', oCols, oRows) === global.dfoJson(oCols, oRows));
 
+// =========================================================================
+// SQL / OQL FORMATTING ENGINE
+// =========================================================================
+// The old prettifySQL/formatOql both ran a blind `\s+` collapse and `\bKW\b`
+// match over the WHOLE input, so a keyword sitting inside a string literal or
+// a comment got uppercased and relocated as if it were code. These tests
+// pin the failure cases the audit called out by name.
+console.log('\nSQL/OQL formatting engine');
+require('../public/js/tools/sql-engine.js');
+
+const sqeMasked1 = global.sqeMask("WHERE name = 'ORDER BY' AND x = 1");
+eq('mask: one string token extracted', sqeMasked1.tokens.length, 1);
+eq('mask: token keeps the keyword verbatim', sqeMasked1.tokens[0].raw, "'ORDER BY'");
+ok('mask: masked text has no literal ORDER BY left', sqeMasked1.masked.indexOf('ORDER BY') === -1);
+eq('unmask: round-trips to the original string', global.sqeUnmask(sqeMasked1.masked, sqeMasked1.tokens), "WHERE name = 'ORDER BY' AND x = 1");
+
+const sqeMasked2 = global.sqeMask("SELECT 1 -- FROM legacy\nFROM real_table");
+eq('mask: line comment extracted as its own token', sqeMasked2.tokens[0].raw, '-- FROM legacy');
+ok('mask: FROM inside the comment is not visible to a keyword scan', sqeMasked2.masked.indexOf('FROM legacy') === -1);
+ok('mask: FROM in real code still visible', /FROM real_table/.test(sqeMasked2.masked));
+
+const sqeMasked3 = global.sqeMask("/* multi\nline */ SELECT 1");
+eq('mask: block comment spans newlines as one token', sqeMasked3.tokens[0].raw, '/* multi\nline */');
+
+const sqeMasked4 = global.sqeMask("SET x = ''''"); // '''' = an escaped single quote inside the literal
+eq('mask: doubled-quote escape stays inside the string token', sqeMasked4.tokens[0].raw, "''''");
+
+// ── top-level split ──────────────────────────────────────────────────────
+const sqeSplit1 = global.sqeSplitTopLevel('a, b, c');
+eq('split: three plain items', sqeSplit1.length, 3);
+eq('split: items trimmed', sqeSplit1[1], 'b');
+
+const sqeSplit2 = global.sqeSplitTopLevel("price numeric(10,2), name text");
+eq('split: a comma inside parens is not a boundary', sqeSplit2.length, 2);
+eq('split: the paren-bearing column stays whole', sqeSplit2[0], 'price numeric(10,2)');
+
+const sqeSplit3 = global.sqeSplitTopLevel('(SELECT a, b FROM t), c');
+eq('split: a comma inside a subquery is not a boundary', sqeSplit3.length, 2);
+
+// ── prettify (the real regression target: a keyword hiding in a literal) ──
+const sqePrettyOpts = {
+  breakKeywords: ['SELECT', 'FROM', 'WHERE', 'GROUP BY', 'ORDER BY', 'JOIN'],
+  indentKeywords: ['AND', 'OR'],
+  listKeywords: ['SELECT', 'GROUP BY', 'ORDER BY']
+};
+const sqePretty1 = global.sqePrettify("SELECT a, b FROM t WHERE name = 'ORDER BY' AND x = 1", sqePrettyOpts);
+ok('prettify: the literal ORDER BY is not treated as the keyword',
+  sqePretty1.indexOf("'ORDER BY'") !== -1 && sqePretty1.split('\n').filter(function (l) { return /^ORDER BY/.test(l.trim()); }).length === 0);
+ok('prettify: SELECT columns split one per line', /SELECT\n\s+a,\n\s+b/.test(sqePretty1));
+ok('prettify: WHERE starts its own line', /\nWHERE /.test(sqePretty1));
+
+const sqePretty2 = global.sqePrettify('numeric(10,2)', { breakKeywords: [], indentKeywords: [], listKeywords: [] });
+eq('prettify: passthrough with no keyword lists configured', sqePretty2, 'numeric(10,2)');
+
+const sqePretty3 = global.sqePrettify("SELECT 1 -- pick the columns\nFROM t", sqePrettyOpts);
+ok('prettify: a comment survives formatting unchanged', sqePretty3.indexOf('-- pick the columns') !== -1);
+
+// =========================================================================
+// MICROFLOW EXPRESSION FORMATTER
+// =========================================================================
+console.log('\nMicroflow Expression Formatter');
+// mefHighlight calls the real escHtml (utilities.js), which touches `document`
+// at module load time — not requirable in plain Node. A minimal stub matching
+// its actual implementation is enough to exercise the highlighting here.
+if (!global.escHtml) {
+  global.escHtml = function (s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  };
+}
+require('../public/js/tools/microflow-expression.js');
+
+const mefSimple = global.mefFormat("if ($Customer/Status = 'Active') then $Customer/Email else 'unknown'");
+ok('mef: breaks before if/then/else', /^if /.test(mefSimple) && /\nthen /.test(mefSimple) && /\nelse /.test(mefSimple));
+ok('mef: the string literal is untouched', mefSimple.indexOf("'Active'") !== -1 && mefSimple.indexOf("'unknown'") !== -1);
+
+const mefNested = global.mefFormat("if (($A > 10) and ($B < 5)) then (if ($C = true) then 1 else 2) else 3");
+const mefNestedLines = mefNested.split('\n');
+eq('mef: outer if/then/else at depth 0', mefNestedLines[0].indexOf('if ((') === 0, true);
+eq('mef: the nested if is indented one level', mefNestedLines[2], '  if ($C = true)');
+ok('mef: the nested then/else are indented to match the nested if', mefNestedLines[3].indexOf('  then') === 0 && mefNestedLines[4].indexOf('  else') === 0);
+ok('mef: the outer else is back at depth 0', mefNestedLines[5].indexOf('else 3') === 0);
+
+const mefElseIf = global.mefFormat("if (a) then 1 else if (b) then 2 else 3");
+ok('mef: else-if is kept as one unit, not split into else + if', /\nelse if \(b\)/.test(mefElseIf));
+
+const mefKeywordInString = global.mefFormat("if ($Status = 'then this') then 1 else 2");
+ok('mef: a keyword hiding inside a string literal is not treated as a break point',
+  mefKeywordInString.indexOf("'then this'") !== -1 && mefKeywordInString.split('\n').filter(function (l) { return /^\s*then this/.test(l); }).length === 0);
+
+const mefHl = global.mefHighlight(global.mefFormat("if (empty($Customer/Email)) then trim($Customer/Name) else $Customer/Email"));
+ok('mef highlight: if/then/else wrapped as keywords', /<span class="sql-kw">if<\/span>/.test(mefHl) && /<span class="sql-kw">then<\/span>/.test(mefHl));
+ok('mef highlight: empty() wrapped as a keyword, not a function', /<span class="sql-kw">empty<\/span>/.test(mefHl));
+ok('mef highlight: trim() wrapped as a Mendix function', /color:#c678dd[^>]*>trim<\/span>/.test(mefHl));
+ok('mef highlight: $Customer wrapped as a variable', /color:#e5c07b[^>]*>\$Customer<\/span>/.test(mefHl));
+ok('mef highlight: no leaked mask placeholder', mefHl.indexOf(String.fromCharCode(0)) === -1);
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 runXlsxAsyncTests().then(function () {
   console.log('\n' + passed + ' passed, ' + failed + ' failed');

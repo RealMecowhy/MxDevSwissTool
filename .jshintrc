@@ -28,6 +28,12 @@
     "showLoader": false,
     "hideLoader": false,
     "navigate": false,
-    "VirtualTextViewer": false
+    "VirtualTextViewer": false,
+    "sqeMask": false,
+    "sqeUnmask": false,
+    "sqeSplitTopLevel": false,
+    "sqePrettify": false,
+    "sqeMark": false,
+    "mefFormatClick": false
   }
 }

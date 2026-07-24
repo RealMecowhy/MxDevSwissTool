@@ -43,6 +43,7 @@ const TOOLS = [
   {id:'xml-formatter', label:'XML Formatter',              desc:'Format, validate and explore XML with interactive tree view',                     color:'var(--info)',     icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13l3 3-3 3M16 19h-4"/></svg>',    section:'Data & Format'},
   {id:'char-sanitizer',label:'XML & Text Sanitizer',       desc:'Detect and fix hidden control characters, zero-width spaces, invalid XML tokens, and Mojibake', color:'#e67e22', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>', section:'Data & Format'},
   {id:'sql-formatter', label:'SQL Formatter',              desc:'Format and syntax-highlight SQL queries from Mendix ORM',                        color:'#7c85f3',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>', section:'Data & Format'},
+  {id:'microflow-expression',label:'Microflow Expression Formatter', desc:'Pretty-print if/then/else and math expressions from the Mendix Expression editor', color:'#5c9ded', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-12M6 9h4M6 15h4M17 9l2 2-2 2M17 15l2-2-2-2" stroke-linecap="round" stroke-linejoin="round"/></svg>', section:'Data & Format'},
   {id:'text-diff',     label:'Text Diff',                  desc:'Compare two text blocks with highlighted differences',                           color:'var(--success)',  icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>',        section:'Data & Format'},
   {id:'encoder',       label:'Base64 / URL Encoder',       desc:'Encode and decode Base64, URL, and HTML entities',                              color:'#2ecc71',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>',        section:'Data & Format'},
   {id:'md-preview',    label:'Markdown & Table Generator', desc:'Write and preview Markdown documentation and generate markdown tables',          color:'#95a5a6',            icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',            section:'Data & Format'},
@@ -424,11 +425,19 @@ import './tools/error-decoder.js';
 import './tools/index-advisor.js';
 import * as markdown from './tools/markdown.js';
 import * as memoryInspector from './tools/memory-inspector.js';
-import * as miscMendix from './tools/misc-mendix.js';
+import * as microflowExpression from './tools/microflow-expression.js';
+// Side-effect import: the shared, string/comment-safe SQL/OQL formatting engine
+// (sqeMask/sqeUnmask/sqeSplitTopLevel/sqePrettify) — attaches the pure sqe*
+// layer for scripts/parser-test.js. Driven by sql.js and query-intelligence.js's
+// OQL formatter; must load before either calls it.
+import './tools/sql-engine.js';
+import * as jvmHealth from './tools/jvm-health.js';
 import * as mockServer from './tools/mock-server.js';
 import * as nginx from './tools/nginx.js';
 import * as odata from './tools/odata.js';
+import * as passwordGenerator from './tools/password-generator.js';
 import * as perfLab from './tools/perf-lab.js';
+import * as queryIntelligence from './tools/query-intelligence.js';
 import * as regex from './tools/regex.js';
 import * as samlDebugger from './tools/saml-debugger.js';
 import * as sql from './tools/sql.js';
@@ -470,10 +479,10 @@ const toolModules = {
   'markdown': markdown,
   'md-preview': markdown,
   'memory-inspector': memoryInspector,
-  'misc-mendix': miscMendix,
-  'thread-dump': miscMendix,
-  'query-intelligence': miscMendix,
-  'password-generator': miscMendix,
+  'microflow-expression': microflowExpression,
+  'thread-dump': jvmHealth,
+  'query-intelligence': queryIntelligence,
+  'password-generator': passwordGenerator,
   'mock-server': mockServer,
   'nginx': nginx,
   'nginx-log': nginx,

@@ -583,6 +583,24 @@ const TOOLS_HELP = {
       </ul>
     `
   },
+  'microflow-expression': {
+    title: 'Microflow Expression Formatter',
+    description: 'Pretty-prints a Mendix Expression editor value — the one-line <code>if/then/else</code> and arithmetic expressions used in Decision activities, attribute default values, and Expression widgets — into an indented, syntax-highlighted, readable form.',
+    howToGet: 'Copy any expression straight from the Mendix Studio Pro Expression editor (right-click the property &rarr; Copy, or select the text in the editor).',
+    howToUse: `
+      <ol>
+        <li>Paste the expression into the left pane. It formats live as you type (or press <kbd>Ctrl+Enter</kbd>).</li>
+        <li>Each <code>if</code> / <code>then</code> / <code>else if</code> / <code>else</code> starts its own line, indented to how deeply it is nested in parentheses — a nested <code>if</code> inside a <code>then</code>-branch reads as an indented block, not a run-on line.</li>
+        <li>Highlighting distinguishes <code>$Variables</code> (including association paths like <code>$Customer/Module.Association/Attribute</code>), Mendix built-in functions (<code>trim</code>, <code>max</code>, <code>round</code>, <code>toString</code>, <code>length</code>, date/string helpers…), keywords (<code>and/or/not/empty/true/false/div/mod</code>) and string literals.</li>
+      </ol>
+    `,
+    interpretation: `
+      <ul>
+        <li><strong>Why indentation, not just line breaks:</strong> a deeply nested <code>if</code> chain is where copy-paste mistakes hide — seeing the nesting as indentation makes it obvious which <code>else</code> belongs to which <code>if</code>.</li>
+        <li><strong>String literals are never touched:</strong> a keyword sitting inside a quoted string (e.g. <code>'this is then that'</code>) is protected from being read as code — the same string/comment-safe engine the SQL and OQL formatters use.</li>
+      </ul>
+    `
+  },
   'text-diff': {
     title: 'Text Diff Utility',
     description: 'Local tool for comparing two pieces of text. Instantly locates and highlights differences (added lines, deleted lines, and changed characters). Useful for comparing configurations, JSON payloads from different environments, or generated files.',
