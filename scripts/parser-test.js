@@ -2264,6 +2264,26 @@ const sqePrettyPreserve = global.sqePrettify('Select a From t Where a > 1', Obje
 ok('prettify: keywordCase=preserve keeps the original casing', sqePrettyPreserve.indexOf('Select') !== -1 && sqePrettyPreserve.indexOf('From') !== -1 && sqePrettyPreserve.indexOf('Where') !== -1);
 ok('prettify: keywordCase=preserve still recognizes mixed-case SELECT for list-splitting', /Select\n {2}a/.test(sqePrettyPreserve));
 
+// ── code review fix: a keyword inside `(...)` must not fragment the group ──
+// (a subquery in a SELECT list, or a grouped AND/OR) — breakKeywords/indentKeywords
+// used to fire on every occurrence regardless of paren depth, so the group's
+// closing paren ended up glued to whatever text followed it on that line.
+const sqePrettySubquery = global.sqePrettify(
+  "SELECT id, (SELECT count(*) FROM orders o WHERE o.customer_id = c.id) AS order_count FROM customers c",
+  sqePrettyOpts);
+ok('prettify: a subquery in the SELECT list is not split into a fake column',
+  sqePrettySubquery.split('\n').filter(function (l) { return l.trim() === '('; }).length === 0);
+ok('prettify: the subquery stays on one line, closing paren attached',
+  sqePrettySubquery.indexOf('(SELECT count(*) FROM orders o WHERE o.customer_id = c.id) AS order_count') !== -1);
+ok('prettify: outer SELECT list splits into exactly 2 items (id, and the subquery)',
+  /SELECT\n\s+id,\n\s+\(SELECT count/.test(sqePrettySubquery));
+
+const sqePrettyGrouped = global.sqePrettify("SELECT a FROM t WHERE a = 1 AND (b = 2 OR c = 3)", sqePrettyOpts);
+ok('prettify: OR inside a grouped condition does not start its own line',
+  sqePrettyGrouped.split('\n').filter(function (l) { return /^\s*OR /.test(l); }).length === 0);
+ok('prettify: the grouped condition stays intact on the AND line',
+  sqePrettyGrouped.indexOf('AND (b = 2 OR c = 3)') !== -1);
+
 // =========================================================================
 // MICROFLOW EXPRESSION FORMATTER
 // =========================================================================
@@ -2302,6 +2322,25 @@ ok('mef highlight: empty() wrapped as a keyword, not a function', /<span class="
 ok('mef highlight: trim() wrapped as a Mendix function', /color:#c678dd[^>]*>trim<\/span>/.test(mefHl));
 ok('mef highlight: $Customer wrapped as a variable', /color:#e5c07b[^>]*>\$Customer<\/span>/.test(mefHl));
 ok('mef highlight: no leaked mask placeholder', mefHl.indexOf(String.fromCharCode(0)) === -1);
+
+// =========================================================================
+// XPATH — deep-hop detection (7.7)
+// =========================================================================
+console.log('\nXPath deep-hop detection');
+require('../public/js/tools/xpath.js');
+
+eq('xpath hops: a real 2-hop association path is named',
+  global.xpathDeepHops("[Mod.A/Mod.B/Attr = '1']").join('>'), 'Mod.A>Mod.B');
+
+// code review fix: a literal '/' inside a string constraint (URL, date, or
+// any value containing a slash) must never be split into fake hop segments —
+// sqeMask now runs before the bracket content is split on '/'.
+eq('xpath hops: a string literal containing slashes yields no fake hops',
+  global.xpathDeepHops("[Name = 'a/b/c']").length, 0);
+eq('xpath hops: a URL-valued attribute yields no fake hops',
+  global.xpathDeepHops("[WebsiteUrl = 'https://example.com/path']").length, 0);
+eq('xpath hops: a dd/mm/yyyy-style date string yields no fake hops',
+  global.xpathDeepHops("[CreatedDate = '31/12/2026']").length, 0);
 
 // ── Summary ─────────────────────────────────────────────────────────────────
 runXlsxAsyncTests().then(function () {

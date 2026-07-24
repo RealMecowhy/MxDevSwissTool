@@ -116,6 +116,26 @@ function sqeKeywordRegex(list) {
   return new RegExp('\\b(' + alts.join('|') + ')\\b', 'gi');
 }
 
+// Like `text.replace(regex, replacer)`, but `replacer` only runs on a match
+// that sits at paren depth 0 in `text` — a match inside `(...)` (a subquery,
+// a grouped condition) is left untouched. Depth is tracked cumulatively as
+// matches are found left-to-right, so this stays O(n) rather than rescanning
+// from the start for every match.
+function sqeReplaceAtDepth0(text, regex, replacer) {
+  const re = new RegExp(regex.source, regex.flags.indexOf('g') === -1 ? regex.flags + 'g' : regex.flags);
+  let out = '', last = 0, depth = 0, m;
+  while ((m = re.exec(text)) !== null) {
+    for (let i = last; i < m.index; i++) {
+      if (text[i] === '(') depth++;
+      else if (text[i] === ')') depth--;
+    }
+    out += text.slice(last, m.index) + (depth === 0 ? replacer(m[0]) : m[0]);
+    last = re.lastIndex;
+    if (m.index === re.lastIndex) re.lastIndex++;
+  }
+  return out + text.slice(last);
+}
+
 // Formats masked SQL/OQL text: `breakKeywords` each start a new line,
 // `indentKeywords` start a new, indented continuation line, `listKeywords`
 // (a subset of breakKeywords, e.g. SELECT/GROUP BY/ORDER BY) additionally get
@@ -144,11 +164,16 @@ function sqePrettify(text, opts) {
   if (inlineKeywords.length) {
     res = res.replace(sqeKeywordRegex(inlineKeywords), applyCase);
   }
+  // Depth-0 only: a break/indent keyword sitting inside `(...)` (a subquery,
+  // a grouped condition) must not fragment the group across lines — that
+  // misplaces the closing paren onto whatever follows it and, for listKeywords,
+  // turns "(" into a fake column below. The parenthesized content stays on
+  // one line rather than being recursively pretty-printed itself.
   if (breakKeywords.length) {
-    res = res.replace(sqeKeywordRegex(breakKeywords), function (m) { return '\n' + applyCase(m); });
+    res = sqeReplaceAtDepth0(res, sqeKeywordRegex(breakKeywords), function (m) { return '\n' + applyCase(m); });
   }
   if (indentKeywords.length) {
-    res = res.replace(sqeKeywordRegex(indentKeywords), function (m) { return '\n' + indent + applyCase(m); });
+    res = sqeReplaceAtDepth0(res, sqeKeywordRegex(indentKeywords), function (m) { return '\n' + indent + applyCase(m); });
   }
 
   if (listKeywords.length) {

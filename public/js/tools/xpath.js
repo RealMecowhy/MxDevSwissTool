@@ -32,7 +32,10 @@ function xpathAnalyze() {
   if (val.includes('!=')) warnings.push('<strong>Negation (!=):</strong> Negation operators usually prevent the database from using indexes effectively.');
   if (val.includes('not(')) warnings.push('<strong>not() function:</strong> Negation often causes full table scans.');
 
-  const slashes = (val.match(/\//g) || []).length;
+  // Masked (sqeMask) so a literal '/' inside a string constraint — a URL, a
+  // 'dd/mm/yyyy' date — is never counted as an association hop; same reasoning
+  // as xpathDeepHops below, which this count gates.
+  const slashes = (sqeMask(val).masked.match(/\//g) || []).length;
   if (slashes > 0) parts.push('Traverses association(s)');
   if (slashes > 1) {
     // 7.7: name the actual hop(s) instead of a generic count — an association
@@ -64,11 +67,16 @@ function xpathAnalyze() {
 
 // Association hops inside each bracketed constraint: every '/'-separated
 // segment except the last one (which is the attribute/condition, not a hop).
+// Masked first (sql-engine.js's sqeMask) so a string literal containing a
+// literal '/' — a URL, a 'dd/mm/yyyy' date, a path — never gets split into
+// fake hop segments; only slashes that are real association separators
+// survive into the masked text.
 function xpathDeepHops(val) {
   const hops = [];
+  const masked = sqeMask(val);
   const bracketRe = /\[([^\]]*)\]/g;
   let bm;
-  while ((bm = bracketRe.exec(val)) !== null) {
+  while ((bm = bracketRe.exec(masked.masked)) !== null) {
     const segs = bm[1].split('/');
     if (segs.length < 2) continue;
     for (let i = 0; i < segs.length - 1; i++) {
@@ -109,5 +117,6 @@ function formatXPathClick() {
 // --- AUTO-GENERATED ESM EXPORTS ---
 window.xpathAnalyze = xpathAnalyze;
 window.formatXPathClick = formatXPathClick;
+window.xpathDeepHops = xpathDeepHops;
 
 export function init() {}
