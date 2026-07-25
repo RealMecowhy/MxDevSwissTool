@@ -18,6 +18,18 @@
 (function (root) {
   'use strict';
 
+  // Escapes a captured, attacker-controlled value before it is woven into a
+  // card's trusted HTML. Most rules interpolate their capture (a Postgres
+  // constraint/column identifier) directly, which is safe; a 404's requested
+  // file path, however, comes straight from a remote request a scanner fully
+  // controls, so it must be escaped. Kept inside this pure section so Node tests
+  // never depend on the DOM helpers further down.
+  function edxHtmlEscape(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
   // Each rule: a signature (regexes, first match wins), a specificity used to
   // rank overlapping matches (specific DB/JVM signatures outrank a generic NPE),
   // and the three card sections. `mechanism`/`causes`/`checks` receive the
@@ -720,6 +732,77 @@
         return [
           { text: 'Identify which process owns the port on the host, and whether an old runtime instance is still alive.' },
           { text: 'Check the surrounding startup log for the port number and a prior unclean shutdown.', tool: 'log-viewer' }
+        ];
+      }
+    },
+    {
+      id: 'http-404-file-not-found',
+      title: 'Static file not found (404) — usually a scanner probe',
+      category: 'Platform',
+      specificity: 72,
+      // Verbatim Mendix runtime signature: `Connector: 404 - file not found for
+      // file: <path>`. The path is captured so the card can name it; the second
+      // pattern is a loose fallback if the `404 - ` prefix is ever absent.
+      patterns: [
+        /404 - file not found for file:\s*(\S+)/i,
+        /file not found for file:\s*(\S+)/i
+      ],
+      mechanism: function (m) {
+        let name = m[1] || '';
+        try { name = decodeURIComponent(name); } catch (e) { /* malformed %-encoding: keep raw */ }
+        const f = name ? ' (<code>' + edxHtmlEscape(name) + '</code>)' : '';
+        return 'The Mendix runtime\'s request handler (the <code>Connector</code>) received a request for a static file' + f + ' that does not exist in the deployed application, so it returned HTTP 404. The request never reached a microflow or the database — nothing in the running app failed. The runtime logs this at ERROR level, but a 404 for a missing file is the web server correctly reporting an unknown path.';
+      },
+      causes: function (m) {
+        let name = m[1] || '';
+        try { name = decodeURIComponent(name); } catch (e) { /* keep raw */ }
+        const isProbe = /magento|composer\.json|wp-|wordpress|xmlrpc|phpmyadmin|\.env|\.git|index\.php|\.php(?:$|\?)|\.aspx|boaform|hnap|autodiscover|lander/i.test(name);
+        return [
+          'An automated vulnerability/fingerprint scanner probing for well-known files of software you do not run — Magento (<code>magento_version</code>, <code>composer.json</code>), WordPress (<code>wp-*</code>), phpMyAdmin, <code>.env</code>, <code>.git</code>. These requests sweep every public host on the internet; they are background noise, not a fault in your app.' + (isProbe ? ' <strong>The name requested here is a classic probe target.</strong>' : ''),
+          'A broken reference to one of your own static resources (image, CSS, JS, theme file) that was renamed, moved, or never included in the deployment package.',
+          'A stale client or bookmark requesting a path that existed in an earlier version of the app.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Read the requested file name: names like <code>magento_version</code>, <code>wp-login.php</code>, <code>.env</code> or <code>.git</code> are probes for software you do not run — safe to ignore beyond filtering the noise (or blocking the source at the proxy).' },
+          { text: 'If it is genuinely one of your own resources, confirm the file ships in the deployment package (the module or <code>theme/</code> folder that should contain it).' },
+          { text: 'Correlate the client IP and the paths it requested in the reverse-proxy access log — a spread of unrelated probe paths from one source confirms a scanner sweep.', tool: 'nginx-log' }
+        ];
+      }
+    },
+    {
+      id: 'http-404-rest-no-operation',
+      title: 'Published REST service — no matching operation (404)',
+      category: 'Platform',
+      specificity: 70,
+      // Verbatim Mendix runtime signature from the REST-publish layer; the
+      // requested URL is captured so the card can name it.
+      patterns: [
+        /Responding with 404 Not Found, because no operation matches\s*(\S+)/i,
+        /REST Publish:[^\n]*no operation matches\s*(\S+)/i
+      ],
+      mechanism: function (m) {
+        let url = m[1] || '';
+        try { url = decodeURIComponent(url); } catch (e) { /* keep raw */ }
+        const u = url ? ' (<code>' + edxHtmlEscape(url) + '</code>)' : '';
+        return 'A request reached the app\'s <em>published</em> REST layer, but its path, HTTP method or version matched no operation in any published REST service' + u + ', so the runtime returned HTTP 404 without invoking a microflow — the request never reached your logic. The runtime logs this at DEBUG level: a mismatched path is not treated as an application error. (This is an <em>incoming</em> call to your app, not an outgoing one.)';
+      },
+      causes: function (m) {
+        let url = m[1] || '';
+        try { url = decodeURIComponent(url); } catch (e) { /* keep raw */ }
+        const isProbe = /wp-json|magento|rest\/default\/v\d|graphql|\/V1\/guest-carts/i.test(url);
+        return [
+          'A scanner/bot probing for well-known REST APIs of software you do not run — e.g. Magento (<code>/rest/default/V1/…</code>) or WordPress (<code>/wp-json/…</code>). It sweeps every public host; noise, not a fault in your app.' + (isProbe ? ' <strong>The path requested here is a classic probe target.</strong>' : ''),
+          'A legitimate client calling a published operation with the wrong path, HTTP method or version — a trailing slash, a GET where POST is defined, or a stale version segment all yield "no operation matches".',
+          'The published REST service that should serve this path is not deployed or not enabled in this environment.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Read the URL in the message: a path like <code>/rest/default/V1/…</code> (Magento) or <code>/wp-json/…</code> (WordPress) is a probe for an API you do not publish — safe to ignore.' },
+          { text: 'If it is your own API, compare the caller\'s exact path, method and version against the published service\'s operation definitions in Studio Pro.' },
+          { text: 'Correlate the client IP and requested paths in the reverse-proxy access log to tell a scanner sweep from one misconfigured client.', tool: 'nginx-log' }
         ];
       }
     },

@@ -452,7 +452,19 @@ function logLoadMore() {
     // ERROR/CRITICAL rows get an "Explain" chip that hands the full message
     // (headline + stack) to the Mendix Error Decoder. Index is into the current
     // filtered list, which is rebuilt on every filter change, so it stays valid.
-    const explainChip = (e.level === 'ERROR' || e.level === 'CRITICAL')
+    // Only offered when the decoder actually recognizes a signature in this
+    // message — otherwise the chip lands on "No known pattern matched", a dead
+    // end. Memoized per entry (msg is stable) so filter re-renders stay cheap.
+    let showExplain = false;
+    if (e.level === 'ERROR' || e.level === 'CRITICAL') {
+      if (typeof window.edxDecode !== 'function') {
+        showExplain = true; // decoder script not loaded — keep prior behavior
+      } else {
+        if (e._edxHasMatch === undefined) e._edxHasMatch = window.edxDecode(e.msg).matches.length > 0;
+        showExplain = e._edxHasMatch;
+      }
+    }
+    const explainChip = showExplain
       ? '<span class="log-explain-chip" onclick="event.stopPropagation();window.logExplainError('+(start+i)+')" title="Decode this error\'s mechanism in the Mendix Error Decoder">Explain</span>'
       : '';
 

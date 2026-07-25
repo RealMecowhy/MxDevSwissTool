@@ -1017,6 +1017,43 @@ ok('errdec: NoSuchMethodError', edxIds("java.lang.NoSuchMethodError: 'void com.f
 ok('errdec: UnknownHostException', edxIds('java.net.UnknownHostException: api.example.internal').indexOf('unknown-host') !== -1);
 ok('errdec: ruleset has at least 30 patterns', global.EDX_RULES.length >= 30, global.EDX_RULES.length);
 
+// ── 404 static-file / scanner-probe rule (real MxCloud runtime log lines) ─────
+ok('errdec: 404 file not found matches',
+  edxIds('2026-07-17T00:10:57.791076 [runtime-container/27mj7]  ERROR - Connector: 404 - file not found for file: magento_version').indexOf('http-404-file-not-found') !== -1);
+const edx404 = edxTop('ERROR - Connector: 404 - file not found for file: magento_version');
+eq('errdec: 404 rule is categorized Platform', edx404.category, 'Platform');
+ok('errdec: 404 mechanism names the requested file', /magento_version/.test(edx404.mechanism), edx404.mechanism);
+ok('errdec: 404 flags a known probe name', /classic probe target/.test(edx404.causes[0]), edx404.causes[0]);
+ok('errdec: 404 check points at the Nginx analyzer', edx404.checks.some(function (c) { return c.tool === 'nginx-log'; }));
+// A URL-encoded scanner path is decoded for display (wp-content%2F... → wp-content/...).
+ok('errdec: 404 decodes a %-encoded probe path',
+  /wp-content\/plugins/.test(edxTop('ERROR - Connector: 404 - file not found for file: wp-content%2Fplugins%2Fadvanced-text-widget%2Freadme.txt').mechanism));
+// Malformed %-encoding must not throw — it falls back to the raw captured name.
+ok('errdec: 404 survives malformed %-encoding',
+  edxIds('ERROR - Connector: 404 - file not found for file: bad%2').indexOf('http-404-file-not-found') !== -1);
+// A non-probe file name still matches the rule but carries no "probe" emphasis.
+ok('errdec: 404 without a known probe name omits the emphasis',
+  !/classic probe target/.test(edxTop('ERROR - Connector: 404 - file not found for file: brochure2024').causes[0]));
+// The attacker-controlled path is HTML-escaped where the card embeds it
+// (a no-space payload is captured whole by \S+, so this really exercises escaping).
+ok('errdec: 404 escapes an HTML-bearing probe path in the mechanism',
+  !/<script>/.test(edxTop('ERROR - Connector: 404 - file not found for file: <script>alert(1)</script>').mechanism));
+
+// ── REST-publish 404 "no operation matches" (real MxCloud DEBUG log line) ─────
+const rest404line = '2026-07-17T00:10:59.251887 [runtime-container/27mj7]  DEBUG - REST Publish: Responding with 404 Not Found, because no operation matches http://weborderentry100-accp.mendixcloud.com/rest/default/V1/guest-carts';
+ok('errdec: REST-publish 404 matches',
+  edxIds(rest404line).indexOf('http-404-rest-no-operation') !== -1);
+const edxRest404 = edxTop(rest404line);
+eq('errdec: REST-publish 404 is categorized Platform', edxRest404.category, 'Platform');
+ok('errdec: REST-publish 404 mechanism names the requested URL', /guest-carts/.test(edxRest404.mechanism), edxRest404.mechanism);
+ok('errdec: REST-publish 404 flags a known probe path', /classic probe target/.test(edxRest404.causes[0]), edxRest404.causes[0]);
+ok('errdec: REST-publish 404 check points at the Nginx analyzer', edxRest404.checks.some(function (c) { return c.tool === 'nginx-log'; }));
+// It must NOT be confused with the static-file 404 (distinct signature/rule).
+ok('errdec: REST-publish 404 is not the static-file 404 rule', edxIds(rest404line).indexOf('http-404-file-not-found') === -1);
+// A genuine own-API mismatch still matches but carries no probe emphasis.
+ok('errdec: REST-publish 404 without a probe path omits the emphasis',
+  !/classic probe target/.test(edxTop('REST Publish: Responding with 404 Not Found, because no operation matches https://app.example.com/rest/orders/v2/list').causes[0]));
+
 // Clean stack trace: strips per-line Mendix Cloud log prefixes, leaves raw
 // "at ..."/"Caused by:" continuation lines (which never carry one) untouched,
 // and drops blank lines — never touches matching (edxDecode doesn't anchor to
