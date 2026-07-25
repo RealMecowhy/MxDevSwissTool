@@ -298,11 +298,11 @@ const TOOLS_HELP = {
   },
   'incident-report': {
     title: 'Incident Report',
-    description: 'Assembles the data currently loaded across the diagnostics tools into <strong>one self-contained HTML report</strong> for a chosen time window. It pulls the warnings &amp; errors from the Log Viewer, the SQL from the Log Query Extractor, microflow executions from the Microflow Tracer, integration calls from the REST &amp; WS Extractor, HTTP requests from the Nginx analyzer and the thread-dump summary from JVM Health &mdash; correlating them side by side so one file tells the whole story of an incident. Fully offline: no external resources, safe to attach to a ticket or email.',
+    description: 'Assembles the data currently loaded across the diagnostics tools into <strong>one self-contained HTML report</strong> for a chosen time window. Each source contributes exactly what it is <strong>currently showing</strong> &mdash; the filtered view you left in the Log Viewer, Log Query Extractor, Microflow Tracer, REST &amp; WS Extractor and Nginx analyzer, plus the thread-dump summary from JVM Health &mdash; correlating them side by side so one file tells the whole story of an incident. Fully offline: no external resources, safe to attach to a ticket or email.',
     howToGet: `
       <p>The Incident Report does not read files itself &mdash; it reuses whatever you have already loaded in the other tools. Load your data there first:</p>
       <ul>
-        <li><strong>Log Viewer</strong> &mdash; the application log (its WARNING/ERROR/CRITICAL entries become the incident backbone).</li>
+        <li><strong>Log Viewer</strong> &mdash; the application log (filter it to the levels/time you care about &mdash; e.g. WARNING/ERROR/CRITICAL &mdash; that filtered view is what the report includes).</li>
         <li><strong>Log Query Extractor</strong> &mdash; a TRACE log or CSV export for the SQL that ran.</li>
         <li><strong>Microflow Tracer</strong> &mdash; a MicroflowEngine DEBUG/TRACE log for the executions.</li>
         <li><strong>REST &amp; WS Extractor</strong> &mdash; a TRACE log for the integration calls.</li>
@@ -316,7 +316,7 @@ const TOOLS_HELP = {
         <li>Load data in the tools above, then open <strong>Incident Report</strong> (it re-scans every time you open it; use <strong>Refresh sources</strong> after loading more).</li>
         <li>Give the incident a <strong>title</strong> (used for the report heading and the file name).</li>
         <li>Set the <strong>time window</strong> (UTC). It is pre-filled from the span of the loaded data &mdash; narrow it to focus on the incident, or clear both fields to include everything. Leave one side blank for an open-ended bound.</li>
-        <li>Tick which <strong>sources</strong> to include. Add optional <strong>notes</strong> that appear at the top of the report.</li>
+        <li>Tick which <strong>sources</strong> to include &mdash; the row count next to each reflects that tool&rsquo;s <em>current filter</em>, so narrow the view in a tool first if you want the report to match it. Add optional <strong>notes</strong> that appear at the top of the report.</li>
         <li>Click <strong>Generate HTML report</strong>. The file downloads immediately and a summary shows exactly what went in. Open it in any browser &mdash; it is fully self-contained.</li>
       </ol>
     `,

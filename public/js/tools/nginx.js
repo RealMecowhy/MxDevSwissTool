@@ -1187,11 +1187,15 @@ window.nginxShowInLqe = function(index) {
   }
 };
 
-// Incident Report source: Nginx access-log entries, optionally narrowed to
-// [fromMs, toMs]. Error responses (status ≥ 400) lead; if none, the busiest
-// window still shows traffic for context. Returns null when empty (data-driven rule).
+// Incident Report source: the access stream's current filtered entries (falls back
+// to all parsed logs before the stream is filtered once), optionally narrowed to
+// [fromMs, toMs]. Error responses (status ≥ 400) lead; if none, the busiest window
+// still shows traffic for context. Returns null when empty (data-driven rule).
 window.nginxReportSection = function(fromMs, toMs) {
-  const logs = window.nginxParsedLogs || [];
+  // WYSIWYG: mirror the access stream's current filter when it holds rows; fall
+  // back to the full parsed set (e.g. before the stream has been filtered once).
+  const filtered = window.nxStreamState && window.nxStreamState.accessFiltered;
+  const logs = (filtered && filtered.length) ? filtered : (window.nginxParsedLogs || []);
   if (!logs.length) return null;
   let firstMs = Infinity, lastMs = -Infinity;
   const inWin = logs.filter(function (e) {

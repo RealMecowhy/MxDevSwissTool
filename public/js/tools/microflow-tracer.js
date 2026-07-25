@@ -641,7 +641,10 @@ window.mftSetView = function(view, btn) {
   window.mftFilter();
 };
 
-window.mftFilter = function() {
+// The Executions-tab filter (search / slow-only / top-level), factored out so the
+// Incident Report can reproduce exactly what that tab shows — independently of
+// which tab (Executions / By microflow / Background) happens to be active.
+function mftFilteredExecutions() {
   const searchEl = document.getElementById('mft-search');
   const search = searchEl ? searchEl.value.toLowerCase() : '';
   const slowOnlyEl = document.getElementById('mft-slow-only');
@@ -650,6 +653,25 @@ window.mftFilter = function() {
   const slowMs = slowMsEl ? (parseFloat(slowMsEl.value) || 0) : 0;
   const topOnlyEl = document.getElementById('mft-top-only');
   const topOnly = topOnlyEl ? topOnlyEl.checked : false;
+  return mftExecutions.filter(e => {
+    if (topOnly && e.depth !== 0) return false;
+    if (slowOnly) {
+      if (e.durationMs === null || isNaN(e.durationMs) || e.durationMs <= slowMs) return false;
+    }
+    if (search) {
+      if (!e.name.toLowerCase().includes(search) && !e.corrId.toLowerCase().includes(search)) return false;
+    }
+    return true;
+  });
+}
+
+window.mftFilter = function() {
+  const searchEl = document.getElementById('mft-search');
+  const search = searchEl ? searchEl.value.toLowerCase() : '';
+  const slowOnlyEl = document.getElementById('mft-slow-only');
+  const slowOnly = slowOnlyEl ? slowOnlyEl.checked : false;
+  const slowMsEl = document.getElementById('mft-slow-ms');
+  const slowMs = slowMsEl ? (parseFloat(slowMsEl.value) || 0) : 0;
 
   if (mftView === 'background') {
     const view = mftBackground || { events: [], errors: [], hasEngineData: false, runs: 0, requestRuns: 0, overlapCount: 0, unfinished: 0 };
@@ -682,16 +704,7 @@ window.mftFilter = function() {
     return;
   }
 
-  const filtered = mftExecutions.filter(e => {
-    if (topOnly && e.depth !== 0) return false;
-    if (slowOnly) {
-      if (e.durationMs === null || isNaN(e.durationMs) || e.durationMs <= slowMs) return false;
-    }
-    if (search) {
-      if (!e.name.toLowerCase().includes(search) && !e.corrId.toLowerCase().includes(search)) return false;
-    }
-    return true;
-  });
+  const filtered = mftFilteredExecutions();
 
   if (mftSortKey && MFT_SORT_ACCESSORS[mftSortKey]) {
     const acc = MFT_SORT_ACCESSORS[mftSortKey];
@@ -1139,12 +1152,13 @@ function mftExportRows() {
   ]);
 }
 
-// Incident Report source: individual microflow executions (all parsed, not the
-// current view's aggregation), optionally narrowed to [fromMs, toMs] by start
+// Incident Report source: the Executions tab's current filtered list (search /
+// slow-only / top-level), optionally narrowed further to [fromMs, toMs] by start
 // time. Returns null when empty (data-driven rule).
 window.mftReportSection = function(fromMs, toMs) {
   if (!mftExecutions.length) return null;
-  const inWin = mftExecutions.filter(function (e) {
+  // WYSIWYG: mirror the Executions tab's current filter, not the whole parsed set.
+  const inWin = mftFilteredExecutions().filter(function (e) {
     if (fromMs != null && !isNaN(e.startMs) && e.startMs < fromMs) return false;
     if (toMs != null && !isNaN(e.startMs) && e.startMs > toMs) return false;
     return true;

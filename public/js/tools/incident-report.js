@@ -12,7 +12,7 @@
 // Registry: display label + the window function each source attaches. Order is
 // the order sections appear in the report.
 const IR_SOURCES = [
-  { id: 'log-viewer',          label: 'Log Viewer — warnings & errors',      fn: 'logReportSection' },
+  { id: 'log-viewer',          label: 'Log Viewer — log entries',            fn: 'logReportSection' },
   { id: 'log-query-extractor', label: 'Log Query Extractor — SQL queries',   fn: 'lqeReportSection' },
   { id: 'microflow-tracer',    label: 'Microflow Tracer — executions',       fn: 'mftReportSection' },
   { id: 'ws-rest-extractor',   label: 'REST & WS Extractor — calls',         fn: 'wsreReportSection' },

@@ -887,11 +887,13 @@ function wsreExportRows() {
   ]);
 }
 
-// Incident Report source: all paired REST/SOAP calls, optionally narrowed to
-// [fromMs, toMs] by request time. Returns null when empty (data-driven rule).
+// Incident Report source: the current filtered REST/SOAP call list, optionally
+// narrowed further to [fromMs, toMs] by request time. Returns null when empty
+// (data-driven rule).
 window.wsreReportSection = function(fromMs, toMs) {
   if (!wsreCalls.length) return null;
-  const inWin = wsreCalls.filter(function (c) {
+  // WYSIWYG: mirror the current filtered call list, not every parsed call.
+  const inWin = wsreLastFiltered.filter(function (c) {
     if (fromMs != null && !isNaN(c.startMs) && c.startMs < fromMs) return false;
     if (toMs != null && !isNaN(c.startMs) && c.startMs > toMs) return false;
     return true;

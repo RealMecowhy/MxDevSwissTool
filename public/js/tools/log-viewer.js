@@ -597,17 +597,17 @@ function logTsToMs(ts) {
   return base + frac;
 }
 
-// Incident Report source: WARNING/ERROR/CRITICAL entries in the loaded log,
-// optionally narrowed to [fromMs, toMs]. Returns null when nothing qualifies so
-// the report omits the section (data-driven rule).
+// Incident Report source: the stream's current filtered entries (levels, search,
+// node, time), optionally narrowed further to [fromMs, toMs]. Returns null when
+// nothing qualifies so the report omits the section (data-driven rule).
 function logReportSection(fromMs, toMs) {
   if (!logAllEntries.length) return null;
-  const levels = { ERROR: 1, CRITICAL: 1, WARN: 1 };
+  // WYSIWYG: mirror the stream's current filter (levels, search, node, time), not
+  // a fixed warnings/errors subset of the whole file.
   const rows = [];
   let firstMs = Infinity, lastMs = -Infinity, total = 0;
-  for (let i = 0; i < logAllEntries.length; i++) {
-    const e = logAllEntries[i];
-    if (!levels[e.level]) continue;
+  for (let i = 0; i < logFilteredEntries.length; i++) {
+    const e = logFilteredEntries[i];
     const ms = logTsToMs(e.ts);
     if (fromMs != null && !isNaN(ms) && ms < fromMs) continue;
     if (toMs != null && !isNaN(ms) && ms > toMs) continue;
@@ -617,8 +617,8 @@ function logReportSection(fromMs, toMs) {
   }
   if (total === 0) return null;
   return {
-    id: 'log-viewer', title: 'Log Viewer — warnings & errors',
-    subtitle: total + ' WARNING/ERROR/CRITICAL entr' + (total === 1 ? 'y' : 'ies') + (rows.length < total ? ' (showing first ' + rows.length + ')' : ''),
+    id: 'log-viewer', title: 'Log Viewer — log entries',
+    subtitle: total + ' entr' + (total === 1 ? 'y' : 'ies') + ' (current filter)' + (rows.length < total ? ' · showing first ' + rows.length : ''),
     columns: ['Time', 'Level', 'Node', 'Message'], rows: rows, total: total,
     firstMs: firstMs === Infinity ? null : firstMs, lastMs: lastMs === -Infinity ? null : lastMs
   };
