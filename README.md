@@ -56,11 +56,11 @@ The toolkit is divided into logical categories to assist you across the entire d
 ### 3. Data & Formatting
 * **JSON / XML Formatters**: Format, validate, and explore payloads with interactive tree views.
   ![JSON Formatter](assets/screenshot-json-formatter.png)
-* **SQL Formatter**: Format and highlight complex ORM-generated database queries, with configurable indent (2/4) and keyword casing. **Analyze in Query Intelligence** copies a ready-to-run `EXPLAIN ANALYZE` for the query and jumps straight to the Explain tab.
-* **Microflow Expression Formatter**: Pretty-print a one-line Mendix Expression editor value into indented, syntax-highlighted `if/then/else` and arithmetic — nested `if`s read as nested blocks instead of a run-on line.
+* **SQL Formatter**: Format and highlight complex ORM-generated database queries — keywords, functions, operators and column paths each coloured, with hover bracket-matching and an editable output view — plus configurable indent (2/4) and keyword casing. **Analyze in Query Intelligence** copies a ready-to-run `EXPLAIN ANALYZE` for the query and jumps straight to the Explain tab.
+* **Microflow Expression Formatter**: Pretty-print a one-line Mendix Expression editor value into indented, syntax-highlighted `if/then/else` and arithmetic — nested `if`s read as nested blocks instead of a run-on line. Space-stripped paste is re-spaced automatically; hover an `if` to highlight its matching `else`, or a bracket to highlight its partner; edit the result before copying.
 * **Base64 / URL Encoder**: Encode and decode strings and HTML entities locally.
 * **XML & Text Sanitizer**: Detect and clean hidden control characters, zero-width spaces, Mojibake, escaped references to invalid XML 1.0 characters (like `&#14;`), and invisible Private Use Area codepoints.
-* **XPath Formatter (Linter)**: Format Mendix XPath constraints and lint them for index-blocking patterns before they hit the database.
+* **XPath Formatter (Linter)**: Format and syntax-highlight Mendix XPath constraints (with hover bracket-matching and an editable output view) and lint them for index-blocking patterns before they hit the database.
   ![XPath Formatter](assets/screenshot-xpath-builder.png)
 * **Text Diff**: Compare two text blocks or code side-by-side with differences highlighted.
   ![Text Diff](assets/screenshot-text-diff.png)

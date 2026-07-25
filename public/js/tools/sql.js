@@ -3,8 +3,12 @@
 // Formatting and highlighting both go through the shared, string/comment-safe
 // engine in sql-engine.js (prefix `sqe`) — see that file for why: a naive
 // `\s+`/`\bKEYWORD\b` pass corrupts a literal like `WHERE name = 'ORDER BY'`.
+// Multi-word JOINs must all be listed — sqeKeywordRegex matches longest-first,
+// so `LEFT OUTER JOIN` wins over `JOIN`. Missing the OUTER variants was why
+// `LEFT OUTER JOIN` broke as `LEFT OUTER` + a stray `JOIN` on the next line.
 const SQL_BREAK_KEYWORDS = ['SELECT', 'FROM', 'WHERE', 'GROUP BY', 'ORDER BY', 'HAVING',
-  'LIMIT', 'OFFSET', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'FULL OUTER JOIN', 'JOIN',
+  'LIMIT', 'OFFSET', 'LEFT OUTER JOIN', 'RIGHT OUTER JOIN', 'FULL OUTER JOIN',
+  'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'CROSS JOIN', 'OUTER JOIN', 'JOIN',
   'UNION ALL', 'UNION', 'RETURNING', 'SET', 'VALUES', 'INSERT INTO'];
 const SQL_INDENT_KEYWORDS = ['AND', 'OR'];
 const SQL_LIST_KEYWORDS = ['SELECT', 'GROUP BY', 'ORDER BY'];
@@ -55,22 +59,37 @@ function sqlAnalyzeInQI() {
   alert('Copied to clipboard:\n\n' + explainSql +
     '\n\nRun it against your database, then paste the resulting plan into the box below and click "Visualize Query Plan".');
 }
-function sqlHighlightCode(code) {
-  return escHtml(code)
-    .replace(/\b(SELECT|FROM|WHERE|AND|OR|NOT|IN|LEFT|RIGHT|INNER|OUTER|FULL|JOIN|ON|GROUP BY|ORDER BY|HAVING|LIMIT|OFFSET|INSERT INTO|INSERT|VALUES|UPDATE|SET|DELETE|CREATE TABLE|CREATE|DROP|ALTER|DISTINCT|AS|CASE|WHEN|THEN|ELSE|END|UNION ALL|UNION|EXISTS|BETWEEN|LIKE|IS NULL|IS NOT NULL|NULL|TRUE|FALSE|ASC|DESC|WITH|RETURNING|BEGIN|COMMIT|ROLLBACK|TRUNCATE)\b/gi,
-      m=>'<span class="sql-kw">'+m+'</span>')
-    // The digit run of a ` N ` mask placeholder must never be mistaken for a
-    // number literal — a lookbehind/lookahead guard excludes it (the null
-    // marker survives escHtml unchanged, so it's still adjacent here).
-    .replace(new RegExp('(?<!' + sqeMark + ')\\b(\\d+)\\b(?!' + sqeMark + ')', 'g'),m=>'<span class="sql-num">'+m+'</span>');
-}
+// Highlighting now runs through the shared tokenizer (format-view.js): a single
+// ordered-matcher pass over the already-formatted text, so functions
+// (SUM/COUNT/MAX…), operators and column paths get their own colour — not just
+// keywords/numbers/strings — and matching parentheses share a hover group. The
+// string/comment matchers run first, so a keyword inside a literal or comment
+// is never re-coloured (the old mask/unmask guard is no longer needed).
+const SQL_HL_KEYWORDS = ['SELECT', 'FROM', 'WHERE', 'GROUP BY', 'ORDER BY', 'HAVING',
+  'LIMIT', 'OFFSET', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'FULL OUTER JOIN',
+  'OUTER JOIN', 'CROSS JOIN', 'JOIN', 'ON', 'AND', 'OR', 'NOT', 'IN', 'EXISTS',
+  'BETWEEN', 'LIKE', 'ILIKE', 'IS NOT NULL', 'IS NULL', 'IS', 'NULL', 'TRUE',
+  'FALSE', 'AS', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'UNION ALL', 'UNION',
+  'INTERSECT', 'EXCEPT', 'DISTINCT', 'ALL', 'ASC', 'DESC', 'WITH', 'RETURNING',
+  'INSERT INTO', 'INSERT', 'VALUES', 'UPDATE', 'SET', 'DELETE', 'CREATE TABLE',
+  'CREATE', 'DROP', 'ALTER', 'TRUNCATE', 'BEGIN', 'COMMIT', 'ROLLBACK', 'USING',
+  'INTO', 'LEFT', 'RIGHT', 'INNER', 'FULL', 'OUTER', 'CROSS'];
+const SQL_MATCHERS = [
+  fvRe('ws', '[ \\t\\r\\n]+'),
+  fvRe('comment', '--[^\\n]*|\\/\\*[\\s\\S]*?\\*\\/'),
+  fvRe('str', "'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\""),
+  fvRe('num', '\\d+(?:\\.\\d+)?'),
+  fvWords('kw', SQL_HL_KEYWORDS),
+  fvFnCall('fn'),
+  fvRe('var', '[A-Za-z_]\\w*(?:[.\\/][A-Za-z_]\\w*)*'),
+  fvRe('op', '<>|!=|>=|<=|=|<|>|\\|\\||\\+|\\-|\\*|\\/|%'),
+  fvRe('paren', '[()]'),
+  fvRe('comma', ',')
+];
 function sqlHighlight(sql) {
-  const masked = sqeMask(sql);
-  const highlighted = sqlHighlightCode(masked.masked);
-  return sqeUnmask(highlighted, masked.tokens, function (t) {
-    const cls = t.type === 'comment' ? 'sql-comment' : 'sql-str';
-    return '<span class="' + cls + '">' + escHtml(t.raw) + '</span>';
-  });
+  const tokens = fvTokenize(sql, SQL_MATCHERS);
+  fvAssignBrackets(tokens);
+  return fvTokensToHtml(tokens);
 }
 
 // ============================================================
@@ -85,4 +104,6 @@ window.sqlSetIndentSize = sqlSetIndentSize;
 window.sqlSetKeywordCase = sqlSetKeywordCase;
 window.sqlAnalyzeInQI = sqlAnalyzeInQI;
 
-export function init() {}
+export function init() {
+  if (typeof fvSetRehighlight === 'function') fvSetRehighlight('sql-output', sqlHighlight);
+}

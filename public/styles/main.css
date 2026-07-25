@@ -2273,6 +2273,81 @@ kbd {
   color: var(--text-muted);
   font-style: italic;
 }
+/* Shared token highlighting for the text formatters (format-view.js): SQL,
+   Microflow Expression and XPath all render token spans with these classes. */
+.fk-kw,
+.fk-ctrl {
+  color: #ff7b72;
+  font-weight: 600;
+}
+.fk-fn {
+  color: #d2a8ff;
+}
+.fk-var {
+  color: #79c0ff;
+}
+/* String/number VALUES are green/gold — a deliberately different hue family
+   from the blue attribute paths (.fk-var), so in a condition the "what field"
+   vs "what value" contrast reads at a glance instead of being two blues. */
+.fk-str {
+  color: #7ee787;
+}
+.fk-num {
+  color: #f8c555;
+}
+.fk-op {
+  color: #ffa657;
+}
+.fk-sysvar {
+  color: #39d0d8;
+  font-style: italic;
+}
+.fk-comment {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.fk-paren,
+.fk-bracket {
+  color: var(--text-secondary);
+}
+.ftok[data-g],
+.jt-brace[data-g],
+.xml-tag[data-g] {
+  cursor: pointer;
+}
+/* Hover-matched group: a bracket and its partner, or an if/then/else triple.
+   Outline (not border) so no layout shift when it lights up. */
+.ft-hi {
+  background: rgba(240, 180, 60, 0.28);
+  border-radius: 2px;
+  outline: 1px solid rgba(240, 180, 60, 0.6);
+}
+[data-theme="light"] .fk-kw,
+[data-theme="light"] .fk-ctrl {
+  color: #cf222e;
+}
+[data-theme="light"] .fk-fn {
+  color: #8250df;
+}
+[data-theme="light"] .fk-var {
+  color: #0969da;
+}
+[data-theme="light"] .fk-str {
+  color: #116329;
+}
+[data-theme="light"] .fk-num {
+  color: #9a6700;
+}
+[data-theme="light"] .fk-op {
+  color: #953800;
+}
+[data-theme="light"] .fk-sysvar {
+  color: #0e7490;
+}
+[data-theme="light"] .ft-hi {
+  background: rgba(154, 103, 0, 0.18);
+  outline-color: rgba(154, 103, 0, 0.5);
+}
 .cron-run-item {
   padding: 3px var(--sp-2);
   border-radius: var(--r-sm);

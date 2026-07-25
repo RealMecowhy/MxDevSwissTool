@@ -8,8 +8,9 @@ function xpathAnalyze() {
   if (!val) {
     res.style.display='none';
     if(lintRes)lintRes.style.display='none';
-    const out = document.getElementById('xpath-output');
-    if (out) out.value = '';
+    fvRender('xpath-output', '');
+    const ed = document.getElementById('xpath-edit');
+    if (ed) ed.value = '';
     return;
   }
 
@@ -230,7 +231,7 @@ window.xpathConvertToOql = function () {
 
 function formatXPathClick() {
   let val = document.getElementById('xpath-input').value;
-  if (!val) { document.getElementById('xpath-output').value = ''; return; }
+  if (!val) { fvRender('xpath-output', ''); const ed = document.getElementById('xpath-edit'); if (ed) ed.value = ''; return; }
   // String-aware formatting: only insert breaks outside string literals
   let result = '', inStr = false, strChar = '';
   for (let i = 0; i < val.length; i++) {
@@ -248,8 +249,47 @@ function formatXPathClick() {
       else             { result += ch; }
     } else { result += ch; }
   }
-  document.getElementById('xpath-output').value = result;
+  fvRender('xpath-output', xpathHighlight(result));
+  const ed = document.getElementById('xpath-edit');
+  if (ed) ed.value = result;
   xpathAnalyze();
+}
+
+// XPath function names carry hyphens (`starts-with`, `string-length`), which
+// the shared fvFnCall (bare-identifier) matcher won't span — hence this local
+// variant. Runs before the path matcher so `contains` in `contains(...)` is a
+// function, not an attribute.
+function xpathFnCall(text, i) {
+  if (i > 0 && /[A-Za-z_$-]/.test(text[i - 1])) return null;
+  const re = /[A-Za-z_][A-Za-z0-9_-]*/y;
+  re.lastIndex = i;
+  const m = re.exec(text);
+  if (!m) return null;
+  let j = i + m[0].length;
+  while (text[j] === ' ' || text[j] === '\t') j++;
+  return text[j] === '(' ? { t: 'fn', len: m[0].length } : null;
+}
+
+const XPATH_MATCHERS = [
+  fvRe('ws', '[ \\t\\r\\n]+'),
+  fvRe('str', "'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\""),
+  fvRe('sysvar', '\\[%[^\\]]*%\\]'),
+  fvRe('num', '\\d+(?:\\.\\d+)?'),
+  fvWords('kw', ['and', 'or', 'not']),
+  xpathFnCall,
+  fvRe('var', '@?[A-Za-z_][\\w.]*(?:\\/@?[A-Za-z_][\\w.]*)*'),
+  fvRe('op', '!=|<=|>=|=|<|>'),
+  fvRe('bracket', '[\\[\\]]'),
+  fvRe('paren', '[()]'),
+  fvRe('comma', ',')
+];
+
+// Highlights XPath text → HTML (also the Edit⇄View re-highlighter): tokenize,
+// pair matching `[ ]` / `( )` for hover, render.
+function xpathHighlight(text) {
+  const tokens = fvTokenize(text, XPATH_MATCHERS);
+  fvAssignBrackets(tokens);
+  return fvTokensToHtml(tokens);
 }
 
 // ============================================================
@@ -258,7 +298,10 @@ function formatXPathClick() {
 // --- AUTO-GENERATED ESM EXPORTS ---
 window.xpathAnalyze = xpathAnalyze;
 window.formatXPathClick = formatXPathClick;
+window.xpathHighlight = xpathHighlight;
 window.xpathDeepHops = xpathDeepHops;
 window.xpathToOql = xpathToOql;
 
-export function init() {}
+export function init() {
+  if (typeof fvSetRehighlight === 'function') fvSetRehighlight('xpath-output', xpathHighlight);
+}

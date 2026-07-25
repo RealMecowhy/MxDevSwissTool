@@ -184,7 +184,7 @@ async function navigate(toolId, navEl, initialTab) {
     iconEl.style.color = tool.color || 'var(--accent)';
   }
   document.getElementById('topbar-title').textContent = tool.label;
-  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.25.0' : (tool.desc || '');
+  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.26.0' : (tool.desc || '');
   const previousTool = currentTool;
   currentTool = toolId;
   window.currentTool = currentTool;
@@ -475,6 +475,11 @@ import './tools/error-decoder.js';
 import './tools/index-advisor.js';
 import * as markdown from './tools/markdown.js';
 import * as memoryInspector from './tools/memory-inspector.js';
+// Side-effect import: the shared interactive layer for the text formatters
+// (fvTokenize/fvAssignBrackets/fvTokensToHtml/fvToggleEdit…). Must load before
+// microflow-expression.js / sql.js / xpath.js, whose matcher tables call fv* at
+// module-eval time.
+import './tools/format-view.js';
 import * as microflowExpression from './tools/microflow-expression.js';
 // Side-effect import: the shared, string/comment-safe SQL/OQL formatting engine
 // (sqeMask/sqeUnmask/sqeSplitTopLevel/sqePrettify) — attaches the pure sqe*

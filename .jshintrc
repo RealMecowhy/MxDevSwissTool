@@ -35,6 +35,17 @@
     "sqeSplitTopLevel": false,
     "sqePrettify": false,
     "sqeMark": false,
-    "mefFormatClick": false
+    "mefFormatClick": false,
+    "fvTokenize": false,
+    "fvRe": false,
+    "fvWords": false,
+    "fvFnCall": false,
+    "fvAssignBrackets": false,
+    "fvTokensToHtml": false,
+    "fvBindMatch": false,
+    "fvRender": false,
+    "fvSetRehighlight": false,
+    "fvToggleEdit": false,
+    "fvCopy": false
   }
 }

@@ -504,6 +504,7 @@ const TOOLS_HELP = {
         <li>Paste unformatted or minified JSON text into the left text field.</li>
         <li>Formatting happens automatically upon data entry (you can also click the <em>Format</em> button). In case of syntax errors, the parser will indicate the exact line and cause of the problem.</li>
         <li>Use the interactive tree view on the right side to collapse and expand deeply nested objects or search for keys.</li>
+        <li>Hover any <code>{</code> or <code>[</code> to highlight its matching <code>}</code> / <code>]</code> — handy for seeing where a deeply nested object or array ends.</li>
       </ol>
     `,
     interpretation: `
@@ -521,7 +522,8 @@ const TOOLS_HELP = {
       <ol>
         <li>Paste raw XML code into the input field.</li>
         <li>Click <strong>Format XML</strong>. The tool will arrange tags with proper indentation and check if the document is well-formed.</li>
-        <li>You can explore the tag tree and copy the formatted XML code with one click.</li>
+        <li>You can explore the tag tree and copy the formatted XML code with one click. Hover any tag name to highlight its matching opening/closing tag — useful for pairing up long, deeply nested elements.</li>
+        <li><strong>Query box (XPath):</strong> type a <strong>W3C XPath 1.0</strong> expression (e.g. <code>//Shipment[Status='InTransit']</code>) to structurally search the document — matching nodes are highlighted, with ↑/↓ to step through them. This is the standard XPath language built for XML documents; it is <em>not</em> the Mendix XPath dialect from the separate <strong>XPath Formatter</strong> tool, which formats database entity constraints and has nothing to do with XML.</li>
       </ol>
     `,
     interpretation: `
@@ -575,6 +577,8 @@ const TOOLS_HELP = {
         <li>Paste a raw, one-line compressed SQL query into the text field — it formats live as you type.</li>
         <li>Keywords such as <code>SELECT</code>, <code>FROM</code>, <code>JOIN</code>, <code>WHERE</code> move to new lines; <code>SELECT</code>/<code>GROUP BY</code>/<code>ORDER BY</code> columns split one per line.</li>
         <li><strong>Indent</strong> (2 or 4 spaces) and <strong>Keywords</strong> case (UPPER / lower / As-Is) in the toolbar control the output style.</li>
+        <li>Keywords, functions (<code>SUM</code>, <code>COUNT</code>…), operators, column paths, strings and numbers each get their own colour. Hover any parenthesis to light up its matching partner.</li>
+        <li><strong>Edit</strong> turns the formatted output into an editable field so you can tweak it before <strong>Copy</strong>; toggle back to a highlighted view at any time.</li>
         <li><strong>Analyze in Query Intelligence</strong> copies a ready-to-run <code>EXPLAIN ANALYZE &lt;your query&gt;</code> to the clipboard and jumps to the Query Intelligence Suite's Explain tab — run it against your database, then paste the resulting plan there.</li>
       </ol>
     `,
@@ -594,12 +598,14 @@ const TOOLS_HELP = {
       <ol>
         <li>Paste the expression into the left pane. It formats live as you type (or press <kbd>Ctrl+Enter</kbd>).</li>
         <li>Each <code>if</code> / <code>then</code> / <code>else if</code> / <code>else</code> starts its own line, indented to how deeply it is nested in parentheses — a nested <code>if</code> inside a <code>then</code>-branch reads as an indented block, not a run-on line.</li>
-        <li>Highlighting distinguishes <code>$Variables</code> (including association paths like <code>$Customer/Module.Association/Attribute</code>), Mendix built-in functions (<code>trim</code>, <code>max</code>, <code>round</code>, <code>toString</code>, <code>length</code>, date/string helpers…), keywords (<code>and/or/not/empty/true/false/div/mod</code>) and string literals.</li>
+        <li>Highlighting distinguishes <code>$Variables</code> (including association paths like <code>$Customer/Module.Association/Attribute</code>), Mendix built-in functions (<code>trim</code>, <code>max</code>, <code>round</code>, <code>toString</code>, <code>length</code>, date/string helpers…), keywords (<code>and/or/not/empty/true/false/div/mod</code>), operators, <code>[%system%]</code> tokens and string literals. Pasted input that arrived with its spaces stripped (<code>if$A/X='y'and…</code>) is re-spaced automatically.</li>
+        <li>Hover an <code>if</code> to light up its matching <code>then</code> and <code>else</code> at the same level; hover any parenthesis to light up its partner.</li>
+        <li><strong>Edit</strong> turns the formatted output into an editable field so you can tweak it before <strong>Copy</strong>; toggle back to a highlighted view at any time.</li>
       </ol>
     `,
     interpretation: `
       <ul>
-        <li><strong>Why indentation, not just line breaks:</strong> a deeply nested <code>if</code> chain is where copy-paste mistakes hide — seeing the nesting as indentation makes it obvious which <code>else</code> belongs to which <code>if</code>.</li>
+        <li><strong>Why indentation, not just line breaks:</strong> a deeply nested <code>if</code> chain is where copy-paste mistakes hide — seeing the nesting as indentation, and hovering an <code>if</code> to highlight its own <code>else</code>, makes it obvious which <code>else</code> belongs to which <code>if</code>.</li>
         <li><strong>String literals are never touched:</strong> a keyword sitting inside a quoted string (e.g. <code>'this is then that'</code>) is protected from being read as code — the same string/comment-safe engine the SQL and OQL formatters use.</li>
       </ul>
     `
@@ -667,7 +673,8 @@ const TOOLS_HELP = {
     howToUse: `
       <ol>
         <li>Paste your XPath query into the editor window.</li>
-        <li>Click <strong>Format</strong>. A complex, multi-line query with multiple logical operators will be formatted into a readable indentation tree.</li>
+        <li>Click <strong>Format</strong>. A complex, multi-line query with multiple logical operators will be formatted into a readable, syntax-highlighted indentation tree — functions, attributes, operators and string literals each get their own colour, and hovering a bracket lights up its partner.</li>
+        <li><strong>Edit</strong> turns the formatted output into an editable field so you can tweak it before <strong>Copy</strong>; toggle back to a highlighted view at any time.</li>
         <li>Review the analysis and linter notices below the editor &mdash; they point out index-blocking functions, negations, and deep association hops before they reach production.</li>
       </ol>
     `,

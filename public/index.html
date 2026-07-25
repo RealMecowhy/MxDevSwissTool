@@ -87,7 +87,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.25.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.26.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -268,7 +268,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.25.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.26.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -1043,7 +1043,7 @@
         <div class="json-pane">
           <div class="json-pane-header"><h4 id="xml-out-label">Formatted Output</h4><span id="xml-status"></span><button class="btn btn-ghost btn-sm" onclick="xmlCopyOutput()">Copy</button><button class="btn btn-ghost btn-sm" onclick="xmlExpandAll()">Expand</button><button class="btn btn-ghost btn-sm" onclick="xmlCollapseAll()">Collapse</button></div>
           <div class="json-find-bar">
-            <input type="text" class="input" id="xml-xpath-input" placeholder="XPath, e.g. //Customer[@id='1']" oninput="xmlXPathEval()">
+            <input type="text" class="input" id="xml-xpath-input" placeholder="Query nodes with XPath 1.0 (W3C), e.g. //Customer[@id='1']" title="Standard W3C XPath 1.0, evaluated natively against this XML document — a structural search that returns and highlights matching nodes. This is the XPath language built for XML; it is NOT the Mendix XPath dialect used by the separate 'XPath Formatter' tool (that one is for database entity constraints)." oninput="xmlXPathEval()">
             <span id="xml-xpath-count" class="json-find-count"></span>
             <button class="btn btn-ghost btn-sm" onclick="xmlXPathNav(-1)" title="Previous match">&uarr;</button>
             <button class="btn btn-ghost btn-sm" onclick="xmlXPathNav(1)" title="Next match">&darr;</button>
@@ -1180,7 +1180,7 @@
             <h4 style="flex:1;margin:0;font-size:0.75rem;color:var(--text-secondary)">Input XPath Expression</h4>
             <button class="btn btn-ghost btn-sm" onclick="formatXPathClick()">Format XPath <kbd>Ctrl+Enter</kbd></button>
             <button class="btn btn-ghost btn-sm" onclick="window.xpathConvertToOql()" title="Convert to an OQL SELECT statement (opens Query Intelligence &rarr; OQL Formatter). Association hops and not(...) are flagged, not guessed.">Convert to OQL &rarr;</button>
-            <button class="btn btn-ghost btn-sm" onclick="document.getElementById('xpath-input').value='';document.getElementById('xpath-output').value='';document.getElementById('xpath-result').style.display='none'">Clear</button>
+            <button class="btn btn-ghost btn-sm" onclick="document.getElementById('xpath-input').value='';formatXPathClick();document.getElementById('xpath-result').style.display='none'">Clear</button>
           </div>
           <div class="card-body" style="display:flex;flex:1;padding:0;">
             <textarea class="code-area" id="xpath-input" placeholder="[starts-with(Name, 'Test') and Status = 'Active']" oninput="xpathAnalyze()" style="font-family:var(--font-mono);font-size:0.85rem;line-height:1.4;width:100%;height:100%;resize:none;border:none;border-radius:0 0 var(--r-md) var(--r-md);padding:var(--sp-4);"></textarea>
@@ -1189,10 +1189,11 @@
         <div class="card" style="display:flex;flex-direction:column;flex:1;min-height:0;">
           <div class="card-header">
             <h4 style="flex:1;margin:0;font-size:0.75rem;color:var(--text-secondary)">Formatted Output</h4>
-            <button class="btn btn-ghost btn-sm" onclick="copyToClipboard(document.getElementById('xpath-output').value)">Copy Output</button>
+            <button class="btn btn-ghost btn-sm" onclick="fvToggleEdit('xpath-output','xpath-edit',this)" title="Toggle an editable view of the formatted result">Edit</button>
+            <button class="btn btn-ghost btn-sm" onclick="fvCopy('xpath-output','xpath-edit')">Copy Output</button>
           </div>
-          <div class="card-body" style="display:flex;flex:1;padding:0;">
-            <textarea class="code-area" id="xpath-output" readonly style="font-family:var(--font-mono);font-size:0.85rem;line-height:1.4;background:var(--bg-elevated);width:100%;height:100%;resize:none;border:none;border-radius:0 0 var(--r-md) var(--r-md);padding:var(--sp-4);"></textarea>
+          <div class="card-body" style="display:flex;flex:1;padding:0;position:relative;overflow:auto;">
+            <pre id="xpath-output" class="fmt-view" style="font-family:var(--font-mono);font-size:0.85rem;line-height:1.6;white-space:pre-wrap;background:var(--bg-elevated);width:100%;min-height:100%;margin:0;border-radius:0 0 var(--r-md) var(--r-md);padding:var(--sp-4);"></pre><textarea id="xpath-edit" class="code-area fmt-edit" spellcheck="false" style="display:none;font-family:var(--font-mono);font-size:0.85rem;line-height:1.6;background:var(--bg-elevated);width:100%;height:100%;resize:none;border:none;border-radius:0 0 var(--r-md) var(--r-md);padding:var(--sp-4);"></textarea>
           </div>
         </div>
         <div id="xpath-result" style="display:none" class="notice notice-info">
@@ -1595,8 +1596,8 @@
           <div class="json-pane-body"><textarea class="json-input-area" id="sql-input" placeholder="Paste SQL here..." oninput="sqlFormat()"></textarea></div>
         </div>
         <div class="json-pane">
-          <div class="json-pane-header"><h4>Formatted Output</h4><button class="btn btn-ghost btn-sm" onclick="copyToClipboard(document.getElementById('sql-output').innerText)">Copy</button></div>
-          <div class="json-pane-body"><pre id="sql-output" style="font-family:var(--font-mono);font-size:.78rem;line-height:1.6;white-space:pre-wrap;color:var(--text-muted)">Output will appear here...</pre></div>
+          <div class="json-pane-header"><h4>Formatted Output</h4><button class="btn btn-ghost btn-sm" onclick="fvToggleEdit('sql-output','sql-edit',this)" title="Toggle an editable view of the formatted result">Edit</button><button class="btn btn-ghost btn-sm" onclick="fvCopy('sql-output','sql-edit')">Copy</button></div>
+          <div class="json-pane-body"><pre id="sql-output" class="fmt-view" style="font-family:var(--font-mono);font-size:.78rem;line-height:1.6;white-space:pre-wrap;color:var(--text-muted)">Output will appear here...</pre><textarea id="sql-edit" class="json-input-area fmt-edit" spellcheck="false" style="display:none;white-space:pre;overflow-wrap:normal;font-size:.78rem"></textarea></div>
         </div>
       </div>
     </div>
@@ -1616,8 +1617,8 @@
           <div class="json-pane-body"><textarea class="json-input-area" id="mef-input" placeholder="if ($Customer/Status = 'Active' and not empty($Customer/Email)) then trim($Customer/Email) else 'unknown'" oninput="mefFormatClick()"></textarea></div>
         </div>
         <div class="json-pane">
-          <div class="json-pane-header"><h4>Formatted Output</h4><button class="btn btn-ghost btn-sm" onclick="copyToClipboard(document.getElementById('mef-output').innerText)">Copy</button></div>
-          <div class="json-pane-body"><pre id="mef-output" style="font-family:var(--font-mono);font-size:.78rem;line-height:1.6;white-space:pre-wrap;color:var(--text-muted)">Paste a Microflow expression above to format it.</pre></div>
+          <div class="json-pane-header"><h4>Formatted Output</h4><button class="btn btn-ghost btn-sm" onclick="fvToggleEdit('mef-output','mef-edit',this)" title="Toggle an editable view of the formatted result">Edit</button><button class="btn btn-ghost btn-sm" onclick="fvCopy('mef-output','mef-edit')">Copy</button></div>
+          <div class="json-pane-body"><pre id="mef-output" class="fmt-view" style="font-family:var(--font-mono);font-size:.78rem;line-height:1.6;white-space:pre-wrap;color:var(--text-muted)">Paste a Microflow expression above to format it.</pre><textarea id="mef-edit" class="json-input-area fmt-edit" spellcheck="false" style="display:none;white-space:pre;overflow-wrap:normal;font-size:.78rem"></textarea></div>
         </div>
       </div>
     </div>

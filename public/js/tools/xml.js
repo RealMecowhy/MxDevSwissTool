@@ -139,8 +139,12 @@ function renderXmlTree(node, depth) {
       inner = brO + '<span class="xml-tag">' + name + '</span>' + attrs + brC + textHtml + brE + '<span class="xml-tag">' + name + '</span>' + brC;
     } else {
       const id = 'xmln' + Math.random().toString(36).slice(2);
-      const openingTag = brO + '<span class="xml-tag">' + name + '</span>' + attrs + brC;
-      const closingTag = brE + '<span class="xml-tag">' + name + '</span>' + brC;
+      // `data-g` links the opening tag name to its matching closing tag name
+      // (and the collapsed-placeholder copy) so hovering one highlights the
+      // pair — same fvBindMatch/.ft-hi mechanism as the text formatters.
+      const tagName = '<span class="xml-tag" data-g="' + id + '">' + name + '</span>';
+      const openingTag = brO + tagName + attrs + brC;
+      const closingTag = brE + tagName + brC;
       inner = '<span class="jt-collapse" data-target="' + id + '">▼</span>' + openingTag +
         '<span id="' + id + '-placeholder" class="jt-placeholder" style="display:none">... ' + closingTag + '</span>' +
         '<span id="' + id + '" class="jt-children">\n' +
@@ -330,4 +334,9 @@ window.xmlXPathNav = xmlXPathNav;
 window.xmlToggleNamespaces = xmlToggleNamespaces;
 window.xmlDisplayName = xmlDisplayName;
 
-export function init() {}
+export function init() {
+  // Hover-match each opening tag with its closing tag — delegated on the
+  // (persistent) tree container, so it survives re-renders. Reuses fvBindMatch.
+  const tree = document.getElementById('xml-tree-output');
+  if (tree && typeof fvBindMatch === 'function') fvBindMatch(tree);
+}

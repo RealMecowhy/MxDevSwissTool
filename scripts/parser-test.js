@@ -2426,19 +2426,31 @@ const sqePrettyPreserve = global.sqePrettify('Select a From t Where a > 1', Obje
 ok('prettify: keywordCase=preserve keeps the original casing', sqePrettyPreserve.indexOf('Select') !== -1 && sqePrettyPreserve.indexOf('From') !== -1 && sqePrettyPreserve.indexOf('Where') !== -1);
 ok('prettify: keywordCase=preserve still recognizes mixed-case SELECT for list-splitting', /Select\n {2}a/.test(sqePrettyPreserve));
 
-// ── code review fix: a keyword inside `(...)` must not fragment the group ──
-// (a subquery in a SELECT list, or a grouped AND/OR) — breakKeywords/indentKeywords
-// used to fire on every occurrence regardless of paren depth, so the group's
-// closing paren ended up glued to whatever text followed it on that line.
+// ── subqueries format recursively; other parens stay inline ──
+// A parenthesized group whose content begins with SELECT is a subquery: it is
+// pretty-printed on its own, one indent level deeper, with the opening paren on
+// the clause line and the closing paren back at the clause indent. Every other
+// paren group (function args, an IN value-list, a grouped AND/OR) stays inline,
+// its closing paren never misplaced — the original depth-0 guarantee.
 const sqePrettySubquery = global.sqePrettify(
   "SELECT id, (SELECT count(*) FROM orders o WHERE o.customer_id = c.id) AS order_count FROM customers c",
   sqePrettyOpts);
-ok('prettify: a subquery in the SELECT list is not split into a fake column',
-  sqePrettySubquery.split('\n').filter(function (l) { return l.trim() === '('; }).length === 0);
-ok('prettify: the subquery stays on one line, closing paren attached',
-  sqePrettySubquery.indexOf('(SELECT count(*) FROM orders o WHERE o.customer_id = c.id) AS order_count') !== -1);
-ok('prettify: outer SELECT list splits into exactly 2 items (id, and the subquery)',
-  /SELECT\n\s+id,\n\s+\(SELECT count/.test(sqePrettySubquery));
+ok('prettify: outer SELECT list splits into id + the subquery column',
+  /SELECT\n\s+id,\n\s+\(/.test(sqePrettySubquery));
+ok('prettify: the subquery body is formatted and indented deeper than its call',
+  /\n {2}\(\n {4}SELECT\n {6}count\(\*\)\n {4}FROM orders o\n {4}WHERE o\.customer_id = c\.id\n {2}\) AS order_count/.test(sqePrettySubquery));
+ok('prettify: no subquery keyword leaks to the outer (depth-0) column split',
+  sqePrettySubquery.split('\n').filter(function (l) { return /^\s*FROM orders/.test(l); }).length === 1);
+
+// A nested IN (SELECT …) opens its paren on the AND line and lays the inner
+// query out below — the real readability win over the old one-line behaviour.
+const sqePrettyInSub = global.sqePrettify(
+  "SELECT a FROM t WHERE a = 1 AND b IN (SELECT x FROM u WHERE u.k = 2)",
+  sqePrettyOpts);
+ok('prettify: IN-subquery opens its paren on the clause line',
+  /\n\s+AND b IN \(\n/.test(sqePrettyInSub));
+ok('prettify: IN-subquery inner SELECT/FROM are formatted and indented',
+  /\(\n\s+SELECT\n\s+x\n\s+FROM u\n\s+WHERE u\.k = 2\n\s+\)/.test(sqePrettyInSub));
 
 const sqePrettyGrouped = global.sqePrettify("SELECT a FROM t WHERE a = 1 AND (b = 2 OR c = 3)", sqePrettyOpts);
 ok('prettify: OR inside a grouped condition does not start its own line',
@@ -2447,17 +2459,55 @@ ok('prettify: the grouped condition stays intact on the AND line',
   sqePrettyGrouped.indexOf('AND (b = 2 OR c = 3)') !== -1);
 
 // =========================================================================
-// MICROFLOW EXPRESSION FORMATTER
+// FORMAT VIEW — shared tokenizer / grouping (format-view.js)
 // =========================================================================
-console.log('\nMicroflow Expression Formatter');
-// mefHighlight calls the real escHtml (utilities.js), which touches `document`
-// at module load time — not requirable in plain Node. A minimal stub matching
-// its actual implementation is enough to exercise the highlighting here.
+console.log('\nFormat view — shared tokenizer');
+// escHtml touches `document` at load in the browser; a minimal stub matching
+// its real behaviour is enough to exercise the rendering here.
 if (!global.escHtml) {
   global.escHtml = function (s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   };
 }
+require('../public/js/tools/format-view.js');
+
+const fvKw = global.fvWords('kw', ['and', 'or', 'not']);
+const fvNum = global.fvRe('num', '\\d+(?:\\.\\d+)?');
+const fvId = global.fvRe('id', '[A-Za-z_]\\w*');
+const fvParen = global.fvRe('paren', '[()]');
+const fvMatchers = [global.fvRe('ws', '[ \\t]+'), fvNum, fvKw, fvId, fvParen];
+
+const fvT1 = global.fvTokenize('a and 12', fvMatchers).filter(function (t) { return t.t !== 'ws'; });
+eq('fvTokenize: three non-ws tokens', fvT1.length, 3);
+eq('fvTokenize: keyword recognised', fvT1[1].t, 'kw');
+eq('fvTokenize: number recognised', fvT1[2].t, 'num');
+
+// The word-boundary relaxation: a keyword glued to a DIGIT still splits (a
+// number cannot contain letters), but glued to a LETTER stays one identifier.
+const fvGlued = global.fvTokenize('1000and', fvMatchers);
+eq('fvTokenize: keyword after a digit splits off', fvGlued.length, 2);
+eq('fvTokenize: the number half is a number', fvGlued[0].t, 'num');
+eq('fvTokenize: the keyword half is a keyword', fvGlued[1].t, 'kw');
+const fvLetterGlue = global.fvTokenize('fooand', fvMatchers);
+eq('fvTokenize: keyword glued after a letter stays one identifier', fvLetterGlue.length, 1);
+eq('fvTokenize: …and is tagged as an identifier, not a keyword', fvLetterGlue[0].t, 'id');
+
+const fvGrp = global.fvTokenize('(a(b))', fvMatchers);
+global.fvAssignBrackets(fvGrp);
+const fvOpens = fvGrp.filter(function (t) { return t.v === '('; });
+const fvCloses = fvGrp.filter(function (t) { return t.v === ')'; });
+eq('fvAssignBrackets: outer ( pairs with the last )', fvOpens[0].g, fvCloses[fvCloses.length - 1].g);
+eq('fvAssignBrackets: inner ( pairs with the inner )', fvOpens[1].g, fvCloses[0].g);
+ok('fvAssignBrackets: the two pairs have distinct group ids', fvOpens[0].g !== fvOpens[1].g);
+
+const fvHtml = global.fvTokensToHtml([{ t: 'kw', v: 'and', g: 3 }, { t: 'ws', v: ' ' }, { t: 'num', v: '1' }]);
+ok('fvTokensToHtml: grouped token carries data-g', /<span class="ftok fk-kw" data-g="3">and<\/span>/.test(fvHtml));
+ok('fvTokensToHtml: whitespace is emitted raw, no span', fvHtml.indexOf('> <') !== -1);
+
+// =========================================================================
+// MICROFLOW EXPRESSION FORMATTER
+// =========================================================================
+console.log('\nMicroflow Expression Formatter');
 require('../public/js/tools/microflow-expression.js');
 
 const mefSimple = global.mefFormat("if ($Customer/Status = 'Active') then $Customer/Email else 'unknown'");
@@ -2478,12 +2528,76 @@ const mefKeywordInString = global.mefFormat("if ($Status = 'then this') then 1 e
 ok('mef: a keyword hiding inside a string literal is not treated as a break point',
   mefKeywordInString.indexOf("'then this'") !== -1 && mefKeywordInString.split('\n').filter(function (l) { return /^\s*then this/.test(l); }).length === 0);
 
+// The glue-fix: spaces are stripped from the pasted input, and canonical
+// spacing plus line breaks must be re-inserted.
+const mefGlued = global.mefFormat("if$A/Type='x'and$B>1000.0then'Y'else'Z'");
+ok('mef glue-fix: no keyword stays glued to its neighbour',
+  /\bif \$A\/Type = 'x' and \$B > 1000\.0\b/.test(mefGlued.replace(/\n/g, ' ')));
+ok('mef glue-fix: then/else still break onto their own lines',
+  /\nthen 'Y'/.test(mefGlued) && /\nelse 'Z'/.test(mefGlued));
+
 const mefHl = global.mefHighlight(global.mefFormat("if (empty($Customer/Email)) then trim($Customer/Name) else $Customer/Email"));
-ok('mef highlight: if/then/else wrapped as keywords', /<span class="sql-kw">if<\/span>/.test(mefHl) && /<span class="sql-kw">then<\/span>/.test(mefHl));
-ok('mef highlight: empty() wrapped as a keyword, not a function', /<span class="sql-kw">empty<\/span>/.test(mefHl));
-ok('mef highlight: trim() wrapped as a Mendix function', /color:#c678dd[^>]*>trim<\/span>/.test(mefHl));
-ok('mef highlight: $Customer wrapped as a variable', /color:#e5c07b[^>]*>\$Customer<\/span>/.test(mefHl));
+ok('mef highlight: if/then/else are control tokens', /<span class="ftok fk-ctrl"[^>]*>if<\/span>/.test(mefHl) && /<span class="ftok fk-ctrl"[^>]*>then<\/span>/.test(mefHl));
+ok('mef highlight: empty wrapped as a keyword, not a function', /<span class="ftok fk-kw">empty<\/span>/.test(mefHl));
+ok('mef highlight: trim wrapped as a Mendix function', /<span class="ftok fk-fn">trim<\/span>/.test(mefHl));
+ok('mef highlight: the $Customer path wrapped as a variable', /<span class="ftok fk-var">\$Customer\/Email<\/span>/.test(mefHl));
 ok('mef highlight: no leaked mask placeholder', mefHl.indexOf(String.fromCharCode(0)) === -1);
+
+// if/then/else and their parens each get a shared hover group.
+const mefGrp = global.mefHighlight(global.mefFormat("if (a) then 1 else 2"));
+const mefIf = mefGrp.match(/<span class="ftok fk-ctrl" data-g="(\d+)">if<\/span>/);
+const mefThen = mefGrp.match(/<span class="ftok fk-ctrl" data-g="(\d+)">then<\/span>/);
+const mefElse = mefGrp.match(/<span class="ftok fk-ctrl" data-g="(\d+)">else<\/span>/);
+ok('mef grouping: if/then/else share one hover group', !!mefIf && mefIf[1] === mefThen[1] && mefIf[1] === mefElse[1]);
+const mefParens = mefGrp.match(/<span class="ftok fk-paren" data-g="(\d+)">[()]<\/span>/g) || [];
+ok('mef grouping: the ( and ) are grouped for bracket matching', mefParens.length === 2);
+
+// =========================================================================
+// SQL FORMATTER — tokenizer highlighting (sql.js)
+// =========================================================================
+console.log('\nSQL Formatter highlighting');
+require('../public/js/tools/sql.js');
+
+const sqlHl = global.sqlHighlight("SELECT SUM(a * b) AS total FROM Sales.Customer WHERE Status = 'Active'");
+ok('sql highlight: keywords coloured', /<span class="ftok fk-kw">SELECT<\/span>/.test(sqlHl));
+ok('sql highlight: functions get their own colour', /<span class="ftok fk-fn">SUM<\/span>/.test(sqlHl));
+ok('sql highlight: operators get their own colour', /<span class="ftok fk-op">\*<\/span>/.test(sqlHl));
+ok('sql highlight: a column path is one variable token', /<span class="ftok fk-var">Sales\.Customer<\/span>/.test(sqlHl));
+ok('sql highlight: string literal coloured, keyword inside it untouched', /<span class="ftok fk-str">'Active'<\/span>/.test(sqlHl));
+const sqlParens = (sqlHl.match(/<span class="ftok fk-paren" data-g="\d+">/g) || []);
+ok('sql highlight: matching parens grouped for hover', sqlParens.length === 2);
+
+// A keyword hiding inside a literal must not be recoloured as a keyword.
+const sqlLitKw = global.sqlHighlight("WHERE name = 'ORDER BY'");
+ok('sql highlight: ORDER BY inside a string stays a string, not a keyword',
+  /<span class="ftok fk-str">'ORDER BY'<\/span>/.test(sqlLitKw) && sqlLitKw.indexOf('fk-kw">ORDER') === -1);
+
+// =========================================================================
+// XPATH FORMATTER — tokenizer highlighting (xpath.js)
+// =========================================================================
+console.log('\nXPath Formatter highlighting');
+require('../public/js/tools/xpath.js');
+
+const xpHl = global.xpathHighlight("[starts-with(Name, 'Test') and Status = 'Active']");
+ok('xpath highlight: hyphenated function name spanned whole', /<span class="ftok fk-fn">starts-with<\/span>/.test(xpHl));
+ok('xpath highlight: and coloured as a keyword', /<span class="ftok fk-kw">and<\/span>/.test(xpHl));
+const xpBrackets = (xpHl.match(/<span class="ftok fk-bracket" data-g="\d+">/g) || []);
+ok('xpath highlight: the [ ] constraint brackets are grouped', xpBrackets.length === 2);
+
+// =========================================================================
+// JSON TREE — bracket matching (json.js renderJsonTree)
+// =========================================================================
+console.log('\nJSON tree bracket matching');
+require('../public/js/tools/json.js');
+
+const jtHtml = global.renderJsonTree({ a: [1, 2] }, 0);
+const jtOpenObj = jtHtml.match(/data-g="([^"]+)">\{<\/span>/);
+ok('json tree: the opening { is a brace tagged with a group id', !!jtOpenObj);
+ok('json tree: the { and } (plus the collapsed-placeholder copy) share the group',
+  jtHtml.split('data-g="' + jtOpenObj[1] + '"').length - 1 === 3);
+const jtOpenArr = jtHtml.match(/data-g="([^"]+)">\[<\/span>/);
+ok('json tree: the [ is tagged with a DIFFERENT group id than the {',
+  !!jtOpenArr && jtOpenArr[1] !== jtOpenObj[1]);
 
 // =========================================================================
 // XPATH — deep-hop detection (7.7)

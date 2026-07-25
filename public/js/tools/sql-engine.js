@@ -136,18 +136,19 @@ function sqeReplaceAtDepth0(text, regex, replacer) {
   return out + text.slice(last);
 }
 
-// Formats masked SQL/OQL text: `breakKeywords` each start a new line,
-// `indentKeywords` start a new, indented continuation line, `listKeywords`
-// (a subset of breakKeywords, e.g. SELECT/GROUP BY/ORDER BY) additionally get
-// their following clause split on top-level commas, one item per indented
-// line. `keywordCase` — 'upper' (default), 'lower', or 'preserve' (as typed)
-// — and `indentSize` (default 2) are opt-in so existing callers see no change.
-function sqePrettify(text, opts) {
-  opts = opts || {};
-  const breakKeywords = opts.breakKeywords || [];
-  const indentKeywords = opts.indentKeywords || [];
-  const listKeywords = opts.listKeywords || [];
-  const inlineKeywords = opts.inlineKeywords || [];
+// Placeholder marker for an extracted subquery. String.fromCharCode(2) — never
+// appears in real SQL/OQL — kept distinct from SQE_MARK (\0, used for
+// string/comment literals) so the two masking layers never collide.
+const SQE_SUBMARK = String.fromCharCode(2);
+
+// The FLAT pass (the original algorithm): formats masked text WITHOUT recursing
+// into subqueries. `breakKeywords` each start a new line, `indentKeywords` a
+// new indented continuation line, `listKeywords` (SELECT/GROUP BY/ORDER BY)
+// additionally split their clause on top-level commas. All matching is
+// depth-0 only, so a parenthesized group — function args (SUM(x)), a type param
+// (VARCHAR(10)), an IN value-list, a grouped AND/OR condition — stays on one
+// line and never has its closing paren misplaced.
+function sqeFlatFormat(masked, opts) {
   const indent = ' '.repeat(opts.indentSize > 0 ? opts.indentSize : 2);
   const kwCase = opts.keywordCase || 'upper';
   function applyCase(m) {
@@ -155,32 +156,20 @@ function sqePrettify(text, opts) {
     if (kwCase === 'preserve') return m;
     return m.toUpperCase();
   }
-
-  const masked = sqeMask(text);
-  let res = masked.masked.replace(/[ \t]+/g, ' ').replace(/\s*\n\s*/g, ' ').trim();
-
-  // Inline keywords (ASC/DESC/CASE/…) are case-normalized in place — no line
-  // break — so this must run before break/indent insert their own newlines.
-  if (inlineKeywords.length) {
-    res = res.replace(sqeKeywordRegex(inlineKeywords), applyCase);
+  let res = String(masked).replace(/[ \t]+/g, ' ').replace(/\s*\n\s*/g, ' ').trim();
+  if (opts.inlineKeywords && opts.inlineKeywords.length) {
+    res = res.replace(sqeKeywordRegex(opts.inlineKeywords), applyCase);
   }
-  // Depth-0 only: a break/indent keyword sitting inside `(...)` (a subquery,
-  // a grouped condition) must not fragment the group across lines — that
-  // misplaces the closing paren onto whatever follows it and, for listKeywords,
-  // turns "(" into a fake column below. The parenthesized content stays on
-  // one line rather than being recursively pretty-printed itself.
-  if (breakKeywords.length) {
-    res = sqeReplaceAtDepth0(res, sqeKeywordRegex(breakKeywords), function (m) { return '\n' + applyCase(m); });
+  if (opts.breakKeywords && opts.breakKeywords.length) {
+    res = sqeReplaceAtDepth0(res, sqeKeywordRegex(opts.breakKeywords), function (m) { return '\n' + applyCase(m); });
   }
-  if (indentKeywords.length) {
-    res = sqeReplaceAtDepth0(res, sqeKeywordRegex(indentKeywords), function (m) { return '\n' + indent + applyCase(m); });
+  if (opts.indentKeywords && opts.indentKeywords.length) {
+    res = sqeReplaceAtDepth0(res, sqeKeywordRegex(opts.indentKeywords), function (m) { return '\n' + indent + applyCase(m); });
   }
-
-  if (listKeywords.length) {
-    const lines = res.split('\n');
-    res = lines.map(function (line) {
-      for (let k = 0; k < listKeywords.length; k++) {
-        const re = new RegExp('^(' + listKeywords[k].replace(/ /g, '\\s+') + ')\\s+', 'i');
+  if (opts.listKeywords && opts.listKeywords.length) {
+    res = res.split('\n').map(function (line) {
+      for (let k = 0; k < opts.listKeywords.length; k++) {
+        const re = new RegExp('^(' + opts.listKeywords[k].replace(/ /g, '\\s+') + ')\\s+', 'i');
         const m = line.match(re);
         if (m) {
           const items = sqeSplitTopLevel(line.slice(m[0].length), ',');
@@ -190,9 +179,79 @@ function sqePrettify(text, opts) {
       return line;
     }).join('\n');
   }
+  // A break keyword at position 0 (a leading SELECT) prefixes a spurious empty
+  // line; sqePrettify's final trim hid it for the outer query, but an indented
+  // subquery body would keep it, so strip it here.
+  res = res.replace(/^\n+/, '');
+  return res.split('\n').map(function (l) { return l.replace(/[ \t]+$/, ''); }).join('\n');
+}
 
-  res = res.split('\n').map(function (l) { return l.replace(/[ \t]+$/, ''); }).join('\n');
-  return sqeUnmask(res, masked.tokens).trim();
+// Pulls each SUBQUERY — a parenthesized group whose content begins with SELECT
+// — out to an opaque placeholder before the flat pass runs, so the surrounding
+// query formats without it, and it can be formatted on its own and re-indented
+// to the column its `(` lands at. Function-arg parens, type params, IN
+// value-lists and grouped AND/OR conditions do NOT start with SELECT, so they
+// are left inline exactly as the flat pass always handled them.
+function sqeExtractSubqueries(s) {
+  let out = '', i = 0;
+  const subs = [];
+  while (i < s.length) {
+    if (s[i] === '(') {
+      let depth = 0, j = i;
+      for (; j < s.length; j++) {
+        if (s[j] === '(') depth++;
+        else if (s[j] === ')') { depth--; if (depth === 0) break; }
+      }
+      const content = s.slice(i + 1, j);
+      if (depth === 0 && /^\s*select\b/i.test(content)) {
+        subs.push(content);
+        out += SQE_SUBMARK + (subs.length - 1) + SQE_SUBMARK;
+        i = j + 1;
+        continue;
+      }
+    }
+    out += s[i]; i++;
+  }
+  return { text: out, subs: subs };
+}
+
+// Recursively formats masked text: extract subqueries → flat-format the rest →
+// expand each subquery placeholder into a `(` … `)` block, its body formatted
+// the same way and indented one level past the line the call sits on. So
+// `AND c.ID IN (SELECT …)` opens the paren on its clause line, lays the inner
+// SELECT/FROM/WHERE out below it, and closes the paren back at the clause indent.
+function sqeFormatRec(masked, opts) {
+  const extracted = sqeExtractSubqueries(masked);
+  const flat = sqeFlatFormat(extracted.text, opts);
+  if (!extracted.subs.length) return flat;
+  const indent = ' '.repeat(opts.indentSize > 0 ? opts.indentSize : 2);
+  const phRe = new RegExp(SQE_SUBMARK + '(\\d+)' + SQE_SUBMARK);
+  const outLines = [];
+  flat.split('\n').forEach(function (line) {
+    const m = line.match(phRe);
+    if (!m) { outLines.push(line); return; }
+    const lineIndent = (line.match(/^\s*/) || [''])[0];
+    const before = line.slice(0, m.index).replace(/\s+$/, '');
+    const after = line.slice(m.index + m[0].length);
+    const innerIndent = lineIndent + indent;
+    const inner = sqeFormatRec(extracted.subs[Number(m[1])], opts).split('\n')
+      .map(function (l) { return innerIndent + l; });
+    outLines.push(before.length ? before + ' (' : lineIndent + '(');
+    Array.prototype.push.apply(outLines, inner);
+    outLines.push(lineIndent + ')' + after);
+  });
+  return outLines.join('\n');
+}
+
+// Formats SQL/OQL: `keywordCase` — 'upper' (default), 'lower', or 'preserve' —
+// and `indentSize` (default 2) are opt-in so existing callers see no change.
+// Subqueries are formatted recursively (see sqeFormatRec); every other
+// parenthesized group stays inline (see sqeFlatFormat).
+function sqePrettify(text, opts) {
+  opts = opts || {};
+  const masked = sqeMask(text);
+  const formatted = sqeFormatRec(masked.masked, opts);
+  return sqeUnmask(formatted, masked.tokens).trim();
 }
 
 SQE_GLOBAL.sqeMask = sqeMask;

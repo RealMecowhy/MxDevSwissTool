@@ -55,25 +55,31 @@ function renderJsonTree(val, depth, path) {
   if (Array.isArray(val)) {
     if (!val.length) return '<span class="jt-null"'+pAttr+'>[]</span>';
     const id='jtn'+Math.random().toString(36).slice(2);
-    return '<span class="jt-node"'+pAttr+'><span class="jt-collapse" data-target="'+id+'">▼</span>[' +
-      '<span id="'+id+'-placeholder" class="jt-placeholder" style="display:none">... ]</span>' +
+    return '<span class="jt-node"'+pAttr+'><span class="jt-collapse" data-target="'+id+'">▼</span>'+jsonBrace(id,'[') +
+      '<span id="'+id+'-placeholder" class="jt-placeholder" style="display:none">... '+jsonBrace(id,']')+'</span>' +
       '<span id="'+id+'" class="jt-children">\n' +
       val.map((v,idx)=>ni+renderJsonTree(v,depth+1,path+'['+idx+']')+(idx<val.length-1?',':'')).join('\n') +
-      '\n' + i + ']</span></span>';
+      '\n' + i + jsonBrace(id,']')+'</span></span>';
   }
   if (typeof val==='object') {
     const keys=Object.keys(val); if (!keys.length) return '<span class="jt-null"'+pAttr+'>{}</span>';
     const id='jtn'+Math.random().toString(36).slice(2);
-    return '<span class="jt-node"'+pAttr+'><span class="jt-collapse" data-target="'+id+'">▼</span>{' +
-      '<span id="'+id+'-placeholder" class="jt-placeholder" style="display:none">... }</span>' +
+    return '<span class="jt-node"'+pAttr+'><span class="jt-collapse" data-target="'+id+'">▼</span>'+jsonBrace(id,'{') +
+      '<span id="'+id+'-placeholder" class="jt-placeholder" style="display:none">... '+jsonBrace(id,'}')+'</span>' +
       '<span id="'+id+'" class="jt-children">\n' +
       keys.map((k,idx)=>{
         const childPath = jsonPathSegment(path, k);
         return ni+'<span class="jt-key" data-path="'+escHtml(childPath)+'">"'+escHtml(k)+'"</span>: '+renderJsonTree(val[k],depth+1,childPath)+(idx<keys.length-1?',':'');
       }).join('\n') +
-      '\n' + i + '}</span></span>';
+      '\n' + i + jsonBrace(id,'}')+'</span></span>';
   }
   return String(val);
+}
+// A bracket span tagged with its node id so the opening `{`/`[` and its matching
+// closing `}`/`]` (and the collapsed-placeholder copy) share a hover group —
+// fvBindMatch lights them together, the same mechanism the text formatters use.
+function jsonBrace(id, ch) {
+  return '<span class="jt-brace" data-g="'+id+'">'+ch+'</span>';
 }
 function addJsonToggleListeners() {
   document.querySelectorAll('.jt-collapse').forEach(el => {
@@ -222,4 +228,8 @@ window.jsonFindNav = jsonFindNav;
 export function init() {
   const pane = document.getElementById('json-output-pane');
   if (pane) pane.onclick = jsonTreeClick;
+  // Hover-match `{`/`}` and `[`/`]` pairs — delegated on the (persistent) tree
+  // container, so it keeps working across re-renders. Reuses fvBindMatch/.ft-hi.
+  const tree = document.getElementById('json-tree-output');
+  if (tree && typeof fvBindMatch === 'function') fvBindMatch(tree);
 }
