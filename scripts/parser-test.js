@@ -3286,6 +3286,182 @@ eq('backoff: stays capped at 30s for a long outage (attempt 20)', global.dsBacko
 ok('backoff: monotonically non-decreasing up to the cap', global.dsBackoffDelay(3) >= global.dsBackoffDelay(2) && global.dsBackoffDelay(2) >= global.dsBackoffDelay(1));
 
 // =========================================================================
+// MESSAGE FACTORY — sample message → varied traffic
+// =========================================================================
+console.log('\nMessage Factory');
+require('../public/js/tools/perf-lab-messages.js');
+
+const PLM_JSON = JSON.stringify({
+  orderId: 1000,
+  reference: "REF-1",
+  customer: { customerId: 77, email: "a@b.com", vip: true },
+  currency: "EUR",
+  lines: [{ sku: "SKU-1", qty: 2 }, { sku: "SKU-2", qty: 5 }]
+}, null, 2);
+
+function plmFieldsByPath(fields) {
+  const m = {};
+  fields.forEach(function (f) { m[f.path] = f; });
+  return m;
+}
+function plmSetGen(fields, path, gen, params) {
+  const f = plmFieldsByPath(fields)[path];
+  if (f) { f.gen = gen; f.params = params || global.dfgDefaults(gen); }
+  return f;
+}
+function plmAllConstant(fields) {
+  fields.forEach(function (f) { f.constant = true; });
+  return fields;
+}
+
+// ── analysis ────────────────────────────────────────────────────────────────
+const aJson = global.plmAnalyze(PLM_JSON, '');
+eq('json: detected as JSON', aJson.kind, 'json');
+ok('json: leaf paths collected', !!plmFieldsByPath(aJson.fields)['customer.email']);
+// One config row drives every element of an array — otherwise a 30-line order
+// would demand 30 identical rows in the UI.
+ok('json: array elements collapse to one row', !!plmFieldsByPath(aJson.fields)['lines[].sku']);
+eq('json: that row reports both occurrences', plmFieldsByPath(aJson.fields)['lines[].sku'].occurrences, 2);
+eq('json: a number sample is a number family', plmFieldsByPath(aJson.fields)['orderId'].family, 'number');
+eq('json: a boolean sample is a bool family', plmFieldsByPath(aJson.fields)['customer.vip'].family, 'bool');
+eq('json: the name drives the generator', plmFieldsByPath(aJson.fields)['customer.email'].gen, 'Email');
+
+// ── JSON rendering ──────────────────────────────────────────────────────────
+const cJson = global.plmCompile({ kind: 'json', source: PLM_JSON, fields: aJson.fields, seed: 42 });
+const m0 = JSON.parse(global.plmRender(cJson, 0).body);
+const m1 = JSON.parse(global.plmRender(cJson, 1).body);
+ok('json: two requests get two different messages', JSON.stringify(m0) !== JSON.stringify(m1));
+ok('json: emails look like emails', /@/.test(m0.customer.email));
+// Decision 2: the sample's type is the contract. "REF-1" was a string, so its
+// replacement is a string even when a numeric generator produced it.
+eq('json: a number stays a number', typeof m0.orderId, 'number');
+eq('json: a string stays a string', typeof m0.reference, 'string');
+eq('json: a boolean stays a boolean', typeof m0.customer.vip, 'boolean');
+plmSetGen(aJson.fields, 'reference', 'Number');
+const cCoerce = global.plmCompile({ kind: 'json', source: PLM_JSON, fields: aJson.fields, seed: 42 });
+eq('json: a Number generator on a string field still writes a string',
+  typeof JSON.parse(global.plmRender(cCoerce, 0).body).reference, 'string');
+
+// Decision 3: config per path, values per slot.
+const rendered = JSON.parse(global.plmRender(cJson, 5).body);
+ok('json: repeated array elements get different values',
+  rendered.lines[0].sku !== rendered.lines[1].sku, JSON.stringify(rendered.lines));
+
+// Constants survive untouched — keys and type discriminators must not drift.
+const constFields = JSON.parse(JSON.stringify(aJson.fields));
+plmFieldsByPath(constFields)['currency'].constant = true;
+const cConst = global.plmCompile({ kind: 'json', source: PLM_JSON, fields: constFields, seed: 7 });
+eq('json: a constant field keeps the sample value', JSON.parse(global.plmRender(cConst, 3).body).currency, 'EUR');
+
+// Seeded reproducibility, and independence from neighbouring requests.
+const cSeedA = global.plmCompile({ kind: 'json', source: PLM_JSON, fields: aJson.fields, seed: 99 });
+const cSeedB = global.plmCompile({ kind: 'json', source: PLM_JSON, fields: aJson.fields, seed: 99 });
+eq('json: same seed and index produce the same bytes',
+  global.plmRender(cSeedA, 12).body, global.plmRender(cSeedB, 12).body);
+ok('json: a different seed produces different bytes',
+  global.plmRender(cSeedA, 12).body !== global.plmRender(global.plmCompile({ kind: 'json', source: PLM_JSON, fields: aJson.fields, seed: 100 }), 12).body);
+
+// ── correlation ─────────────────────────────────────────────────────────────
+const corrSource = JSON.stringify({ header: { customerId: 1 }, lines: [{ customerId: 9 }, { customerId: 9 }] });
+const corr = global.plmAnalyze(corrSource, '');
+plmSetGen(corr.fields, 'header.customerId', 'Sequence', { start: 500, step: 1 });
+plmSetGen(corr.fields, 'lines[].customerId', global.PLM_SAME_AS, { ref: 'header.customerId' });
+const cCorr = global.plmCompile({ kind: 'json', source: corrSource, fields: corr.fields, seed: 3 });
+const corrMsg = JSON.parse(global.plmRender(cCorr, 0).body);
+eq('correlation: a line copies the header value', corrMsg.lines[0].customerId, corrMsg.header.customerId);
+eq('correlation: every occurrence copies it', corrMsg.lines[1].customerId, corrMsg.header.customerId);
+
+// A reference pointing at a field that comes later must still resolve — the
+// user should not have to think about document order.
+const fwdSource = JSON.stringify({ a: 1, b: 2 });
+const fwd = global.plmAnalyze(fwdSource, '');
+plmSetGen(fwd.fields, 'a', global.PLM_SAME_AS, { ref: 'b' });
+plmSetGen(fwd.fields, 'b', 'Sequence', { start: 10, step: 1 });
+const fwdMsg = JSON.parse(global.plmRender(global.plmCompile({ kind: 'json', source: fwdSource, fields: fwd.fields, seed: 1 }), 0).body);
+eq('correlation: a forward reference resolves too', fwdMsg.a, fwdMsg.b);
+
+// ── XML ─────────────────────────────────────────────────────────────────────
+const PLM_XML = '<?xml version="1.0" encoding="UTF-8"?>\n' +
+  '<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">\n' +
+  '  <!-- keep me -->\n' +
+  '  <soap:Body>\n' +
+  '    <Order id="A-1" priority="high">\n' +
+  '      <Customer><Email>a@b.com</Email><City>Warsaw</City></Customer>\n' +
+  '      <Note><![CDATA[ raw <not> parsed ]]></Note>\n' +
+  '      <Line sku="S-1"/>\n' +
+  '      <Line sku="S-2"/>\n' +
+  '    </Order>\n' +
+  '  </soap:Body>\n' +
+  '</soap:Envelope>';
+
+const aXml = global.plmAnalyze(PLM_XML, '');
+eq('xml: detected as XML', aXml.kind, 'xml');
+const xf = plmFieldsByPath(aXml.fields);
+ok('xml: element text becomes a field', !!xf['/soap:Envelope/soap:Body/Order/Customer/Email']);
+ok('xml: attributes become fields', !!xf['/soap:Envelope/soap:Body/Order/@id']);
+ok('xml: a self-closing element\'s attribute is found', !!xf['/soap:Envelope/soap:Body/Order/Line/@sku']);
+eq('xml: repeated elements share one config row', xf['/soap:Envelope/soap:Body/Order/Line/@sku'].occurrences, 2);
+ok('xml: the name still drives the generator', xf['/soap:Envelope/soap:Body/Order/Customer/Email'].gen === 'Email');
+
+// The load-bearing guarantee: with nothing varying, the output is the input.
+// If this ever fails, the tool is corrupting messages that used to work.
+const cXmlConst = global.plmCompile({ kind: 'xml', source: PLM_XML, fields: plmAllConstant(JSON.parse(JSON.stringify(aXml.fields))), seed: 1 });
+eq('xml: all-constant render is byte-identical to the sample', global.plmRender(cXmlConst, 0).body, PLM_XML);
+
+const cXml = global.plmCompile({ kind: 'xml', source: PLM_XML, fields: aXml.fields, seed: 5 });
+const xOut = global.plmRender(cXml, 0).body;
+ok('xml: the prologue survives', xOut.indexOf('<?xml version="1.0" encoding="UTF-8"?>') === 0);
+ok('xml: comments survive', xOut.indexOf('<!-- keep me -->') !== -1);
+ok('xml: CDATA is left alone', xOut.indexOf('<![CDATA[ raw <not> parsed ]]>') !== -1);
+ok('xml: namespace prefixes survive', xOut.indexOf('<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">') !== -1);
+ok('xml: the self-closing form survives', /<Line sku="[^"]*"\/>/.test(xOut));
+ok('xml: values actually changed', xOut.indexOf('a@b.com') === -1);
+const skus = xOut.match(/<Line sku="([^"]*)"\/>/g);
+ok('xml: two Line elements get two different values', skus && skus[0] !== skus[1], String(skus));
+
+// A generated value carrying markup must not be able to break the document.
+const ampFields = JSON.parse(JSON.stringify(aXml.fields));
+plmSetGen(ampFields, '/soap:Envelope/soap:Body/Order/Customer/City', 'Constant', { value: 'Ben & <Jerry>' });
+const ampOut = global.plmRender(global.plmCompile({ kind: 'xml', source: PLM_XML, fields: ampFields, seed: 1 }), 0).body;
+ok('xml: generated markup is escaped, not injected', ampOut.indexOf('Ben &amp; &lt;Jerry&gt;') !== -1);
+
+// ── URL templating ──────────────────────────────────────────────────────────
+const aUrl = global.plmAnalyze('', '/rest/orders/{orderId}?since={fromDate}');
+const uf = plmFieldsByPath(aUrl.fields);
+ok('url: placeholders become fields', !!uf['url:orderId'] && !!uf['url:fromDate']);
+eq('url: an id placeholder is treated as numeric', uf['url:orderId'].family, 'number');
+eq('url: a date placeholder is treated as a date', uf['url:fromDate'].family, 'date');
+// Left on the inferred defaults on purpose: a numeric-looking path parameter
+// has to produce a number without the user touching anything, or every request
+// 404s on a path segment full of words.
+const cUrl = global.plmCompile({ kind: 'text', source: '', fields: aUrl.fields, seed: 1, urlTemplate: '/rest/orders/{orderId}?since={fromDate}' });
+const u0 = global.plmRender(cUrl, 0).url;
+const u1 = global.plmRender(cUrl, 1).url;
+ok('url: the placeholder is substituted with a number by default', u0.indexOf('{orderId}') === -1 && /\/rest\/orders\/\d+\?/.test(u0), u0);
+ok('url: consecutive requests hit different resources', u0 !== u1, u0 + ' vs ' + u1);
+const cUrlEnc = global.plmCompile({ kind: 'text', source: '', fields: [{ path: 'url:q', name: 'q', gen: 'Constant', params: { value: 'a b&c' }, origin: 'url' }], seed: 1, urlTemplate: '/search?q={q}' });
+eq('url: values are percent-encoded', global.plmRender(cUrlEnc, 0).url, '/search?q=a%20b%26c');
+
+// A placeholder and a body field routinely share a name. They must stay two
+// independent rows, or configuring one silently retunes the other.
+const clashSource = JSON.stringify({ orderId: 1 });
+const clash = global.plmAnalyze(clashSource, '/orders/{orderId}');
+eq('url: a placeholder sharing a body field name stays separate', clash.fields.length, 2);
+plmSetGen(clash.fields, 'url:orderId', 'Constant', { value: '777' });
+plmSetGen(clash.fields, 'orderId', 'Constant', { value: '42' });
+const clashOut = global.plmRender(global.plmCompile({ kind: 'json', source: clashSource, fields: clash.fields, seed: 1, urlTemplate: '/orders/{orderId}' }), 0);
+eq('url: the placeholder uses its own generator', clashOut.url, '/orders/777');
+// 42 and not "42": the body sample was a number, and the sample's type wins.
+eq('url: the body field keeps its own', JSON.parse(clashOut.body).orderId, 42);
+
+// ── failure modes ───────────────────────────────────────────────────────────
+const bad = global.plmAnalyze('{ not json', '');
+ok('broken JSON is reported, not thrown', bad.error.indexOf('Not valid JSON') === 0, bad.error);
+const cBad = global.plmCompile({ kind: 'json', source: '{ not json', fields: [], seed: 1 });
+eq('a sample that cannot be parsed is still sent as pasted', global.plmRender(cBad, 0).body, '{ not json');
+eq('content type follows the sample kind', global.plmContentType('xml'), 'application/xml');
+
+// =========================================================================
 // PERF LAB — load test session engine (histogram + target gate)
 // =========================================================================
 console.log('\nPerf Lab — session engine');

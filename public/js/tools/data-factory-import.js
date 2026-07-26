@@ -586,6 +586,9 @@ DFI_GLOBAL.dfSplitTopLevel = dfSplitTopLevel;
 DFI_GLOBAL.dfReadIdent = dfReadIdent;
 DFI_GLOBAL.dfParseDdl = dfParseDdl;
 DFI_GLOBAL.dfInferColumn = dfInferColumn;
+// The name→generator inference on its own: the Message Factory infers from a
+// pasted message's field names, where there is no column and no SQL type.
+DFI_GLOBAL.dfPickGenerator = dfPickGenerator;
 DFI_GLOBAL.dfInferAttribute = dfInferAttribute;
 DFI_GLOBAL.dfSchemaFromTable = dfSchemaFromTable;
 DFI_GLOBAL.dfSchemaFromEntity = dfSchemaFromEntity;

@@ -87,7 +87,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.27.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.28.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -268,7 +268,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.27.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.28.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -1969,6 +1969,25 @@
                <span>I am authorized to load-test this target. It is not a local or private address, so threads stay capped at 25.</span>
              </label>
            </div>
+
+           <details id="pl-mf" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-3)">
+             <summary style="cursor:pointer;font-weight:600;color:var(--text-primary);outline:none">Message Factory — a different message per request</summary>
+             <div style="margin-top:var(--sp-3);display:flex;flex-direction:column;gap:var(--sp-3)">
+               <div style="font-size:0.8rem;color:var(--text-muted)">
+                 Paste one example message. Every request then gets its own generated variant, so the app does real work instead of answering from cache.
+                 Put <code>{placeholders}</code> in the Target URL to vary the path or query too — e.g. <code>/rest/orders/{orderId}</code>.
+               </div>
+               <textarea class="code-area" id="pl-mf-sample" style="height:110px" placeholder='{"orderId": 1000, "customer": {"email": "a@b.com"}, "lines": [{"sku": "SKU-1", "qty": 2}]}'></textarea>
+               <div style="display:flex;gap:var(--sp-2);align-items:center;flex-wrap:wrap">
+                 <button class="btn btn-secondary btn-sm" id="pl-mf-analyze">Analyze sample</button>
+                 <button class="btn btn-ghost btn-sm" id="pl-mf-preview">Preview 3 messages</button>
+                 <label class="dfw-opt" style="margin-left:auto"><span title="The same seed reproduces the same sequence of messages">Seed</span><input type="number" class="input input-sm" id="pl-mf-seed" style="width:80px" value="1"></label>
+               </div>
+               <div id="pl-mf-status" style="font-size:0.8rem"></div>
+               <div id="pl-mf-fields" style="max-height:320px;overflow:auto"></div>
+               <div id="pl-mf-preview-out"></div>
+             </div>
+           </details>
 
            <div id="pl-error" style="display:none;background:rgba(231,76,60,0.1);border-left:3px solid var(--danger);padding:var(--sp-2);color:var(--text-primary);font-size:0.85rem"></div>
 

@@ -32,6 +32,16 @@
 // run would silently share the target's capacity and corrupt both results.
 // =========================================================================
 
+// The Message Factory renderer is loaded from the browser tree on purpose. The
+// preview the user approves and the bytes actually sent have to come from ONE
+// implementation — a second, server-side copy would drift, and the preview
+// would quietly become a lie. Both files are plain scripts attaching their pure
+// layer to `self`, which Node does not define; scripts/parser-test.js shims it
+// the same way.
+if (typeof global.self === 'undefined') global.self = global;
+require('../public/js/tools/data-factory-generators.js');
+require('../public/js/tools/perf-lab-messages.js');
+
 // Ceilings are safety, not tuning. A private/local target may be hammered
 // (that is the point of a dev tool), an external one may not — a laptop
 // pointed at a cloud app is a traffic generator with somebody else's name on
@@ -138,9 +148,14 @@ function startSession(config) {
   const targetUrl = String(config.url || '').trim();
   if (!targetUrl) throw fail('Missing url', 400);
 
+  // The URL may be a template (/rest/orders/{orderId}). Braces are not legal in
+  // a URL, so the host is read from a probe copy with the placeholders filled —
+  // the real per-request URL is rendered later, and its host cannot differ:
+  // placeholders only ever appear after the origin has been typed.
+  const probeUrl = targetUrl.replace(/\{[^{}\s]+\}/g, '1');
   let host;
   try {
-    host = new URL(targetUrl).hostname;
+    host = new URL(probeUrl).hostname;
   } catch (e) {
     throw fail(`Not a valid URL: ${targetUrl}`, 400);
   }
@@ -167,6 +182,26 @@ function startSession(config) {
 
   const hasBody = method === 'POST' || method === 'PUT' || method === 'PATCH';
 
+  // Message Factory: compiled once here, rendered per request. Without it the
+  // run falls back to the single static body, exactly as before.
+  let compiledMessage = null;
+  const spec = config.message;
+  if (spec && (spec.source || spec.fields) && (spec.fields || []).length) {
+    compiledMessage = global.plmCompile({
+      kind: spec.kind,
+      source: hasBody ? (spec.source || '') : '',
+      fields: spec.fields,
+      seed: spec.seed,
+      urlTemplate: targetUrl
+    });
+    if (compiledMessage.error) throw fail(`Message template: ${compiledMessage.error}`, 400);
+    // A generated JSON body sent as text/plain is a 415 that reads like the app
+    // rejecting valid data. Only filled in when the user set nothing.
+    const hasContentType = Object.keys(headers).some(h => h.toLowerCase() === 'content-type');
+    const ct = hasBody ? global.plmContentType(compiledMessage.kind) : '';
+    if (!hasContentType && ct) headers['Content-Type'] = ct;
+  }
+
   session = {
     id: String(nextId++),
     running: true,
@@ -176,6 +211,8 @@ function startSession(config) {
     method,
     headers,
     body: hasBody && config.body ? String(config.body) : undefined,
+    message: compiledMessage,
+    hasBody,
     timeoutMs: Math.min(Math.max(parseInt(config.timeoutMs, 10) || 30000, 1000), 300000),
     mode,
     count,
@@ -276,12 +313,24 @@ async function runWorker(s) {
       if (s.mode === 'count' && s.sent >= s.count) break;
 
       const id = s.sent++;
+
+      // Each request gets its own message and its own URL. The request index is
+      // the generator's row index, so a re-run with the same seed reproduces
+      // request N byte for byte regardless of how threads interleaved.
+      let url = s.url;
+      let body = s.body;
+      if (s.message) {
+        const rendered = global.plmRender(s.message, id);
+        url = rendered.url;
+        if (s.hasBody) body = rendered.body;
+      }
+
       const t0 = Date.now();
       let status;
       try {
         const opts = { method: s.method, headers: s.headers, signal: AbortSignal.timeout(s.timeoutMs) };
-        if (s.body !== undefined) opts.body = s.body;
-        const r = await fetch(s.url, opts);
+        if (body !== undefined) opts.body = body;
+        const r = await fetch(url, opts);
         // The body has to be drained or the connection is not really done, and
         // every latency after it would be measured against a stalled pool.
         await r.arrayBuffer().catch(() => null);

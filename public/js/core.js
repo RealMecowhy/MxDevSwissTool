@@ -184,7 +184,7 @@ async function navigate(toolId, navEl, initialTab) {
     iconEl.style.color = tool.color || 'var(--accent)';
   }
   document.getElementById('topbar-title').textContent = tool.label;
-  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.27.0' : (tool.desc || '');
+  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.28.0' : (tool.desc || '');
   const previousTool = currentTool;
   currentTool = toolId;
   window.currentTool = currentTool;
@@ -450,6 +450,10 @@ import './tools/data-factory-import.js';
 // distribution, SQL literal formatting) the wizard drives for its "Multiple
 // linked tables" source. Attaches the pure seed* layer for scripts/parser-test.js.
 import './tools/data-factory-seed.js';
+// Side-effect import: the Message Factory's pure layer (sample → template →
+// varied message). The Bridge `require`s this same file, so the preview in the
+// browser and the traffic it sends come from one implementation.
+import './tools/perf-lab-messages.js';
 import * as devStudio from './tools/dev-studio.js';
 import * as diff from './tools/diff.js';
 import * as encoder from './tools/encoder.js';

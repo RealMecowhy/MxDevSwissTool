@@ -358,6 +358,7 @@ function plReadConfig() {
   const confirmEl = plEl('pl-confirm-external');
   return {
     url, method, headers, body,
+    message: plMfActive() ? plMfSpec() : null,
     mode: runmode,
     count: parseInt(plEl('pl-count').value, 10) || 1,
     concurrency: plTargetConcurrency(),
@@ -415,6 +416,24 @@ function plStartBrowserRun(cfg) {
   const fetchOpts = { method: cfg.method, mode: 'cors', cache: 'no-store', headers: cfg.headers };
   if (cfg.body !== undefined) fetchOpts.body = cfg.body;
 
+  // Both engines must send the same traffic, so the browser path renders from
+  // the same compiled template rather than repeating one static body.
+  const hasBody = cfg.method === 'POST' || cfg.method === 'PUT' || cfg.method === 'PATCH';
+  let compiled = null;
+  if (cfg.message) {
+    compiled = window.plmCompile({
+      kind: cfg.message.kind,
+      source: hasBody ? cfg.message.source : '',
+      fields: cfg.message.fields,
+      seed: cfg.message.seed,
+      urlTemplate: cfg.url
+    });
+    const ct = hasBody ? window.plmContentType(compiled.kind) : '';
+    if (ct && !Object.keys(cfg.headers).some(h => h.toLowerCase() === 'content-type')) {
+      fetchOpts.headers = Object.assign({}, cfg.headers, { 'Content-Type': ct });
+    }
+  }
+
   let sent = 0;
   const count = cfg.count;
 
@@ -424,7 +443,15 @@ function plStartBrowserRun(cfg) {
     plActiveCount++;
     const t0 = performance.now();
 
-    fetch(cfg.url, fetchOpts)
+    let url = cfg.url;
+    let opts = fetchOpts;
+    if (compiled) {
+      const rendered = window.plmRender(compiled, id);
+      url = rendered.url;
+      if (hasBody) opts = Object.assign({}, fetchOpts, { body: rendered.body });
+    }
+
+    fetch(url, opts)
       .then(res => {
         const t1 = performance.now();
         plResults.push({ id, time: t1 - t0, status: res.status, start: t0 - plTestStartTime, end: t1 - plTestStartTime });
@@ -635,6 +662,180 @@ function plSyncLiveHint() {
 }
 
 // =========================================================================
+// MESSAGE FACTORY — UI over the pure layer in perf-lab-messages.js
+// =========================================================================
+// The table configures ONE row per path; the engine still varies every
+// occurrence of that path separately. Reuses Data Factory's generator metadata
+// and its `dfw-opt*` classes, so the Options column looks and behaves like the
+// one users already know — and adding a parameter there needs no code here.
+
+let plMf = { kind: '', source: '', fields: [], seed: 1 };
+
+function plMfActive() {
+  return plMf.fields.length > 0;
+}
+
+function plMfAnalyze() {
+  const sample = plEl('pl-mf-sample').value;
+  const url = plEl('pl-url').value.trim();
+  const res = window.plmAnalyze(sample, url);
+
+  plMf.kind = res.kind;
+  plMf.source = res.source;
+  plMf.fields = res.fields;
+
+  const status = plEl('pl-mf-status');
+  if (res.error && res.fields.length === 0) {
+    status.innerHTML = '<span style="color:var(--danger)">' + escHtml(res.error) + '</span>';
+  } else if (plMfActive()) {
+    const bodyCount = res.fields.filter(function (f) { return f.origin === 'body'; }).length;
+    const urlCount = res.fields.length - bodyCount;
+    status.innerHTML = '<span style="color:var(--success)">Active</span> — every request gets its own message: '
+      + bodyCount + ' field' + (bodyCount === 1 ? '' : 's') + ' from the sample'
+      + (urlCount ? ', ' + urlCount + ' from the URL template' : '')
+      + '. The static <b>Request Body</b> is ignored while this is on.'
+      + (res.error ? ' <span style="color:var(--warning)">' + escHtml(res.error) + '</span>' : '');
+  } else {
+    status.innerHTML = '<span style="color:var(--text-muted)">Paste a sample message, or put {placeholders} in the URL.</span>';
+  }
+
+  plMfRenderTable();
+  plEl('pl-mf-preview-out').innerHTML = '';
+}
+
+function plMfGenOptions(selected) {
+  const list = window.dfgList ? window.dfgList() : [];
+  let html = '';
+  list.forEach(function (g) {
+    html += '<option value="' + escHtml(g.id) + '"' + (g.id === selected ? ' selected' : '') + '>' + escHtml(g.label) + '</option>';
+  });
+  html += '<option value="' + escHtml(window.PLM_SAME_AS) + '"' + (selected === window.PLM_SAME_AS ? ' selected' : '') + '>Same as another field…</option>';
+  return html;
+}
+
+function plMfParamInput(idx, p, val) {
+  const set = 'data-mf-param="' + escHtml(p.key) + '" data-mf-row="' + idx + '"';
+  if (p.type === 'select') {
+    const o = (p.options || []).map(function (opt) {
+      return '<option value="' + escHtml(opt.value) + '"' + (String(opt.value) === String(val) ? ' selected' : '') + '>' + escHtml(opt.label) + '</option>';
+    }).join('');
+    return '<label class="dfw-opt"><span>' + escHtml(p.label) + '</span><select class="select select-sm" ' + set + '>' + o + '</select></label>';
+  }
+  if (p.type === 'number') return '<label class="dfw-opt"><span>' + escHtml(p.label) + '</span><input type="number" class="input input-sm" style="width:74px" value="' + escHtml(val) + '" ' + set + '></label>';
+  if (p.type === 'date') return '<label class="dfw-opt"><span>' + escHtml(p.label) + '</span><input type="date" class="input input-sm" value="' + escHtml(val) + '" ' + set + '></label>';
+  const ph = p.type === 'list' ? 'a, b, c' : (p.type === 'weights' ? '1, 2, 1' : '');
+  const shown = Array.isArray(val) ? val.join(', ') : (val == null ? '' : val);
+  return '<label class="dfw-opt"><span>' + escHtml(p.label) + '</span><input type="text" class="input input-sm" style="width:150px" placeholder="' + ph + '" value="' + escHtml(shown) + '" ' + set + '></label>';
+}
+
+function plMfOptionsHtml(idx, f) {
+  if (f.gen === window.PLM_SAME_AS) {
+    const opts = plMf.fields.filter(function (o) { return o.path !== f.path; }).map(function (o) {
+      const sel = ((f.params && f.params.ref) === o.path) ? ' selected' : '';
+      return '<option value="' + escHtml(o.path) + '"' + sel + '>' + escHtml(o.path) + '</option>';
+    }).join('');
+    return '<div class="dfw-opts"><label class="dfw-opt"><span>Copy from</span><select class="select select-sm" data-mf-param="ref" data-mf-row="' + idx + '">'
+      + '<option value="">— pick a field —</option>' + opts + '</select></label></div>';
+  }
+  const meta = (window.DFG_GENERATORS || {})[f.gen];
+  let h = '<div class="dfw-opts">';
+  if (meta) {
+    meta.params.forEach(function (p) {
+      const val = (f.params && f.params[p.key] !== undefined) ? f.params[p.key] : p.default;
+      h += plMfParamInput(idx, p, val);
+    });
+  }
+  h += '</div>';
+  return h;
+}
+
+function plMfRenderTable() {
+  const box = plEl('pl-mf-fields');
+  if (!box) return;
+  if (!plMfActive()) { box.innerHTML = ''; return; }
+
+  let rows = '';
+  plMf.fields.forEach(function (f, i) {
+    const badge = f.origin === 'url'
+      ? '<span class="badge badge-info" style="margin-right:6px">URL</span>'
+      : (f.occurrences > 1 ? '<span class="badge" style="margin-right:6px" title="This row drives every occurrence — each one still gets its own value">×' + f.occurrences + '</span>' : '');
+    const sample = f.sample === '' || f.sample === undefined ? '—' : String(f.sample);
+    rows += '<tr>'
+      + '<td style="white-space:nowrap">' + badge + '<code>' + escHtml(f.path) + '</code></td>'
+      + '<td style="color:var(--text-muted);max-width:150px;overflow:hidden;text-overflow:ellipsis" title="' + escHtml(sample) + '">' + escHtml(sample.slice(0, 30)) + '</td>'
+      + '<td><select class="select select-sm" data-mf-gen data-mf-row="' + i + '" title="' + escHtml(f.reason || '') + '">' + plMfGenOptions(f.gen) + '</select></td>'
+      + '<td>' + plMfOptionsHtml(i, f) + '</td>'
+      + '<td style="text-align:center"><input type="checkbox" data-mf-unique data-mf-row="' + i + '"' + (f.unique ? ' checked' : '') + ' title="Weave the request index in so no two messages collide"></td>'
+      + '<td style="text-align:center"><input type="checkbox" data-mf-const data-mf-row="' + i + '"' + (f.constant ? ' checked' : '') + ' title="Keep the value from the sample"></td>'
+      + '</tr>';
+  });
+
+  box.innerHTML = '<table class="table table-sm" style="width:100%;font-size:0.8rem">'
+    + '<thead><tr><th>Field</th><th>Sample</th><th>Generator</th><th>Options</th><th title="Guarantee no two messages share this value">Unique</th><th title="Never vary this field">Keep</th></tr></thead>'
+    + '<tbody>' + rows + '</tbody></table>';
+}
+
+function plMfOnChange(e) {
+  const el = e.target;
+  const idx = parseInt(el.getAttribute('data-mf-row'), 10);
+  if (isNaN(idx) || !plMf.fields[idx]) return;
+  const f = plMf.fields[idx];
+
+  if (el.hasAttribute('data-mf-gen')) {
+    f.gen = el.value;
+    f.params = (f.gen === window.PLM_SAME_AS) ? { ref: '' } : window.dfgDefaults(f.gen);
+    plMfRenderTable();
+    return;
+  }
+  if (el.hasAttribute('data-mf-const')) { f.constant = el.checked; return; }
+  if (el.hasAttribute('data-mf-unique')) { f.unique = el.checked; return; }
+
+  const pkey = el.getAttribute('data-mf-param');
+  if (pkey) {
+    const meta = (window.DFG_GENERATORS || {})[f.gen];
+    const pdef = meta ? meta.params.filter(function (p) { return p.key === pkey; })[0] : null;
+    if (pdef && (pdef.type === 'list' || pdef.type === 'weights')) f.params[pkey] = window.dfgToList(el.value);
+    else f.params[pkey] = el.value;
+  }
+}
+
+// Nobody should aim generated traffic at a real service without seeing what it
+// looks like first.
+function plMfPreview() {
+  const out = plEl('pl-mf-preview-out');
+  if (!plMfActive()) {
+    out.innerHTML = '<span style="color:var(--text-muted)">Nothing to preview yet — analyze a sample first.</span>';
+    return;
+  }
+  const compiled = window.plmCompile(plMfSpec());
+  if (compiled.error) {
+    out.innerHTML = '<span style="color:var(--danger)">' + escHtml(compiled.error) + '</span>';
+    return;
+  }
+  let html = '';
+  for (let i = 0; i < 3; i++) {
+    const r = window.plmRender(compiled, i);
+    html += '<div style="margin-bottom:var(--sp-2)">'
+      + '<div style="font-size:0.75rem;color:var(--text-muted)">Request #' + (i + 1) + ' &rarr; <code>' + escHtml(r.url || '') + '</code></div>'
+      + (r.body ? '<pre style="margin:2px 0 0;background:var(--bg-base);padding:var(--sp-2);border-radius:var(--r-sm);font-size:0.75rem;max-height:150px;overflow:auto">' + escHtml(r.body) + '</pre>' : '')
+      + '</div>';
+  }
+  out.innerHTML = html;
+}
+
+function plMfSpec() {
+  const seedEl = plEl('pl-mf-seed');
+  plMf.seed = seedEl ? (parseInt(seedEl.value, 10) || 1) : 1;
+  return {
+    kind: plMf.kind,
+    source: plMf.source,
+    fields: plMf.fields,
+    seed: plMf.seed,
+    urlTemplate: plEl('pl-url').value.trim()
+  };
+}
+
+// =========================================================================
 // PRESETS & EXPORT
 // =========================================================================
 
@@ -647,7 +848,13 @@ window.plSavePreset = function () {
     conc: plTargetConcurrency(),
     count: plEl('pl-count').value,
     engine: plEl('pl-engine') ? plEl('pl-engine').value : 'browser',
-    runmode: plEl('pl-runmode') ? plEl('pl-runmode').value : 'count'
+    runmode: plEl('pl-runmode') ? plEl('pl-runmode').value : 'count',
+    // The field map is the expensive part to rebuild — a preset that restored
+    // the URL but not the message would send the wrong traffic on the next run.
+    mfSample: plEl('pl-mf-sample') ? plEl('pl-mf-sample').value : '',
+    mfKind: plMf.kind,
+    mfFields: plMf.fields,
+    mfSeed: plEl('pl-mf-seed') ? plEl('pl-mf-seed').value : 1
   };
   localStorage.setItem('perfLabPreset', JSON.stringify(preset));
   alert('Preset saved to browser memory.');
@@ -668,6 +875,18 @@ window.plLoadPreset = function () {
     plRunModeChanged();
     if (preset.conc) plSetConcurrency(preset.conc);
     plCheckConcurrency();
+
+    if (plEl('pl-mf-sample')) plEl('pl-mf-sample').value = preset.mfSample || '';
+    if (plEl('pl-mf-seed')) plEl('pl-mf-seed').value = preset.mfSeed || 1;
+    plMf.kind = preset.mfKind || '';
+    plMf.source = preset.mfSample || '';
+    plMf.fields = preset.mfFields || [];
+    plMfRenderTable();
+    if (plMfActive()) {
+      plEl('pl-mf').open = true;
+      plEl('pl-mf-status').innerHTML = '<span style="color:var(--success)">Active</span> — restored from preset: '
+        + plMf.fields.length + ' field' + (plMf.fields.length === 1 ? '' : 's') + '.';
+    }
   } catch (e) {
     alert('Failed to load preset');
   }
@@ -720,6 +939,25 @@ export function init() {
     urlInput.dataset.plBound = '1';
     urlInput.addEventListener('input', plSyncSliderRange);
   }
+
+  const analyzeBtn = plEl('pl-mf-analyze');
+  if (analyzeBtn && !analyzeBtn.dataset.plBound) {
+    analyzeBtn.dataset.plBound = '1';
+    analyzeBtn.addEventListener('click', plMfAnalyze);
+  }
+  const previewBtn = plEl('pl-mf-preview');
+  if (previewBtn && !previewBtn.dataset.plBound) {
+    previewBtn.dataset.plBound = '1';
+    previewBtn.addEventListener('click', plMfPreview);
+  }
+  // One delegated listener: the table is rebuilt on every generator change, so
+  // per-element listeners would have to be rebound each time.
+  const fieldsBox = plEl('pl-mf-fields');
+  if (fieldsBox && !fieldsBox.dataset.plBound) {
+    fieldsBox.dataset.plBound = '1';
+    fieldsBox.addEventListener('change', plMfOnChange);
+  }
+
   plSyncSliderRange();
   plSyncLiveHint();
 }
