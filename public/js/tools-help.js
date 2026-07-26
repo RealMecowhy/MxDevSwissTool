@@ -317,14 +317,14 @@ const TOOLS_HELP = {
         <li>Load data in the tools above, then open <strong>Incident Report</strong> (it re-scans every time you open it; use <strong>Refresh sources</strong> after loading more).</li>
         <li>Give the incident a <strong>title</strong> (used for the report heading and the file name).</li>
         <li>Set the <strong>time window</strong> (UTC). It is pre-filled from the span of the loaded data &mdash; narrow it to focus on the incident, or clear both fields to include everything. Leave one side blank for an open-ended bound.</li>
-        <li>Tick which <strong>sources</strong> to include &mdash; the row count next to each reflects that tool&rsquo;s <em>current filter</em>, so narrow the view in a tool first if you want the report to match it. Add optional <strong>notes</strong> that appear at the top of the report.</li>
+        <li>Tick which <strong>sources</strong> to include &mdash; the row count next to each reflects that tool&rsquo;s <em>current filter</em> <em>and the time window above</em>, so it is exactly what will land in the report. A source reading &ldquo;<em>X of Y in window</em>&rdquo; is being trimmed by the window, and &ldquo;<em>none in window</em>&rdquo; means it will be left out entirely &mdash; widen the window or press Clear. Add optional <strong>notes</strong> that appear at the top of the report.</li>
         <li>Click <strong>Generate HTML report</strong>. The file downloads immediately and a summary shows exactly what went in. Open it in any browser &mdash; it is fully self-contained.</li>
       </ol>
     `,
     interpretation: `
       <ul>
         <li><strong>One window, many angles:</strong> because every section is filtered to the same time window, a spike lines up across the Nginx 5xx responses, the slow SQL, the failing microflow and the blocked threads &mdash; that alignment is the point of the report.</li>
-        <li><strong>Data-driven:</strong> a section only appears when its source produced rows for the window. An empty report for a window means those tools logged nothing there &mdash; widen the window or confirm the log levels.</li>
+        <li><strong>Data-driven:</strong> a section only appears when its source produced rows for the window; anything ticked but left out is named under &ldquo;Skipped&rdquo; in the summary. An empty report for a window means those tools logged nothing there &mdash; widen the window or confirm the log levels.</li>
         <li><strong>Point-in-time JVM:</strong> a thread dump is a snapshot, so the JVM section is not time-filtered &mdash; it reflects the dump you last analyzed in JVM Health.</li>
         <li><strong>Sensitive data:</strong> the report carries real log content (SQL, payloads, IPs). Review it before sharing &mdash; the Log &amp; Text Anonymizer can scrub logs before you load them.</li>
       </ul>
