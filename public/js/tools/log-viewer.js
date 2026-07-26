@@ -351,6 +351,18 @@ function logApplyFilters() {
     return true;
   });
   logRender(); logUpdateStats();
+  const clearBtn = document.getElementById('log-clear-filters-btn');
+  if (clearBtn) clearBtn.style.display = logAnyFilterActive() ? 'inline-flex' : 'none';
+}
+// True when at least one Log Stream filter deviates from its default. Gates the
+// "Clear all filters" button so it is only offered when there is something to
+// clear. Every filter mutation routes through logApplyFilters, so checking here
+// keeps the button in sync with no extra wiring on the individual controls.
+function logAnyFilterActive() {
+  if (logActiveSignatureKey) return true;
+  if (logActiveLevels.size !== LOG_LEVEL_ORDER.length) return true;
+  return ['log-search', 'log-time-from', 'log-time-to', 'log-node-filter', 'log-date-filter']
+    .some(function (id) { const el = document.getElementById(id); return el && el.value.trim() !== ''; });
 }
 let logScrollState = {
   batchSize: 1000,
@@ -772,8 +784,11 @@ function logRenderBookmarks() {
   }).join('');
 }
 
-// Resets every stream filter so a hidden bookmark can be revealed. Sets the input
-// values, then defers to logToggleAllLevels(true), which re-applies and re-renders.
+// Resets every stream filter — search, levels, time range, node, date and the
+// signature filter. Backs both the toolbar's "Clear all filters" button and
+// logJumpToBookmark, which needs it to reveal a bookmark the filters are hiding.
+// Sets the input values, then defers to logToggleAllLevels(true), which
+// re-applies and re-renders. The loaded log itself is untouched (that is logClear).
 function logResetStreamFilters() {
   logActiveSignatureKey = null;
   const banner = document.getElementById('log-sig-filter-banner');
@@ -1690,6 +1705,7 @@ window.logBuildDateFilter = logBuildDateFilter;
 window.logToggleLevel = logToggleLevel;
 window.logToggleAllLevels = logToggleAllLevels;
 window.logApplyFilters = logApplyFilters;
+window.logResetStreamFilters = logResetStreamFilters;
 window.logRender = logRender;
 window.logToggleStack = logToggleStack;
 window.logBadge = logBadge;

@@ -348,6 +348,7 @@
           <input class="input input-mono" id="log-time-to" placeholder="10:00:00" oninput="logApplyFilters()" style="width:90px">
           <input class="input" id="log-node-filter" placeholder="Node filter (e.g. Core, MyModule)" oninput="logApplyFilters()" style="width:200px">
           <select class="select" id="log-date-filter" onchange="logApplyFilters()" style="width:140px"><option value="">All dates</option></select>
+          <button id="log-clear-filters-btn" class="btn btn-ghost btn-sm" style="display:none;margin-left:auto" onclick="logResetStreamFilters()" title="Reset search, levels, time range, node, date and the signature filter">Clear all filters</button>
         </div>
       </div>
       <div id="log-sig-filter-banner" style="display:none; align-items:center; gap:var(--sp-2); background:var(--accent-subtle); border:1px solid var(--accent); padding:var(--sp-2) var(--sp-4); margin:var(--sp-2) var(--sp-5); border-radius:var(--r-md); font-size:0.8rem">

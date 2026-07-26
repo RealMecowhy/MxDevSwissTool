@@ -229,27 +229,139 @@ window.xpathConvertToOql = function () {
   }
 };
 
-function formatXPathClick() {
-  let val = document.getElementById('xpath-input').value;
-  if (!val) { fvRender('xpath-output', ''); const ed = document.getElementById('xpath-edit'); if (ed) ed.value = ''; return; }
-  // String-aware formatting: only insert breaks outside string literals
-  let result = '', inStr = false, strChar = '';
-  for (let i = 0; i < val.length; i++) {
-    const ch = val[i];
-    if (!inStr && (ch === "'" || ch === '"')) { inStr = true; strChar = ch; result += ch; }
-    else if (inStr && ch === strChar) { inStr = false; result += ch; }
-    else if (!inStr) {
-      const rest = val.slice(i);
-      const andM = rest.match(/^(\s+and\s+)/i);
-      const orM  = rest.match(/^(\s+or\s+)/i);
-      const bracketPair = rest.match(/^\]\[/);
-      if (andM)        { result += '\n  and '; i += andM[1].length - 1; }
-      else if (orM)    { result += '\n  or ';  i += orM[1].length - 1; }
-      else if (bracketPair) { result += ']\n['; i += 1; }
-      else             { result += ch; }
-    } else { result += ch; }
+// ── formatting ──────────────────────────────────────────────────────────────
+// A pretty-printer, not a search/replace pass over the raw text: the input is
+// tokenized with the same matchers the highlighter uses, the whitespace that
+// came with it is DISCARDED, and the layout is regenerated from the bracket
+// tree. That is what makes the result independent of how the query happened to
+// be wrapped when it was pasted, and what lets `'x'and(` break correctly —
+// a text-level scan can only see the glued characters, a token stream sees the
+// keyword.
+//
+// Layout, in order:
+//  - anything that fits in XPATH_WIDTH columns stays on one line;
+//  - otherwise break before every `and`/`or` at that nesting level, and at the
+//    root also before every `[` predicate so `][` chains stack vertically;
+//  - a `[...]`/`(...)` group that still does not fit opens an indent level.
+// Only whitespace is ever added or removed — an unbalanced bracket is rendered
+// unclosed rather than silently repaired, since a formatter must not change
+// what the query says.
+const XPATH_WIDTH = 80;
+const XPATH_INDENT = '  ';
+
+// Tokens → nested groups. A closer only pops when it matches the group it would
+// close, so a stray `)`/`]` stays an ordinary token instead of scrambling the
+// tree; anything still open at the end is flagged `unclosed`.
+function xpathTree(tokens) {
+  const root = { type: 'seq', items: [] };
+  const stack = [root];
+  for (let k = 0; k < tokens.length; k++) {
+    const tk = tokens[k];
+    if (tk.t === 'ws') continue;
+    const top = stack[stack.length - 1];
+    if (tk.v === '[' || tk.v === '(') {
+      const g = { type: 'group', open: tk.v, close: tk.v === '[' ? ']' : ')', items: [] };
+      top.items.push(g);
+      stack.push(g);
+    } else if (tk.v === ']' || tk.v === ')') {
+      if (stack.length > 1 && top.close === tk.v) stack.pop();
+      else top.items.push({ type: 'atom', tk: tk });
+    } else {
+      top.items.push({ type: 'atom', tk: tk });
+    }
   }
-  fvRender('xpath-output', xpathHighlight(result));
+  for (let k = 1; k < stack.length; k++) stack[k].unclosed = true;
+  return root;
+}
+
+function xpathFirstTok(node) {
+  if (node.type === 'atom') return node.tk;
+  return { t: node.open === '[' ? 'bracket' : 'paren', v: node.open };
+}
+function xpathLastTok(node) {
+  if (node.type === 'atom') return node.tk;
+  if (!node.unclosed) return { t: node.close === ']' ? 'bracket' : 'paren', v: node.close };
+  return node.items.length ? xpathLastTok(node.items[node.items.length - 1]) : xpathFirstTok(node);
+}
+
+// One space between neighbouring tokens, except where XPath reads as one unit:
+// `//Entity`, a predicate binding to its path (`Customer[`), a call's parens
+// (`contains(`, `not(`), and the inside edges of a group.
+function xpathNeedSpace(prev, next) {
+  if (!prev) return false;
+  if (next.v === ',') return false;
+  if (next.v === ')' || next.v === ']') return false;
+  if (next.v === '[') return false;
+  if (prev.v === '/' || next.v === '/') return false;
+  if (next.v === '(' && (prev.t === 'fn' || /^not$/i.test(prev.v))) return false;
+  return true;
+}
+
+// The whole node on one line — also the measurement used to decide whether it
+// may stay there.
+function xpathFlat(node) {
+  if (node.type === 'atom') return node.tk.v;
+  let out = node.type === 'group' ? node.open : '';
+  let prev = null;
+  for (let k = 0; k < node.items.length; k++) {
+    const it = node.items[k];
+    if (xpathNeedSpace(prev, xpathFirstTok(it))) out += ' ';
+    out += xpathFlat(it);
+    prev = xpathLastTok(it);
+  }
+  if (node.type === 'group' && !node.unclosed) out += node.close;
+  return out;
+}
+
+// One line's worth of items, starting at column `col`. A group too wide for the
+// space left is expanded in place, so the text before it (`Module.Entity[`)
+// keeps its line.
+function xpathChunk(items, indent, col) {
+  let out = '', cur = col, prev = null;
+  for (let k = 0; k < items.length; k++) {
+    const it = items[k];
+    const sep = xpathNeedSpace(prev, xpathFirstTok(it)) ? ' ' : '';
+    let piece = xpathFlat(it);
+    if (it.type === 'group' && cur + sep.length + piece.length > XPATH_WIDTH) {
+      const inner = indent + XPATH_INDENT;
+      piece = it.open + '\n' + inner + xpathItems(it.items, inner, false) +
+              (it.unclosed ? '' : '\n' + indent + it.close);
+    }
+    out += sep + piece;
+    const nl = piece.lastIndexOf('\n');
+    cur = nl === -1 ? cur + sep.length + piece.length : piece.length - nl - 1;
+    prev = xpathLastTok(it);
+  }
+  return out;
+}
+
+// Items split into lines: before each `and`/`or`, and — at the root only, where
+// consecutive predicates are separate filters rather than a path's own
+// constraint — before each `[`.
+function xpathItems(items, indent, splitPredicates) {
+  const chunks = [[]];
+  for (let k = 0; k < items.length; k++) {
+    const it = items[k];
+    const last = chunks[chunks.length - 1];
+    const isBool = it.type === 'atom' && it.tk.t === 'kw' && /^(and|or)$/i.test(it.tk.v);
+    const isPred = splitPredicates && it.type === 'group' && it.open === '[';
+    if (last.length && (isBool || isPred)) chunks.push([]);
+    chunks[chunks.length - 1].push(it);
+  }
+  return chunks.map(function (c) { return xpathChunk(c, indent, indent.length); }).join('\n' + indent);
+}
+
+function xpathFormat(val) {
+  const root = xpathTree(fvTokenize(val, XPATH_MATCHERS));
+  if (!root.items.length) return '';
+  const flat = xpathFlat(root);
+  return flat.length <= XPATH_WIDTH ? flat : xpathItems(root.items, '', true);
+}
+
+function formatXPathClick() {
+  const val = document.getElementById('xpath-input').value;
+  const result = val ? xpathFormat(val) : '';
+  fvRender('xpath-output', result ? xpathHighlight(result) : '');
   const ed = document.getElementById('xpath-edit');
   if (ed) ed.value = result;
   xpathAnalyze();
