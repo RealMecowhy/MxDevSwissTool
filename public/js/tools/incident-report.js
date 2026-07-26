@@ -67,13 +67,11 @@ function irRefresh() {
   });
 
   list.innerHTML = irProbed.map(function (p) {
-    const on = !!p.section;
-    const count = on ? (p.section.total != null ? p.section.total : (p.section.rows ? p.section.rows.length : 0)) : 0;
-    if (on) {
+    if (p.section) {
       return '<label class="ir-source ir-source-on">'
         + '<input type="checkbox" class="ir-source-cb" value="' + p.src.id + '" checked>'
         + '<span class="ir-source-label">' + escHtml(p.src.label) + '</span>'
-        + '<span class="ir-source-count">' + count + ' row' + (count === 1 ? '' : 's') + '</span>'
+        + '<span class="ir-source-count" data-ir-count="' + p.src.id + '"></span>'
         + '</label>';
     }
     return '<div class="ir-source ir-source-off">'
@@ -90,6 +88,8 @@ function irRefresh() {
     toEl.value = irFmtInput(maxMs);
   }
 
+  irUpdateCounts();
+
   const status = document.getElementById('ir-status');
   if (status) {
     status.textContent = available.length
@@ -98,6 +98,37 @@ function irRefresh() {
   }
   const genBtn = document.getElementById('ir-generate-btn');
   if (genBtn) genBtn.disabled = available.length === 0;
+}
+
+// Row count each source contributes AT THE CURRENT WINDOW — the number that
+// actually lands in the report. Without this the checklist showed the unwindowed
+// total, so a narrow window silently produced a much smaller (or empty) report.
+// Re-run whenever the window inputs change.
+function irUpdateCounts() {
+  const fromEl = document.getElementById('ir-from');
+  const toEl = document.getElementById('ir-to');
+  const fromMs = fromEl ? irParseMs(fromEl.value) : null;
+  const toMs = toEl ? irParseMs(toEl.value) : null;
+  const windowed = !isNaN(fromMs) && !isNaN(toMs) && (fromMs != null || toMs != null);
+
+  irProbed.forEach(function (p) {
+    if (!p.section) return;
+    const chip = document.querySelector('[data-ir-count="' + p.src.id + '"]');
+    if (!chip) return;
+    const loaded = p.section.total != null ? p.section.total : (p.section.rows ? p.section.rows.length : 0);
+
+    let inWin = loaded;
+    if (windowed) {
+      let sec = null;
+      try { sec = window[irFn(p.src)](fromMs, toMs); } catch (e) { sec = null; }
+      inWin = sec ? (sec.total != null ? sec.total : (sec.rows ? sec.rows.length : 0)) : 0;
+    }
+
+    chip.classList.toggle('ir-source-count-zero', inWin === 0);
+    if (inWin === 0) chip.textContent = 'none in window — skipped';
+    else if (inWin < loaded) chip.textContent = inWin + ' of ' + loaded + ' in window';
+    else chip.textContent = loaded + ' row' + (loaded === 1 ? '' : 's');
+  });
 }
 
 // Collect the selected sources at the chosen window, build the report and download
@@ -113,7 +144,11 @@ function irGenerate() {
   const checked = {};
   Array.prototype.forEach.call(document.querySelectorAll('.ir-source-cb:checked'), function (cb) { checked[cb.value] = true; });
 
+  // Sources that were selected but contribute nothing at this window are named in
+  // the summary — dropping them silently made the report look arbitrarily smaller
+  // than the checklist promised.
   const sections = [];
+  const skipped = [];
   IR_SOURCES.forEach(function (src) {
     if (!checked[src.id]) return;
     const fn = window[irFn(src)];
@@ -121,6 +156,7 @@ function irGenerate() {
     let sec = null;
     try { sec = fn(fromMs, toMs); } catch (e) { sec = null; }
     if (sec && sec.rows && sec.rows.length) sections.push(sec);
+    else skipped.push(src.label);
   });
 
   const summary = document.getElementById('ir-summary');
@@ -128,7 +164,8 @@ function irGenerate() {
     if (summary) {
       summary.style.display = 'block';
       summary.innerHTML = '<div class="edx-empty"><p style="font-weight:600;color:var(--text-primary)">Nothing to report for this selection</p>'
-        + '<p>No selected source has rows inside the chosen time window. Widen the window (or clear it), or pick sources that hold data.</p></div>';
+        + '<p>No selected source has rows inside the chosen time window: ' + escHtml(skipped.join(', ')) + '. '
+        + 'Widen the window or press Clear to re-read the full span of loaded data.</p></div>';
     }
     return;
   }
@@ -152,6 +189,7 @@ function irGenerate() {
       + '<ul class="ir-done-list">' + sections.map(function (s) {
           return '<li><strong>' + escHtml(s.title) + '</strong> — ' + escHtml(s.subtitle || (s.rows.length + ' rows')) + '</li>';
         }).join('') + '</ul>'
+      + (skipped.length ? '<div class="ir-done-meta ir-done-skipped">Skipped — no rows inside the window: ' + escHtml(skipped.join(', ')) + '</div>' : '')
       + '<div class="ir-done-meta">Open the file in any browser — it is fully self-contained. Review for sensitive data before sharing.</div>'
       + '</div>';
   }
@@ -166,6 +204,7 @@ function irResetWindow() {
 }
 
 window.irRefresh = irRefresh;
+window.irUpdateCounts = irUpdateCounts;
 window.irGenerate = irGenerate;
 window.irResetWindow = irResetWindow;
 

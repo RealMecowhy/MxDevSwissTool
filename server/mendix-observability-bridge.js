@@ -17,6 +17,7 @@ const path = require('path');
 const { exec } = require('child_process');
 const crypto = require('crypto');
 const livedb = require('./livedb');
+const perfSession = require('./perf-session');
 
 // 'pg' is optional: loaded on demand so the bridge starts without npm install.
 function loadPgClient() {
@@ -899,7 +900,17 @@ const server = http.createServer((req, res) => {
                        pathOnly === '/manifest.json' ||
                        pathOnly === '/service-worker.js';
 
-  if (pathOnly !== '/status' && !isStaticFile) {
+  // The mock responder answers anyone. Its entire purpose is to be called by
+  // the Mendix runtime through a Call REST action, and the runtime has no way
+  // to know a token that is regenerated on every Bridge restart — gating it
+  // makes the feature unusable rather than safe. What it returns is the fake
+  // payload the user typed, on a loopback-bound port. /mock-config is a write
+  // and stays behind the token: nothing local should be able to retune your
+  // mock (or its Chaos Monkey) behind your back. `/mock-config` does not match
+  // the `/mock/` prefix, so the two never overlap.
+  const isMockResponder = pathOnly === '/mock' || pathOnly.startsWith('/mock/');
+
+  if (pathOnly !== '/status' && !isStaticFile && !isMockResponder) {
     if (!requireToken(req, res)) return;
   }
 
@@ -1361,73 +1372,47 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (url.pathname === '/api/perf-test') {
-    if (req.method === 'POST') {
-      readBody(req, res, 5 * 1024 * 1024, async (rawBody) => {
-        try {
-          const config = JSON.parse(rawBody.toString('utf8'));
-          const targetUrl = config.url;
-          const method = config.method || 'GET';
-          const headers = config.headers || {};
-          const payload = config.body || undefined;
-          const conc = Math.min(parseInt(config.concurrency) || 1, 50);
-          const count = Math.min(parseInt(config.count) || 1, 5000);
+  // ── Perf Lab load test sessions ───────────────────────────────────────────
+  // A load test is a session, not a request: it can outlive one HTTP call, be
+  // retuned while it runs and stopped on demand. The engine lives in
+  // perf-session.js; these routes are transport only. The blanket token gate
+  // above already covers them — which matters here more than elsewhere, since
+  // an unauthenticated caller could otherwise point the Bridge at a host and
+  // open the taps.
+  if (url.pathname === '/perf/start' || url.pathname === '/perf/adjust' || url.pathname === '/perf/stop') {
+    if (req.method !== 'POST') return sendError(req, res, 'Method Not Allowed', 405);
+    readBody(req, res, 5 * 1024 * 1024, (rawBody) => {
+      let body;
+      try {
+        body = JSON.parse(rawBody.toString('utf8'));
+      } catch (e) {
+        return sendError(req, res, `Invalid JSON body: ${e.message}`, 400);
+      }
+      try {
+        let result;
+        if (url.pathname === '/perf/start') result = perfSession.startSession(body);
+        else if (url.pathname === '/perf/adjust') result = perfSession.adjust(body.sessionId, body.concurrency);
+        else result = perfSession.stop(body.sessionId);
+        sendJson(req, res, { success: true, ...result });
+      } catch (e) {
+        sendError(req, res, e.message, e.statusCode || 500);
+      }
+    });
+    return;
+  }
 
-          if (!targetUrl) return sendError(req, res, 'Missing url', 400);
-
-          const targetHost = new URL(targetUrl).hostname;
-          const isPrivateOrLocal = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(targetHost);
-          if (!isPrivateOrLocal && process.env.MXDEV_ALLOW_EXTERNAL_PERFTEST !== 'true') {
-            return sendError(req, res, 'Perf Lab domyślnie działa tylko na adresach lokalnych/prywatnych. Ustaw zmienną środowiskową MXDEV_ALLOW_EXTERNAL_PERFTEST=true, aby testować cele zewnętrzne.', 403);
-          }
-
-          const fetchOpts = { method, headers };
-          if (payload && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
-            fetchOpts.body = payload;
-          }
-
-          const results = [];
-          let sent = 0;
-          let activeCount = 0;
-          const testStartTime = Date.now();
-          
-          // Helper to use native fetch if available
-          if (typeof fetch === 'undefined') {
-             return sendError(req, res, 'Node.js version too old. fetch() is required.', 500);
-          }
-
-          const executeWorker = async () => {
-             while (sent < count) {
-                const id = sent++;
-                const t0 = Date.now();
-                try {
-                  const r = await fetch(targetUrl, fetchOpts);
-                  // read body to complete request
-                  await r.text().catch(()=>null);
-                  const t1 = Date.now();
-                  results.push({ id, time: t1 - t0, status: r.status, start: t0, end: t1 });
-                } catch (err) {
-                  const t1 = Date.now();
-                  results.push({ id, time: t1 - t0, status: 'Error', start: t0, end: t1 });
-                }
-             }
-          };
-
-          const workers = [];
-          for (let i = 0; i < conc; i++) {
-             workers.push(executeWorker());
-          }
-
-          await Promise.all(workers);
-          
-          sendJson(req, res, { success: true, results, duration: Date.now() - testStartTime });
-        } catch (e) {
-          sendError(req, res, `Failed perf test: ${e.message}`, 500);
-        }
-      });
-      return;
+  if (url.pathname === '/perf/stats') {
+    try {
+      const stats = perfSession.getStats(
+        url.searchParams.get('sessionId'),
+        url.searchParams.get('sinceBucket'),
+        url.searchParams.get('sinceSample')
+      );
+      sendJson(req, res, { success: true, ...stats });
+    } catch (e) {
+      sendError(req, res, e.message, e.statusCode || 500);
     }
-    return sendError(req, res, 'Method Not Allowed', 405);
+    return;
   }
 
   if (url.pathname === '/update/check') {

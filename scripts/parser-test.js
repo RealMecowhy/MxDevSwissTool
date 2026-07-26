@@ -3285,6 +3285,52 @@ eq('backoff: 5th attempt is 32s, capped to 30s', global.dsBackoffDelay(5), 30000
 eq('backoff: stays capped at 30s for a long outage (attempt 20)', global.dsBackoffDelay(20), 30000);
 ok('backoff: monotonically non-decreasing up to the cap', global.dsBackoffDelay(3) >= global.dsBackoffDelay(2) && global.dsBackoffDelay(2) >= global.dsBackoffDelay(1));
 
+// =========================================================================
+// PERF LAB — load test session engine (histogram + target gate)
+// =========================================================================
+console.log('\nPerf Lab — session engine');
+const perfSession = require('../server/perf-session.js');
+
+// The histogram is what makes an unbounded run possible, so its bin math has to
+// be exact: a value must land in the bin whose range contains it, at every
+// resolution change.
+function inBin(ms) {
+  const r = perfSession.histRange(perfSession.histIndex(ms));
+  return ms >= r[0] && ms < r[1];
+}
+ok('hist: 0 ms lands in its own bin', inBin(0));
+ok('hist: 42 ms lands in a 1 ms bin', inBin(42));
+ok('hist: 99 ms is still 1 ms resolution', inBin(99));
+ok('hist: 100 ms crosses into the 5 ms bins', inBin(100) && perfSession.histRange(perfSession.histIndex(100))[1] === 105);
+ok('hist: 999 ms is the last 5 ms bin', inBin(999));
+ok('hist: 1000 ms crosses into the 50 ms bins', inBin(1000) && perfSession.histRange(perfSession.histIndex(1000))[1] === 1050);
+ok('hist: 9999 ms is the last 50 ms bin', inBin(9999));
+eq('hist: 10 s and beyond share the overflow bin', perfSession.histIndex(10000), perfSession.histIndex(120000));
+
+// A percentile must fall inside the bin the measurement fell in — that is the
+// accuracy the UI promises ("± one bin width"), not a vaguer claim.
+const h = new Array(461).fill(0);
+for (let i = 1; i <= 100; i++) h[perfSession.histIndex(i)]++;   // 1..100 ms, one each
+ok('hist: p50 of 1..100 ms sits within a bin of 50 ms', Math.abs(perfSession.histPercentile(h, 100, 50) - 50) <= 1);
+ok('hist: p95 of 1..100 ms sits within a bin of 95 ms', Math.abs(perfSession.histPercentile(h, 100, 95) - 95) <= 1);
+ok('hist: p99 of 1..100 ms sits within a bin of 99 ms', Math.abs(perfSession.histPercentile(h, 100, 99) - 99) <= 1);
+eq('hist: percentile of an empty run is 0, not NaN', perfSession.histPercentile(new Array(461).fill(0), 0, 95), 0);
+
+// The gate deciding whether a target needs explicit authorization. A false
+// "private" verdict here silently lifts the external thread cap.
+ok('target gate: localhost is local', perfSession.isPrivateOrLocalHost('localhost'));
+ok('target gate: 127.0.0.1 is local', perfSession.isPrivateOrLocalHost('127.0.0.1'));
+ok('target gate: ::1 is local', perfSession.isPrivateOrLocalHost('::1'));
+ok('target gate: 10.x is private', perfSession.isPrivateOrLocalHost('10.20.30.40'));
+ok('target gate: 192.168.x is private', perfSession.isPrivateOrLocalHost('192.168.1.50'));
+ok('target gate: 172.16.x is private', perfSession.isPrivateOrLocalHost('172.16.0.9'));
+ok('target gate: 172.32.x is NOT private (outside the /12)', !perfSession.isPrivateOrLocalHost('172.32.0.9'));
+ok('target gate: a Mendix Cloud host is external', !perfSession.isPrivateOrLocalHost('myapp.mendixcloud.com'));
+ok('target gate: 10.evil.com is external, not private (prefix match would be wrong)', !perfSession.isPrivateOrLocalHost('10.evil.com'));
+ok('target gate: 172.320.0.1 is not a valid address, so not private', !perfSession.isPrivateOrLocalHost('172.320.0.1'));
+ok('target gate: a single-label intranet host counts as local', perfSession.isPrivateOrLocalHost('mxapp-test'));
+ok('target gate: a .local host counts as local', perfSession.isPrivateOrLocalHost('mendix-dev.local'));
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 runXlsxAsyncTests().then(runApiEconAsyncTests).then(runNginxAsyncTests).then(function () {
   console.log('\n' + passed + ' passed, ' + failed + ' failed');

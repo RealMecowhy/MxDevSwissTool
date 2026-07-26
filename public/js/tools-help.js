@@ -874,25 +874,28 @@ Customer [1] -- [*] Order : places</pre>
     `
   },
   'perf-lab': {
-    title: 'Performance Lab (Load Tester)',
-    description: 'Lightweight tool for conducting load tests (Load Testing) and performance analysis of selected endpoints (REST API, SOAP, HTML pages) directly from the browser. Measures response times and generates latency statistics.',
+    title: 'REST Load Tester',
+    description: 'Load-tests a selected endpoint (REST API, SOAP, HTML page) and reports how it behaves under concurrency: response-time percentiles, throughput, status breakdown. Runs either a fixed batch or an open-ended test whose thread count you retune while it is running.',
     howToGet: 'The URL address of the web service (e.g., Published REST Service in Mendix) and optional authorization data (Basic Auth, API tokens).',
     howToUse: `
       <ol>
         <li>Enter the tested URL and select the request method (GET, POST, etc.).</li>
         <li><strong>Headers & Body:</strong> Specify request headers (e.g., <code>{"Content-Type": "application/json"}</code>) and request body in JSON format.</li>
-        <li><strong>Test Parameters:</strong> Set the number of concurrent connections (Threads) and the total number of requests.</li>
-        <li><strong>Engine Selection:</strong> Choose <strong>Browser (Fetch)</strong> for simple requests, or <strong>Server (Turbo)</strong> to bypass browser CORS and connection limits (requires running <code>node mendix-observability-bridge.js</code>).</li>
+        <li><strong>Run mode:</strong> <em>Fixed count</em> sends a set number of requests and stops. <em>Continuous</em> keeps sending until you press Stop &mdash; use it when you want to watch the app under sustained pressure rather than score a fixed batch.</li>
+        <li><strong>Engine Selection:</strong> Choose <strong>Browser (Fetch)</strong> for a quick check, or <strong>Server (Bridge)</strong> for anything serious (requires the bridge running). A browser allows roughly 6 connections per host, so above that you are measuring the browser's queue rather than your app &mdash; and only the Bridge engine supports continuous runs and live thread changes.</li>
+        <li><strong>Threads slider:</strong> On the Bridge engine you can drag it <em>while the test runs</em>. Threads are added or retired without restarting, and no request is ever aborted mid-flight, so the latency samples stay clean. Watch the <em>Throughput &amp; Threads</em> chart: the point where the orange thread line keeps climbing but the blue throughput bars flatten is the app's knee.</li>
+        <li><strong>External targets:</strong> anything that is not a local or private address (a Mendix Cloud app, for example) requires ticking <em>I am authorized to load-test this target</em>, and the thread count stays capped at 25. Alternatively start the bridge with <code>MXDEV_ALLOW_EXTERNAL_PERFTEST=true</code>.</li>
         <li><strong>Presets:</strong> Use <em>Save Preset</em> and <em>Load Preset</em> buttons to store your frequently used test configurations.</li>
-        <li>Click <strong>Start Load Test</strong>. The tool will begin sending requests in the background and draw a latency chart in real-time. You can pause the test at any time using the <strong>Stop</strong> button.</li>
-        <li>After the test, click <strong>Export CSV</strong> to download the raw latency data for further analysis.</li>
+        <li>Click <strong>Start Load Test</strong>, then <strong>Stop</strong> whenever you want to end it. After the test, click <strong>Export CSV</strong> to download the raw latency data.</li>
       </ol>
     `,
     interpretation: `
       <ul>
         <li><strong>p50 Response Time (Median):</strong> Average response time for half of the users. Should oscillate below 200 ms.</li>
         <li><strong>p99 Response Time:</strong> Metric for the 1% slowest requests. If p99 is drastically higher than p50 (e.g., 5 seconds vs 100 ms), the Mendix application might have issues with occasional thread blocking, database locking, or long Garbage Collector pauses.</li>
+        <li><strong>Throughput &amp; Threads:</strong> Read the two series together. While the app has headroom, throughput rises with the thread count. Once throughput flattens while latency climbs, extra threads are only filling a queue &mdash; that plateau is the app's real capacity, and pushing past it just makes every user wait longer.</li>
         <li><strong>Error Rate:</strong> Appearance of network errors or 5xx statuses under higher load suggests the application has reached its performance limit (e.g., CPU overload or database connection pool exhaustion).</li>
+        <li><strong>The ≈ next to Percentiles:</strong> on the Bridge engine percentiles are computed from a fixed-bin histogram, so they are accurate to a bin width (1 ms below 100 ms, 5 ms below 1 s, 50 ms below 10 s). A run with no end cannot keep every individual measurement. The browser engine keeps them all, so its percentiles are exact.</li>
       </ul>
     `
   },
@@ -900,7 +903,8 @@ Customer [1] -- [*] Order : places</pre>
   'mock-server': {
     title: 'Mock Server & Chaos Engineering',
     description: 'A fully functional local Mock Server that allows you to simulate external API responses and test Chaos Engineering (intentionally introducing network faults). This tool works in tandem with the Mendix Observability Bridge to expose a real HTTP endpoint on your localhost.',
-    howToGet: 'Before using this tool, you must start the local bridge by running <code>node mendix-observability-bridge.js</code> in your terminal. Once running, you can configure your Mendix <em>Call REST</em> actions to send requests to <code>http://localhost:9999/mock</code>.',
+    howToGet: `Before using this tool, you must start the local bridge by running <code>node mendix-observability-bridge.js</code> in your terminal. Once running, you can configure your Mendix <em>Call REST</em> actions to send requests to <code>http://localhost:9999/mock</code> &mdash; no authentication header is needed, and any sub-path works too (<code>/mock/orders</code>, <code>/mock/customers</code>), so several REST activities can point at it at once.
+      <br><br><strong>The app must run on this machine.</strong> The bridge listens on <code>127.0.0.1</code> only, so it is reachable from a project running locally in Studio Pro. An app deployed to Mendix Cloud or another server cannot reach your laptop &mdash; for those, mock the call in the app itself.`,
     howToUse: `
       <ol>
         <li><strong>Response Payload:</strong> Enter the JSON or XML that you want the simulated API to return to your Mendix application.</li>

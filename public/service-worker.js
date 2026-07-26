@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mxdev-swiss-tool-v1.26.1';
+const CACHE_NAME = 'mxdev-swiss-tool-v1.27.0';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -53,10 +53,19 @@ self.addEventListener('fetch', (event) => {
                 url.pathname === '/logs' ||
                 url.pathname === '/status' ||
                 url.pathname === '/mock-config' ||
+                // The mock responder is a live endpoint whose whole point is
+                // varying its answer (delay, Chaos Monkey 500s). Caching it
+                // would fill the cache with dead responses.
+                url.pathname === '/mock' ||
+                url.pathname.startsWith('/mock/') ||
                 url.pathname === '/project-insights' ||
                 url.pathname === '/prometheus' ||
                 url.pathname.startsWith('/otel/') ||
                 url.pathname.startsWith('/update/') ||
+                // Perf Lab polls /perf/stats once a second for the whole run —
+                // caching those would fill the cache with hundreds of dead
+                // snapshots and could replay a stale one after a network blip.
+                url.pathname.startsWith('/perf/') ||
                 url.pathname.startsWith('/api/');
 
   if (!isHttp || isApi) return;

@@ -87,7 +87,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.26.1</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.27.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -148,7 +148,7 @@
     <div class="nav-section-label">Performance &amp; Testing</div>
     <button type="button" class="nav-item" data-tool="perf-lab" onclick="navigate('perf-lab',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></span>
-      <span class="nav-label">Performance Lab</span>
+      <span class="nav-label">REST Load Tester</span>
     </button>
 
     <button type="button" class="nav-item" data-tool="mock-server" onclick="navigate('mock-server',this)">
@@ -268,7 +268,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.26.1</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.27.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -750,9 +750,9 @@
           <div>
             <label class="form-label">Time window (UTC) &mdash; leave blank for all loaded data</label>
             <div style="display:flex; gap:var(--sp-2); align-items:center; flex-wrap:wrap;">
-              <input id="ir-from" class="input" placeholder="YYYY-MM-DD HH:MM:SS" style="flex:1; min-width:180px;">
+              <input id="ir-from" class="input" placeholder="YYYY-MM-DD HH:MM:SS" style="flex:1; min-width:180px;" onchange="window.irUpdateCounts()">
               <span style="color:var(--text-muted)">&rarr;</span>
-              <input id="ir-to" class="input" placeholder="YYYY-MM-DD HH:MM:SS" style="flex:1; min-width:180px;">
+              <input id="ir-to" class="input" placeholder="YYYY-MM-DD HH:MM:SS" style="flex:1; min-width:180px;" onchange="window.irUpdateCounts()">
               <button class="btn btn-ghost btn-sm" onclick="window.irResetWindow()" title="Clear the window and re-read the full span of loaded data">Clear</button>
             </div>
             <div style="font-size:0.72rem; color:var(--text-muted); margin-top:4px;">Pre-filled from the span of loaded data. Narrow it to focus the report on the incident.</div>
@@ -1938,27 +1938,39 @@
              </div>
            </details>
 
-           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:var(--sp-3);background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-3)">
-             <div class="form-group">
-               <div class="form-label" style="display:flex;align-items:center;gap:4px">
-                 Threads
-                 <span id="pl-concurrency-warn" style="color:var(--warning);cursor:help;display:none" title="Browsers limit concurrent connections per domain (usually max 6). Higher values will queue up in the browser, skewing latency results.">⚠️</span>
+           <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-3);display:flex;flex-direction:column;gap:var(--sp-3)">
+             <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:var(--sp-3)">
+               <div class="form-group">
+                 <div class="form-label">Run mode</div>
+                 <select class="select" id="pl-runmode">
+                   <option value="count">Fixed count</option>
+                   <option value="continuous">Continuous (until stopped)</option>
+                 </select>
                </div>
-               <input type="number" class="input" id="pl-concurrency" value="5" oninput="plCheckConcurrency()">
+               <div class="form-group" id="pl-count-group"><div class="form-label">Total Reqs</div><input type="number" class="input" id="pl-count" value="50"></div>
+               <div class="form-group">
+                 <div class="form-label">Engine</div>
+                 <select class="select" id="pl-engine">
+                   <option value="browser">Browser (Fetch)</option>
+                   <option value="server">Server (Bridge)</option>
+                 </select>
+               </div>
              </div>
-             <div class="form-group"><div class="form-label">Total Reqs</div><input type="number" class="input" id="pl-count" value="50"></div>
              <div class="form-group">
-               <div class="form-label">Engine</div>
-               <select class="select" id="pl-engine" onchange="plCheckConcurrency()">
-                 <option value="browser">Browser (Fetch)</option>
-                 <option value="server">Server (Turbo)</option>
-               </select>
+               <div class="form-label" style="display:flex;align-items:center;gap:6px">
+                 Threads: <b id="pl-concurrency-val" style="color:var(--accent)">5</b>
+                 <span id="pl-concurrency-warn" style="color:var(--warning);cursor:help;display:none" title="Browsers limit concurrent connections per domain (usually max 6). Higher values queue up in the browser and measure Chrome, not your app. Switch to the Server (Bridge) engine.">⚠️</span>
+               </div>
+               <input type="range" id="pl-concurrency" min="1" max="20" value="5" style="width:100%">
+               <div id="pl-live-hint" style="display:none;font-size:0.78rem;color:var(--text-muted);margin-top:4px">Drag the slider while the test runs — the Bridge adds or retires threads live, without restarting the run.</div>
              </div>
+             <label id="pl-confirm-row" style="display:none;align-items:flex-start;gap:8px;font-size:0.82rem;color:var(--text-primary);cursor:pointer">
+               <input type="checkbox" id="pl-confirm-external" style="margin-top:2px">
+               <span>I am authorized to load-test this target. It is not a local or private address, so threads stay capped at 25.</span>
+             </label>
            </div>
-           
-           <div id="pl-cors-warn" style="display:none;background:rgba(231,76,60,0.1);border-left:3px solid var(--danger);padding:var(--sp-2);color:var(--text-primary);font-size:0.85rem">
-             <strong>Potential CORS issue detected.</strong> Requests failed immediately without a status code. Ensure the target server allows cross-origin requests from this domain.
-           </div>
+
+           <div id="pl-error" style="display:none;background:rgba(231,76,60,0.1);border-left:3px solid var(--danger);padding:var(--sp-2);color:var(--text-primary);font-size:0.85rem"></div>
 
            <div style="display:flex;gap:var(--sp-3);margin-top:var(--sp-3)">
              <div id="pl-status" style="display:flex;align-items:center;color:var(--text-muted);font-weight:600"></div>
@@ -1990,8 +2002,19 @@
                  <div style="font-size:1rem;font-weight:bold;color:var(--text-primary);margin-top:4px"><span id="pl-stats-min">0 ms</span> / <span id="pl-stats-avg" style="color:var(--warning)">0 ms</span> / <span id="pl-stats-max">0 ms</span></div>
                </div>
                <div style="background:var(--bg-base);padding:var(--sp-3);border-radius:var(--r-md);text-align:center">
-                 <div style="font-size:0.75rem;color:var(--text-secondary)">Percentiles (p50 / 95 / 99)</div>
+                 <div style="font-size:0.75rem;color:var(--text-secondary)">
+                   Percentiles (p50 / 95 / 99)
+                   <span id="pl-pct-note" style="display:none;cursor:help;color:var(--text-muted)" title="On the Bridge engine percentiles come from a fixed-bin histogram, so they are accurate to a bin width (1 ms below 100 ms, 5 ms below 1 s, 50 ms below 10 s). An unbounded run cannot keep every sample.">≈</span>
+                 </div>
                  <div style="font-size:1rem;font-weight:bold;color:var(--text-primary);margin-top:4px"><span id="pl-stats-p50" style="color:var(--info)">0 ms</span> / <span id="pl-stats-p95" style="color:var(--warning)">0 ms</span> / <span id="pl-stats-p99" style="color:var(--danger)">0 ms</span></div>
+               </div>
+               <div style="background:var(--bg-base);padding:var(--sp-3);border-radius:var(--r-md);text-align:center">
+                 <div style="font-size:0.75rem;color:var(--text-secondary)">Throughput (req/s)</div>
+                 <div id="pl-stats-rps" style="font-size:1.5rem;font-weight:bold;color:var(--success)">0</div>
+               </div>
+               <div style="background:var(--bg-base);padding:var(--sp-3);border-radius:var(--r-md);text-align:center">
+                 <div style="font-size:0.75rem;color:var(--text-secondary)">Active threads</div>
+                 <div id="pl-stats-threads" style="font-size:1.5rem;font-weight:bold;color:var(--accent)">0</div>
                </div>
              </div>
              <div id="pl-charts" style="margin-top:var(--sp-4);display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-4);flex:1;overflow-y:auto;min-height:400px">

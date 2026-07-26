@@ -5,6 +5,7 @@ runtime/
 _local_assets/
 .agents/
 .claude/
+CLAUDE.md
 .env
 .DS_Store
 *.zip

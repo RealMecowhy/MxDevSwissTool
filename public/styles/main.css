@@ -3383,6 +3383,11 @@ kbd {
   border-radius: 999px;
   padding: 2px 10px;
 }
+/* Source contributes nothing at the current window — it will not reach the report. */
+.ir-source-count-zero {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+}
 .ir-source-dot {
   width: 8px;
   height: 8px;
@@ -3415,6 +3420,7 @@ kbd {
   gap: 4px;
 }
 .ir-done-list li { font-size: 0.82rem; color: var(--text-secondary); }
+.ir-done-skipped { color: var(--warning); }
 
 /* Data-requirement hint shown in the empty/drop states of the log tools —
    names the log node, level and where to download the file (data-driven rule). */
