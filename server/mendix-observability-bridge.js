@@ -1401,6 +1401,33 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Fetch an OpenAPI document on the browser's behalf. A published Mendix REST
+  // service rarely sends CORS headers for its own openapi.json, so the tab
+  // cannot read it — the Bridge can. Read-only, one GET, capped in size and
+  // time; the response is handed back verbatim for the parser in the browser.
+  if (url.pathname === '/openapi/fetch') {
+    const specUrl = url.searchParams.get('url') || '';
+    if (!/^https?:\/\//i.test(specUrl)) return sendError(req, res, 'Provide an http(s) URL to the OpenAPI document.', 400);
+    if (typeof fetch === 'undefined') return sendError(req, res, 'Node.js version too old. fetch() is required.', 500);
+
+    fetch(specUrl, { redirect: 'follow', signal: AbortSignal.timeout(15000) })
+      .then(async (r) => {
+        const text = await r.text();
+        if (text.length > 8 * 1024 * 1024) {
+          return sendError(req, res, 'That document is larger than 8 MB — it does not look like an API spec.', 413);
+        }
+        // A non-2xx is reported as itself: "401 from the spec URL" tells the
+        // user their service needs credentials, which "could not parse" does not.
+        if (!r.ok) return sendError(req, res, `The spec URL answered ${r.status} ${r.statusText}.`, 502);
+        sendJson(req, res, { success: true, url: specUrl, body: text });
+      })
+      .catch((e) => {
+        const why = e && e.name === 'TimeoutError' ? 'timed out after 15 s' : (e && e.message) || 'unknown error';
+        sendError(req, res, `Could not fetch the spec: ${why}`, 502);
+      });
+    return;
+  }
+
   if (url.pathname === '/perf/stats') {
     try {
       const stats = perfSession.getStats(

@@ -662,6 +662,107 @@ function plSyncLiveHint() {
 }
 
 // =========================================================================
+// OPENAPI IMPORT — UI over the pure layer in perf-lab-openapi.js
+// =========================================================================
+// Picking an operation fills the whole form and then runs the Message Factory
+// analysis, so the path from "I have a service" to "I am generating varied
+// traffic against it" is two clicks.
+
+let plOas = { parsed: null, specUrl: '' };
+
+const PL_METHOD_COLORS = { GET: 'var(--info)', POST: 'var(--success)', PUT: 'var(--warning)', PATCH: 'var(--warning)', DELETE: 'var(--danger)' };
+
+function plOasStatus(html, tone) {
+  const el = plEl('pl-oas-status');
+  if (!el) return;
+  const color = tone === 'error' ? 'var(--danger)' : (tone === 'ok' ? 'var(--success)' : 'var(--text-muted)');
+  el.innerHTML = '<span style="color:' + color + '">' + html + '</span>';
+}
+
+async function plOasFetch() {
+  const specUrl = plEl('pl-oas-url').value.trim();
+  if (!specUrl) return plOasStatus('Enter the URL of the OpenAPI document.', 'error');
+  plOasStatus('Fetching…');
+  try {
+    const res = await fetch(PL_AGENT_URL + '/openapi/fetch?url=' + encodeURIComponent(specUrl));
+    const data = await res.json();
+    if (!res.ok || !data.success) return plOasStatus(escHtml(data.message || 'Could not fetch the document.'), 'error');
+    plOasLoad(data.body, data.url);
+  } catch (e) {
+    plOasStatus('Cannot reach the Observability Bridge on ' + PL_AGENT_URL + '. Start it with <code>npm start</code>, or paste the document below.', 'error');
+  }
+}
+
+function plOasParsePasted() {
+  const text = plEl('pl-oas-text').value;
+  // A pasted document has no URL of its own, so a relative server path has
+  // nothing to resolve against — the URL field is used as the hint instead.
+  plOasLoad(text, plEl('pl-oas-url').value.trim());
+}
+
+function plOasLoad(text, specUrl) {
+  const parsed = window.ploParseSpec(text, specUrl);
+  plOas.parsed = parsed.ok ? parsed : null;
+  plOas.specUrl = specUrl || '';
+  if (!parsed.ok) {
+    plEl('pl-oas-ops').innerHTML = '';
+    return plOasStatus(escHtml(parsed.error), 'error');
+  }
+  plOasStatus((parsed.title ? escHtml(parsed.title) + ' — ' : '') + parsed.operations.length
+    + ' operation' + (parsed.operations.length === 1 ? '' : 's') + ' (OpenAPI ' + (parsed.version === '3' ? '3' : '2.0') + '). Pick one to fill the form.', 'ok');
+  plOasRenderOps('');
+}
+
+function plOasRenderOps(filter) {
+  const box = plEl('pl-oas-ops');
+  if (!box || !plOas.parsed) return;
+  const needle = String(filter || '').toLowerCase();
+  let rows = '';
+  plOas.parsed.operations.forEach(function (o, i) {
+    const hay = (o.method + ' ' + o.path + ' ' + o.summary).toLowerCase();
+    if (needle && hay.indexOf(needle) === -1) return;
+    rows += '<button type="button" class="btn btn-ghost btn-sm" data-oas-op="' + i + '" style="display:flex;gap:8px;align-items:baseline;width:100%;text-align:left;justify-content:flex-start">'
+      + '<b style="color:' + (PL_METHOD_COLORS[o.method] || 'var(--text-muted)') + ';min-width:52px">' + escHtml(o.method) + '</b>'
+      + '<code style="font-size:0.78rem">' + escHtml(o.path) + '</code>'
+      + '<span style="color:var(--text-muted);font-size:0.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(o.summary) + '</span>'
+      + '</button>';
+  });
+  box.innerHTML = rows || '<div style="color:var(--text-muted);font-size:0.8rem;padding:var(--sp-2)">No operation matches that filter.</div>';
+}
+
+function plOasApply(index) {
+  if (!plOas.parsed) return;
+  const op = plOas.parsed.operations[index];
+  if (!op) return;
+  const req = window.ploOperationRequest(plOas.parsed, op);
+
+  plEl('pl-method').value = req.method;
+  window.plMethodChanged();
+  plEl('pl-url').value = req.url;
+  plEl('pl-url').dispatchEvent(new Event('input', { bubbles: true }));
+
+  // Merge rather than overwrite: an Authorization header the user already
+  // typed is the reason their previous run worked.
+  let headers = {};
+  const existing = plEl('pl-headers').value.trim();
+  if (existing) { try { headers = JSON.parse(existing); } catch (e) { headers = {}; } }
+  Object.keys(req.headers).forEach(function (k) { if (headers[k] === undefined) headers[k] = req.headers[k]; });
+  plEl('pl-headers').value = Object.keys(headers).length ? JSON.stringify(headers, null, 2) : '';
+
+  if (req.sample) {
+    plEl('pl-mf-sample').value = req.sample;
+    plEl('pl-mf').open = true;
+  }
+  plMf.hints = { url: req.paramFamilies || {}, body: req.bodyHints || {} };
+  // Run the analysis for them: the imported sample is exactly what the factory
+  // expects, and leaving it un-analyzed would send the static body instead.
+  plMfAnalyze();
+
+  const notes = req.notes.length ? ' ' + req.notes.map(escHtml).join(' ') : '';
+  plOasStatus('Filled from <b>' + escHtml(op.method + ' ' + op.path) + '</b>.' + notes, 'ok');
+}
+
+// =========================================================================
 // MESSAGE FACTORY — UI over the pure layer in perf-lab-messages.js
 // =========================================================================
 // The table configures ONE row per path; the engine still varies every
@@ -669,7 +770,9 @@ function plSyncLiveHint() {
 // and its `dfw-opt*` classes, so the Options column looks and behaves like the
 // one users already know — and adding a parameter there needs no code here.
 
-let plMf = { kind: '', source: '', fields: [], seed: 1 };
+// `hints` carries declared parameter types from an OpenAPI import, so the
+// factory stops guessing URL placeholder types from their names.
+let plMf = { kind: '', source: '', fields: [], seed: 1, hints: null };
 
 function plMfActive() {
   return plMf.fields.length > 0;
@@ -678,7 +781,7 @@ function plMfActive() {
 function plMfAnalyze() {
   const sample = plEl('pl-mf-sample').value;
   const url = plEl('pl-url').value.trim();
-  const res = window.plmAnalyze(sample, url);
+  const res = window.plmAnalyze(sample, url, plMf.hints);
 
   plMf.kind = res.kind;
   plMf.source = res.source;
@@ -938,6 +1041,30 @@ export function init() {
   if (urlInput && !urlInput.dataset.plBound) {
     urlInput.dataset.plBound = '1';
     urlInput.addEventListener('input', plSyncSliderRange);
+  }
+
+  const oasFetchBtn = plEl('pl-oas-fetch');
+  if (oasFetchBtn && !oasFetchBtn.dataset.plBound) {
+    oasFetchBtn.dataset.plBound = '1';
+    oasFetchBtn.addEventListener('click', plOasFetch);
+  }
+  const oasParseBtn = plEl('pl-oas-parse');
+  if (oasParseBtn && !oasParseBtn.dataset.plBound) {
+    oasParseBtn.dataset.plBound = '1';
+    oasParseBtn.addEventListener('click', plOasParsePasted);
+  }
+  const oasFilter = plEl('pl-oas-filter');
+  if (oasFilter && !oasFilter.dataset.plBound) {
+    oasFilter.dataset.plBound = '1';
+    oasFilter.addEventListener('input', function () { plOasRenderOps(oasFilter.value); });
+  }
+  const oasOps = plEl('pl-oas-ops');
+  if (oasOps && !oasOps.dataset.plBound) {
+    oasOps.dataset.plBound = '1';
+    oasOps.addEventListener('click', function (e) {
+      const btn = e.target.closest('[data-oas-op]');
+      if (btn) plOasApply(parseInt(btn.getAttribute('data-oas-op'), 10));
+    });
   }
 
   const analyzeBtn = plEl('pl-mf-analyze');

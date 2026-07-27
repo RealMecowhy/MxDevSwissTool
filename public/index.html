@@ -87,7 +87,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.28.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.29.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -268,7 +268,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.28.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.29.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -1914,6 +1914,29 @@
                 <button class="btn btn-secondary" style="padding:4px 8px;font-size:0.8rem" onclick="plLoadPreset()">Load Preset</button>
              </div>
            </div>
+           <details id="pl-oas" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-3)">
+             <summary style="cursor:pointer;font-weight:600;color:var(--text-primary);outline:none">Import from OpenAPI / Swagger</summary>
+             <div style="margin-top:var(--sp-3);display:flex;flex-direction:column;gap:var(--sp-3)">
+               <div style="font-size:0.8rem;color:var(--text-muted)">
+                 Point this at your service's <code>openapi.json</code>. Picking an operation fills the method, URL, headers and a sample body built from the schema — then hands that sample to the Message Factory. JSON documents only.
+               </div>
+               <div style="display:flex;gap:var(--sp-2)">
+                 <input class="input" id="pl-oas-url" style="flex:1" placeholder="https://myapp.mendixcloud.com/rest/orders/v1/openapi.json">
+                 <button class="btn btn-secondary btn-sm" id="pl-oas-fetch">Fetch</button>
+               </div>
+               <details>
+                 <summary style="cursor:pointer;font-size:0.8rem;color:var(--text-muted);outline:none">…or paste the document instead</summary>
+                 <div style="margin-top:var(--sp-2);display:flex;flex-direction:column;gap:var(--sp-2)">
+                   <textarea class="code-area" id="pl-oas-text" style="height:90px" placeholder='{"openapi": "3.0.1", "paths": { … }}'></textarea>
+                   <button class="btn btn-secondary btn-sm" id="pl-oas-parse" style="align-self:flex-start">Parse pasted document</button>
+                 </div>
+               </details>
+               <div id="pl-oas-status" style="font-size:0.8rem"></div>
+               <input class="input input-sm" id="pl-oas-filter" placeholder="Filter operations…">
+               <div id="pl-oas-ops" style="max-height:220px;overflow:auto;display:flex;flex-direction:column;gap:2px"></div>
+             </div>
+           </details>
+
            <div style="display:flex;gap:var(--sp-2)">
              <div class="form-group" style="width:110px">
                <div class="form-label">Method</div>

@@ -184,7 +184,7 @@ async function navigate(toolId, navEl, initialTab) {
     iconEl.style.color = tool.color || 'var(--accent)';
   }
   document.getElementById('topbar-title').textContent = tool.label;
-  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.28.0' : (tool.desc || '');
+  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.29.0' : (tool.desc || '');
   const previousTool = currentTool;
   currentTool = toolId;
   window.currentTool = currentTool;
@@ -454,6 +454,10 @@ import './tools/data-factory-seed.js';
 // varied message). The Bridge `require`s this same file, so the preview in the
 // browser and the traffic it sends come from one implementation.
 import './tools/perf-lab-messages.js';
+// Side-effect import: OpenAPI/Swagger import for the same tool — reads a
+// published spec and fills the request, emitting {placeholders} in the syntax
+// the Message Factory already understands.
+import './tools/perf-lab-openapi.js';
 import * as devStudio from './tools/dev-studio.js';
 import * as diff from './tools/diff.js';
 import * as encoder from './tools/encoder.js';

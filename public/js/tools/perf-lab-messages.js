@@ -205,11 +205,31 @@ function plmFamilyOf(sample, jsonType) {
   return 'text';
 }
 
+// Whole words, not substrings: `validate` ends in the letters "date" and is a
+// boolean, `paid` ends in "id" and is not a key. Splitting camelCase and
+// separators first is what keeps a name rule from firing on an accident.
+function plmNameTokens(name) {
+  return String(name == null ? '' : name)
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean)
+    .map(function (s) { return s.toLowerCase(); });
+}
+
+const PLM_NUMBER_WORDS = ['id', 'ids', 'number', 'nr', 'count', 'qty', 'quantity', 'amount', 'index', 'page', 'size', 'limit', 'offset', 'total'];
+const PLM_DATE_WORDS = ['date', 'day', 'from', 'to', 'since', 'until', 'timestamp'];
+const PLM_UUID_WORDS = ['guid', 'uuid'];
+
+function plmHasWord(tokens, words) {
+  for (let i = 0; i < tokens.length; i++) if (words.indexOf(tokens[i]) !== -1) return true;
+  return false;
+}
+
 function plmUrlFamily(name) {
-  const n = String(name || '').toLowerCase();
-  if (/id$|number|count|qty|quantity|amount|index|page|size|limit|offset/.test(n)) return 'number';
-  if (/^(from|to|since|until|date|day)/.test(n) || /date$/.test(n)) return 'date';
-  if (/(guid|uuid)/.test(n)) return 'uuid';
+  const tokens = plmNameTokens(name);
+  if (plmHasWord(tokens, PLM_UUID_WORDS)) return 'uuid';
+  if (plmHasWord(tokens, PLM_NUMBER_WORDS)) return 'number';
+  if (plmHasWord(tokens, PLM_DATE_WORDS)) return 'date';
   return 'text';
 }
 
@@ -223,7 +243,7 @@ function plmFallbackFor(family) {
 
 // One config row per path, in first-seen order. `occurrences` tells the user a
 // row drives several places in the message (an array's elements).
-function plmFieldsFromSlots(slots, origin) {
+function plmFieldsFromSlots(slots, origin, hints) {
   const byPath = {};
   const fields = [];
   const pick = PLM_GLOBAL.dfPickGenerator;
@@ -231,20 +251,31 @@ function plmFieldsFromSlots(slots, origin) {
   slots.forEach(function (s) {
     if (byPath[s.path]) { byPath[s.path].occurrences++; return; }
     // A URL placeholder has no sample value to read a type from, so the name is
-    // all there is. Guessing text for `{orderId}` would put a random word where
-    // the service expects a number and 404 every single request.
-    const family = origin === 'url' ? plmUrlFamily(s.name) : plmFamilyOf(s.sample, s.jsonType);
+    // all there is — unless the caller knows better. An OpenAPI import does:
+    // the spec declares the parameter's type, and a declared type beats any
+    // amount of guessing from a name.
+    // A hint is what an API specification DECLARED about this field. It beats
+    // both the name rules and the sample value, which are inferences.
+    const hint = hints ? (origin === 'url' ? hints[s.name] : hints[s.path]) : null;
+    const hintFamily = hint ? (typeof hint === 'string' ? hint : hint.family) : null;
+    const family = hintFamily || (origin === 'url' ? plmUrlFamily(s.name) : plmFamilyOf(s.sample, s.jsonType));
     const fallback = plmFallbackFor(family);
     const decided = pick ? pick(s.name, family, fallback) : { type: fallback, reason: 'from the sample value' };
+    // A declared enumeration is the strongest hint of all: anything outside the
+    // list comes back 400, so the run would measure validation, not the app.
+    const enumValues = (hint && hint.enumValues && hint.enumValues.length) ? hint.enumValues : null;
     const f = {
       path: s.path,
       name: s.name,
       origin: origin || 'body',
       sample: s.sample,
       family: family,
-      gen: decided.type,
-      reason: decided.reason,
-      params: PLM_GLOBAL.dfgDefaults ? PLM_GLOBAL.dfgDefaults(decided.type) : {},
+      gen: enumValues ? 'Enum' : decided.type,
+      reason: enumValues ? 'the specification lists the allowed values'
+        : (hintFamily ? 'from the API specification' : decided.reason),
+      params: enumValues
+        ? { values: enumValues, weights: [] }
+        : (PLM_GLOBAL.dfgDefaults ? PLM_GLOBAL.dfgDefaults(decided.type) : {}),
       constant: !!s.structural,
       unique: false,
       occurrences: 1
@@ -275,7 +306,14 @@ function plmUrlSlots(url) {
 
 // The single entry point the UI calls. Never throws: a malformed sample is a
 // typo, and an error message beats a stack trace.
-function plmAnalyze(sampleText, urlTemplate) {
+// hints — optional knowledge from an API specification, in two parts:
+//   { url:  { placeholderName: family | {family, enumValues} },
+//     body: { fieldPath:       {family, enumValues} } }
+// A plain string is accepted for url entries so a caller with nothing but a
+// family stays simple.
+function plmAnalyze(sampleText, urlTemplate, hints) {
+  const urlHints = hints && hints.url ? hints.url : hints;
+  const bodyHints = hints && hints.body ? hints.body : null;
   const kind = plmDetectKind(sampleText);
   const result = { kind: kind, source: String(sampleText == null ? '' : sampleText), fields: [], error: '' };
 
@@ -285,23 +323,23 @@ function plmAnalyze(sampleText, urlTemplate) {
       parsed = JSON.parse(result.source);
     } catch (e) {
       result.error = 'Not valid JSON: ' + e.message;
-      return plmWithUrlFields(result, urlTemplate);
+      return plmWithUrlFields(result, urlTemplate, urlHints);
     }
     const slots = [];
     plmJsonSlots(parsed, [], '', slots);
-    result.fields = plmFieldsFromSlots(slots, 'body');
+    result.fields = plmFieldsFromSlots(slots, 'body', bodyHints);
   } else if (kind === 'xml') {
-    result.fields = plmFieldsFromSlots(plmXmlSlots(result.source), 'body');
+    result.fields = plmFieldsFromSlots(plmXmlSlots(result.source), 'body', bodyHints);
     if (result.fields.length === 0) result.error = 'No text or attribute values found in this XML.';
   } else if (kind === 'text') {
     result.error = 'The sample is neither JSON nor XML — it will be sent unchanged.';
   }
 
-  return plmWithUrlFields(result, urlTemplate);
+  return plmWithUrlFields(result, urlTemplate, urlHints);
 }
 
-function plmWithUrlFields(result, urlTemplate) {
-  const urlFields = plmFieldsFromSlots(plmUrlSlots(urlTemplate), 'url');
+function plmWithUrlFields(result, urlTemplate, urlHints) {
+  const urlFields = plmFieldsFromSlots(plmUrlSlots(urlTemplate), 'url', urlHints);
   result.fields = urlFields.concat(result.fields);
   return result;
 }

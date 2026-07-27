@@ -3286,6 +3286,151 @@ eq('backoff: stays capped at 30s for a long outage (attempt 20)', global.dsBacko
 ok('backoff: monotonically non-decreasing up to the cap', global.dsBackoffDelay(3) >= global.dsBackoffDelay(2) && global.dsBackoffDelay(2) >= global.dsBackoffDelay(1));
 
 // =========================================================================
+// OPENAPI / SWAGGER IMPORT — spec → a filled-in request
+// =========================================================================
+console.log('\nOpenAPI import');
+require('../public/js/tools/perf-lab-openapi.js');
+// Also loaded here: the last assertions in this block check that an imported
+// operation actually feeds the Message Factory, which is the whole point of
+// emitting {placeholders} in OpenAPI's own syntax.
+require('../public/js/tools/perf-lab-messages.js');
+
+const OAS3 = {
+  openapi: '3.0.1',
+  info: { title: 'Orders API' },
+  servers: [{ url: '/rest/orders/v1' }],
+  paths: {
+    '/orders/{orderId}': {
+      parameters: [{ name: 'orderId', in: 'path', required: true, schema: { type: 'integer' } }],
+      get: { summary: 'Read one order', operationId: 'getOrder' },
+      put: {
+        summary: 'Replace an order',
+        parameters: [
+          { name: 'validate', in: 'query', required: true, schema: { type: 'boolean' } },
+          { name: 'dryRun', in: 'query', required: false, schema: { type: 'boolean' } },
+          { name: 'X-Correlation-Id', in: 'header', schema: { type: 'string', format: 'uuid' } }
+        ],
+        requestBody: { content: { 'application/json': { schema: { $ref: '#/components/schemas/Order' } } } }
+      }
+    }
+  },
+  components: {
+    schemas: {
+      Order: {
+        type: 'object',
+        properties: {
+          orderId: { type: 'integer' },
+          status: { type: 'string', enum: ['NEW', 'SHIPPED'] },
+          placedAt: { type: 'string', format: 'date-time' },
+          reference: { type: 'string', example: 'REF-9000' },
+          customer: { $ref: '#/components/schemas/Customer' },
+          lines: { type: 'array', items: { $ref: '#/components/schemas/Line' } }
+        }
+      },
+      Customer: {
+        type: 'object',
+        properties: { email: { type: 'string', format: 'email' }, parent: { $ref: '#/components/schemas/Customer' } }
+      },
+      Line: {
+        allOf: [
+          { type: 'object', properties: { sku: { type: 'string' } } },
+          { type: 'object', properties: { qty: { type: 'integer' } } }
+        ]
+      }
+    }
+  }
+};
+
+const p3 = global.ploParseSpec(OAS3, 'https://app.mendixcloud.com/rest/orders/v1/openapi.json');
+ok('oas3: parsed', p3.ok, p3.error);
+eq('oas3: version detected', p3.version, '3');
+eq('oas3: title read', p3.title, 'Orders API');
+eq('oas3: every method under a path becomes an operation', p3.operations.length, 2);
+// A relative server URL is the Mendix default; the host only exists on the URL
+// the document itself was fetched from.
+eq('oas3: a relative server url resolves against the spec url', p3.baseUrl, 'https://app.mendixcloud.com/rest/orders/v1');
+
+const put = p3.operations.filter(function (o) { return o.method === 'PUT'; })[0];
+const req3 = global.ploOperationRequest(p3, put);
+eq('oas3: path parameters stay as placeholders',
+  req3.url, 'https://app.mendixcloud.com/rest/orders/v1/orders/{orderId}?validate={validate}');
+ok('oas3: an optional query parameter is left out', req3.url.indexOf('dryRun') === -1, req3.url);
+ok('oas3: a header parameter is pre-filled', /^[0-9a-f-]{36}$/.test(req3.headers['X-Correlation-Id']), req3.headers['X-Correlation-Id']);
+eq('oas3: Content-Type comes from the declared media type', req3.headers['Content-Type'], 'application/json');
+eq('oas3: sample is JSON', req3.kind, 'json');
+
+const sample3 = JSON.parse(req3.sample);
+eq('oas3: $ref resolved into the body', typeof sample3.orderId, 'number');
+eq('oas3: an example in the spec wins over a guess', sample3.reference, 'REF-9000');
+eq('oas3: an enum uses its first value', sample3.status, 'NEW');
+ok('oas3: date-time format produces a date-time', /^\d{4}-\d{2}-\d{2}T/.test(sample3.placedAt), sample3.placedAt);
+ok('oas3: email format produces an email', /@/.test(sample3.customer.email), sample3.customer.email);
+// The load-bearing one: Customer.parent points at Customer. A naive walk hangs
+// the tab; the guard has to stop and emit null.
+eq('oas3: a circular $ref terminates instead of hanging', sample3.customer.parent, null);
+eq('oas3: allOf merges both branches', typeof sample3.lines[0].sku + '/' + typeof sample3.lines[0].qty, 'string/number');
+eq('oas3: an array sample carries two elements', sample3.lines.length, 2);
+
+// A declared enumeration must become an Enum generator holding exactly the
+// allowed values — a Mendix enumeration attribute 400s on anything else, and a
+// run against the error path looks fast and means nothing.
+ok('oas3: enum values are collected as a hint',
+  req3.bodyHints.status && req3.bodyHints.status.enumValues.join(',') === 'NEW,SHIPPED',
+  JSON.stringify(req3.bodyHints.status));
+eq('oas3: a nested field keeps its declared type',
+  req3.bodyHints['customer.email'].family, 'text');
+eq('oas3: an array element path uses the [] form',
+  !!req3.bodyHints['lines[].qty'], true);
+
+// The two waves have to meet: an imported sample must feed the Message Factory.
+const bridged = global.plmAnalyze(req3.sample, req3.url, { url: req3.paramFamilies, body: req3.bodyHints });
+const bridgedByPath = {};
+bridged.fields.forEach(function (f) { bridgedByPath[f.path] = f; });
+eq('import: an enum field becomes an Enum generator', bridgedByPath.status.gen, 'Enum');
+eq('import: holding exactly the declared values', (bridgedByPath.status.params.values || []).join(','), 'NEW,SHIPPED');
+eq('import: a declared boolean query parameter is not read as a date',
+  bridgedByPath['url:validate'].family, 'bool');
+ok('import feeds the Message Factory', bridged.fields.length > 0 && !bridged.error, bridged.error);
+ok('the imported URL placeholders become fields',
+  bridged.fields.some(function (f) { return f.path === 'url:orderId'; }) &&
+  bridged.fields.some(function (f) { return f.path === 'url:validate'; }),
+  bridged.fields.map(function (f) { return f.path; }).join(', '));
+
+const SWAGGER2 = {
+  swagger: '2.0',
+  info: { title: 'Legacy' },
+  host: 'legacy.example.com',
+  basePath: '/api',
+  schemes: ['https'],
+  consumes: ['application/json'],
+  paths: {
+    '/customers': {
+      post: {
+        summary: 'Create',
+        parameters: [{ name: 'body', in: 'body', schema: { $ref: '#/definitions/Customer' } }]
+      }
+    }
+  },
+  definitions: { Customer: { type: 'object', properties: { name: { type: 'string' }, active: { type: 'boolean' } } } }
+};
+
+const p2 = global.ploParseSpec(SWAGGER2, '');
+ok('swagger2: parsed', p2.ok, p2.error);
+eq('swagger2: version detected', p2.version, '2');
+eq('swagger2: base url built from scheme, host and basePath', p2.baseUrl, 'https://legacy.example.com/api');
+const req2 = global.ploOperationRequest(p2, p2.operations[0]);
+eq('swagger2: the body parameter becomes the sample', JSON.parse(req2.sample).active, true);
+eq('swagger2: definitions are resolved', typeof JSON.parse(req2.sample).name, 'string');
+eq('swagger2: Content-Type comes from consumes', req2.headers['Content-Type'], 'application/json');
+
+// Failure modes: say what is wrong, in terms the user can act on.
+ok('yaml input is named as yaml, not "invalid json"',
+  /YAML/.test(global.ploParseSpec('openapi: 3.0.0\npaths: {}\n', '').error), global.ploParseSpec('openapi: 3.0.0\n', '').error);
+ok('an unrelated JSON document is refused', /not an OpenAPI/.test(global.ploParseSpec('{"hello":"world"}', '').error));
+ok('a spec without operations says so', /no operations/.test(global.ploParseSpec('{"openapi":"3.0.0","paths":{}}', '').error));
+ok('empty input is refused', !global.ploParseSpec('', '').ok);
+
+// =========================================================================
 // MESSAGE FACTORY — sample message → varied traffic
 // =========================================================================
 console.log('\nMessage Factory');
@@ -3430,6 +3575,16 @@ const aUrl = global.plmAnalyze('', '/rest/orders/{orderId}?since={fromDate}');
 const uf = plmFieldsByPath(aUrl.fields);
 ok('url: placeholders become fields', !!uf['url:orderId'] && !!uf['url:fromDate']);
 eq('url: an id placeholder is treated as numeric', uf['url:orderId'].family, 'number');
+// Whole words, not substrings: `validate` ends in the letters "date" and is
+// usually a flag; `paid` ends in "id" and is not a key. Matching on substrings
+// put a timestamp into a boolean query parameter and 400'd every request.
+eq('url: "validate" is not a date', global.plmAnalyze('', '/x?v={validate}').fields[0].family, 'text');
+eq('url: "paid" is not an id', global.plmAnalyze('', '/x?p={paid}').fields[0].family, 'text');
+eq('url: "orderDate" still is a date', global.plmAnalyze('', '/x?d={orderDate}').fields[0].family, 'date');
+eq('url: "customer_id" still is a number', global.plmAnalyze('', '/x?c={customer_id}').fields[0].family, 'number');
+// A declared type from an API spec always wins over any name rule.
+eq('url: a spec-declared type beats the name',
+  global.plmAnalyze('', '/x?d={orderDate}', { url: { orderDate: 'number' } }).fields[0].family, 'number');
 eq('url: a date placeholder is treated as a date', uf['url:fromDate'].family, 'date');
 // Left on the inferred defaults on purpose: a numeric-looking path parameter
 // has to produce a number without the user touching anything, or every request
