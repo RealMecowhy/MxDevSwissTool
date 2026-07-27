@@ -30,6 +30,7 @@ let plCharts = {};
 let plLastChartUpdate = 0;
 let plTestStartTime = 0;
 
+let plRunning = false;     // drives the summary's tense; false before the final render
 let plSession = null;      // { id, sinceBucket, sinceSample } while a server run is live
 let plBuckets = [];        // accumulated per-second buckets from the server
 let plAdjustTimer = null;
@@ -242,6 +243,7 @@ function plVmFromResults() {
     rps: elapsedMs > 0 ? +(plResults.length / (elapsedMs / 1000)).toFixed(2) : 0,
     rpsRecent: null,
     activeWorkers: plActiveCount,
+    elapsedMs: elapsedMs,
     exact: true,
     statusCounts,
     buckets: bucketList,
@@ -260,12 +262,275 @@ function plVmFromStats(stats) {
     rps: stats.rps,
     rpsRecent: stats.rpsRecent,
     activeWorkers: stats.activeWorkers,
+    elapsedMs: stats.elapsedMs,
     exact: false,
     statusCounts: stats.statusCounts,
     buckets: plBuckets,
     samples: plResults.map(r => ({ t: r.start, ms: r.time })),
     hist: stats.hist
   };
+}
+
+// =========================================================================
+// AUTHENTICATION (pure)
+// =========================================================================
+// A published Mendix REST service is protected by a user role, so nearly every
+// real run needs credentials. They become an Authorization header HERE, once,
+// and are merged into the headers both engines send — otherwise the same test
+// would pass in the browser and 401 on the Bridge.
+//
+// Base64 runs over UTF-8 bytes instead of through btoa(), which throws on
+// anything outside Latin-1. A Polish password is not an edge case in a Mendix
+// shop, and the runtime authenticates the UTF-8 bytes.
+
+const PL_B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+function plBase64Utf8(str) {
+  const bytes = new TextEncoder().encode(str);
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const b0 = bytes[i];
+    const b1 = i + 1 < bytes.length ? bytes[i + 1] : -1;
+    const b2 = i + 2 < bytes.length ? bytes[i + 2] : -1;
+    out += PL_B64[b0 >> 2];
+    out += PL_B64[((b0 & 3) << 4) | (b1 < 0 ? 0 : b1 >> 4)];
+    out += b1 < 0 ? '=' : PL_B64[((b1 & 15) << 2) | (b2 < 0 ? 0 : b2 >> 6)];
+    out += b2 < 0 ? '=' : PL_B64[b2 & 63];
+  }
+  return out;
+}
+
+// Returns { value, error }: the header value, or the reason there isn't one.
+// Nothing here guesses — an unusable credential stops the run instead of
+// sending a header the target will reject on every single request.
+function plAuthHeader(auth) {
+  const type = (auth && auth.type) || 'none';
+  if (type === 'none') return { value: null, error: '' };
+
+  if (type === 'basic') {
+    const user = String((auth && auth.username) || '');
+    const pass = String((auth && auth.password) || '');
+    // An API key used as the username with an empty password is a real pattern,
+    // so only a completely empty pair is wrong.
+    if (!user && !pass) return { value: null, error: 'Basic auth needs a username (an API key as the username with an empty password is fine).' };
+    if (/[\r\n]/.test(user + pass)) return { value: null, error: 'Credentials cannot contain a line break — check for a wrapped paste.' };
+    // Basic auth splits on the FIRST colon, so one inside the username would
+    // hand its tail to the password field and fail with no visible reason.
+    if (user.indexOf(':') !== -1) return { value: null, error: 'A username cannot contain a colon — Basic auth uses it to separate the username from the password.' };
+    return { value: 'Basic ' + plBase64Utf8(user + ':' + pass), error: '' };
+  }
+
+  if (type === 'bearer') {
+    const raw = String((auth && auth.token) || '').trim();
+    if (/[\r\n]/.test(raw)) return { value: null, error: 'The token cannot contain a line break — check for a wrapped paste.' };
+    // Copying "Bearer eyJ…" straight out of the docs or Postman is the norm.
+    const token = raw.replace(/^Bearer\s+/i, '').trim();
+    if (!token) return { value: null, error: 'Bearer auth needs a token.' };
+    return { value: 'Bearer ' + token, error: '' };
+  }
+
+  return { value: null, error: 'Unknown authentication type: ' + type };
+}
+
+// Header names are case-insensitive, which is exactly why this matters: a typed
+// `authorization` next to a built `Authorization` would go out as two
+// contradictory headers.
+function plApplyAuth(headers, value) {
+  const out = {};
+  let replaced = false;
+  Object.keys(headers || {}).forEach(function (k) {
+    if (value && /^authorization$/i.test(k)) { replaced = true; return; }
+    out[k] = headers[k];
+  });
+  if (value) out.Authorization = value;
+  return { headers: out, replaced: replaced };
+}
+
+// =========================================================================
+// RUN SUMMARY (pure)
+// =========================================================================
+// The charts show what happened; this says it in words that survive a paste
+// into a ticket. Every sentence is derived from the run — where the data does
+// not support a statement, the statement is absent rather than softened.
+
+const PL_STATUS_TEXT = {
+  '400': 'Bad Request', '401': 'Unauthorized', '403': 'Forbidden', '404': 'Not Found',
+  '405': 'Method Not Allowed', '409': 'Conflict', '415': 'Unsupported Media Type',
+  '429': 'Too Many Requests', '500': 'Internal Server Error', '502': 'Bad Gateway',
+  '503': 'Service Unavailable', '504': 'Gateway Timeout'
+};
+
+function plFmtMs(ms) {
+  const n = Number(ms) || 0;
+  if (n >= 10000) return (n / 1000).toFixed(1) + ' s';
+  return (Math.round(n * 10) / 10) + ' ms';
+}
+
+function plFmtDur(ms) {
+  const s = (Number(ms) || 0) / 1000;
+  return s >= 90 ? (s / 60).toFixed(1) + ' min' : s.toFixed(1) + ' s';
+}
+
+// Grouped by hand rather than through toLocaleString(), whose separator depends
+// on the machine's locale — the same run would then read differently per user.
+function plFmtCount(n) {
+  return String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+}
+
+function plStatusFailed(key) {
+  if (key === 'Error' || key === 'Timeout') return true;
+  const n = parseInt(key, 10);
+  return isFinite(n) && n >= 400;
+}
+
+function plStatusLabel(key) {
+  return PL_STATUS_TEXT[key] ? key + ' ' + PL_STATUS_TEXT[key] : key;
+}
+
+// Per-second buckets already carry the thread count, so what each level of the
+// slider actually bought falls straight out of them.
+//
+// The second in which the count CHANGED is dropped: it holds traffic from both
+// levels, and charging it to either one invents throughput that never happened
+// there. A level left with a single second is dropped too — one second is a
+// sample of one, and printing a req/s next to it dresses noise as measurement.
+function plThreadLevels(buckets) {
+  const list = buckets || [];
+  const byThreads = {};
+  const order = [];
+  for (let i = 0; i < list.length; i++) {
+    const b = list[i];
+    if (!b || typeof b.threads !== 'number' || !b.threads) continue;
+    if (i > 0 && list[i - 1] && list[i - 1].threads !== b.threads) continue;
+    if (!byThreads[b.threads]) {
+      byThreads[b.threads] = { threads: b.threads, seconds: 0, requests: 0, errors: 0, sumMs: 0, maxMs: 0 };
+      order.push(b.threads);
+    }
+    const lvl = byThreads[b.threads];
+    lvl.seconds++;
+    lvl.requests += b.n || 0;
+    lvl.errors += b.errs || 0;
+    lvl.sumMs += (b.avg || 0) * (b.n || 0);
+    if ((b.max || 0) > lvl.maxMs) lvl.maxMs = b.max || 0;
+  }
+
+  const levels = order.map(function (t) { return byThreads[t]; })
+    .filter(function (l) { return l.seconds >= 2; })
+    .sort(function (a, b) { return a.threads - b.threads; })
+    .map(function (l) {
+      return {
+        threads: l.threads,
+        seconds: l.seconds,
+        requests: l.requests,
+        errors: l.errors,
+        rps: +(l.requests / l.seconds).toFixed(1),
+        avgMs: l.requests ? +(l.sumMs / l.requests).toFixed(1) : 0,
+        maxMs: l.maxMs
+      };
+    });
+
+  return levels.length >= 2 ? levels : [];
+}
+
+function plSummarize(vm, meta) {
+  const m = meta || {};
+  const completed = vm.completed || 0;
+  const errPct = completed ? +(vm.errors * 100 / completed).toFixed(1) : 0;
+  const dur = plFmtDur(vm.elapsedMs);
+  const levels = plThreadLevels(vm.buckets);
+  const notes = [];
+
+  const statuses = completed ? Object.keys(vm.statusCounts || {}).map(function (k) {
+    const n = vm.statusCounts[k];
+    return { status: k, label: plStatusLabel(k), n: n, pct: +(n * 100 / completed).toFixed(1), failed: plStatusFailed(k) };
+  }).sort(function (a, b) { return b.n - a.n; }) : [];
+
+  const errText = vm.errors ? plFmtCount(vm.errors) + ' error' + (vm.errors === 1 ? '' : 's') + ' (' + errPct + '%)' : 'no errors';
+  let headline;
+  if (!completed) {
+    headline = 'No responses came back — ' + plFmtCount(vm.sent) + ' request' + (vm.sent === 1 ? '' : 's') + ' sent in ' + dur + '.';
+  } else if (m.running) {
+    headline = 'Running for ' + dur + ' — ' + plFmtCount(completed) + ' requests so far, '
+      + (vm.rps || 0).toFixed(1) + ' req/s, ' + errText + ', p95 ' + plFmtMs(vm.p95) + '.';
+  } else {
+    headline = plFmtCount(completed) + ' request' + (completed === 1 ? '' : 's') + ' in ' + dur + ' — '
+      + (vm.rps || 0).toFixed(1) + ' req/s, ' + errText + ', p95 ' + plFmtMs(vm.p95) + '.';
+  }
+
+  // Thread span comes from the buckets rather than the slider: the slider shows
+  // where it was left, the buckets show where the run actually was.
+  const threadVals = (vm.buckets || []).map(function (b) { return b.threads || 0; }).filter(Boolean);
+  const threadText = threadVals.length
+    ? (Math.min.apply(null, threadVals) === Math.max.apply(null, threadVals)
+      ? Math.max.apply(null, threadVals) + ' threads'
+      : Math.min.apply(null, threadVals) + ' → ' + Math.max.apply(null, threadVals) + ' threads')
+    : '';
+
+  const facts = [
+    { label: 'Target', value: (m.method || 'GET') + ' ' + (m.url || '') },
+    { label: 'Run', value: [m.mode === 'continuous' ? 'Continuous' : 'Fixed count', m.engine === 'server' ? 'Bridge engine' : 'Browser engine', threadText].filter(Boolean).join(' · ') },
+    { label: 'Duration', value: dur },
+    { label: 'Requests', value: plFmtCount(completed) + ' completed' + (vm.sent > completed ? ' of ' + plFmtCount(vm.sent) + ' sent' : '') },
+    { label: 'Errors', value: vm.errors ? plFmtCount(vm.errors) + ' (' + errPct + '%)' : 'none' },
+    { label: 'Throughput', value: (vm.rps || 0).toFixed(1) + ' req/s' }
+  ];
+  if (completed) {
+    facts.push({ label: 'Latency', value: 'min ' + plFmtMs(vm.min) + ' · avg ' + plFmtMs(vm.avg) + ' · max ' + plFmtMs(vm.max) });
+    facts.push({ label: 'Percentiles', value: 'p50 ' + plFmtMs(vm.p50) + ' · p95 ' + plFmtMs(vm.p95) + ' · p99 ' + plFmtMs(vm.p99) + (vm.exact ? '' : ' (±1 bin)') });
+  }
+
+  // A run that was rejected end to end still produces latency numbers, and they
+  // look excellent — a 401 is fast. Saying which path was measured is the
+  // difference between a summary and a misleading one.
+  if (statuses.length && statuses[0].failed && statuses[0].pct >= 50) {
+    notes.push(plFmtCount(statuses[0].n) + ' of ' + plFmtCount(completed) + ' responses were ' + statuses[0].label
+      + ' — those requests measured the rejection, not the endpoint\'s work.');
+  }
+
+  // The knee: where extra threads stopped buying throughput and started buying
+  // latency. Reported as the ratios it is, without a recommendation attached.
+  for (let i = 1; i < levels.length; i++) {
+    const lo = levels[i - 1], hi = levels[i];
+    if (!lo.rps || !lo.avgMs) continue;
+    const tRatio = hi.threads / lo.threads;
+    const rRatio = hi.rps / lo.rps;
+    const aRatio = hi.avgMs / lo.avgMs;
+    if (rRatio < tRatio * 0.75 && aRatio > 1.5) {
+      notes.push('Threads ×' + (+tRatio.toFixed(1)) + ' bought ×' + (+rRatio.toFixed(1)) + ' throughput at ×' + (+aRatio.toFixed(1))
+        + ' average latency (' + lo.threads + ' → ' + hi.threads + ' threads, ' + lo.rps + ' → ' + hi.rps + ' req/s, '
+        + plFmtMs(lo.avgMs) + ' → ' + plFmtMs(hi.avgMs) + '): past ' + lo.threads + ' threads the queue grew faster than the work done.');
+      break;
+    }
+  }
+
+  if (levels.length) notes.push('The second in which the thread count changed is left out of both levels — it carries traffic from both.');
+  if (completed && !vm.exact) notes.push('Percentiles come from a fixed-bin histogram, so they are accurate to a bin width (1 ms below 100 ms, 5 ms below 1 s, 50 ms below 10 s).');
+  if (m.mfActive) notes.push('Every request carried its own generated message (Message Factory, seed ' + m.seed + ').');
+  if (m.sampleGap) notes.push('The run outpaced the sample buffer, so the scatter chart and the CSV are missing individual samples. Every number above covers all requests.');
+  if (m.authType && m.authType !== 'none') notes.push('Requests were sent with ' + (m.authType === 'basic' ? 'Basic' : 'Bearer') + ' authentication.');
+
+  return { headline: headline, facts: facts, statuses: statuses, levels: levels, notes: notes };
+}
+
+function plSummaryMarkdown(sum) {
+  let md = '**' + sum.headline + '**\n\n';
+  sum.facts.forEach(function (f) { md += '- **' + f.label + ':** ' + f.value + '\n'; });
+
+  if (sum.statuses.length) {
+    md += '\n| Status | Requests | Share |\n|---|---:|---:|\n';
+    sum.statuses.forEach(function (s) { md += '| ' + s.label + ' | ' + plFmtCount(s.n) + ' | ' + s.pct + '% |\n'; });
+  }
+  if (sum.levels.length) {
+    md += '\n**Throughput by thread count**\n\n| Threads | Seconds | Requests | req/s | Avg | Max |\n|---:|---:|---:|---:|---:|---:|\n';
+    sum.levels.forEach(function (l) {
+      md += '| ' + l.threads + ' | ' + l.seconds + ' | ' + plFmtCount(l.requests) + ' | ' + l.rps + ' | ' + plFmtMs(l.avgMs) + ' | ' + plFmtMs(l.maxMs) + ' |\n';
+    });
+  }
+  if (sum.notes.length) {
+    md += '\n';
+    sum.notes.forEach(function (n) { md += '- ' + n + '\n'; });
+  }
+  return md;
 }
 
 function plRenderTiles(vm) {
@@ -290,8 +555,63 @@ function plRender(vm, force) {
   const now = performance.now();
   if (force || now - plLastChartUpdate > 900) {
     plRenderCharts(vm);
+    plRenderSummary(vm);
     plLastChartUpdate = now;
   }
+}
+
+// The summary describes THE RUN, so its context is frozen when the run starts —
+// reading the form afterwards would let an idle edit rewrite the history of a
+// finished test.
+let plRunMeta = null;
+let plLastSummary = null;
+
+function plRenderSummary(vm) {
+  const box = plEl('pl-summary');
+  if (!box) return;
+  if (!plRunMeta || (!vm.completed && !vm.sent)) {
+    box.style.display = 'none';
+    box.innerHTML = '';
+    plLastSummary = null;
+    return;
+  }
+
+  const sum = plSummarize(vm, Object.assign({}, plRunMeta, { running: plRunning, sampleGap: plSampleGap }));
+  plLastSummary = sum;
+
+  let html = '<div style="display:flex;justify-content:space-between;align-items:center;gap:var(--sp-2);margin-bottom:var(--sp-2)">'
+    + '<div style="font-weight:600;color:var(--text-primary)">Summary</div>'
+    + '<button type="button" class="btn btn-ghost btn-sm" id="pl-summary-copy">Copy as Markdown</button></div>'
+    + '<div style="color:var(--text-primary)">' + escHtml(sum.headline) + '</div>';
+
+  if (sum.statuses.length) {
+    html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:var(--sp-2)">';
+    sum.statuses.forEach(function (s) {
+      const color = s.failed ? 'var(--danger)' : 'var(--success)';
+      html += '<span style="font-size:0.75rem;border:1px solid ' + color + ';color:' + color + ';border-radius:999px;padding:1px 8px">'
+        + escHtml(s.label) + ' — ' + plFmtCount(s.n) + ' (' + s.pct + '%)</span>';
+    });
+    html += '</div>';
+  }
+
+  if (sum.levels.length) {
+    html += '<table class="table table-sm" style="width:100%;margin-top:var(--sp-3);font-size:0.78rem">'
+      + '<thead><tr><th title="Thread count while these seconds were running">Threads</th><th>Seconds</th><th>Requests</th><th>req/s</th><th>Avg</th><th>Max</th></tr></thead><tbody>';
+    sum.levels.forEach(function (l) {
+      html += '<tr><td><b>' + l.threads + '</b></td><td>' + l.seconds + '</td><td>' + plFmtCount(l.requests) + '</td><td>' + l.rps
+        + '</td><td>' + plFmtMs(l.avgMs) + '</td><td>' + plFmtMs(l.maxMs) + '</td></tr>';
+    });
+    html += '</tbody></table>';
+  }
+
+  if (sum.notes.length) {
+    html += '<ul style="margin:var(--sp-3) 0 0;padding-left:1.1rem;font-size:0.78rem;color:var(--text-muted)">';
+    sum.notes.forEach(function (n) { html += '<li style="margin-bottom:3px">' + escHtml(n) + '</li>'; });
+    html += '</ul>';
+  }
+
+  box.innerHTML = html;
+  box.style.display = 'block';
 }
 
 // =========================================================================
@@ -329,6 +649,50 @@ function plIsExternalTarget(rawUrl) {
   return host.indexOf('.') !== -1;
 }
 
+// The credentials live in the form and nowhere else: not in a preset, not in
+// localStorage. They travel with the run — to the target directly on the
+// browser engine, through the Bridge on the server engine.
+function plReadAuth() {
+  const typeEl = plEl('pl-auth-type');
+  return {
+    type: typeEl ? typeEl.value : 'none',
+    username: plEl('pl-auth-user') ? plEl('pl-auth-user').value : '',
+    password: plEl('pl-auth-pass') ? plEl('pl-auth-pass').value : '',
+    token: plEl('pl-auth-token') ? plEl('pl-auth-token').value : ''
+  };
+}
+
+function plAuthChanged() {
+  const type = plEl('pl-auth-type') ? plEl('pl-auth-type').value : 'none';
+  const basic = plEl('pl-auth-basic');
+  const bearer = plEl('pl-auth-bearer');
+  if (basic) basic.style.display = type === 'basic' ? 'flex' : 'none';
+  if (bearer) bearer.style.display = type === 'bearer' ? 'block' : 'none';
+
+  // Data-driven: with no authentication configured there is nothing to explain.
+  const note = plEl('pl-auth-note');
+  if (!note) return;
+  if (type === 'none') {
+    note.style.display = 'none';
+    note.innerHTML = '';
+    return;
+  }
+  let msg = 'Sent as an <code>Authorization</code> header on every request. Presets remember the username — never the password or token.';
+  if (plHeadersHaveAuth()) msg += ' <span style="color:var(--warning)">The <code>Authorization</code> header in <b>Headers &amp; Body</b> is replaced by this one.</span>';
+  note.innerHTML = msg;
+  note.style.display = 'block';
+}
+
+function plHeadersHaveAuth() {
+  const el = plEl('pl-headers');
+  if (!el || !el.value.trim()) return false;
+  try {
+    return Object.keys(JSON.parse(el.value)).some(function (k) { return /^authorization$/i.test(k); });
+  } catch (e) {
+    return false;
+  }
+}
+
 function plReadConfig() {
   const url = plEl('pl-url').value.trim();
   const method = plEl('pl-method').value;
@@ -348,6 +712,16 @@ function plReadConfig() {
     }
   }
 
+  // Bad credentials would 401 every request in the run and the numbers would
+  // look great — so this stops before the run rather than during it.
+  const auth = plReadAuth();
+  const authHeader = plAuthHeader(auth);
+  if (authHeader.error) {
+    plShowError(escHtml(authHeader.error));
+    return null;
+  }
+  headers = plApplyAuth(headers, authHeader.value).headers;
+
   let body;
   if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
     const bodyStr = plEl('pl-body').value.trim();
@@ -362,7 +736,8 @@ function plReadConfig() {
     mode: runmode,
     count: parseInt(plEl('pl-count').value, 10) || 1,
     concurrency: plTargetConcurrency(),
-    confirmExternal: !!(confirmEl && confirmEl.checked)
+    confirmExternal: !!(confirmEl && confirmEl.checked),
+    authType: auth.type
   };
 }
 
@@ -394,6 +769,19 @@ function plStart() {
   plSession = null;
   plTestStartTime = performance.now();
   plLastChartUpdate = 0;
+
+  plRunning = true;
+  plRunMeta = {
+    method: cfg.method,
+    url: cfg.url,
+    mode: cfg.mode,
+    engine: plEl('pl-engine') ? plEl('pl-engine').value : 'browser',
+    mfActive: !!cfg.message,
+    seed: cfg.message ? cfg.message.seed : 0,
+    authType: cfg.authType
+  };
+  const summaryBox = plEl('pl-summary');
+  if (summaryBox) { summaryBox.style.display = 'none'; summaryBox.innerHTML = ''; }
 
   plEl('pl-empty-state').style.display = 'none';
   plEl('pl-results-content').style.display = 'flex';
@@ -529,6 +917,7 @@ async function plPoll() {
     if (plResults.length > PL_EXPORT_MAX) plResults.splice(0, plResults.length - PL_EXPORT_MAX);
 
     const running = stats.session.running;
+    plRunning = running;
     plRender(plVmFromStats(stats), !running);
 
     if (running) {
@@ -562,6 +951,7 @@ function plStop() {
 function plFinish() {
   const wasServerRun = plSession !== null;
   plSession = null;
+  plRunning = false;
   plEl('pl-btn-start').style.display = 'inline-block';
   plEl('pl-btn-stop').style.display = 'none';
   plEl('pl-status').innerText = 'Completed.';
@@ -682,9 +1072,18 @@ function plOasStatus(html, tone) {
 async function plOasFetch() {
   const specUrl = plEl('pl-oas-url').value.trim();
   if (!specUrl) return plOasStatus('Enter the URL of the OpenAPI document.', 'error');
+
+  // A published Mendix REST service usually protects its own openapi.json with
+  // the same user role as the operations, so the credentials configured for the
+  // run are handed to the Bridge for this fetch too. Its own header name: the
+  // Bridge must not confuse the target's credentials with its own token.
+  const auth = plAuthHeader(plReadAuth());
+  if (auth.error) return plOasStatus(escHtml(auth.error), 'error');
+  const headers = auth.value ? { 'X-Target-Authorization': auth.value } : {};
+
   plOasStatus('Fetching…');
   try {
-    const res = await fetch(PL_AGENT_URL + '/openapi/fetch?url=' + encodeURIComponent(specUrl));
+    const res = await fetch(PL_AGENT_URL + '/openapi/fetch?url=' + encodeURIComponent(specUrl), { headers: headers });
     const data = await res.json();
     if (!res.ok || !data.success) return plOasStatus(escHtml(data.message || 'Could not fetch the document.'), 'error');
     plOasLoad(data.body, data.url);
@@ -952,6 +1351,10 @@ window.plSavePreset = function () {
     count: plEl('pl-count').value,
     engine: plEl('pl-engine') ? plEl('pl-engine').value : 'browser',
     runmode: plEl('pl-runmode') ? plEl('pl-runmode').value : 'count',
+    // Auth type and username only. A password or token in localStorage would
+    // outlive the session, the tab and the user's memory of saving it.
+    authType: plEl('pl-auth-type') ? plEl('pl-auth-type').value : 'none',
+    authUser: plEl('pl-auth-user') ? plEl('pl-auth-user').value : '',
     // The field map is the expensive part to rebuild — a preset that restored
     // the URL but not the message would send the wrong traffic on the next run.
     mfSample: plEl('pl-mf-sample') ? plEl('pl-mf-sample').value : '',
@@ -975,6 +1378,9 @@ window.plLoadPreset = function () {
     if (preset.count) plEl('pl-count').value = preset.count;
     if (preset.engine && plEl('pl-engine')) plEl('pl-engine').value = preset.engine;
     if (preset.runmode && plEl('pl-runmode')) plEl('pl-runmode').value = preset.runmode;
+    if (plEl('pl-auth-type')) plEl('pl-auth-type').value = preset.authType || 'none';
+    if (plEl('pl-auth-user')) plEl('pl-auth-user').value = preset.authUser || '';
+    plAuthChanged();
     plRunModeChanged();
     if (preset.conc) plSetConcurrency(preset.conc);
     plCheckConcurrency();
@@ -1020,6 +1426,11 @@ window.plStop = plStop;
 window.plFinish = plFinish;
 window.plGetChartColors = plGetChartColors;
 window.plCheckConcurrency = plCheckConcurrency;
+// Pure layers — also exercised by scripts/parser-test.js in Node.
+window.plAuthHeader = plAuthHeader;
+window.plApplyAuth = plApplyAuth;
+window.plSummarize = plSummarize;
+window.plSummaryMarkdown = plSummaryMarkdown;
 
 export function init() {
   const slider = plEl('pl-concurrency');
@@ -1041,6 +1452,25 @@ export function init() {
   if (urlInput && !urlInput.dataset.plBound) {
     urlInput.dataset.plBound = '1';
     urlInput.addEventListener('input', plSyncSliderRange);
+  }
+  const authType = plEl('pl-auth-type');
+  if (authType && !authType.dataset.plBound) {
+    authType.dataset.plBound = '1';
+    authType.addEventListener('change', plAuthChanged);
+  }
+  // The headers box can introduce or remove the conflict the note warns about.
+  const headersBox = plEl('pl-headers');
+  if (headersBox && !headersBox.dataset.plBound) {
+    headersBox.dataset.plBound = '1';
+    headersBox.addEventListener('input', plAuthChanged);
+  }
+  // The summary is rebuilt on every render, so its button cannot own a listener.
+  const summaryBox = plEl('pl-summary');
+  if (summaryBox && !summaryBox.dataset.plBound) {
+    summaryBox.dataset.plBound = '1';
+    summaryBox.addEventListener('click', function (e) {
+      if (e.target.closest('#pl-summary-copy') && plLastSummary) window.copyToClipboard(plSummaryMarkdown(plLastSummary));
+    });
   }
 
   const oasFetchBtn = plEl('pl-oas-fetch');

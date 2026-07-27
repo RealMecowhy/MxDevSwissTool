@@ -3662,6 +3662,170 @@ ok('target gate: 172.320.0.1 is not a valid address, so not private', !perfSessi
 ok('target gate: a single-label intranet host counts as local', perfSession.isPrivateOrLocalHost('mxapp-test'));
 ok('target gate: a .local host counts as local', perfSession.isPrivateOrLocalHost('mendix-dev.local'));
 
+// =========================================================================
+// REST LOAD TESTER — AUTHENTICATION (wave 4)
+// =========================================================================
+// A published Mendix REST service is protected by a user role, so nearly every
+// real run needs credentials. The header is built in ONE pure place and handed
+// to whichever engine runs — the browser and the Bridge must send the same
+// bytes, or "works in the browser, 401 on the Bridge" becomes a bug hunt.
+console.log('\nREST Load Tester — auth header');
+
+eq('auth: none produces no header', global.plAuthHeader({ type: 'none' }).value, null);
+eq('auth: no config at all produces no header', global.plAuthHeader(null).value, null);
+
+const basic = global.plAuthHeader({ type: 'basic', username: 'MxAdmin', password: 'secret' });
+eq('auth: basic is RFC 7617 base64 of user:pass', basic.value, 'Basic TXhBZG1pbjpzZWNyZXQ=');
+eq('auth: a valid basic header reports no error', basic.error, '');
+
+// btoa() throws on anything outside Latin-1, so a Polish password would break
+// the run in the browser engine while working on the Bridge. Encoding UTF-8
+// bytes first is the fix — and Mendix hashes the UTF-8 bytes too.
+eq('auth: a non-ASCII password is encoded as UTF-8, not rejected',
+  global.plAuthHeader({ type: 'basic', username: 'jan', password: 'zażółć' }).value,
+  'Basic amFuOnphxbzDs8WCxIc=');
+eq('auth: a non-ASCII username survives the same way',
+  global.plAuthHeader({ type: 'basic', username: 'żółw', password: 'x' }).value,
+  'Basic xbzDs8WCdzp4');
+
+// Base64 padding depends on the byte count, so all three residues have to be
+// right — a wrong pad character is an invalid header the target rejects.
+eq('auth: 3-byte credentials need no padding', global.plAuthHeader({ type: 'basic', username: 'a', password: 'b' }).value, 'Basic YTpi');
+eq('auth: 4-byte credentials pad with ==', global.plAuthHeader({ type: 'basic', username: 'ab', password: 'c' }).value, 'Basic YWI6Yw==');
+eq('auth: 5-byte credentials pad with =', global.plAuthHeader({ type: 'basic', username: 'abc', password: 'd' }).value, 'Basic YWJjOmQ=');
+
+// An API key is routinely used as the username with an empty password, so only
+// a completely empty pair is an error.
+ok('auth: a username with an empty password is allowed', !!global.plAuthHeader({ type: 'basic', username: 'apikey', password: '' }).value);
+ok('auth: an empty basic pair is refused instead of sending "Basic Og=="', !global.plAuthHeader({ type: 'basic', username: '', password: '' }).value);
+ok('auth: the empty pair says what is missing', /username/i.test(global.plAuthHeader({ type: 'basic', username: '', password: '' }).error));
+// RFC 7617 splits on the FIRST colon, so a colon in the username silently
+// hands part of it to the password field.
+ok('auth: a colon in the username is refused, not silently mangled', /colon/i.test(global.plAuthHeader({ type: 'basic', username: 'a:b', password: 'c' }).error));
+
+eq('auth: bearer prefixes the token', global.plAuthHeader({ type: 'bearer', token: 'eyJhbG' }).value, 'Bearer eyJhbG');
+// Copying "Bearer eyJ…" straight out of Postman or the docs is the norm.
+eq('auth: a token pasted with its prefix is not doubled', global.plAuthHeader({ type: 'bearer', token: 'Bearer eyJhbG' }).value, 'Bearer eyJhbG');
+eq('auth: the prefix check is case-insensitive', global.plAuthHeader({ type: 'bearer', token: 'bearer eyJhbG' }).value, 'Bearer eyJhbG');
+eq('auth: surrounding whitespace is trimmed', global.plAuthHeader({ type: 'bearer', token: '  eyJhbG \n' }).value, 'Bearer eyJhbG');
+ok('auth: an empty bearer token is refused', /token/i.test(global.plAuthHeader({ type: 'bearer', token: '   ' }).error));
+// A JWT copied out of a wrapped terminal carries newlines; a header value with
+// a CR/LF in it is header injection, and fetch() throws on it anyway.
+ok('auth: a token containing a line break is refused', /line break|newline/i.test(global.plAuthHeader({ type: 'bearer', token: 'eyJ\r\nabc' }).error));
+ok('auth: a password containing a line break is refused', /line break|newline/i.test(global.plAuthHeader({ type: 'basic', username: 'a', password: 'b\nc' }).error));
+
+// The Authorization header the auth control builds has to win over one typed
+// into the Headers box — including a differently-cased key, which would
+// otherwise travel as a second, contradictory header.
+const merged = global.plApplyAuth({ 'Content-Type': 'application/json', 'authorization': 'Basic old' }, 'Basic new');
+eq('auth: merging replaces a differently-cased Authorization key', Object.keys(merged.headers).filter(k => /^authorization$/i.test(k)).length, 1);
+eq('auth: the merged value is the one the auth control built', merged.headers.Authorization || merged.headers.authorization, 'Basic new');
+ok('auth: merging reports that it replaced a typed header', merged.replaced);
+eq('auth: unrelated headers survive the merge', merged.headers['Content-Type'], 'application/json');
+ok('auth: nothing to apply leaves the headers untouched', !global.plApplyAuth({ 'X-A': '1' }, null).replaced);
+
+// =========================================================================
+// REST LOAD TESTER — RUN SUMMARY (wave 4)
+// =========================================================================
+// The charts show what happened; the summary says it in words you can paste
+// into a ticket. Everything it states has to come from the run — a summary
+// that rounds a bad run into a good sentence is worse than no summary.
+console.log('\nREST Load Tester — run summary');
+
+function plBucket(sec, n, errs, avg, max, threads) {
+  return { sec, n, errs, avg, max, threads };
+}
+
+const vmClean = {
+  sent: 300, completed: 300, errors: 0, min: 10, max: 90, avg: 42.5,
+  p50: 40, p95: 80, p99: 88, rps: 60, elapsedMs: 5000, exact: true,
+  statusCounts: { '200': 300 },
+  buckets: [plBucket(0, 60, 0, 42, 90, 5), plBucket(1, 60, 0, 42, 88, 5), plBucket(2, 60, 0, 43, 85, 5), plBucket(3, 60, 0, 42, 80, 5), plBucket(4, 60, 0, 43, 82, 5)]
+};
+const sClean = global.plSummarize(vmClean, { method: 'GET', url: 'http://localhost:8080/rest/orders', mode: 'count', engine: 'server', running: false });
+
+ok('summary: the headline counts the requests', /300 requests/.test(sClean.headline), sClean.headline);
+ok('summary: the headline carries the duration', /5\.0 s/.test(sClean.headline), sClean.headline);
+ok('summary: the headline carries throughput', /60(\.0)? req\/s/.test(sClean.headline), sClean.headline);
+ok('summary: a clean run says so instead of "0.0% errors"', /no errors/i.test(sClean.headline), sClean.headline);
+eq('summary: one status is one row', sClean.statuses.length, 1);
+eq('summary: the status row carries its share', sClean.statuses[0].pct, 100);
+ok('summary: a 200 is not marked as a failure', !sClean.statuses[0].failed);
+// Data-driven: one thread level is not a comparison, so there is no table.
+eq('summary: a constant-thread run produces no thread-level table', sClean.levels.length, 0);
+ok('summary: an exact-percentile run carries no approximation note', !sClean.notes.some(n => /bin width/.test(n)));
+
+// A run whose responses were all rejections measured the rejection path. The
+// latency numbers are real but they are not the endpoint's work — with auth
+// now one click away, this is the most common way to misread a green-looking run.
+const vm401 = {
+  sent: 100, completed: 100, errors: 100, min: 2, max: 9, avg: 4, p50: 4, p95: 8, p99: 9,
+  rps: 200, elapsedMs: 500, exact: false, statusCounts: { '401': 100 },
+  buckets: [plBucket(0, 100, 100, 4, 9, 5)]
+};
+const s401 = global.plSummarize(vm401, { method: 'GET', url: 'https://app.mendixcloud.com/rest/x', mode: 'count', engine: 'server', running: false });
+ok('summary: a 401 status is counted as a failure', s401.statuses[0].failed);
+ok('summary: an all-rejected run says the run measured the rejection',
+  s401.notes.some(n => /401/.test(n) && /not the endpoint|rejection/i.test(n)), JSON.stringify(s401.notes));
+ok('summary: the histogram engine discloses the percentile bin width', s401.notes.some(n => /bin width/.test(n)));
+
+// The payoff of the live thread slider: buckets already carry the thread count,
+// so throughput and latency per level fall out of them.
+const vmRamp = {
+  sent: 900, completed: 900, errors: 0, min: 10, max: 400, avg: 100,
+  p50: 80, p95: 300, p99: 390, rps: 90, elapsedMs: 10000, exact: false,
+  statusCounts: { '200': 900 },
+  buckets: [
+    plBucket(0, 50, 0, 40, 60, 5), plBucket(1, 50, 0, 40, 62, 5), plBucket(2, 50, 0, 41, 61, 5),
+    plBucket(3, 80, 0, 90, 200, 20),                        // transition second: both levels
+    plBucket(4, 100, 0, 160, 380, 20), plBucket(5, 100, 0, 165, 400, 20), plBucket(6, 100, 0, 158, 390, 20)
+  ]
+};
+const sRamp = global.plSummarize(vmRamp, { method: 'POST', url: 'http://localhost:8080/rest/orders', mode: 'continuous', engine: 'server', running: false });
+eq('summary: two thread levels produce two rows', sRamp.levels.length, 2);
+eq('summary: levels are ordered by thread count', sRamp.levels[0].threads, 5);
+// The second the slider moved carries traffic from both levels, so counting it
+// in either one invents throughput that never happened at that level.
+eq('summary: the transition second is excluded from the level below', sRamp.levels[0].seconds, 3);
+eq('summary: the transition second is excluded from the level above', sRamp.levels[1].seconds, 3);
+eq('summary: level throughput is requests per counted second', sRamp.levels[0].rps, 50);
+eq('summary: level latency is weighted by the requests in each second', sRamp.levels[1].avgMs, 161);
+eq('summary: level max latency is the worst second in the level', sRamp.levels[1].maxMs, 400);
+// Four times the threads bought twice the throughput at four times the latency:
+// that is the knee, and it is a fact about the buckets, not advice.
+ok('summary: a knee is reported when threads stopped buying throughput',
+  sRamp.notes.some(n => /req\/s/.test(n) && /threads/.test(n) && /latency/i.test(n)), JSON.stringify(sRamp.notes));
+
+// A level with a single counted second is a sample of one — reporting it as a
+// throughput measurement would put a number next to noise.
+const vmBlip = {
+  sent: 200, completed: 200, errors: 0, min: 10, max: 100, avg: 50, p50: 50, p95: 90, p99: 99,
+  rps: 50, elapsedMs: 4000, exact: false, statusCounts: { '200': 200 },
+  buckets: [plBucket(0, 50, 0, 50, 90, 5), plBucket(1, 50, 0, 50, 90, 5), plBucket(2, 50, 0, 55, 95, 9), plBucket(3, 50, 0, 55, 95, 5)]
+};
+eq('summary: a level with one usable second is not reported as a level', global.plSummarize(vmBlip, { method: 'GET', url: 'http://x/y', mode: 'count', engine: 'server', running: false }).levels.length, 0);
+
+// Zero completed requests: every derived number would be 0/0. The summary has
+// to say "nothing came back" rather than print a wall of zeroes.
+const sEmpty = global.plSummarize(
+  { sent: 10, completed: 0, errors: 0, min: 0, max: 0, avg: 0, p50: 0, p95: 0, p99: 0, rps: 0, elapsedMs: 800, exact: false, statusCounts: {}, buckets: [] },
+  { method: 'GET', url: 'http://localhost:1/y', mode: 'count', engine: 'browser', running: false });
+ok('summary: a run with no responses says so', /no responses|nothing came back/i.test(sEmpty.headline), sEmpty.headline);
+eq('summary: no responses means no status rows', sEmpty.statuses.length, 0);
+
+// A live run must not be described in the past tense — the numbers are still moving.
+const sLive = global.plSummarize(vmClean, { method: 'GET', url: 'http://localhost:8080/x', mode: 'continuous', engine: 'server', running: true });
+ok('summary: a running test is described as still running', /running/i.test(sLive.headline), sLive.headline);
+
+// The copyable form is the point of the panel: it has to carry the target and
+// the numbers, so a pasted summary stands on its own in a ticket.
+const plMd = global.plSummaryMarkdown(sClean);
+ok('markdown: carries the target URL', plMd.indexOf('http://localhost:8080/rest/orders') !== -1);
+ok('markdown: carries the method', /GET/.test(plMd));
+ok('markdown: carries the percentiles', /p95/.test(plMd));
+ok('markdown: carries the status breakdown', /200/.test(plMd));
+ok('markdown: a thread-level run tabulates the levels', /\| *5 *\|/.test(global.plSummaryMarkdown(sRamp)), global.plSummaryMarkdown(sRamp));
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 runXlsxAsyncTests().then(runApiEconAsyncTests).then(runNginxAsyncTests).then(function () {
   console.log('\n' + passed + ' passed, ' + failed + ' failed');

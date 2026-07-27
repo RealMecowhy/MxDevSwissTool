@@ -87,7 +87,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.29.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.30.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -268,7 +268,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.29.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.30.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -1946,7 +1946,26 @@
              </div>
              <div class="form-group" style="flex:1"><div class="form-label">Target URL</div><input class="input" id="pl-url" placeholder="https://api.example.com/v1/data"></div>
            </div>
-           
+
+           <div style="display:flex;gap:var(--sp-2);align-items:flex-end;flex-wrap:wrap">
+             <div class="form-group" style="width:150px">
+               <div class="form-label">Authentication</div>
+               <select class="select" id="pl-auth-type">
+                 <option value="none">None</option>
+                 <option value="basic">Basic</option>
+                 <option value="bearer">Bearer token</option>
+               </select>
+             </div>
+             <div id="pl-auth-basic" style="display:none;gap:var(--sp-2);flex:1;min-width:240px">
+               <div class="form-group" style="flex:1;margin:0"><div class="form-label">Username</div><input class="input" id="pl-auth-user" autocomplete="off" placeholder="MxAdmin"></div>
+               <div class="form-group" style="flex:1;margin:0"><div class="form-label">Password</div><input class="input" type="password" id="pl-auth-pass" autocomplete="off"></div>
+             </div>
+             <div id="pl-auth-bearer" class="form-group" style="display:none;flex:1;min-width:240px;margin:0">
+               <div class="form-label">Token</div><input class="input" type="password" id="pl-auth-token" autocomplete="off" placeholder="eyJhbGciOi…">
+             </div>
+           </div>
+           <div id="pl-auth-note" style="display:none;font-size:0.76rem;color:var(--text-muted);margin-top:calc(-1 * var(--sp-2))"></div>
+
            <details style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-3)">
              <summary style="cursor:pointer;font-weight:600;color:var(--text-primary);outline:none">Headers & Body</summary>
              <div style="margin-top:var(--sp-3);display:flex;flex-direction:column;gap:var(--sp-3)">
@@ -2060,6 +2079,7 @@
                </div>
              </div>
              <div id="pl-charts" style="margin-top:var(--sp-4);display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-4);flex:1;overflow-y:auto;min-height:400px">
+               <div id="pl-summary" style="grid-column:1/-1;display:none;background:var(--bg-base);border-radius:var(--r-md);padding:var(--sp-3)"></div>
                <div style="background:var(--bg-base);border-radius:var(--r-md);padding:var(--sp-2);position:relative;height:220px">
                  <canvas id="pl-chart-timeline"></canvas>
                </div>

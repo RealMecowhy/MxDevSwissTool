@@ -48,7 +48,7 @@ function corsHeaders(req) {
   return {
     'Access-Control-Allow-Origin': allowOrigin,
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-Bridge-Token',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Bridge-Token, X-Target-Authorization',
     'Vary': 'Origin'
   };
 }
@@ -1410,7 +1410,14 @@ const server = http.createServer((req, res) => {
     if (!/^https?:\/\//i.test(specUrl)) return sendError(req, res, 'Provide an http(s) URL to the OpenAPI document.', 400);
     if (typeof fetch === 'undefined') return sendError(req, res, 'Node.js version too old. fetch() is required.', 500);
 
-    fetch(specUrl, { redirect: 'follow', signal: AbortSignal.timeout(15000) })
+    // A published Mendix REST service normally protects its own openapi.json
+    // with the same user role as its operations. The caller's credentials for
+    // the TARGET arrive under their own header name — reusing `Authorization`
+    // would collide with the Bridge's own token gate.
+    const targetAuth = req.headers['x-target-authorization'];
+    const fetchHeaders = targetAuth ? { Authorization: String(targetAuth) } : undefined;
+
+    fetch(specUrl, { redirect: 'follow', headers: fetchHeaders, signal: AbortSignal.timeout(15000) })
       .then(async (r) => {
         const text = await r.text();
         if (text.length > 8 * 1024 * 1024) {
@@ -1418,7 +1425,11 @@ const server = http.createServer((req, res) => {
         }
         // A non-2xx is reported as itself: "401 from the spec URL" tells the
         // user their service needs credentials, which "could not parse" does not.
-        if (!r.ok) return sendError(req, res, `The spec URL answered ${r.status} ${r.statusText}.`, 502);
+        if (!r.ok) {
+          const needsAuth = (r.status === 401 || r.status === 403) && !targetAuth;
+          const hint = needsAuth ? ' If the document is protected, fill in Authentication and fetch again — the Bridge will send it.' : '';
+          return sendError(req, res, `The spec URL answered ${r.status} ${r.statusText}.${hint}`, 502);
+        }
         sendJson(req, res, { success: true, url: specUrl, body: text });
       })
       .catch((e) => {
