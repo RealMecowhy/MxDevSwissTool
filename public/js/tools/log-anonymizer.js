@@ -211,6 +211,20 @@ function anonymizeProcess() {
   // Inline worker logic to bypass Chrome's file:// CORS restriction
   function workerLogic() {
     function escRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+    // Card ranges and the Mendix object-ID rule overlap by shape alone: an ID
+    // like 4503599627370567 is 16 digits starting with 4, which is exactly a
+    // Visa. The checksum is what actually separates them — a real card passes
+    // Luhn, an arbitrary identifier does so only by chance.
+    function luhnOk(s) {
+      var sum = 0, alt = false;
+      for (var i = s.length - 1; i >= 0; i--) {
+        var d = s.charCodeAt(i) - 48;
+        if (alt) { d *= 2; if (d > 9) d -= 9; }
+        sum += d;
+        alt = !alt;
+      }
+      return sum % 10 === 0;
+    }
     function formatSize(bytes) {
       if (bytes < 1024) return bytes + ' B';
       if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
@@ -285,9 +299,10 @@ function anonymizeProcess() {
 
         var matches = [];
 
-        function addMatches(regex, anonLabel, statKey) {
+        function addMatches(regex, anonLabel, statKey, accept) {
           var match;
           while ((match = regex.exec(chunk)) !== null) {
+            if (accept && !accept(match[0])) continue;
             matches.push({
               start: match.index,
               end: match.index + match[0].length,
@@ -298,25 +313,30 @@ function anonymizeProcess() {
           }
         }
 
+        // Registration order decides overlaps: matches are sorted by start
+        // offset with a stable sort, then resolved first-wins, so a specific
+        // pattern must be added before a generic one that also covers it.
+        // The Mendix ID rule (\d{15,19}) matches every card number and any long
+        // digit run inside a JWT, so it runs after those two.
         if (opts.uuid) addMatches(uuidRegex, 'UUID', 'uuid');
         if (opts.ip) {
           addMatches(ipv4Regex, 'IP', 'ip');
           addMatches(ipv6Regex, 'IP', 'ip');
         }
         if (opts.email) addMatches(emailRegex, 'EMAIL', 'email');
+        if (opts.mac) addMatches(macRegex, 'MAC', 'mac');
+        if (opts.creditcard) addMatches(creditCardRegex, 'CREDIT_CARD', 'creditcard', luhnOk);
+        if (opts.auth) {
+          addMatches(jwtRegex, 'JWT_TOKEN', 'auth');
+          addMatches(bearerRegex, 'AUTH_TOKEN', 'auth');
+        }
         if (opts.mendixId) addMatches(mendixIdRegex, 'MENDIX_ID', 'mendixId');
         if (opts.datetime) {
           addMatches(dateRegex1, 'DATETIME', 'datetime');
           addMatches(dateRegex2, 'TIME', 'datetime');
         }
         if (opts.number) addMatches(numRegex, 'NUM', 'number');
-        if (opts.mac) addMatches(macRegex, 'MAC', 'mac');
-        if (opts.creditcard) addMatches(creditCardRegex, 'CREDIT_CARD', 'creditcard');
-        if (opts.auth) {
-          addMatches(jwtRegex, 'JWT_TOKEN', 'auth');
-          addMatches(bearerRegex, 'AUTH_TOKEN', 'auth');
-        }
-        
+
         if (keywordsList.length > 0) {
           for (var ki = 0; ki < keywordsList.length; ki++) {
             var kwEscaped = escRegex(keywordsList[ki]);
