@@ -180,6 +180,27 @@ function execAsync(cmd, opts) {
   });
 }
 
+// PID of the `cmd.exe` window that launched this bridge, so the updater can
+// close it. Matching by window title is not an option: on Windows 11 the
+// console window belongs to WindowsTerminal.exe, not to cmd.exe, so
+// `taskkill /fi "WINDOWTITLE eq ..."` either misses the old window or hits the
+// whole terminal (every other tab with it). The command line is checked as
+// well, so a bridge started straight from a developer's own shell is left
+// alone — only the launcher's dedicated window is ever closed.
+async function findLauncherWindowPid() {
+  if (process.platform !== 'win32' || !process.ppid) return null;
+  try {
+    const out = await execAsync(
+      `powershell -NoProfile -Command "(Get-CimInstance Win32_Process -Filter 'ProcessId=${process.ppid}').CommandLine"`
+    );
+    const cmdLine = String(out || '').trim();
+    if (/cmd(\.exe)?["']?\s/i.test(cmdLine) && /mendix-observability-bridge/i.test(cmdLine)) {
+      return process.ppid;
+    }
+  } catch (e) { /* WMI blocked or parent already gone */ }
+  return null;
+}
+
 async function extractZip(zipPath, destDir) {
   // Windows 10+ ships bsdtar, which understands ZIP; PowerShell is the fallback.
   try {
@@ -227,6 +248,7 @@ async function applyUpdate() {
   // Delays use `ping` instead of `timeout`: timeout exits immediately when the
   // console has no usable stdin (which is how this script gets launched), and
   // that would let the new bridge start while the old one still holds the port.
+  const oldWindowPid = await findLauncherWindowPid();
   const batPath = path.join(UPDATE_DIR, 'apply-update.bat');
   const bat = [
     '@echo off',
@@ -248,10 +270,15 @@ async function applyUpdate() {
     `robocopy "${pkgDir}" "${APP_ROOT}" /E /NFL /NDL /NJH /NJS >nul`,
     'if errorlevel 8 goto :copy_failed',
     'echo Closing the old bridge window...',
-    'taskkill /f /fi "WINDOWTITLE eq Mendix Observability Agent*" >nul 2>&1',
+    // The IMAGENAME filter matters: by now that window may have closed by
+    // itself, and Windows could have handed its PID to an unrelated process.
+    oldWindowPid ? `taskkill /f /fi "PID eq ${oldWindowPid}" /fi "IMAGENAME eq cmd.exe" >nul 2>&1`
+                 : 'rem This bridge was not started by the launcher - no window of ours to close.',
     'echo Starting the updated bridge...',
     `cd /d "${APP_ROOT}"`,
-    `start "Mendix Observability Agent" cmd /k ""${process.execPath}" server\\mendix-observability-bridge.js"`,
+    // /c (not /k) so the window closes on its own when the bridge shuts down
+    // for the next update; `|| pause` keeps it visible if the bridge crashes.
+    `start "Mendix Observability Agent" cmd /c ""${process.execPath}" server\\mendix-observability-bridge.js || pause"`,
     'echo.',
     `echo Update to v${info.latestVersion} complete. This window will close in a few seconds.`,
     'ping -n 6 127.0.0.1 >nul',

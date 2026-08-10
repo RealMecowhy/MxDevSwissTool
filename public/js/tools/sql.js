@@ -24,7 +24,7 @@ function sqlSetKeywordCase(v) { sqlKeywordCase = (v === 'lower' || v === 'preser
 
 function sqlFormat() {
   const raw=document.getElementById('sql-input').value; if(!raw.trim()){document.getElementById('sql-output').innerHTML='<span style="color:var(--text-muted)">Output will appear here...</span>';return;}
-  document.getElementById('sql-output').innerHTML=sqlHighlight(prettifySQL(raw));
+  fvRender('sql-output', sqlHighlight(prettifySQL(raw)));
 }
 function sqlMinify() {
   const masked = sqeMask(document.getElementById('sql-input').value);

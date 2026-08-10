@@ -51,7 +51,10 @@ echo Closing old Agent processes...
 for /f "tokens=5" %%a in ('netstat -aon ^| find "9999" ^| find "LISTENING"') do taskkill /f /pid %%a >nul 2>&1
 echo.
 echo Starting Mendix Observability Bridge...
-start "Mendix Observability Agent" cmd /k ""%NODE_EXE%" server\mendix-observability-bridge.js"
+rem /c (not /k) so the window closes itself when the bridge stops - for example
+rem when the built-in updater restarts it. "|| pause" keeps the window open if
+rem the bridge crashes, so the error stays readable.
+start "Mendix Observability Agent" cmd /c ""%NODE_EXE%" server\mendix-observability-bridge.js || pause"
 echo.
 echo Opening MxDev Swiss Tool interface in default browser...
 start http://localhost:9999/
