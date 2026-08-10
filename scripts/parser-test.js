@@ -1043,6 +1043,63 @@ if (fs.existsSync(refInfo)) {
   console.log('  – reference INFO log absent, skipped (PII: never committed)');
 }
 
+// ── Correlation ID ranking (public/js/tools/log-viewer.js) ───────────────────
+// logExtractCorrelations turns the loaded records into the discoverable ID list
+// the Correlation Flow tab ranks. The trap it exists to avoid: a bare UUID match
+// on the raw line, which on any log carrying SAML assertions picks up Azure
+// tenant/object identifiers that are not correlation IDs at all.
+console.log('\nCorrelation ID ranking');
+const logCorr = global.logExtractCorrelations;
+
+const corrLog = [
+  // Client request (epochMs-counter) — microflow + the queries it triggered
+  '2026-07-18T09:00:00.000000 ' + P + '   DEBUG - MicroflowEngine: [1784273164806-115] Starting execution of microflow \'Mod.ACT_Save\'',
+  '2026-07-18T09:00:00.200000 ' + P + '   TRACE - OQL: [1784273164806-115] SELECT 1 FROM x',
+  '2026-07-18T09:00:00.400000 ' + P + '   TRACE - Plan: [1784273164806-115] plan detail',
+  '2026-07-18T09:00:02.000000 ' + P + '   DEBUG - MicroflowEngine: [1784273164806-115] Finished execution of microflow \'Mod.ACT_Save\'',
+  // Scheduled event (UUID) — fewer records but it failed
+  '2026-07-18T09:00:03.000000 ' + P + '   DEBUG - MicroflowEngine: [c0058190-9090-449e-9dde-cb253bf9826a] Starting execution of microflow \'Queues.FinishedWithErrors\'',
+  '2026-07-18T09:00:04.000000 ' + P + '   ERROR - MicroflowEngine: [c0058190-9090-449e-9dde-cb253bf9826a] boom',
+  // A SAML claim line: three UUIDs on the record, none of them a correlation ID
+  '2026-07-18T09:00:05.000000 ' + P + '    INFO - SAML_SSO: claim tenantid:16d89ce6-c8fe-4ff6-a7b1-a8d9984c05ea objectidentifier:78e3a0e7-2a79-4356-9916-bd3134973c40',
+  '2026-07-18T09:00:06.000000 ' + P + '    INFO - Core: no id here at all'
+].join('\n');
+
+const lvCorr = logCorr(parser.parse(corrLog).records);
+eq('corr: only the runtime\'s bracketed marker counts as an ID', lvCorr.groups.length, 2);
+eq('corr: records carrying an ID are counted, the rest are not', lvCorr.withId, 6);
+eq('corr: the failing ID ranks first even though it has fewer records', lvCorr.groups[0].id, 'c0058190-9090-449e-9dde-cb253bf9826a');
+eq('corr: errors are counted per ID', lvCorr.groups[0].errors, 1);
+eq('corr: the microflow name labels the ID', lvCorr.groups[0].flow, 'Queues.FinishedWithErrors');
+eq('corr: a client request keeps its epochMs-counter shape verbatim', lvCorr.groups[1].id, '1784273164806-115');
+eq('corr: every record under one ID is grouped', lvCorr.groups[1].count, 4);
+eq('corr: span is measured first → last', lvCorr.groups[1].spanMs, 2000);
+ok('corr: one ID stitches the microflow to the queries it triggered',
+  ['MicroflowEngine', 'OQL', 'Plan'].every(function (n) { return lvCorr.groups[1].nodes.indexOf(n) !== -1; }));
+ok('corr: a SAML claim UUID is never listed as a correlation ID',
+  lvCorr.groups.every(function (g) { return g.id.indexOf('16d89ce6') === -1 && g.id.indexOf('78e3a0e7') === -1; }));
+
+// A production log at INFO carries no correlation IDs at all — the tab has to be
+// able to say so rather than render an empty list with no explanation.
+const corrNone = logCorr(parser.parse([
+  '2026-07-18T09:00:00.000000 ' + P + '    INFO - Core: business as usual',
+  '2026-07-18T09:00:01.000000 ' + P + '   ERROR - SAML_SSO: null'
+].join('\n')).records);
+eq('corr: INFO-level log yields no IDs', corrNone.groups.length, 0);
+eq('corr: …and reports how much was scanned so the empty state can explain itself', corrNone.scanned, 2);
+eq('corr: nothing loaded is not an error', logCorr([]).groups.length, 0);
+
+// Timestamps are not guaranteed monotonic (multi-file load), and a log with no
+// parseable stamp must report no span rather than a fabricated 0 ms.
+const corrUnordered = logCorr([
+  { ts: '2026-07-18T09:00:09.000000', level: 'INFO', node: 'A', msg: '[req-9001] late' },
+  { ts: '2026-07-18T09:00:01.000000', level: 'INFO', node: 'A', msg: '[req-9001] early' }
+]);
+eq('corr: span is min→max, not first→last in file order', corrUnordered.groups[0].spanMs, 8000);
+eq('corr: firstTs follows the earliest stamp, not the first row', corrUnordered.groups[0].firstTs, '2026-07-18T09:00:01.000000');
+eq('corr: a group with no parseable timestamp reports no span at all',
+  logCorr([{ ts: '', level: 'INFO', node: 'A', msg: '[req-9002] a' }, { ts: '', level: 'INFO', node: 'A', msg: '[req-9002] b' }]).groups[0].spanMs, null);
+
 // ── Gantt time axis (public/js/tools/log-viewer.js) ──────────────────────────
 // logGanttAxis resolves entries onto one monotonic epoch axis. It used to anchor
 // every entry to a fixed 1970-01-01 from an HH:MM:SS match, which threw the date

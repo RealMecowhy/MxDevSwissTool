@@ -95,7 +95,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.37.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.38.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -281,7 +281,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.37.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.38.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -425,12 +425,16 @@
 
       <!-- CORRELATION TAB -->
       <div id="log-tab-correlation" style="display:none;flex-direction:column;flex:1;height:calc(100% - 40px);background:var(--bg-elevated);border-radius:var(--r-md);border:1px solid var(--border)">
-        <div style="padding:var(--sp-3);border-bottom:1px solid var(--border)">
-           <input class="input" id="log-correlation-id" placeholder="Enter Correlation ID or Request ID (e.g., req-1234)..." oninput="logGenerateCorrelation()" style="width:300px">
-           <button class="btn btn-primary btn-sm" onclick="logGenerateCorrelation()">Track</button>
+        <div style="padding:var(--sp-3);border-bottom:1px solid var(--border);display:flex;gap:var(--sp-2);align-items:center;flex-wrap:wrap">
+           <input class="input" id="log-correlation-id" placeholder="Filter the list, or paste any ID / token..." oninput="logCorrelationInput()" style="width:320px">
+           <button class="btn btn-primary btn-sm" onclick="logGenerateCorrelation()" title="Scan every loaded line for this text — works for correlation IDs and for anything else you have, such as a session ID or user name">Track</button>
+           <button class="btn btn-ghost btn-sm" id="log-corr-stream-btn" style="display:none" onclick="window.logFilterByCorrId(document.getElementById('log-correlation-id').value.trim())" title="Open the full, scrollable list of these entries in the Log Stream, where the level and time filters apply">Show in Log Stream</button>
         </div>
-        <div id="log-correlation-output" style="flex:1;overflow:auto;padding:var(--sp-4);font-family:var(--font-mono);font-size:0.8rem">
-           <span style="color:var(--text-muted)">Enter a correlation ID to see the flow...</span>
+        <div style="flex:1;display:flex;min-height:0">
+          <div id="log-correlation-list" style="width:340px;flex-shrink:0;border-right:1px solid var(--border);overflow:auto;padding:var(--sp-2)"></div>
+          <div id="log-correlation-output" style="flex:1;overflow:auto;padding:var(--sp-4);font-family:var(--font-mono);font-size:0.8rem">
+             <span style="color:var(--text-muted)">Pick a correlation ID from the list, or paste one above.</span>
+          </div>
         </div>
       </div>
       

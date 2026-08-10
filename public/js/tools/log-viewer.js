@@ -580,7 +580,11 @@ function logClear() {
   
   // Clear tabs data
   document.getElementById('log-correlation-id').value = '';
-  document.getElementById('log-correlation-output').innerHTML = '<span style="color:var(--text-muted)">Enter a correlation ID to see the flow...</span>';
+  document.getElementById('log-correlation-output').innerHTML = '<span style="color:var(--text-muted)">Pick a correlation ID from the list, or paste one above.</span>';
+  logCorrCache = null; logCorrSelected = null;
+  const corrBtn = document.getElementById('log-corr-stream-btn');
+  if (corrBtn) corrBtn.style.display = 'none';
+  logRenderCorrelations();
   document.getElementById('log-sequence-output').innerHTML = '<span style="color:var(--text-muted);margin-top:var(--sp-5)">Sequence diagram will appear here...</span>';
   document.getElementById('log-gantt-output').innerHTML = '<span style="color:var(--text-muted)">Gantt chart will appear here...</span>';
   const insOut = document.getElementById('log-insights-output');
@@ -677,15 +681,20 @@ function logShowRowContextMenu(ev, idx) {
   logCloseRowContextMenu();
   const e = logFilteredEntries[idx];
   if (!e) return;
-  const m = e.raw.match(LOG_CORRID_PAT);
+  // The runtime's own marker first (bracketed token at the start of the message),
+  // falling back to the first UUID on the line. Order matters: a record carrying a
+  // SAML assertion holds several UUIDs that are claim values, not correlation IDs.
+  const bracketed = String(e.msg || '').match(LOG_CORRID_MSG);
+  const bare = e.raw.match(LOG_CORRID_PAT);
+  const cid = bracketed ? bracketed[1] : (bare ? bare[0] : null);
   const menu = document.createElement('div');
   menu.id = 'log-row-ctxmenu';
   menu.className = 'log-ctxmenu';
   menu.style.left = ev.pageX + 'px';
   menu.style.top = ev.pageY + 'px';
   menu.onclick = ev2 => ev2.stopPropagation();
-  menu.innerHTML = m
-    ? '<div class="log-ctxmenu-item" onclick="logFilterByCorrId(' + logJsStr(m[0]) + ')">Filter by this Correlation ID<br><span style="font-family:var(--font-mono);font-size:0.7rem;color:var(--text-muted)">' + escHtml(m[0]) + '</span></div>'
+  menu.innerHTML = cid
+    ? '<div class="log-ctxmenu-item" onclick="logFilterByCorrId(' + logJsStr(cid) + ')">Filter by this Correlation ID<br><span style="font-family:var(--font-mono);font-size:0.7rem;color:var(--text-muted)">' + escHtml(cid) + '</span></div>'
     : '<div class="log-ctxmenu-item log-ctxmenu-disabled">No correlation/request ID-like token found on this line</div>';
   document.body.appendChild(menu);
   setTimeout(() => document.addEventListener('click', logCloseRowContextMenu, { once: true }), 0);
@@ -1533,6 +1542,7 @@ function logSetTab(tabId, el) {
   });
   if (tabId === 'insights') logRenderInsights();
   if (tabId === 'matrix') logRenderMatrix();
+  if (tabId === 'correlation') logRenderCorrelations();
 }
 
 // Builds the Insights problem-card overview from the loaded records. Honors the
@@ -1675,30 +1685,246 @@ function logInsightFilter(node, levels, search) {
   logApplyFilters();
 }
 
+// ── Correlation IDs you can discover, not ones you must already know (C5) ──
+//
+// The runtime writes the correlation ID as a bracketed token at the START of the
+// message — `MicroflowEngine: [<id>] Starting execution of microflow '…'` — and
+// repeats it on the Plan/OQL/XPath records emitted while that execution runs, so
+// one ID stitches a microflow to the queries it triggered.
+//
+// Anchoring on that bracket rather than on a bare UUID anywhere in the line is
+// what keeps the list honest: an application log that carries SAML assertions is
+// full of UUIDs (Azure tenant and object identifiers, claim values) which are not
+// correlation IDs at all, and ranking those would bury the real ones.
+//
+// Two shapes occur in the wild and both are accepted verbatim: a UUID (work the
+// runtime starts itself — scheduled events, task queues) and `<epochMs>-<counter>`
+// (a client request). Same token MFT keys its executions by.
+const LOG_CORRID_MSG = /^\[([^\]\s]{4,64})\]\s/;
+
+// The DEBUG record that names the microflow behind an ID. An ID on its own is
+// unreadable; the microflow name is what makes the list scannable.
+const LOG_CORR_MF = /^\[[^\]\s]+\]\s+(?:Starting|Finished) execution of microflow '([^']+)'/;
+
+// Rows rendered before the list asks the user to narrow it. A 69 MB TRACE log
+// holds tens of thousands of IDs; nobody scrolls past the first screenful.
+const LOG_CORR_LIST_CAP = 200;
+// Entries rendered for one flow. The Log Stream (one click away) is the place
+// for the unbounded list — it is virtualized, this pane is not.
+const LOG_CORR_FLOW_CAP = 500;
+
+// Result of the last scan, keyed by the entry count it was built from, so
+// filtering as the user types does not re-scan the whole log on every keystroke.
+let logCorrCache = null;
+// The ID whose flow is on screen — drives the row highlight in the list.
+let logCorrSelected = null;
+
+// Pure: group loaded entries by correlation ID. Returns the ranking plus the two
+// numbers the empty state needs — how much was scanned and how much carried an ID.
+function logExtractCorrelations(entries) {
+  const list = entries || [];
+  const map = new Map();
+  let withId = 0;
+
+  for (let i = 0; i < list.length; i++) {
+    const r = list[i];
+    // Accepts both shapes, like logExtractInsights: the viewer's own entries
+    // (ts/node/msg) and raw parser records (timestamp/logNode/message).
+    const e = {
+      level: logInsightsLevel(r.level),
+      node: (r.logNode != null ? r.logNode : r.node) || '',
+      msg: String(r.message != null ? r.message : r.msg || ''),
+      ts: (r.timestamp != null ? r.timestamp : r.ts) || ''
+    };
+    const m = e.msg.match(LOG_CORRID_MSG);
+    if (!m) continue;
+    withId++;
+
+    let g = map.get(m[1]);
+    if (!g) {
+      g = { id: m[1], count: 0, errors: 0, warnings: 0, nodes: [], flow: null,
+            firstTs: e.ts, lastTs: e.ts, spanMs: null, firstMs: NaN, lastMs: NaN };
+      map.set(m[1], g);
+    }
+    g.count++;
+    g.lastSeenTs = e.ts;
+
+    if (e.level === 'ERROR' || e.level === 'CRITICAL') g.errors++;
+    else if (e.level === 'WARN') g.warnings++;
+
+    if (e.node && g.nodes.indexOf(e.node) === -1) g.nodes.push(e.node);
+    if (!g.flow) {
+      const mf = e.msg.match(LOG_CORR_MF);
+      if (mf) g.flow = mf[1];
+    }
+
+    const ms = logTsToMs(e.ts);
+    if (!isNaN(ms)) {
+      if (isNaN(g.firstMs) || ms < g.firstMs) { g.firstMs = ms; g.firstTs = e.ts; }
+      if (isNaN(g.lastMs) || ms > g.lastMs) { g.lastMs = ms; g.lastTs = e.ts; }
+    }
+  }
+
+  const groups = Array.from(map.values());
+  groups.forEach(function (g) {
+    // No parseable timestamp anywhere in the group: fall back to file order for
+    // the endpoints and report no span at all rather than a fabricated 0 ms.
+    if (isNaN(g.firstMs)) { g.lastTs = g.lastSeenTs; g.spanMs = null; }
+    else g.spanMs = g.lastMs - g.firstMs;
+    delete g.lastSeenTs;
+  });
+
+  // Errors first — the ID worth opening is the one that failed — then volume,
+  // then the ID itself so the order is stable across runs.
+  groups.sort(function (a, b) {
+    return (b.errors - a.errors) || (b.count - a.count) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  });
+
+  return { groups: groups, scanned: list.length, withId: withId };
+}
+
+function logCorrelations() {
+  if (!logCorrCache || logCorrCache.scanned !== logAllEntries.length) {
+    logCorrCache = logExtractCorrelations(logAllEntries);
+  }
+  return logCorrCache;
+}
+
+function logCorrSpanLabel(g) {
+  if (g.spanMs == null) return '';
+  if (g.spanMs < 1) return 'instant';
+  return logFmtDurMs(Math.round(g.spanMs));
+}
+
+function logCorrRow(g, selected) {
+  const badge = g.errors
+    ? '<span class="badge badge-error" style="flex-shrink:0">' + g.errors + ' ERR</span>'
+    : (g.warnings ? '<span class="badge badge-warning" style="flex-shrink:0">' + g.warnings + ' WARN</span>' : '');
+  const span = logCorrSpanLabel(g);
+  const meta = [g.count + ' record' + (g.count === 1 ? '' : 's')]
+    .concat(span ? [span] : [])
+    .concat([g.nodes.slice(0, 3).join(', ') + (g.nodes.length > 3 ? ' +' + (g.nodes.length - 3) : '')]);
+
+  return '<div class="log-corr-row' + (selected ? ' selected' : '') + '" onclick="logSelectCorrelation(' + logJsStr(g.id) + ')" title="' + escHtml(g.id) + '">'
+    + '<div class="log-corr-row-head">'
+    + '<span class="log-corr-row-title">' + escHtml(g.flow || 'Correlation ID') + '</span>' + badge
+    + '</div>'
+    + '<div class="log-corr-row-id">' + escHtml(g.id) + '</div>'
+    + '<div class="log-corr-row-meta">' + escHtml(meta.join(' · ')) + '</div>'
+    + '</div>';
+}
+
+// Data-driven: no log → guidance; a log without correlation IDs → why it has
+// none and what to change; otherwise the ranked list.
+function logRenderCorrelations() {
+  const out = document.getElementById('log-correlation-list');
+  if (!out) return;
+
+  if (!logAllEntries.length) {
+    out.innerHTML = '<div class="log-insights-empty" style="margin:var(--sp-6) auto">'
+      + '<p style="font-weight:600;margin-bottom:6px">No log loaded yet</p>'
+      + '<p style="font-size:0.8rem;color:var(--text-muted)">This tab lists the correlation IDs the runtime recorded, ranked by errors and volume, so you can find the request that failed instead of having to know its ID first. Load a log in the <strong>Log Stream</strong> tab.</p></div>';
+    return;
+  }
+
+  const res = logCorrelations();
+  if (!res.groups.length) {
+    out.innerHTML = '<div class="log-insights-empty" style="margin:var(--sp-6) auto">'
+      + '<p style="font-weight:600;margin-bottom:6px">No correlation IDs in this log</p>'
+      + '<p style="font-size:0.8rem;color:var(--text-muted)">The runtime stamps a correlation ID on <strong>MicroflowEngine</strong> records at DEBUG level, and on the Plan/OQL/XPath records at TRACE. A log running at INFO carries none — raise MicroflowEngine to DEBUG and reproduce the scenario. The box above still works for any other token you have: paste a session ID, request ID or user name to see every line that mentions it.</p></div>';
+    return;
+  }
+
+  // The box doubles as the filter, but picking a row writes that ID into it —
+  // which would then narrow the list to the one row just clicked and strand the
+  // user there. A value that IS the current selection filters nothing.
+  const raw = (document.getElementById('log-correlation-id').value || '').trim();
+  const q = raw === logCorrSelected ? '' : raw.toLowerCase();
+  const matching = q
+    ? res.groups.filter(function (g) {
+        return g.id.toLowerCase().indexOf(q) !== -1 || (g.flow || '').toLowerCase().indexOf(q) !== -1;
+      })
+    : res.groups;
+
+  const head = '<div class="log-corr-head">' + res.groups.length + ' correlation ID'
+    + (res.groups.length === 1 ? '' : 's') + ' · ' + res.withId + ' of ' + res.scanned + ' records carry one'
+    + (q ? ' · <strong>' + matching.length + '</strong> match the filter' : '') + '</div>';
+
+  if (!matching.length) {
+    out.innerHTML = head + '<div class="log-corr-note">No correlation ID matches that text. Clear the filter to see all of them, or press <strong>Track</strong> to scan every line for it as free text.</div>';
+    return;
+  }
+
+  const shown = matching.slice(0, LOG_CORR_LIST_CAP);
+  const more = matching.length - shown.length;
+  out.innerHTML = head
+    + shown.map(function (g) { return logCorrRow(g, g.id === logCorrSelected); }).join('')
+    + (more ? '<div class="log-corr-note">' + more + ' more not shown — narrow the list with the filter above.</div>' : '');
+}
+
+function logSelectCorrelation(id) {
+  document.getElementById('log-correlation-id').value = id;
+  logGenerateCorrelation();
+}
+
+// Typing filters the list. A value that is exactly a known correlation ID also
+// renders its flow straight away, so pasting an ID still works in one step;
+// anything else waits for Track, which scans every line as free text.
+function logCorrelationInput() {
+  const v = document.getElementById('log-correlation-id').value.trim();
+  const known = logAllEntries.length && logCorrelations().groups.some(function (g) { return g.id === v; });
+  if (known) { logGenerateCorrelation(); return; }
+  logCorrSelected = null;
+  logRenderCorrelations();
+}
+
 function logGenerateCorrelation() {
   const cid = document.getElementById('log-correlation-id').value.trim();
   const out = document.getElementById('log-correlation-output');
+  const btn = document.getElementById('log-corr-stream-btn');
   if (!cid) {
-    out.innerHTML = '<span style="color:var(--warning)">Please enter a Correlation ID.</span>';
+    out.innerHTML = '<span style="color:var(--warning)">Enter a correlation ID, or pick one from the list.</span>';
+    logCorrSelected = null;
+    if (btn) btn.style.display = 'none';
+    logRenderCorrelations();
     return;
   }
-  
+
   const matched = logAllEntries.filter(e => e.raw.includes(cid));
+  logCorrSelected = cid;
+  logRenderCorrelations();
   if (matched.length === 0) {
     out.innerHTML = '<span style="color:var(--text-muted)">No logs found for this Correlation ID.</span>';
+    if (btn) btn.style.display = 'none';
     return;
   }
-  
-  let html = `<div style="margin-bottom:var(--sp-4)">Found <strong>${matched.length}</strong> log entries for ID: <code>${escHtml(cid)}</code></div>`;
-  
+  if (btn) btn.style.display = '';
+
+  const g = logAllEntries.length ? logCorrelations().groups.find(function (x) { return x.id === cid; }) : null;
+  const facts = [ '<strong>' + matched.length + '</strong> log entries' ];
+  if (g) {
+    const span = logCorrSpanLabel(g);
+    if (span) facts.push('span ' + escHtml(span));
+    if (g.errors) facts.push('<span style="color:var(--log-error)">' + g.errors + ' error' + (g.errors === 1 ? '' : 's') + '</span>');
+    if (g.flow) facts.push('microflow <strong>' + escHtml(g.flow) + '</strong>');
+  }
+
+  let html = `<div style="margin-bottom:var(--sp-1)">ID <code>${escHtml(cid)}</code></div>`
+    + `<div style="margin-bottom:var(--sp-4);color:var(--text-secondary)">${facts.join(' &middot; ')}</div>`;
+
+  const shown = matched.slice(0, LOG_CORR_FLOW_CAP);
   html += '<div style="display:flex;flex-direction:column;gap:var(--sp-2)">';
-  matched.forEach((e, i) => {
+  shown.forEach((e) => {
     html += `<div style="padding:var(--sp-2);border-left:2px solid var(--accent);background:var(--bg-base);border-radius:0 var(--r-sm) var(--r-sm) 0;">
       <div style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:4px">${escHtml(e.ts)} &mdash; Node: <strong>${escHtml(e.node)}</strong> &mdash; Level: ${logBadge(e.level)}</div>
       <div style="white-space:pre-wrap">${escHtml(e.msg)}</div>
     </div>`;
   });
   html += '</div>';
+  if (matched.length > shown.length) {
+    html += '<div class="log-corr-note" style="margin-top:var(--sp-3)">Showing the first ' + shown.length + ' of ' + matched.length
+      + ' entries. <strong>Show in Log Stream</strong> opens the full, scrollable list.</div>';
+  }
   out.innerHTML = html;
 }
 
@@ -1949,6 +2175,10 @@ window.logInsightsToggle = logInsightsToggle;
 window.logInsightsOpenTool = logInsightsOpenTool;
 window.logSetTab = logSetTab;
 window.logGenerateCorrelation = logGenerateCorrelation;
+window.logExtractCorrelations = logExtractCorrelations;
+window.logRenderCorrelations = logRenderCorrelations;
+window.logSelectCorrelation = logSelectCorrelation;
+window.logCorrelationInput = logCorrelationInput;
 window.logGenerateSequence = logGenerateSequence;
 window.logGenerateGantt = logGenerateGantt;
 window.logGanttAxis = logGanttAxis;

@@ -89,7 +89,8 @@ const TOOLS_HELP = {
     title: 'Mendix Log Viewer - Correlation Flow',
     description: 'Visualizes the flow of requests and microflow executions based on correlation IDs in the logs, allowing you to trace a complete transaction across multiple log entries.',
     howToGet: `
-      <p>Ensure your logs contain Correlation IDs. There are a few ways to achieve this:</p>
+      <p><strong>The runtime already writes one.</strong> Set the <code>MicroflowEngine</code> log node to <code>DEBUG</code> and every microflow execution is stamped with a correlation ID; at <code>TRACE</code> the <code>Plan</code>, <code>OQL</code> and <code>XPath</code> records carry the same ID, so one ID ties a microflow to the queries it triggered. Two shapes appear: a UUID for work the runtime starts itself (scheduled events, task queues) and <code>&lt;epochMs&gt;-&lt;counter&gt;</code> for a client request. A log running at <code>INFO</code> carries none &mdash; that is why this tab can look empty on a production log.</p>
+      <p style="margin-top:var(--sp-2)">Other sources of an ID you can paste in:</p>
       <ul style="margin-top:var(--sp-2); margin-left:var(--sp-4); list-style-type:disc;">
         <li style="margin-bottom:var(--sp-1)"><strong>Mendix 10+ (OpenTelemetry):</strong> When OpenTelemetry is enabled, Mendix automatically generates a <code>Trace ID</code> for each thread, which acts as a perfect Correlation ID across your entire application.</li>
         <li style="margin-bottom:var(--sp-1)"><strong>Mendix (Legacy/Modules):</strong> For older versions, use modules from the Marketplace that inject a unique key into logs (e.g., <code>[corr_id: xyz]</code>) for every REST/Microflow action.</li>
@@ -98,15 +99,18 @@ const TOOLS_HELP = {
     `,
     howToUse: `
       <ol>
-        <li>Switch to the <strong>Correlation Flow</strong> tab.</li>
-        <li>Select a specific Correlation ID from the list to see all log entries related to that specific transaction.</li>
-        <li>Follow the chronological flow to identify where a process failed or took too long.</li>
+        <li>Switch to the <strong>Correlation Flow</strong> tab. The left column lists every correlation ID found in the loaded log, <strong>ranked by errors first, then by volume</strong>, each labelled with the microflow it belongs to &mdash; so you can find the failing request without knowing its ID.</li>
+        <li>Click an ID to see its entries in chronological order, with its span and error count.</li>
+        <li>Typing in the box narrows the list (by ID or microflow name). <strong>Track</strong> does something different: it scans every loaded line for that text, so it also works for a session ID, user name or any token that is not a correlation ID.</li>
+        <li><strong>Show in Log Stream</strong> hands the ID over to the stream, where the level and time filters apply and the list is unbounded.</li>
       </ol>
     `,
     interpretation: `
       <ul>
-        <li><strong>For beginners:</strong> If a user reports an error, ask them for the time it happened. Find the error in the Log Stream, copy its Correlation ID, and paste it here. You will see everything that happened during that exact button click!</li>
+        <li><strong>Start from the top of the list.</strong> IDs with errors are ranked first, so the request that failed is usually the first row &mdash; no need to ask the user for a timestamp.</li>
+        <li><strong>For beginners:</strong> If a user reports an error, find it in the Log Stream, right-click the line and choose <em>Filter by this Correlation ID</em> &mdash; or come here and click the top row. You will see everything that happened during that exact button click.</li>
         <li><strong>Complex transactions:</strong> Helps in debugging transactions that span multiple microflows and integrations by isolating only the logs relevant to a single user action.</li>
+        <li><strong>An empty list is an answer too:</strong> it means the log was recorded at a level that does not stamp correlation IDs. Raise <code>MicroflowEngine</code> to <code>DEBUG</code> and reproduce.</li>
       </ul>
     `
   },

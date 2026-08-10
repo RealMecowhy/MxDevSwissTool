@@ -89,6 +89,13 @@ const LOG = [
   '2026-07-20T10:00:03.000000 ' + P + '   DEBUG - MicroflowEngine: [' + CORR + '] Finished execution of microflow \'Mod.SendShipment\''
 ].join('\n');
 
+// A second execution under a client-request ID (`<epochMs>-<counter>`), appended
+// only for the Correlation Flow block: it needs more than one ID in the list.
+const LOG_SECOND_CORR = [
+  '2026-07-20T10:00:10.000000 ' + P + '   DEBUG - MicroflowEngine: [1784273164806-115] Starting execution of microflow \'Mod.RefreshList\'',
+  '2026-07-20T10:00:11.000000 ' + P + '   DEBUG - MicroflowEngine: [1784273164806-115] Finished execution of microflow \'Mod.RefreshList\''
+].join('\n');
+
 const NGINX_LOG = [
   '10.0.0.1 - - [20/Jul/2026:10:00:01 +0000] "GET /xas/ HTTP/1.1" 200 512 "-" "Mozilla/5.0" 0.412',
   '10.0.0.2 - - [20/Jul/2026:10:00:02 +0000] "POST /xas/ HTTP/1.1" 500 128 "-" "Mozilla/5.0" 1.900'
@@ -273,6 +280,56 @@ async function run() {
       await page.evaluate(() => /constraint/i.test(document.getElementById('edx-results').textContent)));
     ok('...and carries the log row it came from',
       await page.evaluate(() => getComputedStyle(document.getElementById('edx-context')).display !== 'none'));
+
+    // Correlation Flow: the list has to be discoverable, and picking a row has to
+    // render the flow (wave 20, C5). Help promised this list for a year before it
+    // existed, so it is worth a browser assertion rather than a pure-layer one.
+    console.log('\nCorrelation Flow');
+    currentTool = 'log-viewer';
+    // Reload with a second execution under its own ID, so "picking one must not
+    // hide the others" is actually testable. This is the last block before
+    // teardown, so the extra records cannot disturb the assertions above.
+    await page.evaluate((t, extra) => {
+      window.navigate('log-viewer', null);
+      window.logClear();
+      window.logLoadText(t + '\n' + extra, 'smoke.log');
+    }, LOG, LOG_SECOND_CORR);
+    await page.waitForFunction(() => document.querySelectorAll('#log-container .log-row').length > 0, { timeout: 20000 });
+    await page.evaluate(() => {
+      const tab = document.querySelector('#panel-log-viewer .tab[data-help-key="log-viewer-correlation"]');
+      if (tab) tab.click();
+    });
+    await page.waitForFunction(() => document.querySelectorAll('#log-correlation-list .log-corr-row').length > 0, { timeout: 10000 });
+    ok('the correlation list names the microflow behind the ID',
+      await page.evaluate(() => /Mod\.SendShipment/.test(document.getElementById('log-correlation-list').textContent)));
+
+    await page.evaluate(() => document.querySelector('#log-correlation-list .log-corr-row').click());
+    await sleep(400);
+    eq('clicking a row fills the box with that ID',
+      await page.$eval('#log-correlation-id', e => e.value), CORR);
+    ok('...and renders its flow, headed by the ID and what happened under it',
+      await page.evaluate(c => {
+        const t = document.getElementById('log-correlation-output').textContent;
+        return t.indexOf(c) !== -1 && /log entries/.test(t) && /1 error/.test(t) && /Mod\.SendShipment/.test(t);
+      }, CORR));
+    ok('...and offers the hand-off to the Log Stream',
+      await page.evaluate(() => getComputedStyle(document.getElementById('log-corr-stream-btn')).display !== 'none'));
+    // Picking a row writes its ID into the box, which also drives the filter —
+    // the list must not collapse to the row just clicked and strand the user.
+    ok('...while the list still shows the other IDs to pick next',
+      await page.evaluate(() => document.querySelectorAll('#log-correlation-list .log-corr-row').length > 1));
+    ok('...with the picked row highlighted',
+      await page.evaluate(() => !!document.querySelector('#log-correlation-list .log-corr-row.selected')));
+
+    // Typing a partial ID must narrow the list, not scan the log as free text.
+    await page.evaluate(() => {
+      const box = document.getElementById('log-correlation-id');
+      box.value = 'no-such-id';
+      box.dispatchEvent(new Event('input'));
+    });
+    await sleep(300);
+    ok('a filter that matches nothing says so instead of rendering an empty list',
+      await page.evaluate(() => /No correlation ID matches/.test(document.getElementById('log-correlation-list').textContent)));
 
     currentTool = 'teardown';
     await page.close();
