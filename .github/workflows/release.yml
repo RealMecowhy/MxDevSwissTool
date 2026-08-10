@@ -21,13 +21,18 @@ jobs:
           # Copy only the files needed for the end user
           cp -r public release_package/
           cp -r server release_package/
-          # sync-app-version.js is required by the npm prestart hook (zero-dependency)
+          # Both scripts are required by the npm prestart hook (zero-dependency).
+          # Shipping only one of them made the documented `npm start` fallback
+          # die with MODULE_NOT_FOUND — the .bat launcher calls node directly and
+          # never hit it, so it went unnoticed from v1.32.0 to v1.39.0.
           mkdir -p release_package/scripts
           cp scripts/sync-app-version.js release_package/scripts/
+          cp scripts/sync-sw-version.js release_package/scripts/
           cp package.json release_package/
           cp package-lock.json release_package/
           cp Start-MxDevSwissTool.bat release_package/
           cp README.md release_package/
+          cp CHANGELOG.md release_package/
           
       - name: Create ZIP Archive
         working-directory: release_package
