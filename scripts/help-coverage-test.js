@@ -39,6 +39,17 @@ const TAB_RESOLVED = new Set(['log-viewer', 'query-intelligence', 'thread-dump']
 // Top-level TOOLS_HELP keys are quoted and indented exactly two spaces; nested
 // fields (title:, description:, …) are unquoted, so this can't false-match them.
 const helpKeys = new Set(matchAll(helpJs, /^ {2}'([a-z0-9-]+)':/gm));
+// Compiling without running is the one check text parsing cannot do for itself:
+// the help entries are long single-quoted prose, so an unescaped apostrophe ends
+// the string and takes the whole module — and with it every tool — down at load.
+// vm.Script parses without executing, so this stays true to "no module load".
+// (`export` is stripped first so the file compiles as a classic script — the
+// same trick parser-test.js uses to load ES modules in plain Node.)
+let helpSyntaxError = null;
+try { new (require('vm').Script)(helpJs.replace(/^export\s+/gm, ''), { filename: 'tools-help.js' }); }
+catch (e) { helpSyntaxError = e.message; }
+ok('tools-help.js parses as valid JavaScript', helpSyntaxError === null, helpSyntaxError);
+
 ok('tools-help.js exposes help entries', helpKeys.size > 0, 'found ' + helpKeys.size);
 
 const dataTools = Array.from(new Set(matchAll(indexHtml, /data-tool="([^"]+)"/g)))

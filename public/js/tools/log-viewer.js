@@ -472,7 +472,7 @@ function logLoadMore() {
       if (typeof window.edxDecode !== 'function') {
         showExplain = true; // decoder script not loaded — keep prior behavior
       } else {
-        if (e._edxHasMatch === undefined) e._edxHasMatch = window.edxDecode(e.msg).matches.length > 0;
+        if (e._edxHasMatch === undefined) e._edxHasMatch = window.edxDecode(logDecoderText(e)).matches.length > 0;
         showExplain = e._edxHasMatch;
       }
     }
@@ -638,6 +638,17 @@ function logReportSection(fromMs, toMs) {
 
 // "Explain" chip on ERROR/CRITICAL rows → hand the full message (headline +
 // stack) to the Mendix Error Decoder, with a "← Back" chip to return here.
+// What the decoder gets from a log row. The log node travels with the message
+// because it is part of the signature for several rules — `SAML_SSO: null` says
+// which subsystem failed, while a bare `null` says nothing at all. The parser
+// keeps the two apart, so they are rejoined here, in the shape a user pasting
+// the line would produce. One helper, used by both the Explain chip's
+// recognition test and the hand-off, so the chip never promises a decode the
+// decoder will not deliver.
+function logDecoderText(e) {
+  return e.node ? e.node + ': ' + e.msg : e.msg;
+}
+
 function logExplainError(idx) {
   const e = logFilteredEntries[idx];
   if (!e) return;
@@ -648,7 +659,7 @@ function logExplainError(idx) {
   // instead of dropping them here. They are what turns those buttons from a
   // suggestion into navigation.
   const corr = e.raw.match(LOG_CORRID_PAT);
-  if (window.edxDecodeText) window.edxDecodeText(e.msg, { ts: e.ts, corrId: corr ? corr[0] : null });
+  if (window.edxDecodeText) window.edxDecodeText(logDecoderText(e), { ts: e.ts, corrId: corr ? corr[0] : null });
 }
 
 // ============================================================

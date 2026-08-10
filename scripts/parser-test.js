@@ -1198,6 +1198,76 @@ ok('errdec: stack trace detected in input', edxDecode(wrapped).input.hasStackTra
 const mixed = 'java.lang.NullPointerException\nCaused by: ERROR: deadlock detected';
 eq('errdec: DB deadlock outranks NPE', edxTop(mixed).id, 'pg-deadlock');
 
+// ── Rules mined from real production logs (wave 19) ─────────────────────────
+// Every signature below was taken verbatim from ERROR/CRITICAL records in the
+// reference logs, not from documentation. Before them the decoder recognised
+// 10% of that corpus by volume; the four rules that fired were mostly scanner
+// 404s — it knew the rare tail and missed everything common.
+ok('errdec: runtime request wrapper',
+  edxIds("Connector: An error has occurred while handling the request. [User 'a@b.c' with session id 'ff08e210-0000-0000-0000-000000001d27' and roles 'User']")
+    .indexOf('mx-request-handler-error') !== -1);
+ok('errdec: published REST failure',
+  edxIds('REST Publish: An unexpected error occurred while handling REST request').indexOf('mx-rest-publish-failed') !== -1);
+ok('errdec: published web service failure',
+  edxIds('WebServices: An error occurred processing the webservice request').indexOf('mx-ws-publish-failed') !== -1);
+ok('errdec: web service input parameters',
+  edxIds("WebServices: Couldn't handle input parameters").indexOf('mx-ws-input-parameters') !== -1);
+ok('errdec: task queue failure',
+  edxIds("TaskQueue: Failed to execute task 'MDM.UPD_UserData(Account=X@1)' from task queue 'Queues.Schedule'.")
+    .indexOf('mx-taskqueue-failed') !== -1);
+ok('errdec: request state size',
+  edxIds('RequestStatistics: Request state size of 450 objects exceeds the threshold of 300 objects.')
+    .indexOf('mx-request-state-size') !== -1);
+ok('errdec: FileDocument without a file',
+  edxIds('Connector: The Comments.Attachment file could not be found.').indexOf('mx-file-not-found') !== -1);
+ok('errdec: blocked file cleanup',
+  edxIds('Core: Prevented deletion of one or more files that are still in use').indexOf('mx-file-in-use') !== -1);
+ok('errdec: SAML duplicate response',
+  edxIds('SAML_SSO: Unable to validate Response. Error: Request has already received a response')
+    .indexOf('saml-duplicate-response') !== -1);
+
+// The most frequent line in the whole corpus (4 023×) carries no message at all.
+// It is only decodable *with* its log node — a bare "null" must stay unmatched,
+// which is what keeps this rule from firing on every NullPointerException.
+ok('errdec: SAML null message needs its log node',
+  edxIds('SAML_SSO: null').indexOf('saml-empty-error') !== -1);
+eq('errdec: a bare "null" is not a SAML error', edxIds('null').length, 0);
+ok('errdec: a null-message NPE does not become a SAML error',
+  edxIds('java.lang.NullPointerException: null').indexOf('saml-empty-error') === -1);
+ok('errdec: the outbound SAML variant is the same family',
+  edxIds('SAML_SSO: Error occurred while making request: null').indexOf('saml-empty-error') !== -1);
+ok('errdec: ...and it says which leg failed',
+  /making a request/i.test(edxTop('SAML_SSO: Error occurred while making request: null').mechanism));
+
+// Ranking: the wrappers must never outrank the cause underneath them.
+const handlerWithCause = [
+  "Connector: An error has occurred while handling the request. [User 'a@b.c' with roles 'User']",
+  'com.mendix.modules.microflowengine.MicroflowException: Error in (sub)microflow call',
+  'Caused by: ERROR: deadlock detected'
+].join('\n');
+eq('errdec: the root cause outranks the request wrapper', edxTop(handlerWithCause).id, 'pg-deadlock');
+ok('errdec: ...and the wrapper is still reported alongside it',
+  edxIds(handlerWithCause).indexOf('mx-request-handler-error') !== -1);
+const samlAndReal = 'SAML_SSO: null\nCaused by: sun.security.validator.ValidatorException: PKIX path building failed';
+eq('errdec: an information-free SAML line never outranks a real signature', edxTop(samlAndReal).id, 'ssl-pkix');
+
+// Contract: every new rule carries all three sections and at least one tool link.
+['mx-request-handler-error', 'mx-rest-publish-failed', 'mx-ws-publish-failed', 'mx-ws-input-parameters',
+ 'mx-taskqueue-failed', 'mx-request-state-size', 'mx-file-not-found', 'mx-file-in-use',
+ 'saml-duplicate-response', 'saml-empty-error'].forEach(function (id) {
+  const rule = global.EDX_RULES.filter(function (r) { return r.id === id; })[0];
+  ok('errdec: ' + id + ' is registered', !!rule);
+  if (!rule) return;
+  const m = ['x'];
+  ok('errdec: ' + id + ' explains a mechanism', rule.mechanism(m).length > 60);
+  ok('errdec: ' + id + ' lists causes as hypotheses', rule.causes(m).length >= 2);
+  ok('errdec: ' + id + ' offers checks', rule.checks(m).length >= 1);
+  // The decoder is not a fix advisor — no rule may instruct.
+  const prose = rule.mechanism(m) + ' ' + rule.causes(m).join(' ') + ' ' + rule.checks(m).map(function (c) { return c.text; }).join(' ');
+  ok('errdec: ' + id + ' does not prescribe a fix',
+    !/\b(you should|you must|simply add|just add|fix it by)\b/i.test(prose));
+});
+
 // A single-line message with no stack still decodes and reports no stack trace.
 ok('errdec: single-line message → no stack flag', !edxDecode('java.lang.OutOfMemoryError: Java heap space').input.hasStackTrace);
 

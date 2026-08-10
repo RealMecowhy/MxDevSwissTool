@@ -806,6 +806,290 @@
         ];
       }
     },
+    // ── Mendix platform — signatures mined from real production logs ────────
+    // Everything below was taken from 15 169 real ERROR/CRITICAL records across
+    // five production logs (Mendix Cloud + on-premises), not from documentation:
+    // before this block the decoder recognised 10% of that volume, and the four
+    // rules that fired were mostly scanner 404s. These are the signatures that
+    // actually dominate a running application's log.
+    //
+    // Two shapes to keep in mind when reading them: the Cloud log frequently
+    // carries the wrapper line *without* a stack trace (the exception class ends
+    // up alone on the next line), and the runtime's outermost handlers are
+    // deliberately generic — so several of these rules decode "which layer
+    // failed and where the real cause is", which is what the message honestly
+    // supports, rather than inventing a root cause.
+    {
+      id: 'mx-request-handler-error',
+      title: 'Runtime returned a generic error to the client',
+      category: 'Platform',
+      // The outermost wrapper: it must never outrank the root cause when both
+      // are present, but it is worth decoding because in Cloud logs it very
+      // often arrives alone.
+      specificity: 30,
+      patterns: [
+        /An error has occurred while handling the request\.\s*\[User '([^']*)'[^\]]*\]/i,
+        /An error has occurred while handling the request/i
+      ],
+      mechanism: function (m) {
+        const who = m[1] ? ' The bracketed part names who hit it: user <code>' + edxHtmlEscape(m[1]) + '</code>, with their session id and roles.' : '';
+        return 'A request from the client (a page action, a microflow call from the browser, a data retrieve) threw, and the runtime caught it at its outermost handler, logged this line on the <code>Connector</code> node and returned a generic message to the browser. This line is the <em>wrapper</em>: it states that something failed while serving a user, not what failed.' + who;
+      },
+      causes: function () {
+        return [
+          'A microflow behind the action threw — the real mechanism is in the lines below this one (<code>MicroflowException</code>, then a "Caused by").',
+          'A security/consistency check rejected the operation (access rules, a deleted or changed object).',
+          'The stack is absent because the environment logs at INFO: the runtime writes the wrapper regardless, the detail only appears at DEBUG/TRACE for the relevant log node.'
+        ];
+      },
+      checks: function (m) {
+        const checks = [
+          { text: 'Open this record in the Log Viewer and read the lines directly beneath it — the wrapper is followed by the microflow chain and the root cause when the log level allows it.', tool: 'log-viewer' }
+        ];
+        if (m[1]) {
+          checks.push({ text: 'The session id in the brackets identifies this one request: filter the log by it to see everything that happened under it.', tool: 'log-viewer' });
+        }
+        checks.push({ text: 'If only the wrapper is logged, raise the log node that owns the failing feature to DEBUG/TRACE and reproduce — the detail is not stored anywhere else after the fact.' });
+        checks.push({ text: 'Correlate with the SQL that ran in the same window, which often shows the failing statement even when the stack is missing.', tool: 'log-query-extractor' });
+        return checks;
+      }
+    },
+    {
+      id: 'mx-rest-publish-failed',
+      title: 'Published REST service failed while handling a request',
+      category: 'Integration',
+      specificity: 60,
+      patterns: [/An unexpected error occurred while handling REST request/i],
+      mechanism: function () {
+        return 'A request reached one of your <em>published</em> REST operations, the microflow behind it threw, and the runtime answered the caller with HTTP 500 while logging this line on the <code>REST Publish</code> node. Unlike a 404 "no operation matches", the routing worked — your logic ran and failed. (This is an <em>incoming</em> call to your app.)';
+      },
+      causes: function () {
+        return [
+          'The microflow behind the operation threw — most often a null reference on data the caller did not send, or a failed retrieve of a referenced record.',
+          'The request body did not deserialize into the expected structure, so the mapping produced empty values the microflow then used.',
+          'A downstream dependency the operation calls (database, another service) failed inside the operation.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Read the line immediately below this one: in Mendix Cloud logs the stack is frequently reduced to the exception class alone (e.g. <code>java.lang.NullPointerException: null</code>), which tells you the kind of failure but not the location.' },
+          { text: 'Raise <code>REST Publish</code> to TRACE and reproduce — that logs the incoming request with its headers and body, which is what identifies the caller and the payload that triggers it.' },
+          { text: 'Pair the failing request with its response and timing to see whether one caller or one payload shape is responsible.', tool: 'ws-rest-extractor' },
+          { text: 'Trace the microflow behind the operation to the activity that threw.', tool: 'microflow-tracer' }
+        ];
+      }
+    },
+    {
+      id: 'mx-ws-publish-failed',
+      title: 'Published web service failed while handling a request',
+      category: 'Integration',
+      specificity: 60,
+      patterns: [
+        /An error occurred processing the webservice request/i,
+        /Exception occurred while processing webservice request/i
+      ],
+      mechanism: function () {
+        return 'An incoming SOAP request reached a <em>published</em> web service and failed while being processed, so the runtime returned a SOAP fault to the caller and logged this on the <code>WebServices</code> node. The request was routed correctly — the failure is inside processing, not in the address.';
+      },
+      causes: function () {
+        return [
+          'The microflow behind the operation threw while handling the request.',
+          'The request could not be mapped onto the operation\'s contract (a missing or malformed element), so the failure happens before your logic sees usable data.',
+          'The caller sent a request built against an older version of the published contract.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Look for a "Couldn\'t handle input parameters" line around the same timestamp — that distinguishes a contract/mapping failure from a microflow failure.' },
+          { text: 'Raise <code>WebServices</code> to TRACE and reproduce to capture the incoming envelope; the payload is what tells a bad caller from a bad contract.' },
+          { text: 'Inspect the paired request and response, including the SOAP fault sent back.', tool: 'ws-rest-extractor' }
+        ];
+      }
+    },
+    {
+      id: 'mx-ws-input-parameters',
+      title: 'Published web service — request did not fit the contract',
+      category: 'Integration',
+      specificity: 65,
+      patterns: [/Couldn't handle input parameters/i],
+      mechanism: function () {
+        return 'The runtime could not map the incoming SOAP request\'s parameters onto the published operation\'s contract, so processing stopped before the microflow ran. Nothing in your logic executed — this is a mismatch between what the caller sent and what the published WSDL declares.';
+      },
+      causes: function () {
+        return [
+          'A required element is missing, empty, or nested differently from the published contract.',
+          'A value does not fit its declared type (a date, a decimal, an enumeration member the contract does not define).',
+          'The caller was built against an older version of the WSDL, or a namespace changed on redeploy.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Capture the incoming envelope (raise <code>WebServices</code> to TRACE) and compare it element by element against the published WSDL — the first mismatch is the answer.' },
+          { text: 'Check whether every caller fails or only one: one failing client points at a stale contract on their side, all callers failing points at a redeploy on yours.', tool: 'ws-rest-extractor' },
+          { text: 'Validate the envelope\'s structure and character content if it arrives from a third party — invisible control characters break parsing.', tool: 'char-sanitizer' }
+        ];
+      }
+    },
+    {
+      id: 'mx-taskqueue-failed',
+      title: 'Background task failed in a task queue',
+      category: 'Platform',
+      specificity: 70,
+      patterns: [/Failed to execute task '([^'(]+)[^']*'(?:\s*from task queue '([^']+)')?/i],
+      mechanism: function (m) {
+        const task = m[1] ? '<code>' + edxHtmlEscape(m[1].trim()) + '</code>' : 'a task';
+        const queue = m[2] ? ' in queue <code>' + edxHtmlEscape(m[2]) + '</code>' : '';
+        return 'The task queue picked up ' + task + queue + ', ran it, and the microflow behind it threw. The runtime logs the failure and applies the queue\'s retry policy — so one broken record can produce this line repeatedly, on a schedule, long after the original trigger.';
+      },
+      causes: function () {
+        return [
+          'One "poison" record fails every attempt — the same task retried on a fixed interval, which is why the count grows steadily rather than in bursts.',
+          'The task depends on data or a downstream service that was unavailable at execution time.',
+          'The task was queued with an argument referring to an object that has since been deleted or changed.'
+        ];
+      },
+      checks: function (m) {
+        return [
+          { text: 'Count how often this exact task failed: many failures of one task is a retry loop on a single record, while many different tasks failing at once points at a shared dependency.', tool: 'log-viewer' },
+          { text: 'Read the lines under this one for the wrapped cause — the task name here identifies the microflow to trace next.' + (m[1] ? ' (<code>' + edxHtmlEscape(m[1].trim()) + '</code>)' : ''), tool: 'microflow-tracer' },
+          { text: 'Background work runs on its own correlation IDs; the Tracer\'s Background view aggregates runs per event so you can see whether the failures line up with a schedule.', tool: 'microflow-tracer' }
+        ];
+      }
+    },
+    {
+      id: 'mx-request-state-size',
+      title: 'Request state exceeded the object threshold',
+      category: 'Platform',
+      specificity: 80,
+      patterns: [/Request state size of (\d+) objects exceeds the threshold of (\d+)/i],
+      mechanism: function (m) {
+        return 'A single request kept <strong>' + edxHtmlEscape(m[1]) + '</strong> objects in the session\'s request state, above the configured threshold of ' + edxHtmlEscape(m[2]) + '. The runtime is reporting memory it is holding on the user\'s behalf between requests — the request still completed; this is a warning about how much it costs.';
+      },
+      causes: function () {
+        return [
+          'A page (or a nested data view/grid) retrieved a large list of non-persistable or uncommitted objects that stay in state until the page closes.',
+          'A microflow created many objects without committing or deleting them, so they remain owned by the session.',
+          'A list is retrieved in full where paging would keep only a window of it in state.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Identify the page or microflow the request belonged to — the same request usually shows its retrieves in the SQL log within the same window.', tool: 'log-query-extractor' },
+          { text: 'Check whether the count grows with data volume (a retrieve without a limit) or stays constant (a fixed but heavy page).', tool: 'log-viewer' },
+          { text: 'Watch session memory over time: many requests over the threshold at once is the shape that precedes heap pressure.', tool: 'telemetry-monitor' }
+        ];
+      }
+    },
+    {
+      id: 'mx-file-not-found',
+      title: 'FileDocument has no file in storage',
+      category: 'Platform',
+      specificity: 65,
+      // Distinct from `http-404-file-not-found`, which is a web request for a
+      // static resource; this is the runtime failing to read a FileDocument.
+      patterns: [/(?:The\s+([A-Za-z0-9_.$]+)\s+)?file could not be found\.?/i],
+      mechanism: function (m) {
+        const ent = m[1] ? ' (<code>' + edxHtmlEscape(m[1]) + '</code>)' : '';
+        return 'The runtime tried to read the contents of a FileDocument' + ent + ' and the underlying file was not in the file storage. The database row describing the document exists — its bytes do not, so anything downloading or processing it fails.';
+      },
+      causes: function () {
+        return [
+          'The database was restored into this environment without the matching file storage — the classic result of copying production data into acceptance or a local environment.',
+          'The file was never written: the upload or the microflow that should have filled the document failed after the object was created.',
+          'The storage backend (mounted volume, blob container) is unavailable or was cleaned up independently of the database.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Check whether it is one document or many: a single one points at a failed upload, while many point at a storage/restore mismatch for the whole environment.' },
+          { text: 'Confirm the environment\'s file storage was restored together with the database snapshot it is running on.' },
+          { text: 'Look for the upload or generating microflow around the document\'s creation time to see whether writing the contents ever succeeded.', tool: 'microflow-tracer' }
+        ];
+      }
+    },
+    {
+      id: 'mx-file-in-use',
+      title: 'File cleanup blocked — files still in use',
+      category: 'Platform',
+      specificity: 75,
+      patterns: [/Prevented deletion of one or more files that are still in use/i],
+      mechanism: function () {
+        return 'The runtime\'s file cleanup found storage files it was about to delete still referenced (open or claimed) and refused to remove them, listing their UUIDs. It stopped deliberately rather than deleting a file something else was holding — the failure mode this guards against is silent data loss.';
+      },
+      causes: function () {
+        return [
+          'A FileDocument was being read or written while the cleanup ran.',
+          'A previous operation left a handle open (a failed download or import that did not close its stream).',
+          'The same storage is shared by more than one runtime instance, so one instance sees another\'s file as in use.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Note whether this repeats for the same UUIDs: recurring identical ones mean a handle is never released, while changing ones mean it is a timing overlap with normal traffic.', tool: 'log-viewer' },
+          { text: 'Correlate the timestamp with file upload/download activity and with any scheduled cleanup event.', tool: 'microflow-tracer' },
+          { text: 'Mendix documents this message as one to report if it persists — capture the UUIDs and the surrounding log before it rotates.' }
+        ];
+      }
+    },
+    {
+      id: 'saml-duplicate-response',
+      title: 'SAML response rejected — request already answered',
+      category: 'Authentication',
+      specificity: 75,
+      patterns: [/Request has already received a response/i],
+      mechanism: function () {
+        return 'The SAML module received an assertion answering an authentication request it had already answered. Each <code>AuthnRequest</code> may be consumed exactly once — this is replay protection working, so the login was rejected even though the assertion itself may be perfectly valid.';
+      },
+      causes: function () {
+        return [
+          'The browser replayed the identity provider\'s POST — a refresh, a back-navigation onto the assertion consumer URL, or a restored session/tab.',
+          'The identity provider (or something between) delivered the same response twice.',
+          'Two runtime instances behind a load balancer without sticky sessions: one consumed the request, the other saw the second delivery.',
+          'A user opened the login flow in more than one tab, so a later assertion refers to a request an earlier tab already used.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Check whether it affects one user repeatedly (a client-side replay) or many users at once (an infrastructure or IdP behaviour).', tool: 'log-viewer' },
+          { text: 'Decode the assertion to confirm it is otherwise valid — an expired or misaddressed one produces different errors than a duplicate.', tool: 'saml-debugger' },
+          { text: 'On a multi-instance deployment, confirm session affinity: without it, the instance validating the response is not always the one that issued the request.' },
+          { text: 'Correlate the two deliveries in the reverse-proxy access log to see whether the same assertion arrived twice.', tool: 'nginx-log' }
+        ];
+      }
+    },
+    {
+      id: 'saml-empty-error',
+      title: 'SAML module logged an error with no message',
+      category: 'Authentication',
+      // Deliberately low: this rule decodes the *absence* of information, so any
+      // real signature in the same paste must rank above it.
+      specificity: 15,
+      patterns: [
+        /SAML_SSO:\s*null\s*$/im,
+        /Error occurred while making request:\s*null/i
+      ],
+      mechanism: function (m) {
+        const outbound = /making request/i.test(m[0])
+          ? ' This variant adds one thing: it failed while the module was <em>making a request</em> — the outbound leg (sending the authentication request, or fetching identity-provider metadata), not while validating a response.'
+          : '';
+        return 'The SAML module logged an error whose message is literally <code>null</code> — the exception it caught carried no text (typically a null reference inside the module or the library underneath it). The line records that a failure happened during a SAML exchange; by itself it identifies neither the user, the step, nor the cause.' + outbound;
+      },
+      causes: function () {
+        return [
+          'An exception with no message was thrown inside the SAML handling path — the module logs <code>e.getMessage()</code>, which is null for many runtime exceptions.',
+          'The failure often accompanies a metadata, certificate or response-parsing problem that another line in the same second describes properly.',
+          'On a busy environment these accumulate in large numbers precisely because each one carries no detail to distinguish it from the next.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Read the neighbouring lines rather than this one: SAML failures normally log a second, descriptive entry in the same second (audience, clock skew, duplicate response, metadata).', tool: 'log-viewer' },
+          { text: 'Raise <code>SAML_SSO</code> to DEBUG/TRACE and reproduce a login — the module logs the request/response detail there, which is where the actual cause is.' },
+          { text: 'Decode a captured assertion directly if logins are failing for users.', tool: 'saml-debugger' },
+          { text: 'Count them over time: a constant background rate usually accompanies bot traffic hitting the login endpoint, while a spike lines up with a deployment or a certificate rollover.', tool: 'log-viewer' }
+        ];
+      }
+    },
     {
       id: 'microflow-exception',
       title: 'Microflow execution failed (wrapped exception)',
