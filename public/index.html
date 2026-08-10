@@ -95,7 +95,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.35.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.36.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -281,7 +281,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.35.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.36.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -2493,9 +2493,18 @@ EntityName -> OtherEntity : Association"></textarea>
                <button type="button" class="btn btn-secondary btn-xs active" data-view="entities" onclick="window.archSetViewMode('entities')">Entities</button>
                <button type="button" class="btn btn-secondary btn-xs" data-view="modules" onclick="window.archSetViewMode('modules')" title="Requires a model loaded from a live database">Modules</button>
              </div>
-             <input type="text" id="arch-entity-search" placeholder="Find entity…" style="margin-left:auto;width:160px;font-size:0.78rem;padding:2px 6px" oninput="window.archSearchEntity()" onkeydown="if(event.key==='Enter')window.archSearchEntity()">
+             <div id="arch-zoom-controls" class="btn-group" style="margin-left:auto" title="Scroll to zoom, drag to pan">
+               <button type="button" class="btn btn-secondary btn-xs" onclick="window.archZoomBy(1/1.25)" title="Zoom out">&minus;</button>
+               <span id="arch-zoom-level" style="font-size:0.72rem;color:var(--text-muted);min-width:44px;text-align:center;align-self:center">100%</span>
+               <button type="button" class="btn btn-secondary btn-xs" onclick="window.archZoomBy(1.25)" title="Zoom in">+</button>
+               <button type="button" class="btn btn-secondary btn-xs" onclick="window.archZoomFit()" title="Scale the whole diagram to fit the panel">Fit</button>
+               <button type="button" class="btn btn-secondary btn-xs" onclick="window.archZoomReset()" title="Show the diagram at its natural size">1:1</button>
+             </div>
+             <input type="text" id="arch-entity-search" placeholder="Find entity…" style="width:160px;font-size:0.78rem;padding:2px 6px" oninput="window.archSearchEntity()" onkeydown="if(event.key==='Enter')window.archSearchEntity()">
              <span id="arch-entity-search-status" style="font-size:0.72rem;color:var(--text-muted);white-space:nowrap"></span>
            </div>
+           <!-- Scrolls at the diagram's natural size (mermaid's useMaxWidth is off, see mtLoadMermaid);
+                archRenderMermaid puts a zoom wrapper inside so drag-to-pan and wheel-zoom work. -->
            <div id="arch-output" style="flex:1;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-4);display:flex;flex-direction:column;overflow:auto">
               <div style="color:var(--text-muted)">Diagram will appear here...</div>
            </div>

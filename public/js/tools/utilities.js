@@ -37,14 +37,35 @@ function mtLoadVendor(file) {
   return mtVendorLoads[file];
 }
 
-// Mermaid needs its theme set before the first render, which used to happen in
-// an inline `load` listener in index.html. It belongs with the loading now.
+// Mermaid config, in one place because two things depend on getting it right.
+//
+// `useMaxWidth` (the default, true) writes `max-width: <natural>px` onto the SVG
+// and stretches it to the container's width — so a 8 592 px domain model was
+// squeezed into a 650 px panel at 7% scale, every label under one pixel tall,
+// and because the SVG then "fitted", there was nothing left to scroll either.
+// Off, the diagram keeps its natural size and #arch-output scrolls, which is
+// what the zoom/pan wrapper in architecture.js builds on.
+//
+// The theme has to be re-applied whenever the app theme changes: initialize()
+// only affects *subsequent* renders, so an already-drawn diagram keeps the old
+// palette — dark-theme boxes (#ccc) and edges (#d3d3d3) on the light-theme
+// background (#f5f5f5) come out at ~1.3:1 contrast, i.e. invisible.
+function mtMermaidApplyTheme() {
+  if (!window.mermaid) return;
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  window.mermaid.initialize({
+    startOnLoad: false,
+    theme: isLight ? 'default' : 'dark',
+    class: { useMaxWidth: false },
+    flowchart: { useMaxWidth: false }
+  });
+}
+
 function mtLoadMermaid() {
   return mtLoadVendor('mermaid.min.js').then(function () {
-    if (window.mermaid && !window._mtMermaidReady) {
+    if (window.mermaid) {
       window._mtMermaidReady = true;
-      const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-      window.mermaid.initialize({ startOnLoad: false, theme: isLight ? 'default' : 'dark' });
+      mtMermaidApplyTheme();
     }
     return true;
   });
@@ -123,6 +144,7 @@ window.escRegex = escRegex;
 window.mxEntityForTable = mxEntityForTable;
 window.mtLoadVendor = mtLoadVendor;
 window.mtLoadMermaid = mtLoadMermaid;
+window.mtMermaidApplyTheme = mtMermaidApplyTheme;
 window.copyToClipboard = copyToClipboard;
 window.fallbackCopy = fallbackCopy;
 window.downloadText = downloadText;

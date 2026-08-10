@@ -860,10 +860,12 @@ Customer [1] -- [*] Order : places</pre>
     howToUse: `
       <ol>
         <li>Type entities and their connections in the text editor on the left, then click <strong>Generate Diagram</strong>.</li>
-        <li>A class diagram renders on the right side.</li>
+        <li>A class diagram renders on the right side, at its natural size.</li>
+        <li><strong>Navigating a big model:</strong> a real domain model does not fit on a screen &mdash; 40 entities around one hub lay out roughly 8&nbsp;000&nbsp;px wide. <strong>Scroll to zoom</strong> (the diagram zooms towards the cursor), <strong>drag to pan</strong>, and use <strong>&minus; / + / Fit / 1:1</strong> above the panel; the percentage next to them is the current zoom. A diagram wider than the panel opens <em>fitted</em>, so you see the whole shape first and then zoom into the part you care about &mdash; if it looks tiny, that is the fit view telling you the model is large, not a rendering fault. <strong>Find entity</strong> scrolls to a match at whatever zoom you are on.</li>
         <li><strong>From a live database:</strong> open "Load the domain model from a live Mendix database", connect, and press <strong>Load model from database</strong>. Then <strong>pick the modules to draw</strong> — this step is not optional in practice: a real application (the reference app has 338 entities across 40 modules) is unreadable as a single diagram, so the largest non-System module is preselected and you widen from there. The generated JSON lands in the input box, so you can edit it by hand before regenerating.</li>
         <li>Cardinality is <em>read</em>, not guessed: the tool checks real <code>UNIQUE</code> indexes in PostgreSQL, which is what separates 1-1 from 1-*, and *-* from 1-*. Inheritance comes from <code>superentity_id</code> and is drawn as a generalization arrow.</li>
-        <li>Use <strong>Download SVG</strong> to save the diagram as a vector file, or <strong>Copy Mermaid</strong> to paste the diagram code into project documentation (e.g., GitHub / Confluence).</li>
+        <li>Use <strong>Download SVG</strong> to save the diagram as a vector file, or <strong>Copy Mermaid</strong> to paste the diagram code into project documentation (e.g., GitHub / Confluence). For a very large model these are often the better answer than reading it in the panel &mdash; the SVG opens in any viewer at full size, and the Mermaid source renders natively in GitHub and Confluence.</li>
+        <li>Switching between light and dark mode redraws the diagram in the matching palette, so it never ends up drawn in the other theme's colours.</li>
       </ol>
     `
   },

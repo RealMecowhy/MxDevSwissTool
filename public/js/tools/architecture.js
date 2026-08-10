@@ -293,6 +293,142 @@ window.archSetViewMode = function (mode) {
   }
 };
 
+// =========================================================================
+// Zoom & pan
+// =========================================================================
+// A real domain model does not fit on a screen: 40 entities around one hub lay
+// out 8 592 px wide. Mermaid renders a static SVG and offers no navigation, so
+// this is ours — the same hand-rolled approach as the Schema Visualizer in
+// Query Intelligence, no new dependency.
+//
+// Zoom is a CSS transform on #arch-zoom, whose *layout* box is set to the
+// scaled size so #arch-output's scrollbars keep matching what is on screen.
+// Panning therefore is scrolling — which means the entity search can go on
+// using scrollIntoView, and the scrollbars stay usable at every zoom level.
+let archZoom = 1;
+let archNaturalW = 0, archNaturalH = 0;
+
+const ARCH_ZOOM_MIN = 0.02;  // a 8 592 px model fits a 650 px panel at 0.075
+const ARCH_ZOOM_MAX = 4;
+
+function archClampZoom(z) {
+  return Math.min(ARCH_ZOOM_MAX, Math.max(ARCH_ZOOM_MIN, z));
+}
+
+// The rendered SVG's own size, read once per render. With useMaxWidth off,
+// mermaid sizes the SVG naturally; the viewBox is the reliable source.
+function archMeasureDiagram() {
+  const svg = document.querySelector('#arch-output svg');
+  if (!svg) { archNaturalW = archNaturalH = 0; return; }
+  const vb = (svg.getAttribute('viewBox') || '').split(/\s+/).map(Number);
+  const box = svg.getBoundingClientRect();
+  archNaturalW = (vb[2] && isFinite(vb[2])) ? vb[2] : box.width;
+  archNaturalH = (vb[3] && isFinite(vb[3])) ? vb[3] : box.height;
+  // Belt and braces: an SVG left with max-width would resist the transform.
+  svg.style.maxWidth = 'none';
+  svg.style.width = archNaturalW + 'px';
+  svg.style.height = archNaturalH + 'px';
+}
+
+function archApplyZoom(z) {
+  archZoom = archClampZoom(z);
+  const wrap = document.getElementById('arch-zoom');
+  if (wrap) {
+    wrap.style.transform = 'scale(' + archZoom + ')';
+    wrap.style.width = (archNaturalW * archZoom) + 'px';
+    wrap.style.height = (archNaturalH * archZoom) + 'px';
+  }
+  const label = document.getElementById('arch-zoom-level');
+  if (label) label.textContent = Math.round(archZoom * 100) + '%';
+}
+
+// Zooms around a fixed point in the panel (the cursor, or the centre for the
+// buttons), so the thing you were looking at stays where you were looking.
+function archZoomAround(nextZoom, anchorX, anchorY) {
+  const out = document.getElementById('arch-output');
+  if (!out) return;
+  const prev = archZoom;
+  const next = archClampZoom(nextZoom);
+  if (next === prev) return;
+  const contentX = (out.scrollLeft + anchorX) / prev;
+  const contentY = (out.scrollTop + anchorY) / prev;
+  archApplyZoom(next);
+  out.scrollLeft = contentX * next - anchorX;
+  out.scrollTop = contentY * next - anchorY;
+}
+
+window.archZoomBy = function (factor) {
+  const out = document.getElementById('arch-output');
+  if (!out) return;
+  archZoomAround(archZoom * factor, out.clientWidth / 2, out.clientHeight / 2);
+};
+
+window.archZoomFit = function () {
+  const out = document.getElementById('arch-output');
+  if (!out || !archNaturalW || !archNaturalH) return;
+  // Padding is inside the scroll box, so the usable width is a little smaller.
+  const pad = 32;
+  const fit = Math.min((out.clientWidth - pad) / archNaturalW, (out.clientHeight - pad) / archNaturalH);
+  archApplyZoom(fit);
+  out.scrollLeft = 0;
+  out.scrollTop = 0;
+};
+
+window.archZoomReset = function () {
+  archApplyZoom(1);
+};
+
+// Wheel zooms, dragging pans. Bound once to the scroll container, which
+// survives re-renders (the diagram inside it does not).
+let archPanning = false, archPanX = 0, archPanY = 0, archPanScrollX = 0, archPanScrollY = 0;
+
+function archInitPanZoom() {
+  const out = document.getElementById('arch-output');
+  if (!out || out.dataset.panZoomBound) return;
+  out.dataset.panZoomBound = '1';
+  out.style.cursor = 'grab';
+
+  out.addEventListener('wheel', function (e) {
+    if (!document.getElementById('arch-zoom')) return; // no diagram: let the page scroll
+    e.preventDefault();
+    const rect = out.getBoundingClientRect();
+    archZoomAround(archZoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1), e.clientX - rect.left, e.clientY - rect.top);
+  }, { passive: false });
+
+  out.addEventListener('mousedown', function (e) {
+    if (e.button !== 0 || !document.getElementById('arch-zoom')) return;
+    archPanning = true;
+    archPanX = e.clientX; archPanY = e.clientY;
+    archPanScrollX = out.scrollLeft; archPanScrollY = out.scrollTop;
+    out.style.cursor = 'grabbing';
+    e.preventDefault(); // otherwise the drag turns into a text/SVG selection
+  });
+
+  window.addEventListener('mousemove', function (e) {
+    if (!archPanning) return;
+    out.scrollLeft = archPanScrollX - (e.clientX - archPanX);
+    out.scrollTop = archPanScrollY - (e.clientY - archPanY);
+  });
+
+  window.addEventListener('mouseup', function () {
+    if (!archPanning) return;
+    archPanning = false;
+    out.style.cursor = 'grab';
+  });
+}
+
+// Mermaid's palette is baked into the SVG at render time, so a theme switch
+// leaves an existing diagram in the old colours — dark-theme edges on a light
+// background are invisible. core.js calls this after flipping the theme.
+window.archRerenderForTheme = function () {
+  if (!archLastMermaidCode || !document.querySelector('#arch-output svg')) return;
+  if (window.mtMermaidApplyTheme) window.mtMermaidApplyTheme();
+  const keepZoom = archZoom;
+  archRenderMermaid(archLastMermaidCode).then(function () {
+    archApplyZoom(keepZoom);   // a re-paint is not a reason to lose the user's view
+  });
+};
+
 // Mermaid is fetched on first use (3.5 MB), so this is async now. The existing
 // no-mermaid branch doubles as the failure path: if the library can't be fetched
 // (offline first visit), the diagram source is shown instead of nothing.
@@ -303,8 +439,29 @@ async function archRenderMermaid(mermaidCode) {
     try { await window.mtLoadMermaid(); } catch (e) { /* fall through to the source view below */ }
   }
   if (window.mermaid) {
-    out.innerHTML = `<div class="mermaid">${mermaidCode}</div>`;
-    mermaid.init(undefined, document.querySelectorAll('.mermaid'));
+    // The zoom wrapper is sized in layout pixels while the diagram inside is
+    // scaled by a transform — that is what keeps the scrollbars honest about
+    // how much diagram there is at the current zoom.
+    out.innerHTML = '<div id="arch-zoom" style="transform-origin:0 0;flex:0 0 auto">'
+      + `<div class="mermaid">${mermaidCode}</div></div>`;
+    // Rendering is asynchronous in mermaid 11 — measuring straight after the
+    // call reads a placeholder sized to the panel, not the finished diagram.
+    try {
+      const nodes = out.querySelectorAll('.mermaid');
+      if (window.mermaid.run) await window.mermaid.run({ nodes: nodes });
+      else await window.mermaid.init(undefined, nodes);
+    } catch (e) {
+      // Invalid diagram source: show it rather than an empty frame.
+      out.innerHTML = `<pre style="font-family:var(--font-mono);font-size:0.8rem;padding:var(--sp-2);white-space:pre-wrap">${escHtml(mermaidCode)}</pre>`
+        + `<div class="notice notice-warning" style="margin-top:var(--sp-2)">The renderer rejected this diagram: ${escHtml(e && e.message ? e.message : String(e))}</div>`;
+      return;
+    }
+    archMeasureDiagram();
+    archInitPanZoom();
+    // A model wider than the panel opens fitted: at natural size the user would
+    // be staring at the top-left corner of something they just asked to see.
+    if (archNaturalW > out.clientWidth) window.archZoomFit();
+    else archApplyZoom(archZoom);
   } else {
     out.innerHTML = `<pre style="font-family:var(--font-mono);font-size:0.8rem;background:var(--bg-base);padding:var(--sp-4);border-radius:var(--r-md);overflow-x:auto">${escHtml(mermaidCode)}</pre>
     <div class="notice notice-info" style="margin-top:var(--sp-2)">Mermaid.js library is not loaded. The raw syntax is shown above. To visualize, copy this into the <a href="https://mermaid.live/" target="_blank" style="color:var(--primary)">Mermaid Live Editor</a>.</div>`;

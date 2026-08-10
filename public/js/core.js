@@ -184,7 +184,7 @@ async function navigate(toolId, navEl, initialTab) {
     iconEl.style.color = tool.color || 'var(--accent)';
   }
   document.getElementById('topbar-title').textContent = tool.label;
-  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.35.0' : (tool.desc || '');
+  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.36.0' : (tool.desc || '');
   const previousTool = currentTool;
   currentTool = toolId;
   window.currentTool = currentTool;
@@ -352,10 +352,12 @@ function toggleTheme() {
   html.setAttribute('data-theme', dark ? 'light' : 'dark');
   document.getElementById('theme-label').textContent = dark ? 'Dark Mode' : 'Light Mode';
   try { localStorage.setItem('mt-theme', dark ? 'light' : 'dark'); } catch(e){}
-  // Keep Mermaid diagrams in sync with the active theme (applies to new renders)
-  if (window.mermaid) {
-    window.mermaid.initialize({ startOnLoad: false, theme: dark ? 'default' : 'dark' });
-  }
+  // Keep Mermaid diagrams in sync with the active theme. initialize() only
+  // affects future renders, so a diagram already on screen has to be redrawn —
+  // otherwise it keeps the old palette and can end up invisible (dark-theme
+  // edges on the light background).
+  if (window.mtMermaidApplyTheme) window.mtMermaidApplyTheme();
+  if (window.archRerenderForTheme) window.archRerenderForTheme();
 }
 
 // ── Settings backup / restore ───────────────────────────────────────────────
