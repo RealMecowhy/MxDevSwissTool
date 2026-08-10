@@ -331,6 +331,155 @@ async function run() {
     ok('a filter that matches nothing says so instead of rendering an empty list',
       await page.evaluate(() => /No correlation ID matches/.test(document.getElementById('log-correlation-list').textContent)));
 
+    // Keyboard and screen-reader support (wave 21, D5). All of it is either
+    // central CSS or one observer module, so a handful of assertions covers the
+    // whole surface — and every one of them failed before this release.
+    console.log('\nAccessibility');
+    currentTool = 'a11y';
+    await page.evaluate(() => window.navigate('home', null));
+    await sleep(300);
+
+    // `visibility: hidden` keeps layout, so measuring boxes proves nothing here.
+    // What matters is that the browser refuses to focus them — which is exactly
+    // what being out of the tab order means.
+    ok('closed dialogs are out of the tab order and the a11y tree',
+      await page.evaluate(() => {
+        const sel = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
+        return Array.from(document.querySelectorAll('.modal-overlay:not(.active)')).every(m =>
+          getComputedStyle(m).visibility === 'hidden' &&
+          Array.from(m.querySelectorAll(sel)).every(el => {
+            el.focus();
+            return document.activeElement !== el;
+          }));
+      }));
+
+    eq('--text-muted meets WCAG AA against the surface it sits on (dark)',
+      await page.evaluate(() => {
+        const L = h => {
+          const m = h.match(/\d+/g).slice(0, 3).map(v => v / 255)
+            .map(v => v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+          return 0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2];
+        };
+        const cs = getComputedStyle(document.documentElement);
+        const fg = L(cs.getPropertyValue('--text-muted').trim().replace(/^#(..)(..)(..)$/,
+          (_, r, g, b) => 'rgb(' + parseInt(r, 16) + ',' + parseInt(g, 16) + ',' + parseInt(b, 16) + ')'));
+        // --bg-elevated is the lightest surface muted text sits on in dark mode.
+        const bg = L(cs.getPropertyValue('--bg-elevated').trim().replace(/^#(..)(..)(..)$/,
+          (_, r, g, b) => 'rgb(' + parseInt(r, 16) + ',' + parseInt(g, 16) + ',' + parseInt(b, 16) + ')'));
+        return ((Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05)) >= 4.5;
+      }), true);
+
+    ok('sortable column headers are reachable by keyboard',
+      await page.evaluate(() => {
+        const h = document.querySelectorAll('[data-sort-key]');
+        return h.length > 0 && Array.from(h).every(el =>
+          el.tagName === 'BUTTON' || (el.getAttribute('role') === 'button' && el.getAttribute('tabindex') === '0'));
+      }));
+
+    ok('level filter chips expose their pressed state',
+      await page.evaluate(() => {
+        const c = document.querySelectorAll('.level-filter-btn');
+        return c.length > 0 && Array.from(c).every(el => el.hasAttribute('aria-pressed'));
+      }));
+
+    // Enter on a chip must toggle it exactly like a click, and the exposed
+    // state must follow — the class is toggled by code this module never calls.
+    ok('Enter activates a chip and aria-pressed follows',
+      await page.evaluate(async () => {
+        window.navigate('log-viewer', null);
+        const chip = document.querySelector('#panel-log-viewer .level-filter-btn');
+        const before = chip.getAttribute('aria-pressed');
+        chip.focus();
+        chip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        await new Promise(r => setTimeout(r, 100));
+        return chip.getAttribute('aria-pressed') !== before &&
+          chip.getAttribute('aria-pressed') === String(chip.classList.contains('active'));
+      }));
+
+    // Focus has to move into the dialog, stay there, and come back on close.
+    ok('opening a dialog moves focus into it, closing restores it',
+      await page.evaluate(async () => {
+        window.navigate('http-status', null);
+        await new Promise(r => setTimeout(r, 200));
+        const opener = document.querySelector('#panel-http-status .btn');
+        if (!opener) return false;
+        opener.focus();
+        const before = document.activeElement;
+        window.showHttpModal(404);
+        await new Promise(r => setTimeout(r, 200));
+        const modal = document.getElementById('http-modal');
+        const inside = modal.contains(document.activeElement);
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await new Promise(r => setTimeout(r, 200));
+        const closed = !modal.classList.contains('active');
+        return inside && closed && document.activeElement === before;
+      }));
+
+    eq('--text-muted meets WCAG AA in the light theme too',
+      await page.evaluate(() => {
+        document.documentElement.setAttribute('data-theme', 'light');
+        const L = hex => {
+          const m = [1, 3, 5].map(i => parseInt(hex.substr(i, 2), 16) / 255)
+            .map(v => v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+          return 0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2];
+        };
+        const cs = getComputedStyle(document.documentElement);
+        const fg = L(cs.getPropertyValue('--text-muted').trim());
+        // --bg-base is the darkest surface muted text sits on in the light theme.
+        const bg = L(cs.getPropertyValue('--bg-base').trim());
+        const ratio = (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05);
+        document.documentElement.setAttribute('data-theme', 'dark');
+        return ratio >= 4.5;
+      }), true);
+
+    // Tab must cycle inside the open dialog. The paste dialog is used because it
+    // has several controls — a one-control dialog would wrap to itself and pass
+    // whether or not the trap exists.
+    ok('Tab cycles inside an open dialog instead of leaving it',
+      await page.evaluate(async () => {
+        window.navigate('log-viewer', null);
+        window.logOpenPasteModal();
+        await new Promise(r => setTimeout(r, 300));
+        const modal = document.getElementById('log-paste-modal');
+        const sel = 'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+        const items = Array.from(modal.querySelectorAll(sel)).filter(el => el.offsetWidth || el.offsetHeight);
+        if (items.length < 2) return false;
+        items[items.length - 1].focus();
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+        await new Promise(r => setTimeout(r, 100));
+        const wrapped = document.activeElement === items[0];
+        window.logClosePasteModal();
+        return wrapped;
+      }));
+
+    // A fresh profile with no stored choice must follow the OS preference.
+    const themePage = await browser.newPage();
+    await themePage.setViewport({ width: 1600, height: 950 });
+    await themePage.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
+    await themePage.goto('http://127.0.0.1:' + port + '/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await themePage.waitForFunction(() => typeof window.navigate === 'function', { timeout: 30000 });
+    eq('with no saved choice the OS colour-scheme preference decides the theme',
+      await themePage.evaluate(() => document.documentElement.getAttribute('data-theme')), 'light');
+
+    // Measured on a page that has only ever rendered index.html, so this counts
+    // the shipped markup and not the rows tools render later. Two kinds are
+    // excluded, matching the decorator: dialog backdrops, whose handler is a
+    // click convenience rather than a control, and wrappers that already contain
+    // something focusable — the collapsible card headers hold a real Collapse
+    // button doing the same thing, and Tab must not stop twice for one action.
+    const unreachable = await themePage.evaluate(() => {
+      const sel = 'a[href], button:not([disabled]), input:not([disabled]), ' +
+        'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+      return Array.from(document.querySelectorAll('span[onclick], div[onclick]'))
+        .filter(el => !/^\s*if\s*\(/.test(el.getAttribute('onclick') || ''))
+        .filter(el => !el.querySelector(sel))
+        .filter(el => el.getAttribute('tabindex') !== '0')
+        .map(el => el.getAttribute('onclick'));
+    });
+    ok('no clickable span/div in the shipped markup is left unreachable',
+      unreachable.length === 0, unreachable.slice(0, 5).join(' | '));
+    await themePage.close();
+
     currentTool = 'teardown';
     await page.close();
   } finally {

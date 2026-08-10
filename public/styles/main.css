@@ -50,7 +50,12 @@
   --border-subtle: #252525;
   --text-primary: #f0f0f0;
   --text-secondary: #a0a0a0;
-  --text-muted: #666666;
+  /* WCAG AA for body text is 4.5:1. #666 reached only 2.8:1 against the elevated
+     surfaces this token is mostly used on (empty states, captions, hints), which
+     is below even the 3:1 large-text floor. #8a8a8a clears 4.5:1 against all
+     three backgrounds; it costs some of the gap to --text-secondary, and that is
+     the trade — the muted text has to be readable first. */
+  --text-muted: #8a8a8a;
   --text-inverse: #111111;
   --accent: #ff8700;
   --accent-hover: #ff9e33;
@@ -91,7 +96,8 @@
   --border-subtle: #eeeeee;
   --text-primary: #111111;
   --text-secondary: #555555;
-  --text-muted: #888888;
+  /* Same threshold in the light theme: #888 reached 3.25:1 on --bg-base. */
+  --text-muted: #6b6b6b;
   --text-inverse: #ffffff;
   --accent: #e67e00;
   --accent-hover: #cc7000;
@@ -2429,11 +2435,20 @@ kbd {
   flex: 1;
   font-size: 0.75rem;
 }
+/* A closed dialog is only transparent — it keeps its layout, so every control in
+   all eight of them stayed in the tab order and in the accessibility tree. Two
+   presses of Tab on a fresh page used to land inside a dialog nobody could see.
+   `visibility` removes them from both, and the fade-out survives by switching it
+   with a zero-duration step that is *delayed* on the way out and immediate on
+   the way in. Interpolating visibility instead (`visibility var(--t-base)`)
+   looks equivalent but is not: it leaves the dialog computing as hidden for the
+   length of the transition, so nothing inside it can take focus while it opens. */
 .modal-overlay {
   z-index: 999;
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
-  transition: opacity var(--t-base);
+  transition: opacity var(--t-base), visibility 0s linear var(--t-base);
   background: #0009;
   justify-content: center;
   align-items: center;
@@ -2443,7 +2458,9 @@ kbd {
 }
 .modal-overlay.active {
   opacity: 1;
+  visibility: visible;
   pointer-events: auto;
+  transition: opacity var(--t-base), visibility 0s;
 }
 .modal {
   background: var(--bg-surface);
@@ -3740,9 +3757,16 @@ kbd {
 @keyframes mt-toast-in  { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
 @keyframes mt-toast-out { to { opacity: 0; transform: translateX(12px); } }
 
-/* Respect the OS "reduce motion" setting — the app had no such rule at all, so
-   every animation played regardless. Motion is removed; the toasts still appear
-   and still auto-expire, they just do not slide. */
+/* Respect the OS "reduce motion" setting across the whole app, not just the
+   toasts it originally covered: modal fades, panel transitions, spinners and
+   the sidebar collapse all played regardless. Durations are collapsed rather
+   than set to `none`, so transitionend/animationend still fire and nothing that
+   waits on them stalls. */
 @media (prefers-reduced-motion: reduce) {
-  .mt-toast, .mt-toast-out { animation: none; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

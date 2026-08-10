@@ -12,6 +12,7 @@ function showLoader(text, percentage) {
     if (percentage !== undefined && track && bar) {
       track.style.display = 'block';
       bar.style.width = percentage + '%';
+      track.setAttribute('aria-valuenow', Math.round(percentage));
       if (percentage >= 100) setTimeout(() => track.style.display = 'none', 500);
     } else if (track) {
       track.style.display = 'none';
@@ -184,7 +185,7 @@ async function navigate(toolId, navEl, initialTab) {
     iconEl.style.color = tool.color || 'var(--accent)';
   }
   document.getElementById('topbar-title').textContent = tool.label;
-  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.38.0' : (tool.desc || '');
+  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.39.0' : (tool.desc || '');
   const previousTool = currentTool;
   currentTool = toolId;
   window.currentTool = currentTool;
@@ -656,6 +657,7 @@ const toolModules = {
 };
 
 import { initCommandPalette } from './components/command-palette.js';
+import { initA11y } from './components/a11y.js';
 import { initUpdateChecker } from './components/update-checker.js';
 import { initWelcome } from './components/welcome.js';
 import { initDbConnection } from './components/db-connection.js';
@@ -754,6 +756,7 @@ function initCore() {
   }
 
   initCommandPalette(TOOLS, navigate);
+  initA11y();
   initDbConnection();
   if (window.mtHubInit) window.mtHubInit();
   setupResponsiveSidebar();
@@ -792,11 +795,18 @@ function setupResponsiveSidebar() {
   applyState(mq);
 }
 
+// The status line is polled every 5 s and is an aria-live region, so it is only
+// written when the state actually changes — reassigning the same text would have
+// a screen reader announce "Bridge Offline" twelve times a minute.
+function setBridgeText(txt, label) {
+  if (txt.textContent !== label) txt.textContent = label;
+}
+
 async function checkBridgeStatus() {
   const dot = document.getElementById('global-bridge-dot');
   const txt = document.getElementById('global-bridge-text');
   if (!dot || !txt) return;
-  
+
   try {
     // Attempting to fetch from the Mendix Observability Bridge
     const res = await fetch('http://localhost:9999/detect-project', { 
@@ -806,7 +816,7 @@ async function checkBridgeStatus() {
     if (res.ok) {
       dot.style.background = 'var(--success)';
       dot.style.boxShadow = '0 0 5px var(--success)';
-      txt.textContent = 'Bridge Online';
+      setBridgeText(txt, 'Bridge Online');
       const dsBridgeInstruction = document.getElementById('ds-troubleshoot-bridge');
       if (dsBridgeInstruction) dsBridgeInstruction.style.display = 'none';
     } else {
@@ -815,7 +825,7 @@ async function checkBridgeStatus() {
   } catch (e) {
     dot.style.background = 'var(--danger)';
     dot.style.boxShadow = '0 0 5px var(--danger)';
-    txt.textContent = 'Bridge Offline';
+    setBridgeText(txt, 'Bridge Offline');
     const dsBridgeInstruction = document.getElementById('ds-troubleshoot-bridge');
     if (dsBridgeInstruction) dsBridgeInstruction.style.display = 'list-item';
   }
