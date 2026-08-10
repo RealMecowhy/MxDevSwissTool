@@ -135,6 +135,8 @@ function sanitizeClearInput() {
   if (summaryEl) summaryEl.textContent = '';
   csAnalysisResult = null;
   csLocateCursor = {};
+  csMirrorStale = true;
+  if (csMirror) csMirror.textContent = ''; // don't hold a copy of a cleared file
 }
 
 // 1-based {line, col} of a character index, for the Statistics table's Location column.
@@ -146,21 +148,100 @@ function csLineCol(text, index) {
   return { line, col };
 }
 
+// A hidden div holding the same text under the same font and width as the
+// input, so a character's pixel offset can be measured instead of estimated.
+// Counting newlines is not enough: the textarea soft-wraps, so a minified XML
+// pasted as one long line has hundreds of visual rows but a single logical
+// one — a line-based estimate then points at the top of the box while the
+// character sits far below the visible area.
+//
+// Laying the text out is the whole cost (~1.4 s for a 1 MB file), so it is
+// done once per analysis and reused: hovering across many characters after
+// that is free. Rebuilt when the text changes or the pane is resized.
+let csMirror = null;
+let csMirrorWidth = '';
+let csMirrorStale = true;
+
+function csMirrorFor(ta) {
+  const cs = getComputedStyle(ta);
+  if (csMirror && !csMirrorStale && csMirrorWidth === cs.width) return csMirror;
+  if (!csMirror) {
+    csMirror = document.createElement('div');
+    csMirror.setAttribute('aria-hidden', 'true');
+    csMirror.style.position = 'absolute';
+    csMirror.style.top = '-9999px';
+    csMirror.style.left = '-9999px';
+    csMirror.style.visibility = 'hidden';
+    csMirror.style.whiteSpace = 'pre-wrap';
+    csMirror.style.overflowWrap = 'break-word';
+    document.body.appendChild(csMirror);
+  }
+  ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing',
+   'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+   'borderTopWidth', 'borderLeftWidth', 'textIndent', 'tabSize'
+  ].forEach(p => { csMirror.style[p] = cs[p]; });
+  csMirror.style.width = cs.width;
+  csMirror.textContent = ta.value;
+  csMirrorWidth = cs.width;
+  csMirrorStale = false;
+  return csMirror;
+}
+
+// Pixel offset of the character at `index`, relative to the top of the text.
+function csOffsetTopOf(ta, index) {
+  const mirror = csMirrorFor(ta);
+  const node = mirror.firstChild;
+  if (!node) return 0;
+  const from = Math.min(index, node.length - 1);
+  const range = document.createRange();
+  range.setStart(node, Math.max(0, from));
+  range.setEnd(node, Math.min(from + 1, node.length));
+  return range.getBoundingClientRect().top - mirror.getBoundingClientRect().top;
+}
+
 // Selects the occurrence in the raw input textarea and scrolls it into view.
 // Textareas have no per-character highlighting, so a real text selection —
 // the thing the user can then immediately copy or edit — is the honest
-// equivalent of "point at this character".
+// equivalent of "point at this character". The selection is only painted while
+// the textarea has focus, which is why this focuses it.
 function csSelectInInput(start, length) {
   const ta = document.getElementById('char-sanitizer-input');
   if (!ta) return;
   ta.focus();
   ta.setSelectionRange(start, start + length);
-  // setSelectionRange does not itself scroll a textarea; estimate the target
-  // line's pixel offset from the line height and scroll a little above it so
-  // the match isn't flush against the top edge.
-  const line = (ta.value.slice(0, start).match(/\n/g) || []).length + 1;
-  const lineHeight = parseFloat(getComputedStyle(ta).lineHeight) || 18;
-  ta.scrollTop = Math.max(0, (line - 3) * lineHeight);
+  // setSelectionRange does not itself scroll a textarea. Centre the occurrence
+  // instead of putting it on the first visible line, so the surrounding text
+  // that gives it context stays on screen.
+  const top = csOffsetTopOf(ta, start);
+  ta.scrollTop = Math.max(0, top - ta.clientHeight / 2);
+}
+
+// Hovering a highlighted character in the Visual Inspector reveals it in the
+// raw input on the left. The two panes scroll independently, so spotting a bad
+// character on the right otherwise leaves you hunting for it on the left —
+// and for anything past the first screenful the selection was simply out of
+// view. Delegated and bound once, because the preview is rebuilt on every
+// analysis run.
+function csBindPreviewHover() {
+  const pane = document.getElementById('char-sanitizer-preview');
+  if (!pane || pane._csHoverBound) return;
+  pane._csHoverBound = true;
+  let timer = null;
+  let lastIndex = -1;
+  pane.addEventListener('mouseover', (e) => {
+    const span = e.target.closest ? e.target.closest('[data-cs-index]') : null;
+    if (!span) return;
+    const index = parseInt(span.getAttribute('data-cs-index'), 10);
+    if (index === lastIndex) return;
+    lastIndex = index;
+    clearTimeout(timer);
+    // Short delay: sweeping the mouse towards one character crosses others on
+    // the way, and each of those should not yank the input pane around.
+    timer = setTimeout(() => {
+      csSelectInInput(index, parseInt(span.getAttribute('data-cs-len'), 10) || 1);
+    }, 120);
+  });
+  pane.addEventListener('mouseleave', () => { clearTimeout(timer); lastIndex = -1; });
 }
 
 // Click handler for a Statistics row's Location cell: jumps to the next
@@ -205,7 +286,8 @@ function sanitizeLoadSample() {
 // Run main character analysis
 function sanitizeAnalyze() {
   const raw = document.getElementById('char-sanitizer-input').value;
-  
+  csMirrorStale = true; // the text changed, so the measuring mirror must be rebuilt
+
   // Hide empty state overlay if there is text
   const overlay = document.querySelector('#panel-char-sanitizer .empty-state-overlay');
   if (overlay) {
@@ -400,7 +482,7 @@ function sanitizeAnalyze() {
         }
 
         const cssClass = `char-highlight char-${matchedIssue.category}`;
-        htmlPreview += `<span class="${cssClass}" data-tooltip="${escHtml(matchedIssue.name)} (${escHtml(matchedIssue.label)})">${displayStr}</span>`;
+        htmlPreview += `<span class="${cssClass}" data-cs-index="${i}" data-cs-len="${matchedIssue.matchLength}" data-tooltip="${escHtml(matchedIssue.name)} (${escHtml(matchedIssue.label)})">${displayStr}</span>`;
       }
 
       // Advance loop index
@@ -421,6 +503,7 @@ function sanitizeAnalyze() {
 
   // Render Visual Preview
   document.getElementById('char-sanitizer-preview').innerHTML = htmlPreview || '<span style="color:var(--text-muted)">Empty text...</span>';
+  csBindPreviewHover();
 
   // Build Stats Tab
   csAnalysisResult = { raw, issues, stats, occurrences };

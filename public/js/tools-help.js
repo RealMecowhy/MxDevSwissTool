@@ -548,7 +548,7 @@ const TOOLS_HELP = {
       <ol>
         <li>Paste text or XML into the left text field or drop a file.</li>
         <li>Select detection filters in the bottom panel (e.g., Invisible Spaces, Control Characters, Mojibake).</li>
-        <li>In the <strong>Visual Inspector</strong> tab, you will see problematic characters highlighted. Hovering over them will display the character name and its Unicode code (e.g., <code>U+200B ZERO WIDTH SPACE</code>).</li>
+        <li>In the <strong>Visual Inspector</strong> tab, you will see problematic characters highlighted. Hovering over one shows its name and Unicode code (e.g., <code>U+200B ZERO WIDTH SPACE</code>) and, at the same time, reveals it in the input on the left — the pane scrolls to that exact character and selects it, so you can fix it in place instead of hunting for it.</li>
         <li>In the <strong>Statistics & Issues</strong> tab, you will find a table with a summary and count of specific anomalies. The <strong>Location</strong> column shows the line/column of one occurrence — click it to select that exact spot in the input on the left (scrolled into view); click again to step to the next occurrence when the count is more than one.</li>
         <li>Go to the <strong>Sanitized Output</strong> tab, adjust cleaning rules (e.g., replace NBSP with a regular space, fix specific characters), and copy the cleaned text or download it as a file.</li>
       </ol>

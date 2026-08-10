@@ -2786,6 +2786,10 @@ kbd {
 .char-highlight[data-tooltip] {
   position: relative;
 }
+/* Hovering one of these reveals it in the raw input on the left. */
+.char-highlight[data-cs-index] {
+  cursor: pointer;
+}
 .char-highlight[data-tooltip]:after {
   content: attr(data-tooltip);
   background: var(--bg-overlay);
