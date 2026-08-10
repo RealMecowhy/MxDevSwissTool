@@ -28,6 +28,9 @@ let plActiveCount = 0;
 let plResults = [];
 let plCharts = {};
 let plLastChartUpdate = 0;
+// The most recent view model, kept only to redraw a run whose data arrived while
+// chart.js was still being fetched (see the tail of plInitCharts).
+let plLastVm = null;
 let plTestStartTime = 0;
 
 let plRunning = false;     // drives the summary's tense; false before the final render
@@ -56,7 +59,11 @@ function plEl(id) { return document.getElementById(id); }
 // CHARTS
 // =========================================================================
 
-function plInitCharts() {
+// chart.js is fetched on first use, so this waits for it. The existing
+// "no Chart" guard below stays as the failure path: a benchmark still runs and
+// still reports its numbers when the chart library can't be fetched.
+async function plInitCharts() {
+  plLastVm = null;
   ['timeline', 'throughput', 'histogram', 'status'].forEach(id => {
     if (plCharts[id]) {
       plCharts[id].destroy();
@@ -64,6 +71,9 @@ function plInitCharts() {
     }
   });
 
+  if (typeof Chart === 'undefined' && window.mtLoadVendor) {
+    try { await window.mtLoadVendor('chart.js'); } catch (e) { /* charts stay off; the run itself is unaffected */ }
+  }
   if (typeof Chart === 'undefined') return;
 
   const c = plGetChartColors();
@@ -143,6 +153,11 @@ function plInitCharts() {
       }
     });
   }
+
+  // A short run can finish before chart.js arrives, and plRender only paints
+  // charts that already exist — so replay the last frame the run produced while
+  // we were waiting. Null unless that race actually happened.
+  if (plLastVm) plRenderCharts(plLastVm);
 }
 
 // Regroups any list of [loMs, hiMs, count] ranges into at most 12 display bars.
@@ -551,6 +566,7 @@ function plRenderTiles(vm) {
 }
 
 function plRender(vm, force) {
+  plLastVm = vm;
   plRenderTiles(vm);
   const now = performance.now();
   if (force || now - plLastChartUpdate > 900) {

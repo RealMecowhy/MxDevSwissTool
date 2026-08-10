@@ -8,8 +8,9 @@
 <meta name="description" content="All-in-one developer toolkit for Mendix: log viewer, JSON formatter, XPath builder, JWT decoder, and many more tools. Works in any browser, no installation required.">
 <link rel="stylesheet" href="styles/main.css">
 <link rel="manifest" href="manifest.json">
-<script defer src="js/vendor/chart.js"></script>
-<script defer src="js/vendor/mermaid.min.js"></script>
+<!-- chart.js and mermaid.min.js are NOT loaded here on purpose: together they are
+     3.7 MB of the first load, for four tools out of 38. window.mtLoadVendor()
+     (js/tools/utilities.js) injects them the first time a tool actually needs one. -->
 <script>
   // Restore saved theme before first paint (default: dark)
   try {
@@ -17,13 +18,6 @@
       document.documentElement.setAttribute('data-theme', 'light');
     }
   } catch (e) {}
-
-  window.addEventListener('load', () => {
-    if (window.mermaid) {
-      const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-      mermaid.initialize({ startOnLoad: false, theme: isLight ? 'default' : 'dark' });
-    }
-  });
 
   window.BRIDGE_TOKEN = '';
   const originalFetch = window.fetch;
@@ -101,7 +95,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.34.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.35.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -287,7 +281,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.34.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.35.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">

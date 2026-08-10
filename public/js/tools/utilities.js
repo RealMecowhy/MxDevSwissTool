@@ -5,6 +5,51 @@ function escRegex(s){return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');}
 function copyToClipboard(text){if(navigator.clipboard)navigator.clipboard.writeText(text).catch(()=>fallbackCopy(text));else fallbackCopy(text);}
 function fallbackCopy(text){const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);}
 function downloadText(text,filename){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'text/plain'}));a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),10000);}
+// ── Lazy vendor loading ──────────────────────────────────────────────────────
+// mermaid (3.5 MB) and chart.js (200 KB) used to load on every start, for every
+// user, no matter which of the 38 tools they opened — 3.7 MB of the first load
+// belonged to four of them. They are injected on first use instead.
+//
+// Deliberately a <script> tag rather than a dynamic import(): the release ships
+// `public/` as-is, and the production build inlines every dynamic import into
+// one file (viteSingleFile + inlineDynamicImports), so an import() would be
+// bundled straight back into the first load. A tag injected at runtime is the
+// one form the bundler leaves alone, and `scripts/copy-vendor.js` already puts
+// these files next to the built page.
+//
+// The promise is cached per file, so ten call sites racing on the same tool
+// produce one network request and one script tag.
+const mtVendorLoads = {};
+function mtLoadVendor(file) {
+  if (mtVendorLoads[file]) return mtVendorLoads[file];
+  mtVendorLoads[file] = new Promise(function (resolve, reject) {
+    const s = document.createElement('script');
+    s.src = 'js/vendor/' + file;
+    s.onload = function () { resolve(true); };
+    s.onerror = function () {
+      // Let the next call retry — an offline first visit should not permanently
+      // poison the tool for the rest of the session.
+      delete mtVendorLoads[file];
+      reject(new Error('Could not load js/vendor/' + file));
+    };
+    document.head.appendChild(s);
+  });
+  return mtVendorLoads[file];
+}
+
+// Mermaid needs its theme set before the first render, which used to happen in
+// an inline `load` listener in index.html. It belongs with the loading now.
+function mtLoadMermaid() {
+  return mtLoadVendor('mermaid.min.js').then(function () {
+    if (window.mermaid && !window._mtMermaidReady) {
+      window._mtMermaidReady = true;
+      const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+      window.mermaid.initialize({ startOnLoad: false, theme: isLight ? 'default' : 'dark' });
+    }
+    return true;
+  });
+}
+
 // ── Mendix table → entity ────────────────────────────────────────────────────
 // PostgreSQL names tables `module$entity`; a Mendix developer thinks in
 // `Module.Entity`. When a domain model has been loaded from a live database
@@ -76,6 +121,8 @@ document.addEventListener('keydown', e => {
 window.escHtml = escHtml;
 window.escRegex = escRegex;
 window.mxEntityForTable = mxEntityForTable;
+window.mtLoadVendor = mtLoadVendor;
+window.mtLoadMermaid = mtLoadMermaid;
 window.copyToClipboard = copyToClipboard;
 window.fallbackCopy = fallbackCopy;
 window.downloadText = downloadText;

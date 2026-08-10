@@ -159,6 +159,8 @@ You can also snooze the reminder for a day or skip a version entirely.
 
 The toolkit is a Progressive Web App. On first load a service worker caches the entire interface — every tool module, the styles and the in-app help — so the whole toolkit keeps working with no network, including tools you have never opened before.
 
+**Startup is deliberately light.** The two heavy rendering libraries — the diagram renderer (3.5 MB, used by *Domain Model & Architecture*) and the charting library (200 KB, used by *Metrics & Telemetry* and the *Performance Lab*) — are no longer part of the startup payload; they are fetched the first time a tool actually draws something. The page that opens on launch went from 5.5 MB to 1.9 MB. Offline is unaffected: the service worker still caches both in the background, so those tools work without a network too.
+
 * **Install it as an app**: in Chrome or Edge, use the install icon in the address bar (or ⋮ → *Cast, save and share* → *Install page as app*). It then opens in its own window without browser chrome and starts from the same local files.
 * **What still needs the bridge**: anything that reads your machine or the network — live logs, the Developer Studio, Live DB features, the Mock Server, the REST Load Tester's server engine and the update check. Every offline-capable tool (all the formatters, decoders, log analysers and generators) works on files you drop in.
 * **After an update**: a new version's assets replace the old ones automatically. If you were mid-session, a notification asks you to reload so the running page and the cached files match.

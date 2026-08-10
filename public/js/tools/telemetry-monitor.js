@@ -71,6 +71,10 @@ window.tmGetMetricSum = mod_prometheus.tmGetMetricSum;
 window.tmLoadThresholds = mod_alerts.tmLoadThresholds;
 
 export function init() {
+  // Entering the tool is the first moment chart.js is actually needed — it is no
+  // longer part of the startup payload. This is the init() the tool registry
+  // calls; telemetry/index.js has its own for the module's internal use.
+  mod_charts.tmEnsureChartLib();
   if (document.getElementById('tm-conn-profile')) {
     window.tmChangeConnectionProfile();
   }

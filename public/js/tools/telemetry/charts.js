@@ -1,5 +1,15 @@
 import { state } from './state.js';
 
+// Fetches chart.js on first entry to this tool and redraws once it lands, so a
+// dashboard opened on live data fills in by itself instead of waiting for the
+// next poll. Safe to call repeatedly — the loader caches its promise.
+export function tmEnsureChartLib() {
+  if (typeof Chart !== 'undefined' || !window.mtLoadVendor) return;
+  window.mtLoadVendor('chart.js')
+    .then(function () { if (window.tmUpdateChartsUI) window.tmUpdateChartsUI(); })
+    .catch(function () { /* charts stay off; the numeric panels are unaffected */ });
+}
+
 export function tmGetChartColors() {
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
   return {
@@ -14,6 +24,10 @@ export function tmGetChartColors() {
 export function tmInitChart(chartId, type, config) {
   const ctx = document.getElementById(chartId);
   if (!ctx) return null;
+  // chart.js is fetched when this tool is opened, not at startup. A metrics
+  // frame that lands before it arrives is skipped rather than throwing; polling
+  // means the next one draws it, and tmEnsureChartLib redraws on arrival.
+  if (typeof Chart === 'undefined') return null;
 
   if (state.tmCharts[chartId]) {
     state.tmCharts[chartId].destroy();

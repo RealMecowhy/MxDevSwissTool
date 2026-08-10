@@ -293,8 +293,15 @@ window.archSetViewMode = function (mode) {
   }
 };
 
-function archRenderMermaid(mermaidCode) {
+// Mermaid is fetched on first use (3.5 MB), so this is async now. The existing
+// no-mermaid branch doubles as the failure path: if the library can't be fetched
+// (offline first visit), the diagram source is shown instead of nothing.
+async function archRenderMermaid(mermaidCode) {
   const out = document.getElementById('arch-output');
+  if (!window.mermaid && window.mtLoadMermaid) {
+    out.innerHTML = '<div style="padding:var(--sp-4); color:var(--text-muted); font-size:0.85rem;">Loading the diagram renderer…</div>';
+    try { await window.mtLoadMermaid(); } catch (e) { /* fall through to the source view below */ }
+  }
   if (window.mermaid) {
     out.innerHTML = `<div class="mermaid">${mermaidCode}</div>`;
     mermaid.init(undefined, document.querySelectorAll('.mermaid'));

@@ -1,5 +1,5 @@
 import { state } from './state.js';
-import { tmUpdateChartsUI, tmGetChartColors, tmInitChart } from './charts.js';
+import { tmUpdateChartsUI, tmGetChartColors, tmInitChart, tmEnsureChartLib } from './charts.js';
 import { tmChangeConnectionProfile, tmUpdateTabsVisibility, tmSetTab, tmToggleConnectionCard, tmTogglePgConfigCard } from './ui.js';
 import { tmParsePrometheusText, tmGetMetricValue, tmGetMetricSum } from './parsers/prometheus.js';
 import { tmParseOtelMetrics } from './parsers/otel.js';
@@ -91,6 +91,8 @@ export function tmInitChartGroups() {
 }
 
 export function init() {
+  // Entering the tool is the first moment chart.js is actually needed.
+  tmEnsureChartLib();
   if (document.getElementById('tm-conn-profile')) {
     tmChangeConnectionProfile();
   }
