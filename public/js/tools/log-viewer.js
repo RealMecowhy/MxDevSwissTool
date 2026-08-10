@@ -1564,6 +1564,33 @@ function logGenerateSequence() {
   out.innerHTML = html;
 }
 
+// Resolves the entries onto one monotonic epoch axis for the Gantt. Entries can
+// carry three timestamp shapes: full ISO (LOG_PAT_CLOUD/STUDIO/SIMPLE), the Studio
+// Pro CSV export the shared parser emits, or a time-only stamp from LOG_PAT_TIME.
+// Only the last one has to be synthesised — and it is the one that used to break
+// the chart: anchoring every entry to a fixed 1970-01-01 threw the date away, so a
+// log crossing midnight sorted backwards and reported "logs have same timestamp".
+// Carrying a day offset forward when the clock jumps back keeps the axis monotonic.
+function logGanttAxis(entries) {
+  let dayOffset = 0;
+  let prevTimeOnly = -1;
+  return entries.map(e => {
+    let ms = logTsToMs(e.ts);
+    if (isNaN(ms) && window.mftTsToMs) ms = window.mftTsToMs(e.ts);
+    if (isNaN(ms)) {
+      const m = String(e.ts).match(/^\[?(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?/);
+      if (!m) return null;
+      const hh = parseInt(m[1], 10), mm = parseInt(m[2], 10), ss = parseInt(m[3], 10);
+      const t = ((hh * 60 + mm) * 60 + ss) * 1000 +
+                (m[4] ? parseInt(m[4].padEnd(3, '0').slice(0, 3), 10) : 0);
+      if (prevTimeOnly >= 0 && t < prevTimeOnly) dayOffset += 86400000;
+      prevTimeOnly = t;
+      ms = t + dayOffset;
+    }
+    return { ...e, ms: ms };
+  }).filter(e => e !== null);
+}
+
 function logGenerateGantt() {
   const out = document.getElementById('log-gantt-output');
   if (logFilteredEntries.length < 2) {
@@ -1573,16 +1600,9 @@ function logGenerateGantt() {
   
   const maxEntries = 500;
   const entries = logFilteredEntries.slice(0, maxEntries);
-  
-  // Parse times
-  let parsed = entries.map(e => {
-    // try to extract just time HH:MM:SS.mmm
-    const m = e.ts.match(/(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?/);
-    if (!m) return null;
-    const date = new Date(1970, 0, 1, parseInt(m[1]), parseInt(m[2]), parseInt(m[3]), m[4] ? parseInt(m[4].padEnd(3,'0').slice(0,3)) : 0);
-    return { ...e, ms: date.getTime() };
-  }).filter(e => e !== null);
-  
+
+  const parsed = logGanttAxis(entries);
+
   if (parsed.length < 2) {
     out.innerHTML = '<span style="color:var(--warning)">Could not parse time from logs.</span>';
     return;
@@ -1597,26 +1617,32 @@ function logGenerateGantt() {
     return;
   }
   
-  let html = `<div style="margin-bottom:var(--sp-4);color:var(--text-muted);font-size:0.8rem">Timeline for ${parsed.length} entries. Total Duration: ${totalDuration}ms</div>`;
-  
+  // The bar measures the gap to the NEXT log line, which is all a generic log can
+  // support — an arbitrary entry carries no duration of its own. Saying "gap" is
+  // the honest label: a wide bar means nothing was logged for that long, which is
+  // either a quiet period or one un-instrumented operation running. For real
+  // per-activity durations the log needs MicroflowEngine DEBUG/TRACE records —
+  // that is the Microflow Tracer's job, and the note below points there.
+  let html = `<div style="margin-bottom:var(--sp-4);color:var(--text-muted);font-size:0.8rem">Timeline for ${parsed.length} entries. Total span: ${totalDuration}ms. Each bar is the gap until the next log line — a wide bar means the log went quiet, not that one operation took that long.</div>`;
+
   html += '<div style="display:flex;flex-direction:column;gap:2px">';
   parsed.forEach((e, i) => {
     const elapsed = e.ms - t0;
     const perc = (elapsed / totalDuration) * 100;
-    
-    // Bar width based on time to next entry
-    let duration = 0;
+
+    // Gap to the next entry — see the note above on why this is not a duration.
+    let gap = 0;
     if (i < parsed.length - 1) {
-       duration = parsed[i+1].ms - e.ms;
+       gap = parsed[i+1].ms - e.ms;
     }
-    const widthPerc = Math.max((duration / totalDuration) * 100, 0.5); // min 0.5%
-    
+    const widthPerc = Math.max((gap / totalDuration) * 100, 0.5); // min 0.5%
+
     html += `<div style="display:flex;align-items:center;font-size:0.75rem;font-family:var(--font-mono)">
       <div style="width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(e.node)}: ${escHtml(e.msg.split('\n')[0])}">${escHtml(e.node)}</div>
       <div style="flex:1;position:relative;height:16px;background:var(--bg-base);margin:0 var(--sp-2)">
-         <div style="position:absolute;left:${perc}%;width:${widthPerc}%;height:100%;background:var(--accent);min-width:2px;border-radius:2px" title="Time: ${escHtml(e.ts)}\nDuration: ${duration}ms\nMsg: ${escHtml(e.msg.split('\n')[0])}"></div>
+         <div style="position:absolute;left:${perc}%;width:${widthPerc}%;height:100%;background:var(--accent);min-width:2px;border-radius:2px" title="Time: ${escHtml(e.ts)}\nGap to next line: ${gap}ms\nMsg: ${escHtml(e.msg.split('\n')[0])}"></div>
       </div>
-      <div style="width:60px;text-align:right">${duration}ms</div>
+      <div style="width:60px;text-align:right" title="Gap to the next log line">${gap}ms</div>
     </div>`;
   });
   html += '</div>';
@@ -1745,6 +1771,7 @@ window.logSetTab = logSetTab;
 window.logGenerateCorrelation = logGenerateCorrelation;
 window.logGenerateSequence = logGenerateSequence;
 window.logGenerateGantt = logGenerateGantt;
+window.logGanttAxis = logGanttAxis;
 window.logAnonymizeAndCopy = logAnonymizeAndCopy;
 window.logSendToAnonymizer = logSendToAnonymizer;
 window.logOpenPasteModal = logOpenPasteModal;

@@ -868,6 +868,26 @@ window.wsreShowInLqe = function() {
   }
 };
 
+// Third direction: back to the raw log. A failed or timed-out integration call is
+// rarely explained by the call record itself — the reason (connection refused, a
+// stack trace, the retry that followed) is logged around it under the same
+// correlation ID. logInsightFilter also switches to the Log Stream tab and clears
+// the level filters, so the lines cannot be hidden by a filter left over from
+// earlier work.
+window.wsreShowInLogViewer = function() {
+  const c = window._wsreSelectedCall;
+  if (!c) { alert('Select a call first.'); return; }
+  // corrId is only populated when a CallRest/CallWebservice anchor was matched
+  // (see the pairing pass above) — the REST/WebServices records themselves carry
+  // no correlation ID, so without MicroflowEngine TRACE there is nothing to filter on.
+  if (!c.corrId) { alert('This call has no correlation ID — enable MicroflowEngine TRACE so calls can be linked to the request that made them.'); return; }
+  window.navigateWithReturn('log-viewer');
+  if (window.logHasData && !window.logHasData() && wsreRawText && window.logLoadText) {
+    window.logLoadText(wsreRawText, 'from REST & WS Extractor');
+  }
+  if (window.logInsightFilter) window.logInsightFilter('', '', c.corrId);
+};
+
 // ── Export (currently filtered calls) ────────────────────────────────────────
 
 const WSRE_EXPORT_HEADER = ['Time', 'Node', 'Direction', 'Method', 'Status', 'Duration (ms)', 'Endpoint', 'Microflow', 'Corr ID', 'Flags'];

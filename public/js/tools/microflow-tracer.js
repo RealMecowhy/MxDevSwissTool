@@ -24,6 +24,13 @@ const MFT_ACT_RE = /^\[([^\]\s]+)\]\s+Executing activity:\s*(\{[\s\S]*)$/;
 // CSV export (07/11/2026 21:21:29). No timezone in either — deltas within one file
 // are what matters, absolute offsets are irrelevant here.
 function mftTsToMs(ts) {
+  // Cross-links may hand over a window that is already resolved to epoch ms: the
+  // Nginx analyzer parses its own `10/Aug/2026:14:32:07 +0200` format and passes
+  // numbers to lqeSetTimeWindow. Passing those through keeps this the single
+  // timestamp entry point (a number in, the same number out) instead of making
+  // every caller format an epoch back into a log-shaped string. Without it the
+  // regex below hits `.match` on a Number and throws.
+  if (typeof ts === 'number') return isFinite(ts) ? ts : NaN;
   if (!ts) return NaN;
   let m = ts.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?/);
   if (m) {
@@ -1106,6 +1113,27 @@ window.mftShowInLqe = function() {
   if (!hasQueries && mftRawText && window.lqeLoadText) {
     window.lqeLoadText(mftRawText);
   }
+};
+
+// ── Cross-link: show what the runtime actually logged for this execution ─────
+// The reverse of every other cross-link in the app, which all lead *away* from
+// the Log Viewer. Once the Tracer says "this execution was slow / unfinished",
+// the next question is what else got logged under the same request — the ERROR,
+// the stack trace, the surrounding INFO chatter. The correlation ID is exact
+// here (no time window needed): both tools read it from the same log lines.
+// logInsightFilter is reused rather than logFilterByCorrId because it also
+// switches to the Log Stream tab and re-enables every level, so the target lines
+// cannot be hidden by a level filter the user left on.
+window.mftShowInLogViewer = function() {
+  const e = window._mftSelectedExec;
+  if (!e) { alert('Select a microflow execution first.'); return; }
+  if (!e.corrId) { alert('This execution has no correlation ID to filter on.'); return; }
+  window.navigateWithReturn('log-viewer');
+  // Same hand-off as mftShowInLqe: one file load powers both tools.
+  if (window.logHasData && !window.logHasData() && mftRawText && window.logLoadText) {
+    window.logLoadText(mftRawText, 'from Microflow Tracer');
+  }
+  if (window.logInsightFilter) window.logInsightFilter('', '', e.corrId);
 };
 
 // ── Export (currently filtered executions) ───────────────────────────────────

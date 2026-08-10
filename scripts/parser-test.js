@@ -202,6 +202,14 @@ ok('mftTsToMs parses live ISO with microseconds',
   Math.abs(mftTs('2026-07-17T10:00:00.500250') - mftTs('2026-07-17T10:00:00.000000') - 500.25) < 0.001);
 ok('mftTsToMs parses Studio Pro CSV format',
   mftTs('07/11/2026 21:21:30') - mftTs('07/11/2026 21:21:29') === 1000);
+// Regression: the Nginx analyzer resolves its own access-log date and passes an
+// epoch Number to lqeSetTimeWindow, whose filter routes both bounds through this
+// helper. Before the type guard that hit `.match` on a Number and threw, which
+// killed the "SQL in window" cross-link after the chip had already been drawn.
+ok('mftTsToMs passes an epoch Number through unchanged (Nginx cross-link)',
+  mftTs(1784268324436) === 1784268324436);
+ok('mftTsToMs rejects a non-finite Number instead of throwing',
+  isNaN(mftTs(NaN)) && isNaN(mftTs(Infinity)));
 
 const P = '[runtime-container/x]';
 const mfLog = [
@@ -898,6 +906,42 @@ if (fs.existsSync(refInfo)) {
 } else {
   console.log('  – reference INFO log absent, skipped (PII: never committed)');
 }
+
+// ── Gantt time axis (public/js/tools/log-viewer.js) ──────────────────────────
+// logGanttAxis resolves entries onto one monotonic epoch axis. It used to anchor
+// every entry to a fixed 1970-01-01 from an HH:MM:SS match, which threw the date
+// away: a log crossing midnight sorted backwards and the chart bailed out with
+// "logs have same timestamp". Three timestamp shapes have to keep working.
+console.log('\nGantt time axis');
+const ganttAxis = global.logGanttAxis;
+
+const isoAxis = ganttAxis([
+  { ts: '2026-07-18T23:59:59.000000' },
+  { ts: '2026-07-19T00:00:01.000000' }
+]);
+ok('gantt: full ISO log crossing midnight moves forward, not backwards',
+  isoAxis[1].ms - isoAxis[0].ms === 2000);
+
+const csvAxis = ganttAxis([
+  { ts: '07/18/2026 23:59:59' },
+  { ts: '07/19/2026 00:00:04' }
+]);
+ok('gantt: Studio Pro CSV export resolves through mftTsToMs',
+  csvAxis.length === 2 && csvAxis[1].ms - csvAxis[0].ms === 5000);
+
+// LOG_PAT_TIME produces date-less stamps; they must still plot, and must carry a
+// day offset forward when the clock wraps instead of jumping back 24 hours.
+const timeOnlyAxis = ganttAxis([
+  { ts: '23:59:58' },
+  { ts: '23:59:59' },
+  { ts: '00:00:02' }
+]);
+eq('gantt: time-only log still plots every entry', timeOnlyAxis.length, 3);
+ok('gantt: time-only log crossing midnight stays monotonic',
+  timeOnlyAxis[2].ms - timeOnlyAxis[1].ms === 3000);
+
+eq('gantt: unparseable stamps are dropped rather than plotted at zero',
+  ganttAxis([{ ts: 'not a time' }, { ts: '' }]).length, 0);
 
 // ── Level matrix pivot (public/js/tools/log-viewer.js) ───────────────────────
 // logBuildLevelMatrix attaches to window (pointed at global above) when the
@@ -2934,6 +2978,39 @@ eq('duplicate detection: run count is 3', harDups[0].count, 3);
 eq('duplicate detection: span is last.startMs - first.startMs', harDups[0].spanMs, 45);
 eq('duplicate detection: wasted time excludes the first call', harDups[0].wastedMs, 23);
 eq('duplicate detection: single call never counts as a run', global.harDetectDuplicates([harWithDups[3]]).length, 0);
+
+// harClassify: three Mendix protocols count. Recognising only /xas/ made the tool
+// blind to published REST/OData — a HAR from a Mendix 9/10 app serving a React or
+// native client rendered "no calls found" while the traffic sat right there.
+const harReq = (url, method, body) => ({
+  request: { url: url, method: method || 'GET', postData: body ? { text: body } : undefined }
+});
+const harCls = global.harClassify;
+
+eq('classify: a static asset is still not a Mendix call',
+  harCls(harReq('https://app.mendixcloud.com/css/main.css')), null);
+const harXas = harCls(harReq('https://app.mendixcloud.com/xas/', 'POST',
+  '{"action":"retrieve_by_xpath","params":{"xpath":"//Sales.Order"}}'));
+eq('classify: XAS body decoding is unchanged', harXas.action, 'retrieve_by_xpath');
+eq('classify: an XAS retrieve is marked as a read', harXas.read, true);
+
+const harRest = harCls(harReq('https://app.mendixcloud.com/rest/orders/v1/orders/42'));
+eq('classify: published REST is recognised', harRest.action, 'REST GET');
+eq('classify: REST path ids collapse so repeats group together', harRest.detail, '/rest/orders/v1/orders/{id}');
+eq('classify: a REST GET counts as a read', harRest.read, true);
+eq('classify: a REST POST is not a read',
+  harCls(harReq('https://app.mendixcloud.com/rest/orders/v1/orders', 'POST')).read, false);
+
+const harOdata = harCls(harReq("https://app.mendixcloud.com/odata/sales/v1/Orders(guid'8f14e45f')"));
+eq('classify: published OData is recognised', harOdata.action, 'OData GET');
+eq('classify: OData key predicates collapse to one group', harOdata.detail, '/odata/sales/v1/Orders({id})');
+
+// GUID path segments collapse too — Mendix hands out GUID ids far more often than
+// integers, so missing these would leave every call in its own group of one.
+eq('classify: GUID path segments collapse',
+  global.harApiTemplate('/rest/x/v1/item/3f2504e0-4f89-11d3-9a0c-0305e82c3301'), '/rest/x/v1/item/{id}');
+eq('classify: non-id segments are left alone',
+  global.harApiTemplate('/rest/orders/v1/orders'), '/rest/orders/v1/orders');
 
 // harGroupByPage: buckets by pageref, preserving first-appearance order; falls back
 // to a single unlabeled group (title=null) when the HAR has no `pages` array.

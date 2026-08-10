@@ -31,6 +31,15 @@ window.lqeSetTab = function(tabId, btn) {
   document.getElementById(tabId).style.display = 'block';
 };
 
+// A window bound arrives either as a log timestamp (Microflow Tracer, WS/REST
+// Extractor pass the record's own string) or as an epoch (the Nginx analyzer
+// resolves its access-log date itself). Render both readably — the tooltip is the
+// only place the raw bound is shown, and a bare epoch tells the user nothing.
+function lqeWindowBound(v) {
+  if (typeof v !== 'number') return String(v);
+  return isFinite(v) ? new Date(v).toISOString().replace('T', ' ').replace('Z', '') : '?';
+}
+
 // Cross-link entry points used by the Microflow Tracer: constrain the visible
 // queries to an execution's [start, end] window (shown as a dismissible chip),
 // and load raw log text directly so one file load powers both tools.
@@ -41,7 +50,7 @@ window.lqeSetTimeWindow = function(from, to, label) {
     if (lqeTimeWindow) {
       chip.style.display = '';
       chip.innerHTML = '⧉ ' + (label ? String(label).replace(/</g, '&lt;') + ' ' : '') + '<span style="text-decoration:underline; cursor:pointer;">×</span>';
-      chip.title = 'Showing only queries between ' + from + ' and ' + to + ' (from Microflow Tracer). Click × to remove.';
+      chip.title = 'Showing only queries between ' + lqeWindowBound(from) + ' and ' + lqeWindowBound(to) + '. Click × to remove.';
       chip.onclick = () => window.lqeSetTimeWindow(null, null);
     } else {
       chip.style.display = 'none';

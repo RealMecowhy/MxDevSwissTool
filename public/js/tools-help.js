@@ -127,19 +127,22 @@ const TOOLS_HELP = {
   },
   'log-viewer-gantt': {
     title: 'Mendix Log Viewer - Gantt Chart',
-    description: 'Provides a timeline view of long-running operations in your logs, helping you identify performance bottlenecks and parallel execution issues.',
-    howToGet: 'Logs containing timestamps for start and end of operations, typically found in <code>TRACE</code> level logs for microflows or database queries.',
+    description: 'Plots the currently filtered log entries on a time axis, so you can see how logging activity is distributed: where it bursts, and where it goes silent. Each bar spans the gap until the next log line.',
+    howToGet: 'Any timestamped log works — no special log level required. The chart uses whatever the Log Stream filter is currently showing, so narrow the levels, node or time range first if the log is large (the first 500 filtered entries are plotted).',
     howToUse: `
       <ol>
+        <li>Filter the log first on the <strong>Log Stream</strong> tab — the chart follows that filter.</li>
         <li>Switch to the <strong>Gantt Chart</strong> tab.</li>
-        <li>Look for long horizontal bars that represent slow operations.</li>
-        <li>Zoom in to inspect parallel vs sequential executions.</li>
+        <li>Read the bars left to right: position is when the line was logged, width is how long the log stayed silent afterwards.</li>
+        <li>Hover any bar for the exact timestamp, the gap in milliseconds, and the message.</li>
       </ol>
     `,
     interpretation: `
       <ul>
-        <li><strong>For beginners:</strong> Think of this as a race track. The longest bar is the slowest runner (bottleneck). Fix that one first to speed up your app.</li>
-        <li><strong>Parallelization:</strong> If you see many operations executed sequentially (stairs-like pattern), consider using parallel execution in your Mendix microflows or batching database queries.</li>
+        <li><strong>What a wide bar means:</strong> nothing was logged for that long. That is either a genuinely quiet period, or one operation running without logging anything. It is <em>not</em> a measurement of how long that entry's operation took — a single log line carries no duration.</li>
+        <li><strong>Where to go for real durations:</strong> if you need per-activity timings, the log must contain <code>MicroflowEngine</code> <code>DEBUG</code>/<code>TRACE</code> records with Starting/Finished pairs. Load the same file into the <strong>Microflow Tracer</strong> — it reconstructs actual execution durations and call trees. For query timings use the <strong>Log Query Extractor</strong>.</li>
+        <li><strong>Bursts:</strong> a dense cluster of thin bars is a spike in logging activity. Cross-check it against the <strong>Insights</strong> tab — a burst is often a retry loop or an error storm rather than useful work.</li>
+        <li><strong>Logs crossing midnight</strong> are handled: the axis uses full dates when the log format carries them, and keeps time-only logs moving forward when the clock wraps.</li>
       </ul>
     `
   },
@@ -210,6 +213,7 @@ const TOOLS_HELP = {
           </ul>
         </li>
         <li><strong>Queries in window</strong> jumps to the Log Query Extractor filtered to the SQL that executed during this execution's time window (engine records carry no transaction ID, so the correlation is temporal). If the extractor is empty, the same file is handed over automatically &mdash; one load powers both tools.</li>
+        <li><strong>Show in Log Viewer</strong> goes the other way: it filters the raw log to this execution's correlation ID, so you see everything the runtime logged under the same request &mdash; the ERROR, the stack trace, the surrounding chatter. Unlike the query window this match is exact, not temporal. The Log Stream tab is opened with all levels re-enabled so nothing stays hidden behind a filter, and an empty Log Viewer receives the same file automatically.</li>
         <li><strong>Export CSV</strong> / <strong>Copy Markdown</strong> take the currently filtered list with you.</li>
       </ol>
     `,
@@ -254,7 +258,7 @@ const TOOLS_HELP = {
             <li><strong>Request / Response:</strong> payloads, automatically pretty-printed when they are JSON or XML.</li>
           </ul>
         </li>
-        <li><strong>Trace microflow</strong> opens the calling microflow in the Microflow Tracer; <strong>SQL in window</strong> opens the Log Query Extractor filtered to this call's time window. If the target tool is empty, the same file is handed over automatically &mdash; one load powers all three tools.</li>
+        <li><strong>Trace microflow</strong> opens the calling microflow in the Microflow Tracer; <strong>SQL in window</strong> opens the Log Query Extractor filtered to this call's time window; <strong>Show in Log Viewer</strong> filters the raw log to this call's correlation ID, which is where the reason for a failure or timeout actually lives &mdash; the connection error, the stack trace, the retry that followed. All three need the <code>CallRest</code>/<code>CallWebservice</code> anchor from MicroflowEngine TRACE, since the REST records themselves carry no correlation ID. If the target tool is empty, the same file is handed over automatically &mdash; one load powers all four tools.</li>
         <li><strong>Data Hub &mdash; load the file once, use it everywhere:</strong> the bar above the list reports <em>Loaded: file &middot; N records &middot; format</em> with <strong>Open in&hellip;</strong> buttons for the Log Viewer, Log Query Extractor and Microflow Tracer. Where the cross-links above jump to a specific call or time window, these simply push the same file into any tool you want, in any order. A <code>&check;</code> marks tools that already have it.</li>
         <li><strong>Export CSV</strong> / <strong>Copy Markdown</strong> take the currently filtered list with you.</li>
       </ol>
@@ -388,7 +392,7 @@ const TOOLS_HELP = {
   },
   'har-analyzer': {
     title: 'Mendix Client Traffic Analyzer (HAR)',
-    description: 'Decodes a browser HAR capture into named Mendix operations. Chrome DevTools shows dozens of identical <code>POST /xas/</code> requests; this tool parses their bodies and groups them by the actual microflow name or XPath retrieve, so you can see <em>what</em> the client did, how many times, and how much it transferred. Ideal for diagnosing a slow or "chatty" page from a HAR a tester sent you — without sitting at their browser.',
+    description: 'Decodes a browser HAR capture into named Mendix operations. Chrome DevTools shows dozens of identical <code>POST /xas/</code> requests; this tool parses their bodies and groups them by the actual microflow name or XPath retrieve, so you can see <em>what</em> the client did, how many times, and how much it transferred. It also recognises published <code>/rest/</code> and <code>/odata/</code> services, so captures from React or native clients and from integrations are covered too. Ideal for diagnosing a slow or "chatty" page from a HAR a tester sent you — without sitting at their browser.',
     howToGet: `
       <ol>
         <li>Open the page in Chrome/Edge/Firefox and press <strong>F12</strong> to open DevTools, then go to the <strong>Network</strong> tab.</li>
@@ -401,8 +405,8 @@ const TOOLS_HELP = {
     howToUse: `
       <ol>
         <li>Drag the <code>.har</code> file onto the tool or use <strong>Load HAR File</strong>.</li>
-        <li>Review the summary cards (total requests vs. Mendix XAS operations, total XAS time and transfer).</li>
-        <li>The <strong>Operations</strong> table groups every XAS call by microflow / XPath, slowest first, with call counts. The <strong>Detections</strong> panel flags client-side N+1 (the same retrieve repeated many times) and oversized responses.</li>
+        <li>Review the summary cards (total requests vs. Mendix operations, total Mendix time and transfer).</li>
+        <li>The <strong>Operations</strong> table groups every Mendix call, slowest first, with call counts: XAS calls by microflow / XPath, published REST and OData calls by method and path. The <strong>Detections</strong> panel flags client-side N+1 (the same retrieve or the same endpoint repeated many times) and oversized responses.</li>
         <li>For a retrieve operation, click <strong>XPath</strong> to preview the full query in a popup without leaving the analysis &mdash; from there you can copy it or open it in the XPath Formatter for linting (a floating <strong>&larr; Back</strong> pill brings you straight back to the HAR view).</li>
       </ol>
     `,
@@ -410,8 +414,9 @@ const TOOLS_HELP = {
       <ul>
         <li><strong>Client-side N+1:</strong> the same <code>retrieve_by_xpath</code> firing dozens of times usually means a data grid or list view is fetching row-by-row instead of over an association. Fix it in the page/widget configuration or by retrieving over an association.</li>
         <li><strong>Chatty microflows:</strong> a microflow invoked many times per page load often indicates an on-change or refresh loop. Consider debouncing or consolidating the calls.</li>
-        <li><strong>Large responses:</strong> a single XAS response over 1&nbsp;MB points to an unbounded retrieve or a grid without paging — add a limit or amount.</li>
-        <li><strong>Note:</strong> exact action names depend on the Mendix client version; when a request body cannot be decoded it is grouped under the generic <code>xas</code> action.</li>
+        <li><strong>Large responses:</strong> a single response over 1&nbsp;MB points to an unbounded retrieve or a grid without paging — add a limit or amount.</li>
+        <li><strong>REST / OData reads:</strong> the same endpoint fetched many times in one page load is the integration-side version of N+1 — usually one call per record where one call for the collection would do. Identifiers in the path (numeric ids and GUIDs, and OData key predicates) are collapsed to <code>{id}</code> so those repeats group together instead of looking like unique calls.</li>
+        <li><strong>Note:</strong> exact action names depend on the Mendix client version; when a request body cannot be decoded it is grouped under the generic <code>xas</code> action. Traffic that is neither <code>/xas/</code>, <code>/rest/</code> nor <code>/odata/</code> (static files, CDN assets) is deliberately left out.</li>
       </ul>
     `
   },

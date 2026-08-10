@@ -87,7 +87,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.30.4</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.31.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -268,7 +268,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.30.4</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.31.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -661,6 +661,7 @@
                 <div style="display:flex; justify-content:flex-end; margin-bottom:var(--sp-2); gap:var(--sp-2);">
                   <button class="btn btn-ghost btn-sm" id="wsre-btn-mft" onclick="window.wsreShowInMft()" title="Open the microflow that made this call in the Microflow Tracer (needs the CallRest/CallWebservice anchor from MicroflowEngine TRACE)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>Trace microflow</button>
                   <button class="btn btn-ghost btn-sm" id="wsre-btn-lqe" onclick="window.wsreShowInLqe()" title="Show the SQL queries that executed during this call's time window in the Log Query Extractor"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>SQL in window</button>
+                  <button class="btn btn-ghost btn-sm" id="wsre-btn-logviewer" onclick="window.wsreShowInLogViewer()" title="Show every log line recorded under this call's correlation ID in the Log Viewer — the error, stack trace and surrounding context the call record itself does not carry"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>Show in Log Viewer</button>
                 </div>
                 <div id="wsre-overview-content" style="background:var(--bg-elevated); padding:var(--sp-3); border-radius:var(--r-md); border:1px solid var(--border);">
                   <span style="color:var(--text-muted); font-size:0.85rem;">Select a call to see its overview, headers and payloads.</span>
@@ -862,6 +863,7 @@
               <button type="button" class="tab" data-target="mft-tab-tree" onclick="window.mftSetTab('mft-tab-tree', this)">Call Tree</button>
               <button type="button" class="tab" data-target="mft-tab-raw" onclick="window.mftSetTab('mft-tab-raw', this)">Raw</button>
               <button class="btn btn-ghost btn-sm" style="margin-left:auto;" onclick="window.mftShowInLqe()" title="Open the Log Query Extractor filtered to the SQL queries that ran inside this execution's time window (temporal correlation — engine lines carry no transaction ID)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>Queries in window</button>
+              <button class="btn btn-ghost btn-sm" onclick="window.mftShowInLogViewer()" title="Show every log line recorded under this execution's correlation ID in the Log Viewer — exact match, no time window needed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>Show in Log Viewer</button>
             </div>
 
             <div style="flex:1; overflow:auto;">
@@ -3018,9 +3020,9 @@ EntityName -> OtherEntity : Association"></textarea>
         <div id="har-results" style="display:none;flex-direction:column;gap:var(--sp-4);flex:1;min-height:0">
           <div class="grid-4">
             <div class="stat-item stat-item-info"><div class="stat-label">Total Requests</div><div class="stat-value" id="har-stat-total">0</div></div>
-            <div class="stat-item stat-item-accent"><div class="stat-label">Mendix XAS Operations</div><div class="stat-value" id="har-stat-xas">0</div></div>
-            <div class="stat-item stat-item-warning"><div class="stat-label">XAS Time (total)</div><div class="stat-value" id="har-stat-time">0 s</div></div>
-            <div class="stat-item stat-item-success"><div class="stat-label">XAS Transferred</div><div class="stat-value" id="har-stat-bytes">0 B</div></div>
+            <div class="stat-item stat-item-accent"><div class="stat-label">Mendix Operations</div><div class="stat-value" id="har-stat-xas">0</div></div>
+            <div class="stat-item stat-item-warning"><div class="stat-label">Mendix Time (total)</div><div class="stat-value" id="har-stat-time">0 s</div></div>
+            <div class="stat-item stat-item-success"><div class="stat-label">Mendix Transferred</div><div class="stat-value" id="har-stat-bytes">0 B</div></div>
           </div>
 
           <div id="har-detections"></div>
@@ -3043,7 +3045,7 @@ EntityName -> OtherEntity : Association"></textarea>
           </div>
 
           <div class="card">
-            <div class="card-header"><span style="font-weight:600">Chronological XAS Calls (waterfall)</span><span id="har-timeline-note" style="font-size:0.75rem;color:var(--text-muted);margin-left:auto"></span></div>
+            <div class="card-header"><span style="font-weight:600">Chronological Mendix Calls (waterfall)</span><span id="har-timeline-note" style="font-size:0.75rem;color:var(--text-muted);margin-left:auto"></span></div>
             <div class="card-body" style="padding:0;max-height:380px;overflow-y:auto" id="har-timeline"></div>
           </div>
         </div>

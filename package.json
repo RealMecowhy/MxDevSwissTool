@@ -1,6 +1,6 @@
 {
   "name": "mxdev-swiss-tool",
-  "version": "1.30.4",
+  "version": "1.31.0",
   "description": "",
   "main": "server/mendix-observability-bridge.js",
   "scripts": {

@@ -41,14 +41,45 @@ function harLoadFile(files) {
   reader.readAsText(file);
 }
 
-// Decodes a single HAR entry into a Mendix operation, or null if it is not an XAS call.
+// Collapses identifier segments so repeated calls to the same resource land in one
+// group. Without it `/rest/orders/v1/orders/1`, `/2`, `/3` … produce N groups of
+// one, which hides the very N+1 pattern this tool exists to surface.
+// Handles both REST path ids and the OData key predicate `Orders(guid'…')`.
+const HAR_GUID_SEG = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function harApiTemplate(path) {
+  return path.split('/').map(seg => {
+    if (!seg) return seg;
+    const key = seg.indexOf('(');
+    if (key > 0) return seg.substring(0, key) + '({id})';
+    if (/^\d+$/.test(seg) || HAR_GUID_SEG.test(seg)) return '{id}';
+    return seg;
+  }).join('/');
+}
+
+// Decodes a single HAR entry into a Mendix operation, or null if it is not one.
+// Three protocols count as Mendix traffic:
+//   /xas/    — the client protocol, operation is inside the JSON body
+//   /rest/   — a published REST service; the operation IS the method + path
+//   /odata/  — a published OData service; same, plus key predicates
+// Modern Mendix apps serve React/native clients and integrations over the latter
+// two, so recognising only /xas/ made the tool blind to half the capture and told
+// the user their HAR was empty.
 function harClassify(entry) {
   let path;
   try { path = new URL(entry.request.url).pathname; }
   catch (e) { path = entry.request.url; }
 
   const isXas = /\/xas\/?$/.test(path) || path.indexOf('/xas/') !== -1;
-  if (!isXas) return null;
+  if (!isXas) {
+    const method = String(entry.request.method || 'GET').toUpperCase();
+    if (path.indexOf('/rest/') !== -1) {
+      return { action: 'REST ' + method, detail: harApiTemplate(path), read: method === 'GET' };
+    }
+    if (path.indexOf('/odata/') !== -1) {
+      return { action: 'OData ' + method, detail: harApiTemplate(path), read: method === 'GET' };
+    }
+    return null;
+  }
 
   let action = 'xas';
   let detail = '';
@@ -68,7 +99,7 @@ function harClassify(entry) {
       }
     } catch (e) { /* non-JSON body → group as generic xas */ }
   }
-  return { action: action, detail: detail };
+  return { action: action, detail: detail, read: /retrieve/i.test(action) };
 }
 
 function harBytes(entry) {
@@ -176,7 +207,7 @@ function harAnalyze(har) {
 
     const key = op.action + '||' + op.detail;
     if (!groups.has(key)) {
-      groups.set(key, { action: op.action, detail: op.detail, count: 0, total: 0, max: 0, bytes: 0 });
+      groups.set(key, { action: op.action, detail: op.detail, read: op.read, count: 0, total: 0, max: 0, bytes: 0 });
     }
     const g = groups.get(key);
     g.count++;
@@ -206,8 +237,16 @@ function harAnalyze(har) {
   // ── Detections ──────────────────────────────────────────
   const detections = [];
   groupArr.forEach(g => {
-    if (/retrieve/i.test(g.action) && g.count >= 5 && g.detail) {
-      detections.push({ level: 'danger', text: `<strong>Possible N+1:</strong> the same retrieve (<code>${window.escHtml(g.detail.substring(0, 80))}${g.detail.length > 80 ? '…' : ''}</code>) fired <strong>${g.count}×</strong>. Consider fetching over an association or in one batch.` });
+    if (g.read && g.count >= 5 && g.detail) {
+      // A repeated read is the same pathology whichever protocol carries it, but
+      // the remedy differs: an XAS retrieve is fixed in the domain model, a
+      // published REST/OData read is fixed by the caller batching its requests.
+      const isApi = /^(REST|OData) /.test(g.action);
+      const what = isApi ? 'the same endpoint' : 'the same retrieve';
+      const fix = isApi
+        ? 'Consider requesting the collection once instead of one call per record.'
+        : 'Consider fetching over an association or in one batch.';
+      detections.push({ level: 'danger', text: `<strong>Possible N+1:</strong> ${what} (<code>${window.escHtml(g.detail.substring(0, 80))}${g.detail.length > 80 ? '…' : ''}</code>) fired <strong>${g.count}×</strong>. ${fix}` });
     } else if (/executeaction|execute/i.test(g.action) && g.count >= 10 && g.detail) {
       detections.push({ level: 'warn', text: `<strong>Chatty microflow:</strong> <code>${window.escHtml(g.detail)}</code> was invoked <strong>${g.count}×</strong> in this session.` });
     }
@@ -251,7 +290,7 @@ function harRender(d) {
   // Aggregation table
   const tbody = document.getElementById('har-agg-body');
   if (!d.groupArr.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--text-muted)">No Mendix XAS calls found in this HAR. (This capture may predate the login, or the app uses only static/OData endpoints.)</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--text-muted)">No Mendix calls found in this HAR. This tool recognises the client protocol (<code>/xas/</code>) plus published <code>/rest/</code> and <code>/odata/</code> services — a capture holding only static files, or one recorded before the app loaded, has none of them.</td></tr>';
   } else {
     tbody.innerHTML = d.groupArr.map(g => {
       const isRetrieve = /retrieve/i.test(g.action) && g.detail;
@@ -306,7 +345,7 @@ function harRender(d) {
   }
   listEl.innerHTML = rowsHtml.join('');
   document.getElementById('har-timeline-note').textContent =
-    d.xasList.length > CAP ? `Showing first ${CAP} of ${d.xasList.length} XAS calls (chronological, click a row for details)` : `${d.xasList.length} XAS calls (chronological, click a row for details)`;
+    d.xasList.length > CAP ? `Showing first ${CAP} of ${d.xasList.length} Mendix calls (chronological, click a row for details)` : `${d.xasList.length} Mendix calls (chronological, click a row for details)`;
 }
 
 function harBarColor(action) {
@@ -462,6 +501,8 @@ window.harCopyDetailBody = harCopyDetailBody;
 window.harDetectDuplicates = harDetectDuplicates;
 window.harGroupByPage = harGroupByPage;
 window.harContentText = harContentText;
+window.harClassify = harClassify;
+window.harApiTemplate = harApiTemplate;
 window.harBarColor = harBarColor;
 
 export function init() {}
