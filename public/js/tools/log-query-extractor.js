@@ -303,7 +303,11 @@ function lqeExtractQueries(records) {
     const msg = rec.message;
 
     // SQL line: SQL@SQLID(TX-CONN): content
-    let sqlMatch = msg.match(/^SQL@([a-f0-9]+)\((T\d+-C[a-f0-9]+)\):\s*(.*)/is); // jshint ignore:line
+    // The colon is optional: when the runtime spills the remaining bound values
+    // onto their own line it writes `SQL@id(TX-Cxx) Update param 3: …` without
+    // one, and requiring it dropped that line — and with it a parameter, so the
+    // rebuilt statement kept a bare `?`.
+    let sqlMatch = msg.match(/^SQL@([a-f0-9]+)\((T\d+-C[a-f0-9]+)\):?\s*(.*)/is); // jshint ignore:line
     if (!sqlMatch) continue;
 
     const sqlId = sqlMatch[1];
@@ -336,7 +340,8 @@ function lqeExtractQueries(records) {
     
     // Determine content type
     // IMPORTANT: Check params BEFORE SQL keywords because "Select params..." starts with "SELECT"
-    if (content.match(/^(Select|Update|Insert|Delete) params/i)) {
+    // `params 1-2:` for a batch, `param 3:` for a value spilled onto its own line.
+    if (content.match(/^(Select|Update|Insert|Delete) params?\b/i)) {
       const paramStr = content.substring(content.indexOf(':') + 1).trim();
       q.paramsString = (q.paramsString ? q.paramsString + ', ' : '') + paramStr;
     }
@@ -480,17 +485,34 @@ function lqeUpdateSkippedNote() {
       : '');
 }
 
+// Splits the logged parameter list on its top-level commas. Besides double
+// quotes it tracks {} / [] nesting, because a single bound value is regularly a
+// whole JSON document whose internal commas must not end it — a real log line
+// reads `Update params 1-2: 2026-07-14 18:37:11.793, {"body":{"changes":{…}}}`,
+// and splitting that naively turned two parameters into dozens of fragments.
 function splitParams(str) {
   const result = [];
   let current = '';
   let inQuotes = false;
-  
+  let depth = 0;
+
   for (let i = 0; i < str.length; i++) {
     const c = str[i];
-    if (c === '"') {
+    if (inQuotes && c === '\\') {
+      // \" inside a JSON string is content, not the end of the string
+      current += c;
+      i++;
+      if (i < str.length) current += str[i];
+    } else if (c === '"') {
       inQuotes = !inQuotes;
       current += c;
-    } else if (c === ',' && !inQuotes) {
+    } else if (!inQuotes && (c === '{' || c === '[')) {
+      depth++;
+      current += c;
+    } else if (!inQuotes && (c === '}' || c === ']')) {
+      if (depth > 0) depth--;
+      current += c;
+    } else if (c === ',' && !inQuotes && depth === 0) {
       result.push(current.trim());
       current = '';
     } else {
@@ -784,8 +806,12 @@ function renderQueryList(list) {
   lqeVList.setItems(list);
 }
 
-// Substitutes bound params into the logged SQL and breaks it onto multiple
-// lines at the major clause keywords — shared by the SQL tab and Compare.
+// Substitutes bound params into the logged SQL, then lays it out with the SQL
+// Formatter's own engine — same clause breaks, indentation and keyword case the
+// user gets in that tool. It replaces a private chain of regex replacements that
+// knew about nine keywords and applied them blindly, so ` FROM ` inside a string
+// literal was broken onto a new line too.
+// Shared by the SQL tab, Copy, Copy for EXPLAIN and Compare, so all four agree.
 function lqeBuildRunnableSql(q) {
   let runnableSql = q.sql;
   if (q.params && q.params.length > 0) {
@@ -803,25 +829,14 @@ function lqeBuildRunnableSql(q) {
     });
   }
 
-  return runnableSql.replace(/ FROM /gi, '\nFROM ')
-                     .replace(/ WHERE /gi, '\nWHERE ')
-                     .replace(/ INNER JOIN /gi, '\nINNER JOIN ')
-                     .replace(/ LEFT JOIN /gi, '\nLEFT JOIN ')
-                     .replace(/ ORDER BY /gi, '\nORDER BY ')
-                     .replace(/ GROUP BY /gi, '\nGROUP BY ')
-                     .replace(/ LIMIT /gi, '\nLIMIT ')
-                     .replace(/ SET /gi, '\nSET ')
-                     .replace(/ VALUES /gi, '\nVALUES ');
+  return window.prettifySQL(runnableSql);
 }
 
 function selectQuery(q) {
   const runnableSql = lqeBuildRunnableSql(q);
-  const sqlEl = document.getElementById('lqe-sql-content');
-  if (window.sqlHighlight) {
-    sqlEl.innerHTML = window.sqlHighlight(runnableSql);
-  } else {
-    sqlEl.textContent = runnableSql;
-  }
+  // fvRender, not innerHTML: it also binds the bracket hover-matching the SQL
+  // Formatter has, so the pane behaves the same way and not just looks it.
+  window.fvRender('lqe-sql-content', window.sqlHighlight(runnableSql));
   window._currentRunnableSql = runnableSql;
   
   const sourceEl = document.getElementById('lqe-source-content');

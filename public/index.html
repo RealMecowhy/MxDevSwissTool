@@ -87,7 +87,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.30.3</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.30.4</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -268,7 +268,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.30.3</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.30.4</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -529,7 +529,7 @@
                   <button class="btn btn-ghost btn-sm" onclick="window.lqeCopySql()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy SQL</button>
                   <button class="btn btn-ghost btn-sm" onclick="window.lqeCopyExplain()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>Copy for EXPLAIN</button>
                 </div>
-                <pre id="lqe-sql-content" style="background:var(--bg-elevated); padding:var(--sp-3); border-radius:var(--r-md); border:1px solid var(--border); font-size:0.85rem; color:var(--text); margin:0; white-space:pre-wrap; word-break:break-all;">Select a query to view its runnable SQL...</pre>
+                <pre id="lqe-sql-content" class="fmt-view" style="background:var(--bg-elevated); padding:var(--sp-3); border-radius:var(--r-md); border:1px solid var(--border); font-family:var(--font-mono); font-size:0.85rem; line-height:1.6; color:var(--text); margin:0; white-space:pre-wrap; overflow-wrap:anywhere;">Select a query to view its runnable SQL...</pre>
               </div>
 
               <!-- SOURCE TAB -->

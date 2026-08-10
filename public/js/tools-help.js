@@ -164,7 +164,7 @@ const TOOLS_HELP = {
         <li>Use <strong>Export CSV</strong>, <strong>Copy Markdown</strong> or <strong>Export HTML</strong> (a self-contained, shareable report) in the top bar to take the currently filtered list with you &mdash; e.g. into a ticket, a wiki page or a spreadsheet.</li>
         <li>Select a query from the list to see its details neatly grouped on the right:
           <ul>
-            <li><strong>Runnable SQL:</strong> The final SQL statement with all <code>?</code> parameters substituted correctly.</li>
+            <li><strong>Runnable SQL:</strong> The final SQL statement with all <code>?</code> parameters substituted, laid out by the same formatter as the <strong>SQL Formatter</strong> tool &mdash; the same clause breaks, indentation, colours and bracket matching on hover, and it follows the indent and keyword-case settings you pick there.</li>
             <li><strong>Source XPath/OQL:</strong> The original Mendix queries that generated the SQL, including intermediate OQL translation.</li>
             <li><strong>Parameters:</strong> A table listing the raw values bound to the SQL query.</li>
             <li><strong>Result Data:</strong> The raw output rows returned by the database.</li>

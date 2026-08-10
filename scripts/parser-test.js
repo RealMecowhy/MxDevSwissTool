@@ -487,13 +487,20 @@ const lqeLog = [
   '2026-07-17T10:00:01.000000 ' + P + '  WARNING - ConnectionBus_Queries: Query executed in 3 seconds and 100 milliseconds: SELECT "big"."id" FROM "big"',
   // Query D: no xpathId — receives the unlinked plan below (FIFO, first eligible query wins)
   '2026-07-17T10:00:02.000000 ' + P + TR + 'ConnectionBus_Retrieve: SQL@ddd444(T1-Cff01): SELECT "cust"."name" FROM "cust"',
-  '2026-07-17T10:00:02.010000 ' + P + TR + 'DataStorage_QueryPlan: Query Plan: [{"Plan":{"Node Type":"Index Scan","Total Cost":3.1},"Execution Time":1.1}]'
+  '2026-07-17T10:00:02.010000 ' + P + TR + 'DataStorage_QueryPlan: Query Plan: [{"Plan":{"Node Type":"Index Scan","Total Cost":3.1},"Execution Time":1.1}]',
+  // Query E: the two shapes real logs use for bound values, which the synthetic
+  // fixtures above do not cover — a JSON document as a single parameter (its own
+  // commas must not split it) and a third value spilled onto its own line, which
+  // the runtime writes WITHOUT the colon after the (Tx-Cyy) part.
+  '2026-07-17T10:00:03.000000 ' + P + TR + 'ConnectionBus_Update: SQL@eee555(T1-Cff01): UPDATE "system$backgroundjob" SET "endtime" = ?, "result" = ? WHERE "id" = ?',
+  '2026-07-17T10:00:03.010000 ' + P + TR + 'ConnectionBus_Update: SQL@eee555(T1-Cff01): Update params 1-2: 2026-07-17 10:00:03.000, {"body":{"changes":{"1":{"Name":{"value":"a, b"}},"2":{"Name":{"value":"c"}}}}}',
+  '2026-07-17T10:00:03.020000 ' + P + TR + 'ConnectionBus_Update: SQL@eee555(T1-Cff01) Update param 3: 7318349405133931'
 ].join('\n');
 
 const lqeRecs = parser.parse(lqeLog).records;
 eq('LQE fixture parsed as live', parser.parse(lqeLog).format, 'live');
 const qs = lqeExtract(lqeRecs);
-eq('five queries extracted', qs.length, 5);
+eq('six queries extracted', qs.length, 6);
 const qById = id => qs.find(q => q.sqlId === id);
 const qA = qById('aaa111'), qB = qById('aaa222'), qC = qById('ccc333'), qD = qById('ddd444');
 const qSlow = qs.find(q => q.slowWarning);
@@ -515,6 +522,17 @@ eq('total cost from linked plan', qA.cost, 12.5);
 eq('planning time from linked plan', qA.planningTime, '0.300 ms');
 eq('row count captured from result line', qA.rows, '3');
 ok('params parsed off the Select-params line', qA.params.length === 1 && qA.params[0] === '\'Open\'', JSON.stringify(qA.params));
+
+// Bound values as real logs write them (see query E). Both shapes used to be
+// mishandled: the JSON document was split on its internal commas into dozens of
+// fragments, and the spilled third value was dropped with its whole line because
+// that line has no colon after (Tx-Cyy) — leaving a bare `?` in the rebuilt SQL.
+const qE = qById('eee555');
+eq('spilled "param 3" line is not dropped', qE.params.length, 3);
+eq('a JSON parameter survives its own commas whole', qE.params[1],
+  '{"body":{"changes":{"1":{"Name":{"value":"a, b"}},"2":{"Name":{"value":"c"}}}}}');
+eq('the value after the JSON one is still its own parameter', qE.params[2], '7318349405133931');
+eq('every placeholder has a value', (qE.sql.match(/\?/g) || []).length, qE.params.length);
 
 // Unlinked plan (no xpathId) assigned FIFO to the first eligible query; slow warnings never consume one
 ok('unlinked plan assigned to first plan-less query', qD.duration === '1.100 ms' && qD.cost === 3.1, qD.duration + '/' + qD.cost);
