@@ -29,6 +29,26 @@ if [ -z "$version" ]; then
   exit 0
 fi
 
+# Guard 2: the service worker must match the version being pushed.
+#
+# Why: .github/workflows/release.yml copies public/ verbatim and never runs
+# `prebuild`, which was the ONLY place sync-sw-version.js ran. A version bump
+# committed without a local `npm run build` therefore shipped a stale
+# CACHE_NAME — and `activate` deletes caches only when the name differs, so the
+# purge never fired and offline users kept the previous version's assets while
+# the in-app updater reported success. Until now this held by habit alone.
+sw_expected="mxdev-swiss-tool-v$version"
+if ! grep -q "const CACHE_NAME = '$sw_expected';" public/service-worker.js 2>/dev/null; then
+  echo "" >&2
+  echo "  x  pre-push blocked: public/service-worker.js does not carry CACHE_NAME '$sw_expected'." >&2
+  echo "     The release workflow copies public/ as-is, so a stale name ships and no old" >&2
+  echo "     cache is ever purged — offline users stay on the previous version." >&2
+  echo "" >&2
+  echo "     Fix:  node scripts/sync-sw-version.js && git add public/service-worker.js" >&2
+  echo "" >&2
+  exit 1
+fi
+
 if git rev-parse -q --verify "refs/tags/v$version" >/dev/null 2>&1; then
   exit 0
 fi

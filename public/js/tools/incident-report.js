@@ -137,7 +137,7 @@ function irGenerate() {
   const fromMs = irParseMs(document.getElementById('ir-from').value);
   const toMs = irParseMs(document.getElementById('ir-to').value);
   if (isNaN(fromMs) || isNaN(toMs)) {
-    alert('Time window must be blank or "YYYY-MM-DD HH:MM:SS" (UTC). Leave a field empty for an open-ended bound.');
+    window.mtToast('Time window must be blank or "YYYY-MM-DD HH:MM:SS" (UTC). Leave a field empty for an open-ended bound.', 'warning');
     return;
   }
 

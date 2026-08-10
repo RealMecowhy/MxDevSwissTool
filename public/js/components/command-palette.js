@@ -34,7 +34,7 @@ export function initCommandPalette(toolsList, navigateFn) {
       execute: () => {
         const activePanel = document.querySelector('.tool-panel.active');
         if (!activePanel) {
-          alert('No active tool.');
+          window.mtToast('No active tool.', 'warning');
           return;
         }
         const exportSelectors = [
@@ -47,7 +47,7 @@ export function initCommandPalette(toolsList, navigateFn) {
         if (exportBtn) {
           exportBtn.click();
         } else {
-          alert('No export action found for the current tool.');
+          window.mtToast('No export action found for the current tool.', 'warning');
         }
       }
     },
@@ -62,7 +62,7 @@ export function initCommandPalette(toolsList, navigateFn) {
       execute: () => {
         const activePanel = document.querySelector('.tool-panel.active');
         if (!activePanel) {
-          alert('No active tool.');
+          window.mtToast('No active tool.', 'warning');
           return;
         }
         const loadSelectors = [
@@ -75,7 +75,7 @@ export function initCommandPalette(toolsList, navigateFn) {
         if (loadBtn) {
           loadBtn.click();
         } else {
-          alert('No file load action found for the current tool.');
+          window.mtToast('No file load action found for the current tool.', 'warning');
         }
       }
     }

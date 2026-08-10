@@ -210,7 +210,7 @@ window.ixaAnalyze = async function (btn) {
 // as every other tool's table.
 window.ixaExport = function (format) {
   if (!ixaLast || !ixaLast.findings || !ixaLast.findings.length) {
-    alert('Run the advisor first — there is nothing to export yet.');
+    window.mtToast('Run the advisor first — there is nothing to export yet.', 'warning');
     return;
   }
   const headers = ['Severity', 'Kind', 'Table', 'Index', 'Finding', 'Detail', 'Candidate'];

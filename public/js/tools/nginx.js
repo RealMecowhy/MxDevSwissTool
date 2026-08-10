@@ -208,7 +208,7 @@ async function nginxLoadFilesFromInput(files, type = 'access') {
     } catch (err) {
       console.error("Log file reading error:", err);
       hideLoader();
-      alert("Failed to process the log file. Ensure it is a valid log file or gzip archive.");
+      window.mtToast("Failed to process the log file. Ensure it is a valid log file or gzip archive.", 'error');
     }
   }
 }
@@ -1178,7 +1178,7 @@ window.nginxShowInLqe = function(index) {
   const log = window.nxStreamState.accessFiltered[index];
   if (!log) return;
   const endTs = nginxDateToMs(log.date);
-  if (isNaN(endTs)) { alert('Invalid date format in log entry.'); return; }
+  if (isNaN(endTs)) { window.mtToast('Invalid date format in log entry.', 'error'); return; }
   const startTs = endTs - ((log.time || 0) * 1000);
   
   window.navigateWithReturn('log-query-extractor');

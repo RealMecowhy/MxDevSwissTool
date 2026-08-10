@@ -49,15 +49,16 @@ function prettifySQL(sql) {
 // already documents this exact workflow ("Method B" in its own instructions).
 function sqlAnalyzeInQI() {
   const raw = document.getElementById('sql-input').value;
-  if (!raw.trim()) { alert('Paste a SQL query first.'); return; }
+  if (!raw.trim()) { window.mtToast('Paste a SQL query first.', 'warning'); return; }
   const query = raw.trim().replace(/;\s*$/, '') + ';';
   const explainSql = 'EXPLAIN ANALYZE\n' + query;
   copyToClipboard(explainSql);
   if (window.navigateWithReturn) window.navigateWithReturn('query-intelligence');
   const tabBtn = document.querySelector('#panel-query-intelligence .tab[data-help-key="query-intelligence-explain"]');
   if (tabBtn && window.qiSetTab) window.qiSetTab('explain', tabBtn);
-  alert('Copied to clipboard:\n\n' + explainSql +
-    '\n\nRun it against your database, then paste the resulting plan into the box below and click "Visualize Query Plan".');
+  // The query itself went to the clipboard — repeating it in the notification
+  // would push everything else off screen for anything longer than a few lines.
+  window.mtToast('EXPLAIN ANALYZE copied to clipboard. Run it against your database, then paste the resulting plan into the box below and click "Visualize Query Plan".', 'success');
 }
 // Highlighting now runs through the shared tokenizer (format-view.js): a single
 // ordered-matcher pass over the already-formatted text, so functions

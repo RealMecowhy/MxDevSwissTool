@@ -218,7 +218,7 @@ function xpathToOql(xpath) {
 window.xpathConvertToOql = function () {
   const input = document.getElementById('xpath-input');
   const result = xpathToOql(input ? input.value : '');
-  if (!result.oql) { alert('Enter an XPath expression or constraint first.'); return; }
+  if (!result.oql) { window.mtToast('Enter an XPath expression or constraint first.', 'warning'); return; }
   window.navigateWithReturn('query-intelligence');
   const tabBtn = document.querySelector('#panel-query-intelligence .tabs .tab[data-help-key="query-intelligence-formatter"]');
   if (window.qiSetTab) window.qiSetTab('formatter', tabBtn);

@@ -5,7 +5,7 @@ let archLastMermaidCode = '';
 
 function archCopyMermaid() {
   if (!archLastMermaidCode) {
-    alert('Generate a diagram first.');
+    window.mtToast('Generate a diagram first.', 'warning');
     return;
   }
   window.copyToClipboard(archLastMermaidCode);
@@ -14,7 +14,7 @@ function archCopyMermaid() {
 function archDownloadSvg() {
   const svg = document.querySelector('#arch-output svg');
   if (!svg) {
-    alert('Generate a diagram first.');
+    window.mtToast('Generate a diagram first.', 'warning');
     return;
   }
   const clone = svg.cloneNode(true);
@@ -284,7 +284,7 @@ window.archSetViewMode = function (mode) {
   archViewMode = mode;
   document.querySelectorAll('#arch-view-toggle button').forEach(b => b.classList.toggle('active', b.dataset.view === mode));
   if (mode === 'modules') {
-    if (!archLiveModel) { alert('Load a domain model from a live database first — the module dependency view needs the full module list.'); archViewMode = 'entities'; return; }
+    if (!archLiveModel) { window.mtToast('Load a domain model from a live database first — the module dependency view needs the full module list.', 'warning'); archViewMode = 'entities'; return; }
     const graph = archBuildModuleGraph(archLiveModel);
     archLastMermaidCode = archModuleGraphToMermaid(graph);
     archRenderMermaid(archLastMermaidCode);

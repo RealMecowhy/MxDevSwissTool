@@ -14,7 +14,7 @@ export function tmFetchMetrics() {
     const adminPort = document.getElementById('tm-agent-prom-port')?.value.trim() || '8090';
     url = `${agentUrl}/prometheus?port=${adminPort}`;
   } else {
-    if (!url) return alert('Please enter a Prometheus Endpoint URL');
+    if (!url) return window.mtToast('Please enter a Prometheus Endpoint URL', 'warning');
     if (authKey) headers['X-API-Key'] = authKey;
   }
 
@@ -45,7 +45,7 @@ export function tmFetchMetrics() {
         tmStopPolling();
         state.tmDirectConnected = false;
         tmUpdateTabsVisibility();
-        alert(`Connection failed!\n\nCould not retrieve telemetry from "${url}".\nReason: ${err.message}`);
+        window.mtToast(`Connection failed!\n\nCould not retrieve telemetry from "${url}".\nReason: ${err.message}`, 'error');
       }
       // Silently ignore if proxy fails in agent mode (e.g., Mendix Prometheus not enabled)
     })
@@ -79,7 +79,7 @@ export function tmStopPolling() {
 
 export function tmParsePastedMetrics() {
   const text = document.getElementById('tm-paste-input').value.trim();
-  if (!text) return alert('Please paste some Prometheus metrics text first.');
+  if (!text) return window.mtToast('Please paste some Prometheus metrics text first.', 'warning');
   
   tmProcessMetrics(text);
   
@@ -103,12 +103,12 @@ export function tmDumpAllMetrics() {
   let url;
   if (state.tmConnectionProfile.startsWith('agent')) {
     const agentUrl = document.getElementById('tm-agent-url').value.trim();
-    if (!agentUrl) return alert('Connect to agent first!');
+    if (!agentUrl) return window.mtToast('Connect to agent first!', 'warning');
     const adminPort = document.getElementById('tm-agent-prom-port')?.value.trim() || '8090';
     url = `${agentUrl}/prometheus?port=${adminPort}`;
   } else {
     url = document.getElementById('tm-endpoint-url').value.trim();
-    if (!url) return alert('Set a Prometheus endpoint first!');
+    if (!url) return window.mtToast('Set a Prometheus endpoint first!', 'warning');
   }
 
   fetch(url)
@@ -157,6 +157,6 @@ export function tmDumpAllMetrics() {
       overlay.appendChild(modal);
       document.body.appendChild(overlay);
     })
-    .catch(err => alert(`Failed to fetch metrics: ${err.message}`));
+    .catch(err => window.mtToast(`Failed to fetch metrics: ${err.message}`, 'error'));
 }
 

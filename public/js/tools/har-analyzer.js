@@ -34,7 +34,7 @@ function harLoadFile(files) {
         harAnalyze(har);
       } catch (err) {
         if (window.hideLoader) window.hideLoader();
-        alert('Could not parse HAR file: ' + err.message);
+        window.mtToast('Could not parse HAR file: ' + err.message, 'error');
       }
     }, 30);
   };
@@ -186,7 +186,7 @@ function harContentText(content) {
 function harAnalyze(har) {
   if (window.hideLoader) window.hideLoader();
   const entries = (har && har.log && har.log.entries) || [];
-  if (!entries.length) { alert('This HAR contains no entries.'); return; }
+  if (!entries.length) { window.mtToast('This HAR contains no entries.', 'warning'); return; }
 
   harEntries = entries;
 

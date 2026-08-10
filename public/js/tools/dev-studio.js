@@ -105,7 +105,7 @@ window.dsConnectAction = async function() {
       if (data && data.success && data.projects && data.projects.length > 0) {
         selectedData = data.projects[0];
       } else {
-        alert("Could not load project metadata from the specified path. Ensure the path points to the root of the Mendix project.");
+        window.mtToast("Could not load project metadata from the specified path. Ensure the path points to the root of the Mendix project.", 'error');
         hideLoader();
         return;
       }
@@ -129,11 +129,11 @@ window.dsConnectAction = async function() {
       dsRenderDetectedProject();
       dsPollData(); // Immediately poll stats
     } else {
-      alert("No project selected or found.");
+      window.mtToast("No project selected or found.", 'warning');
     }
   } catch(e) {
     console.error("Connection error:", e);
-    alert("Connection failed. Ensure the Mendix Observability Bridge is running.");
+    window.mtToast("Connection failed. Ensure the Mendix Observability Bridge is running.", 'error');
   }
   hideLoader();
 };

@@ -12,7 +12,7 @@ function mdHandleDrop(e) {
   const file = e.dataTransfer.files && e.dataTransfer.files[0];
   if (!file) return;
   if (!MD_DROP_EXT.test(file.name) && !(file.type || '').startsWith('text/')) {
-    alert('Not a Markdown file: ' + file.name + '\nDrop a .md, .markdown, .mdx or .txt file.');
+    window.mtToast('Not a Markdown file: ' + file.name + '\nDrop a .md, .markdown, .mdx or .txt file.', 'error');
     return;
   }
   const reader = new FileReader();
@@ -20,7 +20,7 @@ function mdHandleDrop(e) {
     document.getElementById('md-input').value = evt.target.result;
     mdRender();
   };
-  reader.onerror = () => alert('Could not read file: ' + file.name);
+  reader.onerror = () => window.mtToast('Could not read file: ' + file.name, 'error');
   reader.readAsText(file);
 }
 function mdExport(){const html='<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:system-ui,sans-serif;max-width:800px;margin:40px auto;padding:0 20px;line-height:1.7}pre{background:#f6f8fa;padding:16px;border-radius:8px;overflow:auto}code{background:#f6f8fa;padding:2px 6px;border-radius:4px;font-family:monospace}table{border-collapse:collapse;width:100%}th,td{border:1px solid #d0d7de;padding:8px 12px}blockquote{border-left:4px solid #0969da;padding-left:16px;color:#636c76;margin-left:0}</style></head><body>'+document.getElementById('md-preview-output').innerHTML+'</body></html>';downloadText(html,'document.html');}

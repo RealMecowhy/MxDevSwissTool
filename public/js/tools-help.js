@@ -1201,7 +1201,7 @@ function showActiveToolHelp() {
 
   const helpData = TOOLS_HELP[toolId];
   if (!helpData) {
-    alert('Help for this module is currently under construction.');
+    window.mtToast('Help for this module is currently under construction.', 'warning');
     return;
   }
 

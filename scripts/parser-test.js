@@ -3921,6 +3921,69 @@ ok('markdown: carries the percentiles', /p95/.test(plMd));
 ok('markdown: carries the status breakdown', /200/.test(plMd));
 ok('markdown: a thread-level run tabulates the levels', /\| *5 *\|/.test(global.plSummaryMarkdown(sRamp)), global.plSummaryMarkdown(sRamp));
 
+// =========================================================================
+// SETTINGS BACKUP — export/import of the keys this app owns (D3)
+// =========================================================================
+// The app is handed around as a ZIP and stores everything in localStorage, so
+// clearing the profile or moving machine used to lose favourites, presets and
+// theme with no recovery path. These two functions are that path; the risk to
+// guard against is an import trusting whatever a file happens to contain.
+console.log('\nSettings backup');
+(function () {
+  const store = new Map();
+  global.localStorage = {
+    getItem: k => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: k => store.delete(k)
+  };
+  // tool-state.js is an ES module (it carries `export function init`), same as
+  // log-viewer.js — strip the keyword and compile it in a CommonJS wrapper.
+  const tsPath = path.join(__dirname, '..', 'public', 'js', 'components', 'tool-state.js');
+  const tsSrc = fs.readFileSync(tsPath, 'utf8').replace(/^export\s+/gm, '');
+  const NodeMod = require('module');
+  const tsMod = new NodeMod(tsPath, module);
+  tsMod.filename = tsPath;
+  tsMod.paths = NodeMod._nodeModulePaths(path.dirname(tsPath));
+  tsMod._compile(tsSrc, tsPath);
+
+  const exportSettings = global.mtExportSettings;
+  const importSettings = global.mtImportSettings;
+
+  store.set('mt-favorites', '["json","jwt"]');
+  store.set('mt-theme', 'light');
+  store.set('unrelated-app-key', 'must not travel');
+
+  const dump = exportSettings();
+  eq('export: stamped with the app id', dump.app, 'mxdev-swiss-tool');
+  eq('export: carries a format version for future migrations', dump.format, 1);
+  eq('export: picks up a set key', dump.data['mt-favorites'], '["json","jwt"]');
+  ok('export: skips keys that were never set', !('perfLabPreset' in dump.data));
+  // A shared origin may hold other apps' keys; an export must never scoop them up.
+  ok('export: ignores keys this app does not own', !('unrelated-app-key' in dump.data));
+
+  store.clear();
+  const res = importSettings(JSON.stringify(dump));
+  ok('import: round-trips', res.ok && res.imported === 2, JSON.stringify(res));
+  eq('import: restores the value verbatim', store.get('mt-favorites'), '["json","jwt"]');
+
+  eq('import: rejects non-JSON', importSettings('not json').ok, false);
+  eq('import: rejects a file from another app',
+    importSettings(JSON.stringify({ app: 'something-else', data: {} })).ok, false);
+  eq('import: rejects a newer format rather than guessing',
+    importSettings(JSON.stringify({ app: 'mxdev-swiss-tool', format: 99, data: {} })).ok, false);
+
+  // The file is user-supplied: unknown keys are skipped, not written.
+  const mixed = importSettings(JSON.stringify({
+    app: 'mxdev-swiss-tool', format: 1,
+    data: { 'mt-theme': 'dark', 'evil-key': 'x', 'mt-favorites': { not: 'a string' } }
+  }));
+  eq('import: writes only owned string values', mixed.imported, 1);
+  eq('import: counts what it refused', mixed.skipped, 2);
+  ok('import: an unowned key never reaches storage', !store.has('evil-key'));
+
+  delete global.localStorage;
+})();
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 runXlsxAsyncTests().then(runApiEconAsyncTests).then(runNginxAsyncTests).then(function () {
   console.log('\n' + passed + ' passed, ' + failed + ' failed');

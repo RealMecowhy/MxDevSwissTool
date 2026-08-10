@@ -86,7 +86,7 @@ function logLoadFiles(files) {
         }
       } catch (err) {
         console.error('Failed to load ' + f.name, err);
-        alert('Could not read "' + f.name + '": ' + err.message);
+        window.mtToast('Could not read "' + f.name + '": ' + err.message, 'error');
       }
     }
     // Sharing the decompressed text is what lets the other log tools consume a
@@ -898,7 +898,7 @@ function logAnalyzeSignatures() {
 
     } catch (e) {
       console.error(e);
-      alert('Error during log signature analysis: ' + e.message);
+      window.mtToast('Error during log signature analysis: ' + e.message, 'error');
     } finally {
       hideLoader();
     }
@@ -1652,7 +1652,7 @@ function logGenerateGantt() {
 
 function logAnonymizeAndCopy() {
   if (!logFilteredEntries.length) {
-    alert('No logs to anonymize.');
+    window.mtToast('No logs to anonymize.', 'warning');
     return;
   }
   const rawText = logFilteredEntries.map(e => e.raw).join('\n');
@@ -1672,12 +1672,12 @@ function logAnonymizeAndCopy() {
   anonymized = anonymized.replace(/\b\d{15,19}\b/g, '[MENDIX_ID]');
   
   copyToClipboard(anonymized);
-  alert(`Anonymized and copied ${logFilteredEntries.length} filtered log entries to clipboard!`);
+  window.mtToast(`Anonymized and copied ${logFilteredEntries.length} filtered log entries to clipboard!`, 'success');
 }
 
 function logSendToAnonymizer() {
   if (!logFilteredEntries.length) {
-    alert('No logs to send.');
+    window.mtToast('No logs to send.', 'warning');
     return;
   }
   showLoader('Preparing logs for anonymization...');
@@ -1708,7 +1708,7 @@ function logClosePasteModal() {
 function logSubmitPaste() {
   const text = document.getElementById('log-paste-input').value;
   if (!text || !text.trim()) {
-    alert('Please paste some logs first.');
+    window.mtToast('Please paste some logs first.', 'warning');
     return;
   }
   logClosePasteModal();

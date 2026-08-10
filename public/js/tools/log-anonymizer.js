@@ -490,7 +490,7 @@ function anonymizerCopy() {
   var text = cleanViewer ? cleanViewer.getText() : '';
   if (!text) return;
   copyToClipboard(text);
-  alert('Anonymized log copied to clipboard!');
+  window.mtToast('Anonymized log copied to clipboard!', 'success');
 }
 
 function anonymizerDownload() {

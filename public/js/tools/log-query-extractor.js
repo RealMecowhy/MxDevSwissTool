@@ -143,7 +143,7 @@ function parseLogContent(text) {
       } catch (err) {
         console.error('LQE parse failed:', err);
         if (window.hideLoader) window.hideLoader();
-        alert('Could not parse this log: ' + err.message);
+        window.mtToast('Could not parse this log: ' + err.message, 'error');
       }
     }, 20);
   }
@@ -951,7 +951,7 @@ function lqePlanNodeToText(node, depth) {
 window.lqeVisualizePlan = function() {
   const q = window._currentSelectedQuery;
   if (!q || !q.queryPlan) {
-    alert('Select a query that has a logged Query Plan first.');
+    window.mtToast('Select a query that has a logged Query Plan first.', 'warning');
     return;
   }
   let text = q.queryPlan;
@@ -981,15 +981,15 @@ window.lqeVisualizePlan = function() {
 window.lqeExplainLive = async function(btn) {
   const q = window._currentSelectedQuery;
   const sql = window._currentRunnableSql;
-  if (!q || !sql) { alert('Select a query first.'); return; }
+  if (!q || !sql) { window.mtToast('Select a query first.', 'warning'); return; }
   if (q.type && q.type !== 'SELECT') {
-    alert('EXPLAIN live runs only on SELECT queries (read-only). This one is a ' + q.type + ' — copy it and analyze it manually.');
+    window.mtToast('EXPLAIN live runs only on SELECT queries (read-only). This one is a ' + q.type + ' — copy it and analyze it manually.', 'warning');
     return;
   }
   if (!window.mtDb || !window.mtDb.isConnected()) {
     const bar = document.getElementById('lqe-livedb-bar');
     if (bar) bar.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    alert('Connect a live database first — use the "Live database" panel below the plan. Without a connection you can still copy the query and paste its plan into SQL Explain.');
+    window.mtToast('Connect a live database first — use the "Live database" panel below the plan. Without a connection you can still copy the query and paste its plan into SQL Explain.', 'warning');
     return;
   }
   const oldHtml = btn ? btn.innerHTML : null;
@@ -1002,8 +1002,8 @@ window.lqeExplainLive = async function(btn) {
     });
     const data = await resp.json();
     if (!data || data.error || typeof data.plan !== 'string') {
-      alert('EXPLAIN live failed: ' + ((data && data.message) || 'no plan returned') +
-            '\n\nTip: queries with parameter placeholders can\'t be planned directly — copy the query and substitute values, or paste an EXPLAIN plan manually.');
+      window.mtToast('EXPLAIN live failed: ' + ((data && data.message) || 'no plan returned') +
+            '\n\nTip: queries with parameter placeholders can\'t be planned directly — copy the query and substitute values, or paste an EXPLAIN plan manually.', 'error');
       return;
     }
     window.navigateWithReturn('query-intelligence');
@@ -1013,7 +1013,7 @@ window.lqeExplainLive = async function(btn) {
     if (input) input.value = data.plan;
     if (window.visualizeSqlExplain) window.visualizeSqlExplain();
   } catch (e) {
-    alert('EXPLAIN live failed: ' + e.message);
+    window.mtToast('EXPLAIN live failed: ' + e.message, 'error');
   } finally {
     if (btn && oldHtml !== null) { btn.disabled = false; btn.innerHTML = oldHtml; }
   }
@@ -1044,7 +1044,7 @@ const LQE_EXPORT_HEADER = ['Type', 'Tx-Conn', 'Timestamp', 'Duration (ms)', 'Cos
 // the self-contained HTML template live in one place across tools.
 window.lqeExportCsv = function() {
   if (lqeLastFiltered.length === 0) {
-    alert('Nothing to export — load a log first (and check the active filters).');
+    window.mtToast('Nothing to export — load a log first (and check the active filters).', 'warning');
     return;
   }
   window.mtExport.downloadCsv('extracted-queries.csv', LQE_EXPORT_HEADER, lqeExportRows(300));
@@ -1052,7 +1052,7 @@ window.lqeExportCsv = function() {
 
 window.lqeCopyMarkdown = function(btn) {
   if (lqeLastFiltered.length === 0) {
-    alert('Nothing to copy — load a log first (and check the active filters).');
+    window.mtToast('Nothing to copy — load a log first (and check the active filters).', 'warning');
     return;
   }
   window.mtExport.copyMarkdown(LQE_EXPORT_HEADER, lqeExportRows(120), btn);
@@ -1060,7 +1060,7 @@ window.lqeCopyMarkdown = function(btn) {
 
 window.lqeExportHtml = function() {
   if (lqeLastFiltered.length === 0) {
-    alert('Nothing to export — load a log first (and check the active filters).');
+    window.mtToast('Nothing to export — load a log first (and check the active filters).', 'warning');
     return;
   }
   const rows = lqeExportRows(2000);

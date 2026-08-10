@@ -371,7 +371,7 @@ function wsreParseText(text) {
       } catch (err) {
         console.error('WSRE parse failed:', err);
         if (window.hideLoader) window.hideLoader();
-        alert('Could not parse this log: ' + err.message);
+        window.mtToast('Could not parse this log: ' + err.message, 'error');
       }
     }, 20);
   }
@@ -839,8 +839,8 @@ function wsreSelectCall(c) {
 
 window.wsreShowInMft = function() {
   const c = window._wsreSelectedCall;
-  if (!c) { alert('Select a call first.'); return; }
-  if (!c.microflow) { alert('This call has no CallRest/CallWebservice anchor — enable MicroflowEngine TRACE to link calls to microflows.'); return; }
+  if (!c) { window.mtToast('Select a call first.', 'warning'); return; }
+  if (!c.microflow) { window.mtToast('This call has no CallRest/CallWebservice anchor — enable MicroflowEngine TRACE to link calls to microflows.', 'warning'); return; }
   window.navigateWithReturn('microflow-tracer');
   const search = document.getElementById('mft-search');
   if (search) search.value = c.microflow;
@@ -855,8 +855,8 @@ window.wsreShowInMft = function() {
 
 window.wsreShowInLqe = function() {
   const c = window._wsreSelectedCall;
-  if (!c) { alert('Select a call first.'); return; }
-  if (!c.endTs) { alert('This call has no response record — no time window to correlate.'); return; }
+  if (!c) { window.mtToast('Select a call first.', 'warning'); return; }
+  if (!c.endTs) { window.mtToast('This call has no response record — no time window to correlate.', 'warning'); return; }
   window.navigateWithReturn('log-query-extractor');
   if (window.lqeSetTimeWindow) {
     window.lqeSetTimeWindow(c.startTs, c.endTs, c.method + ' ' + (c.operation || c.service || c.url || ''));
@@ -876,11 +876,11 @@ window.wsreShowInLqe = function() {
 // earlier work.
 window.wsreShowInLogViewer = function() {
   const c = window._wsreSelectedCall;
-  if (!c) { alert('Select a call first.'); return; }
+  if (!c) { window.mtToast('Select a call first.', 'warning'); return; }
   // corrId is only populated when a CallRest/CallWebservice anchor was matched
   // (see the pairing pass above) — the REST/WebServices records themselves carry
   // no correlation ID, so without MicroflowEngine TRACE there is nothing to filter on.
-  if (!c.corrId) { alert('This call has no correlation ID — enable MicroflowEngine TRACE so calls can be linked to the request that made them.'); return; }
+  if (!c.corrId) { window.mtToast('This call has no correlation ID — enable MicroflowEngine TRACE so calls can be linked to the request that made them.', 'warning'); return; }
   window.navigateWithReturn('log-viewer');
   if (window.logHasData && !window.logHasData() && wsreRawText && window.logLoadText) {
     window.logLoadText(wsreRawText, 'from REST & WS Extractor');
@@ -940,7 +940,7 @@ window.wsreReportSection = function(fromMs, toMs) {
 };
 
 window.wsreExportCsv = function() {
-  if (wsreLastFiltered.length === 0) { alert('Nothing to export — load a log first (and check the active filters).'); return; }
+  if (wsreLastFiltered.length === 0) { window.mtToast('Nothing to export — load a log first (and check the active filters).', 'warning'); return; }
   const esc = v => '"' + String(v).replace(/"/g, '""') + '"';
   const lines = [WSRE_EXPORT_HEADER.map(esc).join(',')];
   for (const row of wsreExportRows()) lines.push(row.map(esc).join(','));
@@ -948,7 +948,7 @@ window.wsreExportCsv = function() {
 };
 
 window.wsreCopyMarkdown = function(btn) {
-  if (wsreLastFiltered.length === 0) { alert('Nothing to copy — load a log first (and check the active filters).'); return; }
+  if (wsreLastFiltered.length === 0) { window.mtToast('Nothing to copy — load a log first (and check the active filters).', 'warning'); return; }
   const esc = v => String(v).replace(/\|/g, '\\|').replace(/\n/g, ' ');
   const lines = [
     '| ' + WSRE_EXPORT_HEADER.join(' | ') + ' |',

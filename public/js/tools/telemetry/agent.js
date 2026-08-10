@@ -8,7 +8,7 @@ export function tmConnectAgent() {
   const agentUrl = document.getElementById('tm-agent-url').value.trim();
   const logPath = document.getElementById('tm-agent-logpath').value.trim();
 
-  if (!agentUrl) return alert('Please enter a Local Agent Endpoint URL');
+  if (!agentUrl) return window.mtToast('Please enter a Local Agent Endpoint URL', 'warning');
 
   const btn = document.getElementById('tm-btn-agent-connect');
   btn.disabled = true;
@@ -316,7 +316,7 @@ export function tmRefreshPostgres() {
   }
   
   if (state.tmAgentStatus !== 'connected') {
-    return alert('Please connect the Local Observability Agent first.');
+    return window.mtToast('Please connect the Local Observability Agent first.', 'warning');
   }
   const agentUrl = document.getElementById('tm-agent-url').value.trim();
   tmFetchAgentPostgres(agentUrl, false);

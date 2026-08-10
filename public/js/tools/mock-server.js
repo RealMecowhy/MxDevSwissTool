@@ -28,7 +28,7 @@ async function msStart() {
 }
 
 async function msTrigger() {
-  if (!msActive) return alert('Activate the Mock Server first!');
+  if (!msActive) return window.mtToast('Activate the Mock Server first!', 'warning');
   const out = document.getElementById('ms-output');
   out.innerHTML = `<div style="color:var(--text-muted)">Request sent to http://localhost:9999/mock, waiting for response...</div>`;
   

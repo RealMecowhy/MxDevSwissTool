@@ -3612,3 +3612,79 @@ kbd {
   50% { filter: drop-shadow(0 0 6px var(--accent)); }
 }
 .xls-grid tbody tr:hover td { background: var(--bg-elevated); }
+
+/* ── Transient notifications (components/toast.js) ────────────────────────────
+   Top-right under the 56px topbar, deliberately not bottom-right — that corner
+   belongs to the Telemetry Monitor's threshold alerts, and both can be on
+   screen at the same time. */
+#mt-toast-container {
+  position: fixed;
+  top: calc(56px + var(--sp-3));
+  right: var(--sp-4);
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  pointer-events: none;
+  max-width: min(420px, calc(100vw - 2 * var(--sp-4)));
+}
+.mt-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--info);
+  border-radius: var(--r-md);
+  background: var(--bg-elevated);
+  color: var(--text);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 28%);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  animation: mt-toast-in 0.18s ease-out;
+}
+.mt-toast-error   { border-left-color: var(--danger); }
+.mt-toast-warning { border-left-color: var(--warning); }
+.mt-toast-success { border-left-color: var(--success); }
+.mt-toast-info    { border-left-color: var(--info); }
+.mt-toast-icon { width: 16px; height: 16px; flex-shrink: 0; margin-top: 2px; }
+.mt-toast-error   .mt-toast-icon { color: var(--danger); }
+.mt-toast-warning .mt-toast-icon { color: var(--warning); }
+.mt-toast-success .mt-toast-icon { color: var(--success); }
+.mt-toast-info    .mt-toast-icon { color: var(--info); }
+/* Long parser messages must wrap rather than stretch the container off-screen.
+   pre-line keeps the deliberate line breaks the converted alert() messages carry
+   (alert rendered them; textContent would otherwise collapse them to spaces). */
+.mt-toast-msg { flex: 1; min-width: 0; overflow-wrap: anywhere; white-space: pre-line; }
+.mt-toast-count {
+  flex-shrink: 0;
+  align-self: center;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--bg-base);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+}
+.mt-toast-close {
+  flex-shrink: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1.05rem;
+  line-height: 1;
+  padding: 0 2px;
+}
+.mt-toast-close:hover { color: var(--text); }
+.mt-toast-out { animation: mt-toast-out 0.2s ease-in forwards; }
+@keyframes mt-toast-in  { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
+@keyframes mt-toast-out { to { opacity: 0; transform: translateX(12px); } }
+
+/* Respect the OS "reduce motion" setting — the app had no such rule at all, so
+   every animation played regardless. Motion is removed; the toasts still appear
+   and still auto-expire, they just do not slide. */
+@media (prefers-reduced-motion: reduce) {
+  .mt-toast, .mt-toast-out { animation: none; }
+}

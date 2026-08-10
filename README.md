@@ -95,6 +95,9 @@ The toolkit is divided into logical categories to assist you across the entire d
 * **Built-in help**: every tool has a **Help** button in the top bar explaining what it does and, where relevant, how to extract the input data (e.g. a HAR from browser DevTools or TRACE logs from Mendix).
 * **Favorites**: click the ☆ star next to a tool's name (or on its Home card) to pin it to the top of the Home screen.
 * **Command palette**: press **Ctrl+K** to jump to any tool by name, or run a global **action** — *Export current view* and *Load file into…* act on whichever tool is active.
+* **Keyboard shortcuts**: **Ctrl+K** opens the command palette, **Ctrl+Enter** runs the primary action of the active tool (buttons that support it show the hint on the button itself), **Esc** closes the palette or an open dialog.
+* **Backup Settings**: the sidebar footer saves your favourites, theme, sidebar state and every per-tool setting to one JSON file, and restores them on another browser or machine. Settings only — no log, HAR or database content is ever stored, so none of it is in the file.
+* **Resume where you left off**: reopening the app returns you to the tool you used last. A `#tool=…` link always wins, so bookmarks and shared deep links still land where they point.
 * **Data Hub — load a log once, use it everywhere**: the four log tools (Log Viewer, Log Query Extractor, Microflow Tracer, REST & WS Extractor) share whatever file you last loaded. A bar above the view reports *Loaded: file · N records · format* and offers **Open in…** buttons for the other three — one click hands the same file over instead of dragging a 60 MB log into each tool in turn, and a ✓ marks the ones that already have it. It is also the only route for a gzipped `.gz` Cloud download: the Log Viewer unpacks it and shares the decompressed text with tools that cannot read `.gz` themselves. Nothing is loaded? Then no bar appears at all.
 
 ---
@@ -148,13 +151,23 @@ Shortly after startup the tool checks [GitHub Releases](https://github.com/RealM
 
 You can also snooze the reminder for a day or skip a version entirely.
 
-**Your local data is safe either way:** favorites, presets and theme live in your browser's storage (not in the tool folder), and the update never touches the `runtime/` folder with portable Node.js.
+**Your local data is safe either way:** favorites, presets and theme live in your browser's storage (not in the tool folder), and the update never touches the `runtime/` folder with portable Node.js. Because that storage belongs to the browser profile, clearing site data or moving to another machine still loses it — use **Backup Settings** in the sidebar footer to carry it across.
+
+---
+
+## 📴 Offline Use
+
+The toolkit is a Progressive Web App. On first load a service worker caches the entire interface — every tool module, the styles and the in-app help — so the whole toolkit keeps working with no network, including tools you have never opened before.
+
+* **Install it as an app**: in Chrome or Edge, use the install icon in the address bar (or ⋮ → *Cast, save and share* → *Install page as app*). It then opens in its own window without browser chrome and starts from the same local files.
+* **What still needs the bridge**: anything that reads your machine or the network — live logs, the Developer Studio, Live DB features, the Mock Server, the REST Load Tester's server engine and the update check. Every offline-capable tool (all the formatters, decoders, log analysers and generators) works on files you drop in.
+* **After an update**: a new version's assets replace the old ones automatically. If you were mid-session, a notification asks you to reload so the running page and the cached files match.
 
 ---
 
 ## 📁 Directory Structure
 
-* [public/](file:///c:/Users/mikol/Documents/Antigravity_Projects/MendixTools/public) - Web frontend application interface (HTML, CSS, JS).
-* [server/](file:///c:/Users/mikol/Documents/Antigravity_Projects/MendixTools/server) - Local Node.js bridge server (`mendix-observability-bridge.js`).
-* [scripts/](file:///c:/Users/mikol/Documents/Antigravity_Projects/MendixTools/scripts) - Build and maintain utility scripts.
+* [public/](public) - Web frontend application interface (HTML, CSS, JS).
+* [server/](server) - Local Node.js bridge server (`mendix-observability-bridge.js`).
+* [scripts/](scripts) - Build and maintain utility scripts.
 * `Start-MxDevSwissTool.bat` - Quick launch script for Windows. Creates an optional `runtime/` folder if you let it download portable Node.js.

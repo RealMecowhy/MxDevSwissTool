@@ -1363,12 +1363,12 @@ window.plSavePreset = function () {
     mfSeed: plEl('pl-mf-seed') ? plEl('pl-mf-seed').value : 1
   };
   localStorage.setItem('perfLabPreset', JSON.stringify(preset));
-  alert('Preset saved to browser memory.');
+  window.mtToast('Preset saved to browser memory.', 'success');
 };
 
 window.plLoadPreset = function () {
   const saved = localStorage.getItem('perfLabPreset');
-  if (!saved) return alert('No preset found in memory.');
+  if (!saved) return window.mtToast('No preset found in memory.', 'warning');
   try {
     const preset = JSON.parse(saved);
     if (preset.url) plEl('pl-url').value = preset.url;
@@ -1397,12 +1397,12 @@ window.plLoadPreset = function () {
         + plMf.fields.length + ' field' + (plMf.fields.length === 1 ? '' : 's') + '.';
     }
   } catch (e) {
-    alert('Failed to load preset');
+    window.mtToast('Failed to load preset', 'error');
   }
 };
 
 window.plExportCSV = function () {
-  if (plResults.length === 0) return alert('No results to export.');
+  if (plResults.length === 0) return window.mtToast('No results to export.', 'warning');
   let csv = '';
   if (plSampleGap) csv += '# NOTE: the run outpaced the sample buffer — some individual samples are missing. Aggregates in the UI cover every request.\n';
   csv += 'RequestID,LatencyMs,StatusCode,StartMsSinceTestStart,EndMsSinceTestStart\n';

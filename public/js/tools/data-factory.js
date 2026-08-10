@@ -412,7 +412,7 @@ DFW.dfwPickEntity = async function (index) {
   showLoader('Reading schema…');
   try {
     const detail = await dfwFetchSchema([e.table], {});
-    if (detail.error) { hideLoader(); alert(detail.message || 'Could not read the schema.'); return; }
+    if (detail.error) { hideLoader(); window.mtToast(detail.message || 'Could not read the schema.', 'error'); return; }
     dfw.detail = detail;
     dfw.tableName = e.table;
     dfw.entityType = e.name || '';
@@ -421,7 +421,7 @@ DFW.dfwPickEntity = async function (index) {
     hideLoader();
     dfwRenderEntityList();
     dfwUpdateGuard();
-  } catch (err) { hideLoader(); alert('Failed: ' + err.message); }
+  } catch (err) { hideLoader(); window.mtToast('Failed: ' + err.message, 'error'); }
 };
 
 // ── multi mode selection ──────────────────────────────────────────────────
@@ -915,7 +915,7 @@ DFW.dfwGenerate = async function (btn) {
 
 async function dfwGenerateFlat(btn) {
   const cols = dfwFlatCols(SINGLE_KEY);
-  if (!cols.length) { alert('No columns to generate.'); return; }
+  if (!cols.length) { window.mtToast('No columns to generate.', 'warning'); return; }
   const names = cols.map(function (c) { return c.field; });
   const count = dfw.count;
   const rng = dfwRng();
@@ -935,7 +935,7 @@ async function dfwGenerateFlat(btn) {
     const ext = dfw.format === 'mendix-rest' ? 'json' : dfw.format;
     downloadText(text, 'mock-data.' + ext);
   } catch (e) {
-    hideLoader(); alert('Generation failed: ' + e.message);
+    hideLoader(); window.mtToast('Generation failed: ' + e.message, 'error');
   } finally { btn.disabled = false; btn.innerHTML = old; }
 }
 
@@ -951,7 +951,7 @@ async function dfwGenerateSql(btn) {
     const dbName = (DFW.mtDb && DFW.mtDb.getConfig && DFW.mtDb.getConfig().database) || (dfw.tableName || 'mendix');
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
     downloadText(script, 'seed-' + dbName + '-' + stamp + '.sql');
-  } catch (e) { hideLoader(); alert('Build failed: ' + e.message); }
+  } catch (e) { hideLoader(); window.mtToast('Build failed: ' + e.message, 'error'); }
   finally { btn.disabled = false; btn.innerHTML = old; }
 }
 
@@ -969,7 +969,7 @@ async function dfwEnsureMultiDetail() {
     if (!oneSelected || cfg.useExisting) { const t = byName[a.one] && byName[a.one].table; if (t) { want(t); sampleExisting[t] = 5000; } }
   });
   const detail = await dfwFetchSchema(tables, sampleExisting);
-  if (detail.error) { alert(detail.message || 'Could not read the schema.'); return false; }
+  if (detail.error) { window.mtToast(detail.message || 'Could not read the schema.', 'error'); return false; }
   // Merge so previously loaded single-table contract is not lost.
   dfw.detail = detail;
   // Rebuild any missing column sets against the fuller contract.

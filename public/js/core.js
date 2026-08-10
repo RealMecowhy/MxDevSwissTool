@@ -184,7 +184,7 @@ async function navigate(toolId, navEl, initialTab) {
     iconEl.style.color = tool.color || 'var(--accent)';
   }
   document.getElementById('topbar-title').textContent = tool.label;
-  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.31.0' : (tool.desc || '');
+  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.32.0' : (tool.desc || '');
   const previousTool = currentTool;
   currentTool = toolId;
   window.currentTool = currentTool;
@@ -203,7 +203,13 @@ async function navigate(toolId, navEl, initialTab) {
         module.init();
       }
     } catch (e) {
+      // hideLoader() runs in the finally below, so without this the panel looks
+      // ready while the tool is dead — the user clicks and nothing responds, with
+      // the only evidence in a console they are not looking at.
       console.error(`Failed to load module for tool: ${toolId}`, e);
+      if (window.mtToast) {
+        window.mtToast(`${tool.label} failed to start: ${e.message}. Reload the page; if it persists, the details are in the browser console.`, 'error');
+      }
     } finally {
       hideLoader();
     }
@@ -351,6 +357,86 @@ function toggleTheme() {
     window.mermaid.initialize({ startOnLoad: false, theme: dark ? 'default' : 'dark' });
   }
 }
+
+// ── Settings backup / restore ───────────────────────────────────────────────
+// Deliberately a plain confirm-style panel rather than a tool: this is chrome,
+// not analysis. Export writes one JSON file; import replaces the stored keys and
+// reloads, because favourites, theme and the sidebar are all read at startup and
+// patching each one live would be more code than a reload for the same result.
+function mtOpenSettingsBackup() {
+  const existing = document.getElementById('mt-settings-modal');
+  if (existing) { existing.classList.add('active'); return; }
+
+  const overlay = document.createElement('div');
+  overlay.id = 'mt-settings-modal';
+  overlay.className = 'modal-overlay active';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-labelledby', 'mt-settings-title');
+  overlay.innerHTML =
+    '<div class="modal" style="max-width:520px">' +
+      '<div class="modal-header">' +
+        '<span id="mt-settings-title" style="font-weight:600">Backup Settings</span>' +
+        '<button class="modal-close" type="button" aria-label="Close" onclick="window.mtCloseSettingsBackup()">&times;</button>' +
+      '</div>' +
+      '<div class="modal-body" style="font-size:0.85rem; line-height:1.55;">' +
+        '<p style="margin-top:0">Your favourites, theme, sidebar state and every per-tool setting live in this browser only. ' +
+        'Clearing site data, switching browser or moving to another machine loses them. Save them to a file here and restore them there.</p>' +
+        '<p style="color:var(--text-muted)"><strong>Settings only.</strong> No log, HAR or database content is ever stored, so none of it is in the file — ' +
+        'it holds preferences plus the <em>name</em> and size of the last file each tool opened.</p>' +
+        '<div style="display:flex; gap:var(--sp-2); margin-top:var(--sp-4); flex-wrap:wrap;">' +
+          '<button class="btn btn-primary btn-sm" type="button" onclick="window.mtDownloadSettings()">Save to file</button>' +
+          '<button class="btn btn-ghost btn-sm" type="button" onclick="document.getElementById(\'mt-settings-file\').click()">Restore from file…</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) mtCloseSettingsBackup(); });
+  document.body.appendChild(overlay);
+}
+
+function mtCloseSettingsBackup() {
+  const el = document.getElementById('mt-settings-modal');
+  if (el) el.classList.remove('active');
+}
+
+function mtDownloadSettings() {
+  const payload = window.mtExportSettings();
+  const stamp = new Date().toISOString().slice(0, 10);
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'mxdev-swiss-tool-settings-' + stamp + '.json';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  window.mtToast('Settings saved to ' + a.download + '.', 'success');
+}
+
+function mtImportSettingsFile(files) {
+  const file = files && files[0];
+  const input = document.getElementById('mt-settings-file');
+  if (input) input.value = ''; // so re-picking the same file fires change again
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onerror = () => window.mtToast('Could not read that file.', 'error');
+  reader.onload = (e) => {
+    const res = window.mtImportSettings(e.target.result);
+    if (!res.ok) { window.mtToast(res.error, 'error'); return; }
+    if (!res.imported) { window.mtToast('That file contained no settings this version recognises.', 'warning'); return; }
+    // Favourites, theme and the sidebar are all applied at startup; reloading is
+    // simpler and more reliable than re-applying each one in place.
+    window.mtToast('Restored ' + res.imported + ' setting group(s). Reloading…', 'success');
+    setTimeout(() => window.location.reload(), 900);
+  };
+  reader.readAsText(file);
+}
+
+window.mtOpenSettingsBackup = mtOpenSettingsBackup;
+window.mtCloseSettingsBackup = mtCloseSettingsBackup;
+window.mtDownloadSettings = mtDownloadSettings;
+window.mtImportSettingsFile = mtImportSettingsFile;
 
 function createHomeCard(tool) {
   const card = document.createElement('div');
@@ -587,8 +673,57 @@ import './components/data-hub.js';
 // the shared per-tool settings persistence helper (8.1). Metadata only, never
 // file content; individual tools opt in from their own code.
 import './components/tool-state.js';
+// Side-effect import: attaches window.mtToast — the shared transient notification
+// replacing alert() across the app, and the surface the global error handler and
+// the settings import/export report through.
+import './components/toast.js';
+
+// Last resort for anything no local try/catch caught. The app previously had no
+// global handler at all, so a render path that threw halfway left a stale or
+// half-populated panel and said nothing — indistinguishable from "the tool has
+// no results for this file". Announcing it does not fix the failure, but it
+// stops the user trusting a screen that is lying to them.
+//
+// Deliberately quiet about things that are noise rather than defects: the bridge
+// being offline is a normal state (the app works without it), and a rejected
+// fetch to localhost:9999 fires on every poll while it is down.
+const MT_IGNORED_ERRORS = /localhost:9999|ERR_CONNECTION_REFUSED|Failed to fetch|NetworkError|ResizeObserver loop/i;
+
+function initGlobalErrorHandler() {
+  let lastMsg = '';
+  let lastAt = 0;
+
+  const report = (what, err) => {
+    const msg = (err && err.message) || String(err || 'Unknown error');
+    if (MT_IGNORED_ERRORS.test(msg)) return;
+    // A throw inside a render loop can fire hundreds of times; the toast already
+    // collapses identical text, this also stops the churn of building them.
+    const now = Date.now();
+    if (msg === lastMsg && now - lastAt < 3000) return;
+    lastMsg = msg; lastAt = now;
+    console.error('[MxDev] ' + what, err);
+    if (window.mtToast) {
+      window.mtToast('Something went wrong: ' + msg + ' — the tool may be showing stale results. Details are in the browser console (F12).', 'error');
+    }
+  };
+
+  window.addEventListener('error', (e) => {
+    // Resource load failures (a missing icon) surface here too — they have no
+    // message and are not actionable for the user, so they are dropped.
+    // `e.error` is not always populated even for genuine script errors, so fall
+    // back to `e.message`; requiring the Error object dropped those silently.
+    // "Script error." is the opaque cross-origin placeholder — nothing to report.
+    if (!e.message && !e.error) return;
+    if (/^script error\.?$/i.test(e.message || '')) return;
+    report('uncaught error', e.error || { message: e.message });
+  });
+  window.addEventListener('unhandledrejection', (e) => report('unhandled promise rejection', e.reason));
+}
 
 function initCore() {
+  // Wire this before anything else runs, so a failure during startup is reported
+  // rather than leaving a half-built UI.
+  initGlobalErrorHandler();
   // Reflect restored theme (set in index.html head) in the toggle label
   const themeLabel = document.getElementById('theme-label');
   if (themeLabel && document.documentElement.getAttribute('data-theme') === 'light') {
@@ -604,6 +739,16 @@ function initCore() {
   if (deepLink) {
     const el = document.querySelector('.nav-item[data-tool="' + deepLink.tool + '"]');
     navigate(deepLink.tool, el, deepLink.tab);
+  } else {
+    // `mt-last-tool` was written on every navigation and never read — the guard
+    // in navigate() even refers to restoring from it. With 38 tools, reopening
+    // where you left off is worth the one line. A deep link always wins, and
+    // navigate()'s own guard sends a removed/renamed tool id back to Home.
+    let last = null;
+    try { last = localStorage.getItem('mt-last-tool'); } catch (e) { /* storage blocked */ }
+    if (last && last !== 'home') {
+      navigate(last, document.querySelector('.nav-item[data-tool="' + last + '"]'));
+    }
   }
 
   initCommandPalette(TOOLS, navigate);
@@ -626,10 +771,20 @@ function initCore() {
 
 // Auto-collapse the sidebar on narrow viewports, reusing the existing
 // manual toggleSidebar()/.collapsed mechanism instead of a separate layout.
+//
+// `mt-sb` was written on every toggle and never read: this function forced the
+// media-query answer on every load, so a user who collapsed the sidebar on a
+// wide screen found it expanded again next time. Now the query only decides
+// while it matches — below 900px the layout genuinely needs the space — and the
+// saved preference wins on wide viewports.
 function setupResponsiveSidebar() {
+  const app = document.getElementById('app');
   const mq = window.matchMedia('(max-width: 900px)');
+  let saved = false;
+  try { saved = localStorage.getItem('mt-sb') === 'true'; } catch (e) { /* storage blocked */ }
+
   const applyState = (e) => {
-    document.getElementById('app').classList.toggle('collapsed', e.matches);
+    app.classList.toggle('collapsed', e.matches || saved);
   };
   mq.addEventListener('change', applyState);
   applyState(mq);

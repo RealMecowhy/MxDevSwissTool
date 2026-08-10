@@ -47,6 +47,20 @@
 
   // Register service worker for offline support and caching
   if ('serviceWorker' in navigator) {
+    // A worker was already controlling this page, so any LATER handover means a
+    // new version installed and claimed the page mid-session. The worker calls
+    // skipWaiting() + clients.claim() deliberately (the auto-updater relies on
+    // the swap being immediate), which leaves the running page holding modules
+    // from the previous version. Say so instead of letting the two drift
+    // silently. On a first install there is no controller yet, and that
+    // handover is not an update — hence the guard.
+    var hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (!hadController) return;
+      if (window.mtToast) {
+        window.mtToast('A newer version of the toolkit has been installed. Reload the page to finish switching to it.', 'info');
+      }
+    });
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('/service-worker.js').then(registration => {
         console.log('ServiceWorker registration successful with scope: ', registration.scope);
@@ -87,7 +101,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.31.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.32.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -260,6 +274,11 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
       <span id="theme-label">Light Mode</span>
     </button>
+    <button class="sidebar-footer-btn" onclick="window.mtOpenSettingsBackup()" title="Save your favourites, theme and per-tool settings to a file, or restore them on another browser or machine">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      <span>Backup Settings</span>
+    </button>
+    <input type="file" id="mt-settings-file" accept=".json,application/json" style="display:none" onchange="window.mtImportSettingsFile(this.files)">
   </div>
 </nav>
 <!-- MAIN -->
@@ -268,7 +287,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.31.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.32.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">

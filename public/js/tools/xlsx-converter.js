@@ -678,7 +678,7 @@ function xlsLoadFile(files) {
     document.getElementById('xls-results').style.display = 'flex';
     xlsRender();
   }).catch(function (err) {
-    alert('Could not read the workbook.\n\n' + err.message);
+    window.mtToast('Could not read the workbook.\n\n' + err.message, 'error');
   }).then(function () {
     if (window.hideLoader) window.hideLoader();
   });
@@ -698,7 +698,7 @@ function xlsReparse() {
     xlsActiveSheet = Math.min(active, book.sheets.length - 1);
     xlsRender();
   }).catch(function (err) {
-    alert('Could not re-read the workbook.\n\n' + err.message);
+    window.mtToast('Could not re-read the workbook.\n\n' + err.message, 'error');
   }).then(function () {
     if (window.hideLoader) window.hideLoader();
   });

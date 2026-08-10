@@ -117,7 +117,7 @@ export function tmClearTraces() {
 
 export function tmParseTraces() {
   const jsonStr = document.getElementById('tm-trace-input').value.trim();
-  if (!jsonStr) return alert('Please enter or load a Trace JSON first.');
+  if (!jsonStr) return window.mtToast('Please enter or load a Trace JSON first.', 'warning');
 
   try {
     const rawData = JSON.parse(jsonStr);
@@ -155,7 +155,7 @@ export function tmParseTraces() {
     }
 
   } catch(e) {
-    alert(`Failed to parse Trace JSON: ${e.message}`);
+    window.mtToast(`Failed to parse Trace JSON: ${e.message}`, 'error');
   }
 }
 

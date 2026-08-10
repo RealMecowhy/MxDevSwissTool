@@ -1,10 +1,10 @@
 {
   "name": "mxdev-swiss-tool",
-  "version": "1.31.0",
+  "version": "1.32.0",
   "description": "",
   "main": "server/mendix-observability-bridge.js",
   "scripts": {
-    "prestart": "node scripts/sync-app-version.js",
+    "prestart": "node scripts/sync-app-version.js && node scripts/sync-sw-version.js",
     "start": "node server/mendix-observability-bridge.js",
     "dev": "vite",
     "prebuild": "node scripts/sync-sw-version.js && node scripts/sync-app-version.js",

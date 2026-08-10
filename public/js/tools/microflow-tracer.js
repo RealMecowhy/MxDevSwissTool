@@ -496,7 +496,7 @@ function mftParseText(text) {
       } catch (err) {
         console.error('MFT parse failed:', err);
         if (window.hideLoader) window.hideLoader();
-        alert('Could not parse this log: ' + err.message);
+        window.mtToast('Could not parse this log: ' + err.message, 'error');
       }
     }, 20);
   }
@@ -1103,8 +1103,8 @@ function mftRenderTreeNode(container, exec, depth, selectedId) {
 // loaded here is handed over so one file load powers both tools.
 window.mftShowInLqe = function() {
   const e = window._mftSelectedExec;
-  if (!e) { alert('Select a microflow execution first.'); return; }
-  if (!e.endTs) { alert('This execution has no Finished record — no time window to correlate.'); return; }
+  if (!e) { window.mtToast('Select a microflow execution first.', 'warning'); return; }
+  if (!e.endTs) { window.mtToast('This execution has no Finished record — no time window to correlate.', 'warning'); return; }
   window.navigateWithReturn('log-query-extractor');
   if (window.lqeSetTimeWindow) {
     window.lqeSetTimeWindow(e.startTs, e.endTs, e.displayName);
@@ -1126,8 +1126,8 @@ window.mftShowInLqe = function() {
 // cannot be hidden by a level filter the user left on.
 window.mftShowInLogViewer = function() {
   const e = window._mftSelectedExec;
-  if (!e) { alert('Select a microflow execution first.'); return; }
-  if (!e.corrId) { alert('This execution has no correlation ID to filter on.'); return; }
+  if (!e) { window.mtToast('Select a microflow execution first.', 'warning'); return; }
+  if (!e.corrId) { window.mtToast('This execution has no correlation ID to filter on.', 'warning'); return; }
   window.navigateWithReturn('log-viewer');
   // Same hand-off as mftShowInLqe: one file load powers both tools.
   if (window.logHasData && !window.logHasData() && mftRawText && window.logLoadText) {
@@ -1213,7 +1213,7 @@ window.mftReportSection = function(fromMs, toMs) {
 };
 
 window.mftExportCsv = function() {
-  if (mftLastFiltered.length === 0) { alert('Nothing to export — load a log first (and check the active filters).'); return; }
+  if (mftLastFiltered.length === 0) { window.mtToast('Nothing to export — load a log first (and check the active filters).', 'warning'); return; }
   const esc = v => '"' + String(v).replace(/"/g, '""') + '"';
   const lines = [mftExportHeader().map(esc).join(',')];
   for (const row of mftExportRows()) lines.push(row.map(esc).join(','));
@@ -1221,7 +1221,7 @@ window.mftExportCsv = function() {
 };
 
 window.mftCopyMarkdown = function(btn) {
-  if (mftLastFiltered.length === 0) { alert('Nothing to copy — load a log first (and check the active filters).'); return; }
+  if (mftLastFiltered.length === 0) { window.mtToast('Nothing to copy — load a log first (and check the active filters).', 'warning'); return; }
   const esc = v => String(v).replace(/\|/g, '\\|').replace(/\n/g, ' ');
   const header = mftExportHeader();
   const lines = [
