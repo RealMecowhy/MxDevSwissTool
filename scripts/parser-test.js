@@ -550,6 +550,34 @@ ok('duplicate B without its own plan stays unlinked', qB.queryPlan === '' && qB.
 ok('slow-query warning ingested', !!qSlow && qSlow.duration === '3100 ms', qSlow && qSlow.duration);
 ok('slow-query warning did not swallow a plan', qSlow.queryPlan === '');
 
+// ── "By statement" aggregate (wave 15) ───────────────────────────────────────
+// Folds executions onto the signature the duplicate detector already computes,
+// so the question "which statement costs the most in total" becomes answerable.
+// The contract that matters: a total is only ever summed from the executions the
+// log actually timed, and a group with none reports null — not 0 ms.
+const lqeAgg = global.lqeAggregateByStatement;
+const groups = lqeAgg(qs);
+eq('by statement: 6 executions fold into 5 statements', groups.length, 5);
+
+const gDup = groups.find(g => g.count === 2);
+ok('by statement: A and B share one group', !!gDup);
+eq('by statement: duplicate group counts both executions', gDup.count, 2);
+eq('by statement: only the timed execution feeds the total', gDup.timedCount, 1);
+ok('by statement: total is the measured 4.2 ms, not doubled', Math.abs(gDup.sumMs - 4.2) < 1e-9, gDup.sumMs);
+ok('by statement: average is over timed executions only', Math.abs(gDup.avgMs - 4.2) < 1e-9, gDup.avgMs);
+eq('by statement: worst execution is the timed one', gDup.worst.sqlId, 'aaa111');
+
+const gUntimed = groups.find(g => g.sample.sqlId === 'ccc333');
+eq('by statement: an untimed statement reports null total, not zero', gUntimed.sumMs, null);
+eq('by statement: an untimed statement reports null average', gUntimed.avgMs, null);
+eq('by statement: an untimed statement reports null max', gUntimed.maxMs, null);
+eq('by statement: an untimed group is still represented by its first execution', gUntimed.worst.sqlId, 'ccc333');
+
+eq('by statement: default order is total cost first', groups[0].sumMs, 3100);
+eq('by statement: the slow warning is counted as one', groups[0].slowCount, 1);
+eq('by statement: statements without a slow warning report zero', gDup.slowCount, 0);
+eq('by statement: empty input yields no groups', lqeAgg([]).length, 0);
+
 // ── REST & WS Extractor pairing (public/js/tools/ws-rest-extractor.js) ───────
 // Written test-first (wave 4). The pairing contract: requests and responses are
 // matched FIFO per (logNode + method + URL); overlapping in-flight requests with
@@ -873,6 +901,77 @@ ok('insights: Core warnings appear at warnHotspotMin=1',
 const firstWarnIdx = ins.categories.findIndex(function (c) { return c.severity === 'warning'; });
 const lastErrIdx = ins.categories.map(function (c) { return c.severity; }).lastIndexOf('error');
 ok('insights: all error cards sort before warning cards', lastErrIdx < firstWarnIdx, lastErrIdx + '/' + firstWarnIdx);
+
+// ── Slow-query warnings + verbose nodes (wave 15) ────────────────────────────
+// Two categories derived from data the tool already had. Their own fixture, so
+// the counts asserted above stay untouched.
+const insLog2 = [
+  // Slow-query warnings: two executions of one statement (differing only in the
+  // bound id, so they must group) plus a second statement.
+  '2026-07-19T09:00:00.000000 ' + P + '  WARNING - ConnectionBus_Queries: Query executed in 4 seconds and 200 milliseconds: SELECT "sales$order"."id" FROM "sales$order" WHERE "id" = 42',
+  '2026-07-19T09:00:01.000000 ' + P + '  WARNING - ConnectionBus_Queries: Query executed in 1100 milliseconds: SELECT "sales$order"."id" FROM "sales$order" WHERE "id" = 77',
+  '2026-07-19T09:00:02.000000 ' + P + '  WARNING - ConnectionBus_Queries: Query executed in 900 milliseconds: SELECT "cust"."name" FROM "cust"',
+  // A WARNING from the same node that is NOT a slow query must stay a warning,
+  // not be swallowed by the slow-query card.
+  '2026-07-19T09:00:03.000000 ' + P + '  WARNING - ConnectionBus_Queries: Connection pool is nearly exhausted'
+]
+  // A node left at TRACE: 30 entries, over the 25-entry floor.
+  .concat(Array.from({ length: 30 }, (_, i) =>
+    '2026-07-19T09:01:' + String(i % 60).padStart(2, '0') + '.000000 ' + P + '  TRACE - ConnectionBus_Retrieve: SQL@x' + i + '(T1-C1): SELECT 1'))
+  // Incidental debug logging: 3 entries, below the floor — must not surface.
+  .concat([
+    '2026-07-19T09:02:00.000000 ' + P + '   DEBUG - Core: tick',
+    '2026-07-19T09:02:01.000000 ' + P + '   DEBUG - Core: tick',
+    '2026-07-19T09:02:02.000000 ' + P + '   DEBUG - Core: tick'
+  ]).join('\n');
+
+const ins2 = logInsights(parser.parse(insLog2).records);
+const catBy2 = {};
+ins2.categories.forEach(function (c) { catBy2[c.key] = c; });
+
+ok('insights: slow-queries category present', !!catBy2['slow-queries']);
+eq('slow-queries: counts every warning', catBy2['slow-queries'].count, 3);
+eq('slow-queries: severity warning', catBy2['slow-queries'].severity, 'warning');
+eq('slow-queries: two distinct statements', catBy2['slow-queries'].items.length, 2);
+eq('slow-queries: the repeated statement ranks first', catBy2['slow-queries'].items[0].count, 2);
+ok('slow-queries: worst duration reported in seconds', /worst 4\.2 s/.test(catBy2['slow-queries'].subtitle), catBy2['slow-queries'].subtitle);
+ok('slow-queries: breakdown searches the raw statement, not the normalized label',
+  catBy2['slow-queries'].items[0].filter.search.indexOf('SELECT "sales$order"') === 0,
+  catBy2['slow-queries'].items[0].filter.search);
+// The search has to match every execution the card counted, not just the first
+// one logged — otherwise a card reading "2×" filters the stream down to one row.
+ok('slow-queries: the search stops where the bound value varies',
+  catBy2['slow-queries'].items[0].filter.search.indexOf('42') === -1 &&
+  /WHERE "id" = $/.test(catBy2['slow-queries'].items[0].filter.search),
+  catBy2['slow-queries'].items[0].filter.search);
+eq('slow-queries: offers the Query Extractor cross-link', catBy2['slow-queries'].crossLink, 'log-query-extractor');
+
+// The unrelated warning from the same node must survive as a generic hotspot —
+// proving the slow-query card consumed only its own entries.
+const ins2Low = logInsights(parser.parse(insLog2).records, { warnHotspotMin: 1 });
+const genericCbq = ins2Low.categories.find(function (c) { return c.key === 'node-warning-ConnectionBus_Queries'; });
+ok('slow-queries: the non-slow warning is left for the generic hotspot', !!genericCbq);
+eq('slow-queries: exactly one warning left unconsumed', genericCbq && genericCbq.count, 1);
+
+ok('insights: verbose-nodes category present', !!catBy2['verbose-nodes']);
+eq('verbose-nodes: severity info (a fact, not a problem)', catBy2['verbose-nodes'].severity, 'info');
+eq('verbose-nodes: counts only the nodes over the floor', catBy2['verbose-nodes'].count, 30);
+eq('verbose-nodes: one qualifying node', catBy2['verbose-nodes'].items.length, 1);
+ok('verbose-nodes: names the node and its share',
+  /^ConnectionBus_Retrieve\b.*% of the log$/.test(catBy2['verbose-nodes'].items[0].label),
+  catBy2['verbose-nodes'].items[0].label);
+eq('verbose-nodes: breakdown filters to TRACE/DEBUG of that node', catBy2['verbose-nodes'].items[0].filter.levels, 'TRACE,DEBUG');
+ok('verbose-nodes: incidental DEBUG stays below the floor',
+  !catBy2['verbose-nodes'].items.some(function (it) { return /^Core\b/.test(it.label); }));
+
+// ...and the floor is a knob, like warnHotspotMin
+const ins2Verbose = logInsights(parser.parse(insLog2).records, { verboseMin: 1 });
+const vb = ins2Verbose.categories.find(function (c) { return c.key === 'verbose-nodes'; });
+eq('verbose-nodes: Core appears at verboseMin=1', vb.items.length, 2);
+eq('verbose-nodes: count follows the lowered floor', vb.count, 33);
+
+// Observations sort after problems, however many entries they count
+eq('insights: the info card sorts last', ins2.categories[ins2.categories.length - 1].key, 'verbose-nodes');
 
 // Data-driven rule: a clean INFO-level log yields no categories at all
 const cleanLog = [

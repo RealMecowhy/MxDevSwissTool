@@ -1090,9 +1090,38 @@ function logInsightsSignature(msg) {
     .trim().slice(0, 200);
 }
 
+// Slow-query warning shape, mirroring LQE_SLOW_QUERY in the Log Query Extractor.
+// Duplicated rather than shared because the two tools are independent modules;
+// if the runtime ever changes the wording, both need the same edit.
+const LOG_SLOW_QUERY = /^Query executed in (?:(\d+) seconds? and )?(\d+) milliseconds?:\s*([\s\S]+)/i;
+
+// Statement identity for grouping slow-query warnings: the same normalization
+// the Query Extractor uses for its duplicate detection — identical statements
+// differ only in their bound values.
+function logSlowQuerySig(sql) {
+  return String(sql).replace(/\s+/g, ' ').replace(/\b\d+\b/g, '?').trim().slice(0, 120);
+}
+
+function logFmtDurMs(ms) {
+  return ms >= 1000 ? +(ms / 1000).toFixed(1) + ' s' : ms + ' ms';
+}
+
+// Longest prefix two statements share. Members of one signature group differ
+// only in their bound values, so this cuts off exactly where the first value
+// varies — long enough to identify the statement, short enough to match them all.
+function logCommonPrefix(a, b) {
+  const n = Math.min(a.length, b.length);
+  let i = 0;
+  while (i < n && a[i] === b[i]) i++;
+  return a.slice(0, i);
+}
+
 function logExtractInsights(records, opts) {
   opts = opts || {};
   const warnMin = opts.warnHotspotMin != null ? opts.warnHotspotMin : 10;
+  // A handful of DEBUG lines is normal; a node left at TRACE is what this looks
+  // for, so the per-node floor is deliberately well above incidental logging.
+  const verboseMin = opts.verboseMin != null ? opts.verboseMin : 25;
   records = records || [];
 
   const rows = records.map(function (r) {
@@ -1234,7 +1263,96 @@ function logExtractInsights(records, opts) {
     }
   }
 
-  // ── 5. Generic per-node hotspots for everything not captured above ──
+  // ── 5. Slow-query warnings (ConnectionBus_Queries WARNING) ──
+  // The only database signal available at default production log levels — the
+  // Log Query Extractor already treats it as first class, while Insights used to
+  // drop it into an anonymous per-node bucket that said nothing about duration.
+  {
+    const byStmt = new Map(); const cat = agg(); let worstMs = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (consumed[i] || r.node !== 'ConnectionBus_Queries' || r.level !== 'WARN') continue;
+      const m = r.msg.match(LOG_SLOW_QUERY);
+      if (!m) continue;
+      consumed[i] = true; bump(cat, r);
+      const ms = (m[1] ? parseInt(m[1], 10) * 1000 : 0) + parseInt(m[2], 10);
+      if (ms > worstMs) worstMs = ms;
+      const sql = String(m[3]).replace(/\s+/g, ' ').trim();
+      const key = logSlowQuerySig(sql);
+      if (!byStmt.has(key)) byStmt.set(key, { a: agg(), worst: 0, search: sql.slice(0, 80) });
+      const e = byStmt.get(key);
+      bump(e.a, r);
+      if (ms > e.worst) e.worst = ms;
+      // The stream filter matches raw log text, where the bound values are still
+      // in place — so the search has to be what every execution in this group
+      // shares, not the first one's text. A card that counts 2 must not filter
+      // down to the 1 that happened to be logged first.
+      e.search = logCommonPrefix(e.search, sql);
+    }
+    if (cat.count > 0) {
+      const items = Array.from(byStmt.entries()).map(function (e) {
+        return {
+          label: e[0] + '  ·  worst ' + logFmtDurMs(e[1].worst),
+          count: e[1].a.count, sample: e[1].a.sample, distinct: e[1].a.sigs.size,
+          // Search on the raw statement, not the normalized label: the stream
+          // filter matches the log text, where the bound values are still there.
+          filter: { node: 'ConnectionBus_Queries', levels: 'WARN', search: e[1].search }
+        };
+      }).sort(function (x, y) { return y.count - x.count; });
+      const c = finishCat('slow-queries', 'Slow queries (runtime warnings)', 'warning', cat,
+        { node: 'ConnectionBus_Queries', levels: 'WARN', search: '' }, items,
+        cat.count + ' slow quer' + (cat.count === 1 ? 'y' : 'ies') + ' · ' + byStmt.size +
+        ' distinct statement(s) · worst ' + logFmtDurMs(worstMs));
+      c.crossLink = 'log-query-extractor';
+      categories.push(c);
+    }
+  }
+
+  // ── 6. Nodes logging at TRACE/DEBUG — a fact about the log, not a problem ──
+  // "Why is my log 60 MB and my app slow" is most often answered by a log node
+  // left at TRACE on production. The Levels matrix already counts this; nobody
+  // ever stated it as a finding. Phrased as an observation (severity 'info'),
+  // because verbose logging in a development environment is intentional.
+  {
+    const counts = new Map();
+    for (let i = 0; i < rows.length; i++) {
+      const lv = rows[i].level;
+      if (lv !== 'TRACE' && lv !== 'DEBUG') continue;
+      const key = rows[i].node || '(unknown)';
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    const loud = new Set();
+    counts.forEach(function (n, node) { if (n >= verboseMin) loud.add(node); });
+    if (loud.size) {
+      // Second pass so the card's own span and sample come from the qualifying
+      // nodes only — summing the per-node aggregates would report the first
+      // node's last timestamp as the category's.
+      const byNode = new Map(); const cat = agg();
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        if (r.level !== 'TRACE' && r.level !== 'DEBUG') continue;
+        const key = r.node || '(unknown)';
+        if (!loud.has(key)) continue;
+        bump(cat, r);
+        if (!byNode.has(key)) byNode.set(key, agg());
+        bump(byNode.get(key), r);
+      }
+      const share = function (n) { return rows.length ? Math.round(n / rows.length * 100) : 0; };
+      const items = Array.from(byNode.entries()).map(function (e) {
+        return {
+          label: e[0] + '  ·  ' + share(e[1].count) + '% of the log',
+          count: e[1].count, sample: e[1].sample, distinct: e[1].sigs.size,
+          filter: { node: e[0], levels: 'TRACE,DEBUG', search: '' }
+        };
+      }).sort(function (x, y) { return y.count - x.count; });
+      categories.push(finishCat('verbose-nodes', 'Nodes logging at TRACE/DEBUG', 'info', cat,
+        { node: '', levels: 'TRACE,DEBUG', search: '' }, items,
+        cat.count + ' entr' + (cat.count === 1 ? 'y' : 'ies') + ' · ' + share(cat.count) +
+        '% of the log · ' + loud.size + ' node(s) at ' + verboseMin + '+ entries'));
+    }
+  }
+
+  // ── 7. Generic per-node hotspots for everything not captured above ──
   const buckets = new Map();
   for (let i = 0; i < rows.length; i++) {
     if (consumed[i]) continue;
@@ -1263,8 +1381,11 @@ function logExtractInsights(records, opts) {
       b.a.count + ' entr' + (b.a.count === 1 ? 'y' : 'ies') + ' · ' + b.sigMap.size + ' distinct message(s)'));
   });
 
+  // Problems first, observations last: an 'info' card states a fact about the
+  // log and must never outrank an error, however many entries it counts.
+  const sevRank = { error: 0, warning: 1, info: 2 };
   categories.sort(function (x, y) {
-    const sr = (x.severity === 'error' ? 0 : 1) - (y.severity === 'error' ? 0 : 1);
+    const sr = (sevRank[x.severity] || 0) - (sevRank[y.severity] || 0);
     if (sr) return sr;
     return y.count - x.count;
   });
@@ -1408,27 +1529,36 @@ function logRenderInsights() {
   if (!logAllEntries.length) {
     out.innerHTML = '<div class="log-insights-empty">'
       + '<p style="font-weight:600;margin-bottom:6px">No log loaded yet</p>'
-      + '<p style="font-size:0.8rem;color:var(--text-muted)">Insights scans WARNING/ERROR patterns (permission violations, session-state bloat, TaskQueue failures, per-node error hotspots) and shows a card for each problem that actually appears — nothing more.</p></div>';
+      + '<p style="font-size:0.8rem;color:var(--text-muted)">Insights scans WARNING/ERROR patterns (permission violations, session-state bloat, TaskQueue failures, slow-query warnings, per-node error hotspots) and shows a card for each problem that actually appears — nothing more. It also states one fact about the log itself: which log nodes are running at TRACE/DEBUG.</p></div>';
     return;
   }
 
   const result = logExtractInsights(logAllEntries);
   const cats = result.categories;
 
+  // Observations ('info') are not problems, so they are counted separately —
+  // a log whose only card says "these nodes log at TRACE" is still a clean log.
+  const problems = cats.filter(function (c) { return c.severity !== 'info'; }).length;
+  const notes = cats.length - problems;
+
   const head = '<div class="log-insights-summary">Scanned <strong>' + result.stats.records + '</strong> entries · '
     + '<span style="color:var(--log-error)">' + result.stats.errors + ' errors</span> · '
     + '<span style="color:var(--log-warning)">' + result.stats.warnings + ' warnings</span> · '
-    + '<strong>' + cats.length + '</strong> problem categor' + (cats.length === 1 ? 'y' : 'ies') + '</div>';
+    + '<strong>' + problems + '</strong> problem categor' + (problems === 1 ? 'y' : 'ies')
+    + (notes ? ' · <strong>' + notes + '</strong> observation' + (notes === 1 ? '' : 's') : '') + '</div>';
+
+  const cleanNote = '<div class="log-insights-empty" style="margin-top:var(--sp-4)">'
+    + '<p style="font-weight:600;margin-bottom:6px">No WARNING/ERROR patterns found</p>'
+    + '<p style="font-size:0.8rem;color:var(--text-muted)">This log is clean at WARNING level and above. If you expected background-job or microflow detail, raise the relevant log nodes to DEBUG/TRACE and reproduce the scenario.</p></div>';
 
   if (cats.length === 0) {
-    out.innerHTML = head + '<div class="log-insights-empty" style="margin-top:var(--sp-4)">'
-      + '<p style="font-weight:600;margin-bottom:6px">No WARNING/ERROR patterns found</p>'
-      + '<p style="font-size:0.8rem;color:var(--text-muted)">This log is clean at WARNING level and above. If you expected background-job or microflow detail, raise the relevant log nodes to DEBUG/TRACE and reproduce the scenario.</p></div>';
+    out.innerHTML = head + cleanNote;
     return;
   }
 
   const cards = cats.map(function (c, i) {
-    const sevColor = c.severity === 'error' ? 'var(--log-error)' : 'var(--log-warning)';
+    const sevColor = c.severity === 'error' ? 'var(--log-error)'
+      : (c.severity === 'info' ? 'var(--accent)' : 'var(--log-warning)');
     const span = (c.firstTs && c.lastTs && c.firstTs !== c.lastTs)
       ? '<span class="log-insights-span" title="First → last occurrence">' + escHtml(logInsightsShortTs(c.firstTs)) + ' → ' + escHtml(logInsightsShortTs(c.lastTs)) + '</span>' : '';
     const itemsHtml = (c.items && c.items.length) ? '<div class="log-insights-items" id="log-insights-items-' + i + '" style="display:none">'
@@ -1441,6 +1571,8 @@ function logRenderInsights() {
       + '</div>' : '';
     const toggle = (c.items && c.items.length)
       ? '<button class="btn btn-ghost btn-sm log-insights-toggle" onclick="event.stopPropagation();logInsightsToggle(' + i + ')">Breakdown (' + c.items.length + ')</button>' : '';
+    const cross = (c.crossLink && LOG_INSIGHT_TOOLS[c.crossLink])
+      ? '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();logInsightsOpenTool(\'' + c.crossLink + '\')" title="' + LOG_INSIGHT_TOOLS[c.crossLink].title + '">' + LOG_INSIGHT_TOOLS[c.crossLink].label + '</button>' : '';
 
     return '<div class="log-insights-card" style="border-left:3px solid ' + sevColor + '">'
       + '<div class="log-insights-card-head" onclick="logInsightFilter(' + logInsightsAttr(c.filter) + ')" title="Filter the stream to these entries">'
@@ -1452,12 +1584,33 @@ function logRenderInsights() {
       +   '</div>'
       +   span
       + '</div>'
-      + (toggle ? '<div class="log-insights-actions">' + toggle + '</div>' : '')
+      + ((toggle || cross) ? '<div class="log-insights-actions">' + toggle + cross + '</div>' : '')
       + itemsHtml
       + '</div>';
   }).join('');
 
-  out.innerHTML = head + '<div class="log-insights-grid">' + cards + '</div>';
+  out.innerHTML = head + (problems === 0 ? cleanNote : '') + '<div class="log-insights-grid">' + cards + '</div>';
+}
+
+// Cross-links an Insights card can offer. A card names the tool; the label and
+// tooltip live here so the pure extractor stays free of UI copy.
+const LOG_INSIGHT_TOOLS = {
+  'log-query-extractor': {
+    label: 'Open in Query Extractor',
+    title: 'Open the Log Query Extractor on this log — it reads the same slow-query warnings and shows the full SQL, with a By-statement view for total cost'
+  }
+};
+
+// Hands the loaded log over to another tool, with the same fallback every other
+// cross-link uses: if the target has nothing, give it this file so one load
+// powers both. The full log goes over, not the filtered view — the target needs
+// the lines the current level filter happens to be hiding.
+function logInsightsOpenTool(toolId) {
+  if (window.navigateWithReturn) window.navigateWithReturn(toolId);
+  if (toolId === 'log-query-extractor' && window.lqeLoadText &&
+      window.lqeHasData && !window.lqeHasData() && logAllEntries.length) {
+    window.lqeLoadText(logAllEntries.map(function (e) { return e.raw; }).join('\n'));
+  }
 }
 
 function logInsightsShortTs(ts) {
@@ -1466,8 +1619,18 @@ function logInsightsShortTs(ts) {
 }
 
 // Serializes a filter object into an inline-handler argument list, safely quoted.
+// Two escapes, in this order: JavaScript first (the string literal the handler
+// will parse), then HTML (the double-quoted attribute the browser unescapes
+// before it ever sees JavaScript). The HTML half matters as soon as a filter
+// carries a double quote — a slow-query breakdown searches on raw SQL such as
+// SELECT "sales$order"…, which without it closes the onclick attribute early
+// and the click throws a SyntaxError instead of filtering.
 function logInsightsAttr(f) {
-  const q = function (s) { return "'" + String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'"; };
+  const q = function (s) {
+    return "'" + String(s == null ? '' : s)
+      .replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+      .replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;') + "'";
+  };
   return q(f.node) + ',' + q(f.levels) + ',' + q(f.search);
 }
 
@@ -1767,6 +1930,7 @@ window.logExtractInsights = logExtractInsights;
 window.logRenderInsights = logRenderInsights;
 window.logInsightFilter = logInsightFilter;
 window.logInsightsToggle = logInsightsToggle;
+window.logInsightsOpenTool = logInsightsOpenTool;
 window.logSetTab = logSetTab;
 window.logGenerateCorrelation = logGenerateCorrelation;
 window.logGenerateSequence = logGenerateSequence;

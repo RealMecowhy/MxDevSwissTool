@@ -7,6 +7,9 @@ let lqeSkippedLines = 0;
 let lqeSourceFormat = null; // 'csv' (Studio Pro export) | 'live' (Mendix Cloud download)
 let lqeWorker = null;
 let lqeVList = null;        // reusable virtual list bound to #lqe-query-list
+let lqeVListMode = null;    // which row renderer the live list was built with ('exec' | 'stmt')
+let lqeView = 'exec';       // 'exec' = one row per execution · 'stmt' = one row per distinct statement
+let lqeLastStatements = []; // the aggregate behind the "By statement" view, for exports/report
 let lqeTimeWindow = null;   // {from, to, label} — set by the Microflow Tracer cross-link
 // The file currently being parsed, published to the Data Hub once the record
 // count is known. Only set for user-loaded files: text arriving through a
@@ -68,6 +71,7 @@ window.lqeLoadText = function(text) {
 window.lqeClear = function() {
   extractedQueries = [];
   lqeLastFiltered = [];
+  lqeLastStatements = [];
   lqeSkippedLines = 0;
   lqeSourceFormat = null;
   window._lqeSlowestId = null;
@@ -78,6 +82,7 @@ window.lqeClear = function() {
   const compareCount = document.getElementById('lqe-compare-count');
   if (compareCount) compareCount.textContent = '(0/2)';
   if (lqeVList) { lqeVList.destroy(); lqeVList = null; }
+  lqeVListMode = null;
   if (lqeTimeWindow) window.lqeSetTimeWindow(null, null);
   const statsBar = document.getElementById('lqe-stats');
   if (statsBar) statsBar.style.display = 'none';
@@ -462,6 +467,53 @@ function lqeExtractQueries(records) {
   return queries;
 }
 
+// ── "By statement" aggregate ─────────────────────────────────────────────────
+// Every other view here is per-execution, which answers "which single query was
+// slowest" — and the Slowest stat already answers that. On a real TRACE log the
+// expensive statement is usually the cheap one executed thousands of times:
+// 4 000 × 3 ms outweighs one 400 ms query by an order of magnitude and is
+// invisible when every row is one execution. This folds the executions onto the
+// signature the duplicate detector already computes, so no new parsing.
+//
+// Durations exist only where the log carries them (a logged query plan, or a
+// slow-query warning that states its own duration), so timedCount travels with
+// every group: a total summed from 3 of 400 executions must not be presented as
+// the cost of all 400. Groups with nothing timed report null, not 0.
+function lqeAggregateByStatement(queries) {
+  const map = new Map();
+  (queries || []).forEach(function (q) {
+    const key = q.signature || String(q.sql || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    let g = map.get(key);
+    if (!g) {
+      g = { signature: key, sample: q, worst: null, count: 0, timedCount: 0,
+            sumMs: 0, avgMs: null, maxMs: null, slowCount: 0 };
+      map.set(key, g);
+    }
+    g.count++;
+    if (q.slowWarning) g.slowCount++;
+    const d = q.duration ? parseFloat(q.duration) : NaN;
+    if (!isNaN(d)) {
+      g.timedCount++;
+      g.sumMs += d;
+      if (g.maxMs === null || d > g.maxMs) { g.maxMs = d; g.worst = q; }
+    }
+  });
+
+  const groups = Array.from(map.values());
+  groups.forEach(function (g) {
+    g.avgMs = g.timedCount ? g.sumMs / g.timedCount : null;
+    if (!g.timedCount) g.sumMs = null;
+    if (!g.worst) g.worst = g.sample; // nothing timed — the first execution represents the group
+  });
+  // Default order is the question this view exists to answer: total cost first,
+  // then sheer volume for the groups the log never timed.
+  groups.sort(function (a, b) {
+    const d = (b.sumMs || 0) - (a.sumMs || 0);
+    return d !== 0 ? d : b.count - a.count;
+  });
+  return groups;
+}
+
 // UI wrapper: run the pure extraction, then refresh the module state and the view.
 function extractQueriesFromRecords(records) {
   extractedQueries = lqeExtractQueries(records);
@@ -542,6 +594,38 @@ const LQE_SORT_ACCESSORS = {
   rows: q => (q.rows !== '-' ? parseInt(q.rows, 10) : -1)
 };
 
+// Statement-view sort keys. Disjoint from the execution keys above, so one
+// lqeSortKey can serve both views without either reading the other's accessor.
+// Un-timed groups sort to the bottom (-1) instead of pretending to be 0 ms.
+const LQE_STMT_SORT_ACCESSORS = {
+  count: g => g.count,
+  total: g => (g.sumMs === null ? -1 : g.sumMs),
+  avg: g => (g.avgMs === null ? -1 : g.avgMs),
+  max: g => (g.maxMs === null ? -1 : g.maxMs)
+};
+
+// Switches between one row per execution and one row per distinct statement.
+// The filters above the list keep applying — the aggregate is built from
+// whatever the filters left visible, so "By statement" of a time window or a
+// search stays meaningful. Sorting resets because the two views share the
+// header arrows but not the columns.
+window.lqeSetView = function(view, btn) {
+  lqeView = view;
+  const group = document.getElementById('lqe-view-toggle');
+  if (group) {
+    const active = btn || group.querySelector('button[data-view="' + view + '"]');
+    group.querySelectorAll('button').forEach(b => b.classList.toggle('active', b === active));
+  }
+  const execHeader = document.getElementById('lqe-list-header');
+  if (execHeader) execHeader.style.display = view === 'stmt' ? 'none' : 'grid';
+  const stmtHeader = document.getElementById('lqe-list-header-stmt');
+  if (stmtHeader) stmtHeader.style.display = view === 'stmt' ? 'grid' : 'none';
+  lqeSortKey = null;
+  lqeSortDir = -1;
+  document.querySelectorAll('#panel-log-query-extractor .lqe-sort-arrow').forEach(a => a.textContent = '');
+  window.lqeFilter();
+};
+
 window.lqeSort = function(key) {
   if (lqeSortKey === key) {
     lqeSortDir = -lqeSortDir;
@@ -549,8 +633,8 @@ window.lqeSort = function(key) {
     lqeSortKey = key;
     lqeSortDir = key === 'time' ? 1 : -1;
   }
-  // Update header arrows
-  document.querySelectorAll('#lqe-list-header [data-sort-key]').forEach(el => {
+  // Update header arrows (both view headers live in this panel; only one is visible)
+  document.querySelectorAll('#panel-log-query-extractor [data-sort-key]').forEach(el => {
     const arrow = el.querySelector('.lqe-sort-arrow');
     if (!arrow) return;
     arrow.textContent = (el.getAttribute('data-sort-key') === lqeSortKey) ? (lqeSortDir === 1 ? ' ▲' : ' ▼') : '';
@@ -604,11 +688,30 @@ window.lqeFilter = function() {
     filtered.sort((a, b) => (acc(a) - acc(b)) * lqeSortDir);
   }
 
-  const countEl = document.getElementById('lqe-count');
-  if (countEl) countEl.textContent = filtered.length;
   lqeLastFiltered = filtered;
   lqeUpdateStats(filtered);
-  renderQueryList(filtered);
+
+  // The stats bar keeps describing executions in both views — it answers
+  // "how much SQL is in this window", which the aggregate doesn't change.
+  const countEl = document.getElementById('lqe-count');
+  const unitEl = document.getElementById('lqe-count-unit');
+
+  if (lqeView === 'stmt') {
+    const groups = lqeAggregateByStatement(filtered);
+    if (lqeSortKey && LQE_STMT_SORT_ACCESSORS[lqeSortKey]) {
+      const acc = LQE_STMT_SORT_ACCESSORS[lqeSortKey];
+      groups.sort((a, b) => (acc(a) - acc(b)) * lqeSortDir);
+    }
+    lqeLastStatements = groups;
+    if (countEl) countEl.textContent = groups.length;
+    if (unitEl) unitEl.textContent = groups.length === 1 ? 'statement' : 'statements';
+    renderList(groups, lqeRenderStmtRow, 'stmt');
+  } else {
+    lqeLastStatements = [];
+    if (countEl) countEl.textContent = filtered.length;
+    if (unitEl) unitEl.textContent = filtered.length === 1 ? 'query' : 'queries';
+    renderList(filtered, lqeRenderRow, 'exec');
+  }
 };
 
 function lqeFmtMs(ms) {
@@ -652,7 +755,11 @@ function lqeUpdateStats(filtered) {
 // Click on the "Slowest" stat selects that query in the list. The target row may be
 // virtualized out of the DOM, so drive it through the virtual list by index.
 window.lqeSelectSlowest = function() {
-  if (!window._lqeSlowestId || !lqeVList) return;
+  if (!window._lqeSlowestId) return;
+  // The stat points at one execution, which the statement view has no row for —
+  // switch back rather than doing nothing on a click that looks actionable.
+  if (lqeView !== 'exec') window.lqeSetView('exec');
+  if (!lqeVList) return;
   const idx = lqeVList.indexOf(q => q.sqlId === window._lqeSlowestId);
   if (idx < 0) return;
   window._lqeActiveSqlId = window._lqeSlowestId;
@@ -799,9 +906,68 @@ function lqeRenderRow(q) {
   return el;
 }
 
-function renderQueryList(list) {
+// One row per distinct statement. Same grid as #lqe-list-header-stmt.
+// A group is "timed" only if the log measured at least one of its executions;
+// where it didn't, the cells read "–" rather than 0 ms, and the tooltip says how
+// many of the executions the totals actually cover.
+function lqeRenderStmtRow(g) {
+  const el = document.createElement('div');
+  el.className = 'lqe-list-item';
+  el.style.display = 'grid';
+  el.style.gridTemplateColumns = '74px 92px 92px 92px 1fr';
+  el.style.padding = 'var(--sp-2) var(--sp-3)';
+  el.style.borderBottom = '1px solid var(--border)';
+  el.style.fontSize = '0.8rem';
+  el.style.cursor = 'pointer';
+  el.style.color = 'var(--text)';
+
+  const selected = window._lqeActiveSqlId != null && g.worst && g.worst.sqlId === window._lqeActiveSqlId;
+  el.style.background = selected ? 'var(--bg-active)' : 'transparent';
+
+  // Same thresholds as the ×N badge in the execution view, so a count means the
+  // same thing in both places.
+  const countColor = g.count >= 10 ? 'var(--danger)' : (g.count > 1 ? 'var(--warning)' : 'var(--text)');
+  const slowBadge = g.slowCount
+    ? `<span title="${g.slowCount} of these executions were logged as slow-query warnings by ConnectionBus_Queries" style="margin-left:4px;color:var(--warning);cursor:help">⚠</span>`
+    : '';
+
+  let summary = g.sample.sql.substring(0, 100);
+  if (g.sample.sql.length > 100) summary += '...';
+
+  const coverage = g.timedCount
+    ? g.timedCount + ' of ' + g.count + ' execution(s) have a measured duration'
+    : 'None of these executions has a measured duration — the log carries no query plan or slow-query warning for them';
+
+  el.innerHTML = `
+    <div style="font-weight:600; color:${countColor}">×${g.count}${slowBadge}</div>
+    <div style="font-weight:600; color:${g.sumMs === null ? 'var(--text-muted)' : 'var(--accent)'}" title="${coverage}">${g.sumMs === null ? '–' : lqeFmtMs(g.sumMs)}</div>
+    <div style="color:${g.avgMs === null ? 'var(--text-muted)' : (lqeDurationColor(g.avgMs) || 'var(--text)')}">${g.avgMs === null ? '–' : lqeFmtMs(g.avgMs)}</div>
+    <div style="color:${g.maxMs === null ? 'var(--text-muted)' : (lqeDurationColor(g.maxMs) || 'var(--text)')}">${g.maxMs === null ? '–' : lqeFmtMs(g.maxMs)}</div>
+    <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${g.sample.sql.replace(/"/g, '&quot;')}"><span style="font-weight:600">${lqeSmartLabel(g.sample)}</span> <span style="color:var(--text-muted)">— ${summary}</span></div>
+  `;
+
+  el.onmouseenter = () => { if (!selected) el.style.background = 'var(--bg-hover)'; };
+  el.onmouseleave = () => { if (!selected) el.style.background = 'transparent'; };
+
+  // Clicking a statement opens its slowest execution in the detail pane, so the
+  // SQL / params / plan tabs keep working exactly as in the execution view.
+  el.onclick = () => {
+    window._lqeActiveSqlId = g.worst ? g.worst.sqlId : null;
+    if (lqeVList) lqeVList.refresh();
+    if (g.worst) selectQuery(g.worst);
+  };
+
+  return el;
+}
+
+// Both views share the virtual list. The row renderer is fixed at creation, so
+// switching views rebuilds it rather than repainting rows of the wrong shape.
+function renderList(list, renderRow, mode) {
   const container = document.getElementById('lqe-query-list');
   if (!container) return;
+
+  if (lqeVList && lqeVListMode !== mode) { lqeVList.destroy(); lqeVList = null; }
+  lqeVListMode = mode;
 
   if (list.length === 0) {
     if (lqeVList) { lqeVList.destroy(); lqeVList = null; }
@@ -810,7 +976,7 @@ function renderQueryList(list) {
   }
 
   if (!lqeVList) {
-    lqeVList = window.createVirtualList({ container: container, renderRow: lqeRenderRow });
+    lqeVList = window.createVirtualList({ container: container, renderRow: renderRow });
   }
   lqeVList.setItems(list);
 }
@@ -1021,7 +1187,27 @@ window.lqeExplainLive = async function(btn) {
 
 // ── Export of the currently filtered list ──────────────────
 // Columns: Type, Tx-Conn, Timestamp, Duration, Cost, Rows, Dup, SQL (truncated)
+// Statements are a different shape from executions, so the export follows the
+// active view instead of forcing an aggregate into the execution columns —
+// the same rule the Microflow Tracer applies to its background-run view.
+function lqeStmtExportRows(groups, sqlMaxLen) {
+  return groups.map(g => {
+    let sql = g.sample.sql.replace(/\s+/g, ' ').trim();
+    if (sql.length > sqlMaxLen) sql = sql.substring(0, sqlMaxLen) + '…';
+    return [
+      g.count,
+      g.sumMs === null ? '' : +g.sumMs.toFixed(3),
+      g.avgMs === null ? '' : +g.avgMs.toFixed(3),
+      g.maxMs === null ? '' : +g.maxMs.toFixed(3),
+      g.timedCount,
+      g.slowCount || '',
+      sql
+    ];
+  });
+}
+
 function lqeExportRows(sqlMaxLen) {
+  if (lqeView === 'stmt') return lqeStmtExportRows(lqeLastStatements, sqlMaxLen);
   return lqeLastFiltered.map(q => {
     let sql = q.sql.replace(/\s+/g, ' ').trim();
     if (sql.length > sqlMaxLen) sql = sql.substring(0, sqlMaxLen) + '…';
@@ -1039,6 +1225,12 @@ function lqeExportRows(sqlMaxLen) {
 }
 
 const LQE_EXPORT_HEADER = ['Type', 'Tx-Conn', 'Timestamp', 'Duration (ms)', 'Cost', 'Rows', 'Dup', 'SQL'];
+// "Timed" is carried into the export on purpose: a total summed from 3 of 400
+// executions is a different number from one summed from all 400, and outside the
+// UI there is no tooltip to say so.
+const LQE_STMT_EXPORT_HEADER = ['Executions', 'Total (ms)', 'Avg (ms)', 'Max (ms)', 'Timed', 'Slow warnings', 'SQL'];
+
+function lqeExportHeader() { return lqeView === 'stmt' ? LQE_STMT_EXPORT_HEADER : LQE_EXPORT_HEADER; }
 
 // Exports go through the shared helper (window.mtExport) so quoting/escaping and
 // the self-contained HTML template live in one place across tools.
@@ -1047,7 +1239,7 @@ window.lqeExportCsv = function() {
     window.mtToast('Nothing to export — load a log first (and check the active filters).', 'warning');
     return;
   }
-  window.mtExport.downloadCsv('extracted-queries.csv', LQE_EXPORT_HEADER, lqeExportRows(300));
+  window.mtExport.downloadCsv('extracted-queries.csv', lqeExportHeader(), lqeExportRows(300));
 };
 
 window.lqeCopyMarkdown = function(btn) {
@@ -1055,7 +1247,7 @@ window.lqeCopyMarkdown = function(btn) {
     window.mtToast('Nothing to copy — load a log first (and check the active filters).', 'warning');
     return;
   }
-  window.mtExport.copyMarkdown(LQE_EXPORT_HEADER, lqeExportRows(120), btn);
+  window.mtExport.copyMarkdown(lqeExportHeader(), lqeExportRows(120), btn);
 };
 
 window.lqeExportHtml = function() {
@@ -1065,13 +1257,13 @@ window.lqeExportHtml = function() {
   }
   const rows = lqeExportRows(2000);
   window.mtExport.downloadHtml('extracted-queries.html', {
-    title: 'Extracted SQL Queries',
+    title: lqeView === 'stmt' ? 'Extracted SQL Queries — by statement' : 'Extracted SQL Queries',
     subtitle: 'MxDev Swiss Tool — Log Query Extractor',
     meta: [
       { label: 'Source', value: lqeSourceFormat === 'live' ? 'Mendix Cloud live log' : (lqeSourceFormat === 'csv' ? 'Studio Pro CSV export' : 'log') },
-      { label: 'Queries', value: rows.length }
-    ],
-    columns: LQE_EXPORT_HEADER,
+      { label: lqeView === 'stmt' ? 'Statements' : 'Queries', value: rows.length }
+    ].concat(lqeView === 'stmt' ? [{ label: 'Executions', value: lqeLastFiltered.length }] : []),
+    columns: lqeExportHeader(),
     rows: rows
   });
 };
@@ -1089,23 +1281,41 @@ window.lqeReportSection = function(fromMs, toMs) {
     return true;
   });
   if (!inWin.length) return null;
+
   let firstMs = Infinity, lastMs = -Infinity;
-  const rows = inWin.map(function (q) {
+  inWin.forEach(function (q) {
     const ms = tsToMs(q.timestamp);
     if (!isNaN(ms)) { if (ms < firstMs) firstMs = ms; if (ms > lastMs) lastMs = ms; }
-    let sql = q.sql.replace(/\s+/g, ' ').trim();
-    if (sql.length > 2000) sql = sql.substring(0, 2000) + '…';
-    return [
-      q.type + (q.slowWarning ? ' (SLOW warning)' : ''), q.txConn, q.timestamp,
-      q.duration ? parseFloat(q.duration) : '',
-      (q.cost !== null && q.cost !== undefined) ? q.cost : '',
-      q.rows !== '-' ? q.rows : '', q.dupCount > 1 ? '×' + q.dupCount : '', sql
-    ];
   });
+
+  const src = lqeSourceFormat === 'live' ? ' (Mendix Cloud live log)' : (lqeSourceFormat === 'csv' ? ' (Studio Pro CSV)' : '');
+
+  // The report follows the active view, like the exports do: a reader who is
+  // looking at total cost per statement needs that table in the report, not
+  // several thousand individual executions to add up by hand.
+  const rows = lqeView === 'stmt'
+    ? lqeStmtExportRows(lqeAggregateByStatement(inWin), 2000)
+    : inWin.map(function (q) {
+        let sql = q.sql.replace(/\s+/g, ' ').trim();
+        if (sql.length > 2000) sql = sql.substring(0, 2000) + '…';
+        return [
+          q.type + (q.slowWarning ? ' (SLOW warning)' : ''), q.txConn, q.timestamp,
+          q.duration ? parseFloat(q.duration) : '',
+          (q.cost !== null && q.cost !== undefined) ? q.cost : '',
+          q.rows !== '-' ? q.rows : '', q.dupCount > 1 ? '×' + q.dupCount : '', sql
+        ];
+      });
+
+  const subtitle = lqeView === 'stmt'
+    ? rows.length + ' distinct statement' + (rows.length === 1 ? '' : 's') + ' from ' + inWin.length + ' execution' + (inWin.length === 1 ? '' : 's') + src
+    : rows.length + ' quer' + (rows.length === 1 ? 'y' : 'ies') + src;
+
   return {
-    id: 'log-query-extractor', title: 'Log Query Extractor — SQL queries',
-    subtitle: rows.length + ' quer' + (rows.length === 1 ? 'y' : 'ies') + (lqeSourceFormat === 'live' ? ' (Mendix Cloud live log)' : (lqeSourceFormat === 'csv' ? ' (Studio Pro CSV)' : '')),
-    columns: LQE_EXPORT_HEADER, rows: rows, total: rows.length,
+    id: 'log-query-extractor',
+    title: 'Log Query Extractor — SQL queries' + (lqeView === 'stmt' ? ' (by statement)' : ''),
+    subtitle: subtitle,
+    columns: lqeView === 'stmt' ? LQE_STMT_EXPORT_HEADER : LQE_EXPORT_HEADER,
+    rows: rows, total: rows.length,
     firstMs: firstMs === Infinity ? null : firstMs, lastMs: lastMs === -Infinity ? null : lastMs
   };
 };
@@ -1135,6 +1345,7 @@ window.lqeCopyContent = function(elementId, btn) {
   }
 };
 
-// Expose the pure extractor for unit tests (Node points `window` at the global).
+// Expose the pure extractor and aggregator for unit tests (Node points `window` at the global).
 (typeof window !== 'undefined' ? window : self).lqeExtractQueries = lqeExtractQueries;
+(typeof window !== 'undefined' ? window : self).lqeAggregateByStatement = lqeAggregateByStatement;
 window.highlightJsonSimple = highlightJsonSimple;

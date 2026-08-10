@@ -160,13 +160,21 @@
       }
     }
 
+    // The Query Extractor contributes one of two shapes depending on the view it
+    // was left in: one row per execution, or one row per distinct statement.
+    // Count the right thing for each rather than dropping the headline entirely.
     const lqeSec = byId['log-query-extractor'];
     if (lqeSec && lqeSec.columns) {
       const durIdx = lqeSec.columns.indexOf('Duration (ms)');
+      const totalIdx = lqeSec.columns.indexOf('Total (ms)');
       if (durIdx !== -1) {
         let slow = 0;
         lqeSec.rows.forEach(function (r) { const d = parseFloat(r[durIdx]); if (!isNaN(d) && d > 1000) slow++; });
         bits.push(slow + ' slow quer' + (slow === 1 ? 'y' : 'ies') + ' (>1s)');
+      } else if (totalIdx !== -1) {
+        let slow = 0;
+        lqeSec.rows.forEach(function (r) { const d = parseFloat(r[totalIdx]); if (!isNaN(d) && d > 1000) slow++; });
+        bits.push(slow + ' statement' + (slow === 1 ? '' : 's') + ' over 1s total');
       }
     }
 
