@@ -448,7 +448,13 @@ function visualizeSqlExplain() {
       if (filterMatch && currentScanTable) {
         let cols = filterMatch[1].match(/([a-zA-Z0-9_]+)/g);
         if (cols && cols.length > 0) {
-          suggestions.push(`Observed filtering on column <code>${cols[0]}</code> associated with table <strong>${currentScanTable}</strong> during a <em>Seq Scan</em>. <br>👉 <strong style="color:var(--primary)">Open Domain Model in Mendix Studio Pro</strong>, find the entity corresponding to table <code>${currentScanTable}</code>, and add an Index for attribute <code>${cols[0]}</code>.`);
+          // "Find the entity corresponding to table eshop$orderline" is work the
+          // tool can do for the reader whenever a domain model has been loaded.
+          const entity = window.mxEntityForTable ? window.mxEntityForTable(currentScanTable) : null;
+          const target = entity
+            ? `open entity <strong>${entity}</strong> (table <code>${currentScanTable}</code>)`
+            : `find the entity corresponding to table <code>${currentScanTable}</code>`;
+          suggestions.push(`Observed filtering on column <code>${cols[0]}</code> associated with table <strong>${currentScanTable}</strong> during a <em>Seq Scan</em>. <br>👉 <strong style="color:var(--primary)">Open Domain Model in Mendix Studio Pro</strong>, ${target}, and add an Index for attribute <code>${cols[0]}</code>.`);
         }
       }
     }

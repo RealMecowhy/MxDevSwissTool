@@ -960,18 +960,79 @@ function edxEsc(s) {
     : String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// ── Context carried in from the Log Viewer ───────────────────────────────────
+// The checklist tells the reader to "look for two commits with the same key
+// around this timestamp" and hands them a button. Without the timestamp that
+// button lands in an unfiltered 60 MB log, which is the same as landing nowhere.
+// When the decode came from a log row (Explain chip) we keep that row's time and
+// correlation ID, and narrow the target tool on the way in. A pasted error has
+// no context — then these buttons behave exactly as they always did.
+let edxContext = null;         // { ts, corrId } currently in force
+let edxPendingContext = null;  // set by edxDecodeText, consumed by the next analyze
+
+const EDX_WINDOW_MS = 30000;   // ±30 s around the error — wide enough for the commit pair, narrow enough to read
+
+function edxContextMs() {
+  if (!edxContext || !edxContext.ts || !window.mftTsToMs) return NaN;
+  return window.mftTsToMs(edxContext.ts);
+}
+
+// Shown under the input so the narrowing is visible rather than magic. Hidden
+// entirely when there is no context (data-driven rule).
+function edxRenderContext() {
+  const el = document.getElementById('edx-context');
+  if (!el) return;
+  if (!edxContext) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  const bits = [];
+  if (edxContext.ts) bits.push('<span style="font-family:var(--font-mono)">' + edxEsc(edxContext.ts) + '</span>');
+  if (edxContext.corrId) bits.push('corr <span style="font-family:var(--font-mono)">' + edxEsc(edxContext.corrId) + '</span>');
+  el.style.display = '';
+  el.innerHTML = '<span style="color:var(--text-muted)">From the Log Viewer:</span> ' + bits.join(' &middot; ')
+    + ' <span style="color:var(--text-muted)">&mdash; the buttons below open each tool narrowed to this error'
+    + (edxContext.ts ? ' (&plusmn;30 s)' : '') + '.</span>';
+}
+
 window.edxOpenTool = function (toolId) {
   if (window.navigateWithReturn) window.navigateWithReturn(toolId);
   else if (window.navigate) window.navigate(toolId, null);
+  if (!edxContext) return;
+
+  const ms = edxContextMs();
+  const corrId = edxContext.corrId;
+
+  // Each target narrows through the entry point it already has — no new
+  // filtering machinery anywhere, just the arguments this tool had all along.
+  if (toolId === 'log-query-extractor' && !isNaN(ms) && window.lqeSetTimeWindow) {
+    window.lqeSetTimeWindow(ms - EDX_WINDOW_MS, ms + EDX_WINDOW_MS, 'error ±30 s');
+  } else if (toolId === 'log-viewer' && corrId && window.logInsightFilter) {
+    window.logInsightFilter('', '', corrId);
+  } else if (toolId === 'microflow-tracer' && corrId) {
+    // The Tracer's own search matches correlation IDs (its placeholder says so).
+    const search = document.getElementById('mft-search');
+    if (search && window.mftFilter) { search.value = corrId; window.mftFilter(); }
+  }
 };
+
+// What the current context lets a given target be narrowed by — empty when the
+// error was pasted, or when this tool has nothing to narrow with.
+function edxNarrowingNote(toolId) {
+  if (!edxContext) return '';
+  if (toolId === 'log-query-extractor' && !isNaN(edxContextMs())) return ', showing only the SQL from ±30 s around this error';
+  if (toolId === 'log-viewer' && edxContext.corrId) return ', filtered to this error\'s correlation ID';
+  if (toolId === 'microflow-tracer' && edxContext.corrId) return ', searched for this error\'s correlation ID';
+  return '';
+}
 
 function edxCheckHtml(check) {
   // The check text is authored in the ruleset (trusted HTML with <code>/<em>);
   // only the optional tool link is generated here.
   let link = '';
   if (check.tool && EDX_TOOL_LABELS[check.tool]) {
+    // Say what the button will actually do — "opens narrowed to ±30 s" is a
+    // different promise from "opens the tool", and only one of them is true here.
+    const narrowed = edxNarrowingNote(check.tool);
     link = ' <button type="button" class="edx-tool-link" onclick="window.edxOpenTool(\'' + check.tool + '\')" title="Open the ' +
-      edxEsc(EDX_TOOL_LABELS[check.tool]) + '">' +
+      edxEsc(EDX_TOOL_LABELS[check.tool]) + narrowed + '">' +
       '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>' +
       edxEsc(EDX_TOOL_LABELS[check.tool]) + '</button>';
   }
@@ -1075,6 +1136,11 @@ function edxRender(result) {
 window.edxAnalyze = function () {
   const input = document.getElementById('edx-input');
   const text = input ? input.value : '';
+  // Context only survives the analyze it arrived with: re-analyzing pasted text
+  // must not silently narrow the tools to an error the user has moved on from.
+  edxContext = edxPendingContext;
+  edxPendingContext = null;
+  edxRenderContext();
   edxRender(window.edxDecode(text));
 };
 
@@ -1114,6 +1180,11 @@ window.edxOnInput = function () {
 window.edxClear = function () {
   const input = document.getElementById('edx-input');
   if (input) input.value = '';
+  // Clearing the error clears the log row it came from — otherwise the next
+  // pasted error would inherit the previous one's time window.
+  edxContext = null;
+  edxPendingContext = null;
+  edxRenderContext();
   edxRender(window.edxDecode(''));
 };
 
@@ -1122,9 +1193,10 @@ window.edxClear = function () {
 // Exposed for unit tests and for any tool that wants the same translation.
 window.edxMapTables = edxMapTables;
 
-window.edxDecodeText = function (text) {
+window.edxDecodeText = function (text, context) {
   const input = document.getElementById('edx-input');
   if (input) input.value = text != null ? String(text) : '';
+  edxPendingContext = (context && (context.ts || context.corrId)) ? context : null;
   window.edxAnalyze();
 };
 

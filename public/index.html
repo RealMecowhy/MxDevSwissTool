@@ -101,7 +101,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.33.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.34.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -287,7 +287,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.33.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.34.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -632,6 +632,10 @@
           <!-- LEFT PANEL: Call List -->
           <div style="border-right:1px solid var(--border); display:flex; flex-direction:column; background:var(--bg-elevated); overflow:hidden;">
             <div style="padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border); display:flex; gap:var(--sp-2); align-items:center; flex-wrap:wrap;">
+              <div id="wsre-view-toggle" class="tabs" style="border:1px solid var(--border); border-radius:var(--r-md); padding:2px; display:flex; gap:2px; margin:0;">
+                <button type="button" class="tab active" data-view="calls" style="padding:2px 10px; font-size:0.75rem;" onclick="window.wsreSetView('calls', this)">Calls</button>
+                <button type="button" class="tab" data-view="endpoint" style="padding:2px 10px; font-size:0.75rem;" onclick="window.wsreSetView('endpoint', this)" title="One row per endpoint — calls, total and average duration, errors. An integration incident is &quot;endpoint X fires 300× per page open&quot;, not &quot;call #4172 took 900 ms&quot;.">By endpoint</button>
+              </div>
               <input class="input input-sm" id="wsre-search" placeholder="Search URL, service, microflow..." oninput="window.wsreFilter()" style="flex:1; min-width:120px;">
               <select class="select select-sm" id="wsre-type-filter" onchange="window.wsreFilter()" style="width:150px;">
                 <option value="ALL">All calls</option>
@@ -647,7 +651,7 @@
               </label>
               <input class="input input-sm" type="number" id="wsre-slow-ms" value="500" min="0" step="100" oninput="window.wsreFilter()" style="width:70px;" title="Slow-call threshold in milliseconds">
               <span style="font-size:0.75rem; color:var(--text-muted);">ms</span>
-              <div style="font-size:0.75rem; color:var(--text-muted); white-space:nowrap;"><span id="wsre-count">0</span> calls<span id="wsre-note" style="display:none; cursor:help; color:var(--warning);"></span></div>
+              <div style="font-size:0.75rem; color:var(--text-muted); white-space:nowrap;"><span id="wsre-count">0</span> <span id="wsre-count-unit">calls</span><span id="wsre-note" style="display:none; cursor:help; color:var(--warning);"></span></div>
             </div>
             <!-- Stats bar — recalculated for the currently filtered list -->
             <div id="wsre-stats" style="display:none; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border); background:var(--bg-elevated); gap:var(--sp-4); flex-wrap:wrap; align-items:center; font-size:0.72rem; color:var(--text-secondary);">
@@ -665,6 +669,15 @@
               <div>Method</div>
               <div data-sort-key="status" onclick="window.wsreSort('status')" style="cursor:pointer" title="Click to sort by status code">Status<span class="wsre-sort-arrow"></span></div>
               <div data-sort-key="duration" onclick="window.wsreSort('duration')" style="cursor:pointer" title="Request → response timestamp delta — click to sort">Duration<span class="wsre-sort-arrow"></span></div>
+              <div>Endpoint</div>
+            </div>
+            <!-- Table Header for the "By endpoint" view (click Calls / Total / Avg / Max / Errors to sort) -->
+            <div id="wsre-list-header-endpoint" style="display:none; grid-template-columns:60px 84px 84px 84px 60px 1fr; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border); font-size:0.75rem; font-weight:600; color:var(--text-muted); background:var(--bg);">
+              <div data-sort-key="count" onclick="window.wsreSort('count')" style="cursor:pointer" title="How many calls went to this endpoint — click to sort">Calls<span class="wsre-sort-arrow"></span></div>
+              <div data-sort-key="total" onclick="window.wsreSort('total')" style="cursor:pointer" title="Sum of the measured durations of every call to this endpoint — click to sort">Total<span class="wsre-sort-arrow"></span></div>
+              <div data-sort-key="avg" onclick="window.wsreSort('avg')" style="cursor:pointer" title="Average measured duration per call — click to sort">Avg<span class="wsre-sort-arrow"></span></div>
+              <div data-sort-key="max" onclick="window.wsreSort('max')" style="cursor:pointer" title="Slowest single call to this endpoint — click to sort">Max<span class="wsre-sort-arrow"></span></div>
+              <div data-sort-key="errors" onclick="window.wsreSort('errors')" style="cursor:pointer" title="Calls with HTTP status &ge; 400 or a SOAP Fault — click to sort">Err<span class="wsre-sort-arrow"></span></div>
               <div>Endpoint</div>
             </div>
             <!-- Table Body -->
@@ -747,6 +760,8 @@
             <div style="padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border); font-size:0.75rem; color:var(--text-muted);">
               Paste a Mendix / Java / PostgreSQL error message or full stack trace (including <code>Caused by:</code> lines).
             </div>
+            <!-- Context carried in from the Log Viewer's Explain chip — hidden when the error was pasted by hand -->
+            <div id="edx-context" style="display:none; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border); background:var(--bg); font-size:0.72rem; color:var(--text-secondary);"></div>
             <textarea id="edx-input" class="input" placeholder="e.g.  ERROR - Connector: com.mendix.systemwideinterfaces.core.UserException&#10;Caused by: org.postgresql.util.PSQLException: ERROR: duplicate key value violates unique constraint &quot;account_email_key&quot;&#10;    at ..." spellcheck="false" style="flex:1; border:none; border-radius:0; resize:none; font-family:var(--font-mono); font-size:0.8rem; line-height:1.5; padding:var(--sp-3); background:var(--bg); color:var(--text); outline:none;" oninput="window.edxOnInput && window.edxOnInput()"></textarea>
           </div>
 

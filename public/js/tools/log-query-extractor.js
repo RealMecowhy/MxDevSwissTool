@@ -833,7 +833,11 @@ function lqeSmartLabel(q) {
   else if (q.type === 'INSERT') m = sql.match(/^INSERT\s+INTO\s+"?([A-Za-z0-9_.$]+)"?/i);
   else m = sql.match(/\bFROM\s+"?([A-Za-z0-9_.$]+)"?/i); // SELECT and DELETE both use FROM
   if (!m) return q.type;
-  return q.type + ' ' + m[1].replace(/^public\./i, '');
+  const table = m[1].replace(/^public\./i, '');
+  // With a domain model loaded, say `SELECT eShop.Order` instead of
+  // `SELECT eshop$order` — same label, in the names the developer works in.
+  const entity = window.mxEntityForTable ? window.mxEntityForTable(table) : null;
+  return q.type + ' ' + (entity || table);
 }
 
 // Duration heat-map: fixed bands (not relative to the visible set, so the same

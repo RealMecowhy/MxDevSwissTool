@@ -773,6 +773,43 @@ const expectedShipmentBytes = shipmentCalls.reduce((sum, c) => sum + (c.requestB
 eq('endpoint totals: bytes summed across calls to the same endpoint', shipmentTotal.bytes, expectedShipmentBytes);
 ok('endpoint totals: an endpoint with a single call is not conflated with others',
   totals.get('https://api.example.com/rest/send/v1/data').count === 1);
+
+// ── "By endpoint" aggregate (wave 16) ────────────────────────────────────────
+// An integration incident is "endpoint X fires 300× per page open", not
+// "call #4172 took 900 ms". Same contract as the Query Extractor's statement
+// view: totals are summed only over the calls the log actually timed, and an
+// endpoint with no paired response reports null rather than 0 ms.
+console.log('\nWSRE — by endpoint');
+const wsreAgg = global.wsreAggregateByEndpoint;
+const eps = wsreAgg(calls);
+const epBy = {};
+eps.forEach(function (g) { epBy[g.endpoint] = g; });
+
+const epShip = epBy['https://api.example.com/rest/ship/v1/shipment'];
+ok('by endpoint: the two shipment calls fold into one row', !!epShip);
+eq('by endpoint: call count', epShip.count, 2);
+eq('by endpoint: both calls were timed', epShip.timedCount, 2);
+eq('by endpoint: the 500 response is counted as an error', epShip.errors, 1);
+ok('by endpoint: total is the sum of both durations',
+  Math.abs(epShip.sumMs - (ship[0].durationMs + ship[1].durationMs)) < 0.001, epShip.sumMs);
+ok('by endpoint: average is the total over the timed calls',
+  Math.abs(epShip.avgMs - epShip.sumMs / 2) < 0.001, epShip.avgMs);
+eq('by endpoint: max is the slowest single call', epShip.maxMs, Math.max(ship[0].durationMs, ship[1].durationMs));
+eq('by endpoint: uncertain pairings are carried through', epShip.uncertain, 2);
+
+const epDead = epBy['https://dead.example.com/rest/ping'];
+ok('by endpoint: the unanswered call still gets a row', !!epDead);
+eq('by endpoint: it is counted as having no response', epDead.unanswered, 1);
+eq('by endpoint: an endpoint the log never timed reports null total, not zero', epDead.sumMs, null);
+eq('by endpoint: ...and null average', epDead.avgMs, null);
+eq('by endpoint: ...and is still represented by its own call', epDead.worst.url, 'https://dead.example.com/rest/ping');
+
+eq('by endpoint: every call lands in exactly one group',
+  eps.reduce(function (n, g) { return n + g.count; }, 0), calls.length);
+ok('by endpoint: default order is total time first',
+  eps[0].sumMs === null || eps.every(function (g) { return g.sumMs === null || g.sumMs <= eps[0].sumMs; }),
+  JSON.stringify(eps.map(function (g) { return g.sumMs; })));
+eq('by endpoint: empty input yields no groups', wsreAgg([]).length, 0);
 eq('endpoint totals: empty call list yields an empty map', wsreEndpointTotals([]).size, 0);
 
 // Reference: the same real trace log used by MFT/LQE reference tests (local only)

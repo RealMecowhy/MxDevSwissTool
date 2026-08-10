@@ -63,6 +63,17 @@ function ixaStatsBanner(stats) {
     </div>`;
 }
 
+// The card corner names the table the finding is about. With a domain model
+// loaded it names the entity instead, keeping the raw table name in the tooltip —
+// the candidate SQL below still speaks in tables, so both have to stay reachable.
+function ixaTableLabel(table) {
+  const entity = window.mxEntityForTable ? window.mxEntityForTable(table) : null;
+  const style = 'margin-left:auto;font-size:0.72rem;color:var(--text-muted);font-family:var(--font-mono)';
+  return entity
+    ? `<span style="${style}" title="${esc(table)}">${esc(entity)}</span>`
+    : `<span style="${style}">${esc(table)}</span>`;
+}
+
 function ixaFindingCard(f) {
   const [color, bg, label] = SEVERITY[f.severity] || SEVERITY.info;
   const evidence = (f.evidence || []).map(e =>
@@ -92,7 +103,7 @@ function ixaFindingCard(f) {
         <span style="font-size:0.68rem;font-weight:700;color:${color};background:${bg};padding:1px 8px;border-radius:999px">${label}</span>
         <span style="font-size:0.68rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em">${esc(KIND_LABEL[f.kind] || f.kind)}</span>
         ${f.structural ? '<span style="font-size:0.66rem;color:var(--text-muted)" title="Read from the catalog shape — independent of usage statistics">structural</span>' : ''}
-        <span style="margin-left:auto;font-size:0.72rem;color:var(--text-muted);font-family:var(--font-mono)">${esc(f.table)}</span>
+        ${ixaTableLabel(f.table)}
       </div>
       <div style="font-weight:600;font-size:0.85rem;margin-bottom:4px">${esc(f.title)}</div>
       <div style="font-size:0.8rem;color:var(--text-secondary);line-height:1.55">${esc(f.detail)}</div>

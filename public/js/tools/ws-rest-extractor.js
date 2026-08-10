@@ -11,8 +11,11 @@
 
 let wsreCalls = [];
 let wsreLastFiltered = [];
+let wsreLastEndpoints = []; // the aggregate behind the "By endpoint" view, for exports/report
 let wsreWorker = null;
 let wsreVList = null;
+let wsreVListMode = null;   // which row renderer the live list was built with ('calls' | 'endpoint')
+let wsreView = 'calls';     // 'calls' = one row per call · 'endpoint' = one row per endpoint
 let wsreRawText = null; // kept for the MFT/LQE cross-link hand-off (same file, one load)
 // Name/size of a user-loaded file, published to the Data Hub once parsed.
 let wsrePendingFile = null;
@@ -328,6 +331,7 @@ function wsreExtractCalls(records) {
 (typeof window !== 'undefined' ? window : self).wsreExtractCalls = wsreExtractCalls;
 (typeof window !== 'undefined' ? window : self).wsreEndpointTotals = wsreEndpointTotals;
 (typeof window !== 'undefined' ? window : self).wsreEndpoint = wsreEndpoint;
+(typeof window !== 'undefined' ? window : self).wsreAggregateByEndpoint = wsreAggregateByEndpoint;
 
 // ── UI: load / parse ─────────────────────────────────────────────────────────
 
@@ -464,6 +468,36 @@ const WSRE_SORT_ACCESSORS = {
   status: c => (c.status !== null ? c.status : -1)
 };
 
+// Endpoint-view sort keys. Disjoint from the call keys above, so one wsreSortKey
+// serves both views without either reading the other's accessor.
+const WSRE_ENDPOINT_SORT_ACCESSORS = {
+  count: g => g.count,
+  total: g => (g.sumMs === null ? -1 : g.sumMs),
+  avg: g => (g.avgMs === null ? -1 : g.avgMs),
+  max: g => (g.maxMs === null ? -1 : g.maxMs),
+  errors: g => g.errors
+};
+
+// Switches between one row per call and one row per endpoint. The filters above
+// the list keep applying, so "By endpoint" of an error-only or slow-only
+// selection stays meaningful.
+window.wsreSetView = function(view, btn) {
+  wsreView = view;
+  const group = document.getElementById('wsre-view-toggle');
+  if (group) {
+    const active = btn || group.querySelector('button[data-view="' + view + '"]');
+    group.querySelectorAll('button').forEach(b => b.classList.toggle('active', b === active));
+  }
+  const callHeader = document.getElementById('wsre-list-header');
+  if (callHeader) callHeader.style.display = view === 'endpoint' ? 'none' : 'grid';
+  const epHeader = document.getElementById('wsre-list-header-endpoint');
+  if (epHeader) epHeader.style.display = view === 'endpoint' ? 'grid' : 'none';
+  wsreSortKey = null;
+  wsreSortDir = -1;
+  document.querySelectorAll('#panel-ws-rest-extractor .wsre-sort-arrow').forEach(a => a.textContent = '');
+  window.wsreFilter();
+};
+
 window.wsreSort = function(key) {
   if (wsreSortKey === key) {
     wsreSortDir = -wsreSortDir;
@@ -471,7 +505,7 @@ window.wsreSort = function(key) {
     wsreSortKey = key;
     wsreSortDir = key === 'time' ? 1 : -1;
   }
-  document.querySelectorAll('#wsre-list-header [data-sort-key]').forEach(el => {
+  document.querySelectorAll('#panel-ws-rest-extractor [data-sort-key]').forEach(el => {
     const arrow = el.querySelector('.wsre-sort-arrow');
     if (!arrow) return;
     arrow.textContent = (el.getAttribute('data-sort-key') === wsreSortKey) ? (wsreSortDir === 1 ? ' ▲' : ' ▼') : '';
@@ -522,11 +556,28 @@ window.wsreFilter = function() {
     filtered.sort((a, b) => (acc(a) - acc(b)) * wsreSortDir);
   }
 
-  const countEl = document.getElementById('wsre-count');
-  if (countEl) countEl.textContent = filtered.length;
   wsreLastFiltered = filtered;
   wsreUpdateStats(filtered);
-  wsreRenderList(filtered);
+
+  const countEl = document.getElementById('wsre-count');
+  const unitEl = document.getElementById('wsre-count-unit');
+
+  if (wsreView === 'endpoint') {
+    const groups = wsreAggregateByEndpoint(filtered);
+    if (wsreSortKey && WSRE_ENDPOINT_SORT_ACCESSORS[wsreSortKey]) {
+      const acc = WSRE_ENDPOINT_SORT_ACCESSORS[wsreSortKey];
+      groups.sort((a, b) => (acc(a) - acc(b)) * wsreSortDir);
+    }
+    wsreLastEndpoints = groups;
+    if (countEl) countEl.textContent = groups.length;
+    if (unitEl) unitEl.textContent = groups.length === 1 ? 'endpoint' : 'endpoints';
+    wsreRenderList(groups, wsreRenderEndpointRow, 'endpoint');
+  } else {
+    wsreLastEndpoints = [];
+    if (countEl) countEl.textContent = filtered.length;
+    if (unitEl) unitEl.textContent = filtered.length === 1 ? 'call' : 'calls';
+    wsreRenderList(filtered, wsreRenderRow, 'calls');
+  }
 };
 
 function wsreFmtMs(ms) {
@@ -567,7 +618,11 @@ function wsreUpdateStats(filtered) {
 }
 
 window.wsreSelectSlowest = function() {
-  if (window._wsreSlowestId === null || !wsreVList) return;
+  if (window._wsreSlowestId === null) return;
+  // The stat points at one call, which the endpoint view has no row for —
+  // switch back rather than doing nothing on a click that looks actionable.
+  if (wsreView !== 'calls') window.wsreSetView('calls');
+  if (!wsreVList) return;
   const idx = wsreVList.indexOf(c => c.id === window._wsreSlowestId);
   if (idx < 0) return;
   window._wsreActiveId = window._wsreSlowestId;
@@ -643,16 +698,63 @@ function wsreRenderRow(c) {
   return el;
 }
 
-function wsreRenderList(list) {
+// One row per endpoint. Same grid as #wsre-list-header-endpoint.
+function wsreRenderEndpointRow(g) {
+  const el = document.createElement('div');
+  el.className = 'wsre-list-item';
+  el.style.display = 'grid';
+  el.style.gridTemplateColumns = '60px 84px 84px 84px 60px 1fr';
+  el.style.padding = 'var(--sp-2) var(--sp-3)';
+  el.style.borderBottom = '1px solid var(--border)';
+  el.style.fontSize = '0.8rem';
+  el.style.cursor = 'pointer';
+  el.style.color = 'var(--text)';
+
+  const selected = window._wsreActiveId != null && g.worst && g.worst.id === window._wsreActiveId;
+  el.style.background = selected ? 'var(--bg-active)' : 'transparent';
+
+  const countColor = g.count >= 10 ? 'var(--danger)' : (g.count > 1 ? 'var(--warning)' : 'var(--text)');
+  const unansweredBadge = g.unanswered
+    ? '<span title="' + g.unanswered + ' of these calls have no response in the log" style="margin-left:4px;color:var(--text-muted);cursor:help">…</span>'
+    : '';
+  const coverage = g.timedCount
+    ? g.timedCount + ' of ' + g.count + ' call(s) have a paired response and therefore a duration'
+    : 'No response was found in the log for any of these calls — the log carries no duration for this endpoint';
+  const methods = Array.from(g.methods).join(', ');
+
+  el.innerHTML =
+    '<div style="font-weight:600; color:' + countColor + '">×' + g.count + unansweredBadge + '</div>' +
+    '<div style="font-weight:600; color:' + (g.sumMs === null ? 'var(--text-muted)' : 'var(--accent)') + '" title="' + coverage + '">' + (g.sumMs === null ? '–' : wsreFmtMs(g.sumMs)) + '</div>' +
+    '<div>' + (g.avgMs === null ? '<span style="color:var(--text-muted)">–</span>' : wsreFmtMs(g.avgMs)) + '</div>' +
+    '<div>' + (g.maxMs === null ? '<span style="color:var(--text-muted)">–</span>' : wsreFmtMs(g.maxMs)) + '</div>' +
+    '<div style="font-weight:600; color:' + (g.errors ? 'var(--danger)' : 'var(--text-muted)') + '">' + (g.errors || '–') + '</div>' +
+    '<div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="' + (methods + ' ' + g.endpoint).replace(/"/g, '&quot;') + '"><span style="color:var(--text-muted)">' + methods + '</span> ' + window.escHtml(g.endpoint) + '</div>';
+
+  el.onmouseenter = () => { if (!selected) el.style.background = 'var(--bg-hover)'; };
+  el.onmouseleave = () => { if (!selected) el.style.background = 'transparent'; };
+  // Opens the endpoint's slowest call, so the payload/header tabs keep working.
+  el.onclick = () => {
+    window._wsreActiveId = g.worst ? g.worst.id : null;
+    if (wsreVList) wsreVList.refresh();
+    if (g.worst) wsreSelectCall(g.worst);
+  };
+  return el;
+}
+
+// Both views share the virtual list; the row renderer is fixed at creation, so
+// switching views rebuilds it rather than repainting rows of the wrong shape.
+function wsreRenderList(list, renderRow, mode) {
   const container = document.getElementById('wsre-call-list');
   if (!container) return;
+  if (wsreVList && wsreVListMode !== mode) { wsreVList.destroy(); wsreVList = null; }
+  wsreVListMode = mode;
   if (list.length === 0) {
     if (wsreVList) { wsreVList.destroy(); wsreVList = null; }
     container.innerHTML = '<div style="padding:var(--sp-5); text-align:center; color:var(--text-muted); font-size:0.85rem;">No calls found matching criteria.</div>';
     return;
   }
   if (!wsreVList) {
-    wsreVList = window.createVirtualList({ container: container, renderRow: wsreRenderRow });
+    wsreVList = window.createVirtualList({ container: container, renderRow: renderRow });
   }
   wsreVList.setItems(list);
 }
@@ -763,6 +865,52 @@ function wsreEndpointTotals(calls) {
     e.count += 1;
   });
   return map;
+}
+
+// ── "By endpoint" aggregate ──────────────────────────────────────────────────
+// An integration incident is "endpoint X fires 300× on page open, averaging
+// 700 ms", not "call #4172 took 900 ms". The per-call list cannot say that, and
+// wsreEndpointTotals — which already existed — only fed a single line in the
+// detail pane. This is the same fold, surfaced as a view.
+//
+// Durations exist only for calls whose response was found in the log, so the
+// timed count travels with each group: an endpoint whose responses were never
+// logged reports null, not 0 ms, and its call count still tells the story.
+function wsreAggregateByEndpoint(calls) {
+  const map = new Map();
+  (calls || []).forEach(function (c) {
+    const key = wsreEndpoint(c) || '(unknown endpoint)';
+    let g = map.get(key);
+    if (!g) {
+      g = { endpoint: key, sample: c, worst: null, count: 0, timedCount: 0, sumMs: 0,
+            avgMs: null, maxMs: null, errors: 0, unanswered: 0, uncertain: 0, methods: new Set() };
+      map.set(key, g);
+    }
+    g.count++;
+    if (c.method) g.methods.add(c.method);
+    if (wsreIsError(c)) g.errors++;
+    if (c.endTs === null) g.unanswered++;
+    if (c.uncertain) g.uncertain++;
+    const d = (c.durationMs !== null && !isNaN(c.durationMs)) ? c.durationMs : NaN;
+    if (!isNaN(d)) {
+      g.timedCount++;
+      g.sumMs += d;
+      if (g.maxMs === null || d > g.maxMs) { g.maxMs = d; g.worst = c; }
+    }
+  });
+
+  const groups = Array.from(map.values());
+  groups.forEach(function (g) {
+    g.avgMs = g.timedCount ? g.sumMs / g.timedCount : null;
+    if (!g.timedCount) g.sumMs = null;
+    if (!g.worst) g.worst = g.sample;
+  });
+  // Total time first, then call volume for the endpoints the log never timed.
+  groups.sort(function (a, b) {
+    const d = (b.sumMs || 0) - (a.sumMs || 0);
+    return d !== 0 ? d : b.count - a.count;
+  });
+  return groups;
 }
 
 function wsreFmtBytes(n) {
@@ -891,8 +1039,28 @@ window.wsreShowInLogViewer = function() {
 // ── Export (currently filtered calls) ────────────────────────────────────────
 
 const WSRE_EXPORT_HEADER = ['Time', 'Node', 'Direction', 'Method', 'Status', 'Duration (ms)', 'Endpoint', 'Microflow', 'Corr ID', 'Flags'];
+// Endpoints are a different shape from calls, so the export follows the active
+// view. "Timed" travels with the totals for the same reason it does on screen.
+const WSRE_ENDPOINT_EXPORT_HEADER = ['Calls', 'Total (ms)', 'Avg (ms)', 'Max (ms)', 'Timed', 'Errors', 'No response', 'Methods', 'Endpoint'];
+
+function wsreExportHeader() { return wsreView === 'endpoint' ? WSRE_ENDPOINT_EXPORT_HEADER : WSRE_EXPORT_HEADER; }
+
+function wsreEndpointExportRows(groups) {
+  return groups.map(g => [
+    g.count,
+    g.sumMs === null ? '' : +g.sumMs.toFixed(3),
+    g.avgMs === null ? '' : +g.avgMs.toFixed(3),
+    g.maxMs === null ? '' : +g.maxMs.toFixed(3),
+    g.timedCount,
+    g.errors || '',
+    g.unanswered || '',
+    Array.from(g.methods).join(' '),
+    g.endpoint
+  ]);
+}
 
 function wsreExportRows() {
+  if (wsreView === 'endpoint') return wsreEndpointExportRows(wsreLastEndpoints);
   return wsreLastFiltered.map(c => [
     c.startTs,
     c.node,
@@ -931,6 +1099,21 @@ window.wsreReportSection = function(fromMs, toMs) {
       [c.uncertain ? 'uncertain-pairing' : '', c.timeoutSuspect ? 'timeout-suspect' : ''].filter(Boolean).join(' ')
     ];
   });
+  // The report follows the active view, like the exports do: a reader looking at
+  // per-endpoint totals needs that table, not several thousand single calls.
+  // The "N with error status" phrasing is kept in both shapes — the Incident
+  // Report's own summary line parses that number out of this subtitle.
+  if (wsreView === 'endpoint') {
+    const groups = wsreAggregateByEndpoint(inWin);
+    return {
+      id: 'ws-rest-extractor', title: 'REST & WS Extractor — integration calls (by endpoint)',
+      subtitle: groups.length + ' endpoint' + (groups.length === 1 ? '' : 's') + ' from ' + inWin.length +
+        ' call' + (inWin.length === 1 ? '' : 's') + (errors ? ' · ' + errors + ' with error status' : ''),
+      columns: WSRE_ENDPOINT_EXPORT_HEADER, rows: wsreEndpointExportRows(groups), total: groups.length,
+      firstMs: firstMs === Infinity ? null : firstMs, lastMs: lastMs === -Infinity ? null : lastMs
+    };
+  }
+
   return {
     id: 'ws-rest-extractor', title: 'REST & WS Extractor — integration calls',
     subtitle: rows.length + ' call' + (rows.length === 1 ? '' : 's') + (errors ? ' · ' + errors + ' with error status' : ''),
@@ -942,7 +1125,7 @@ window.wsreReportSection = function(fromMs, toMs) {
 window.wsreExportCsv = function() {
   if (wsreLastFiltered.length === 0) { window.mtToast('Nothing to export — load a log first (and check the active filters).', 'warning'); return; }
   const esc = v => '"' + String(v).replace(/"/g, '""') + '"';
-  const lines = [WSRE_EXPORT_HEADER.map(esc).join(',')];
+  const lines = [wsreExportHeader().map(esc).join(',')];
   for (const row of wsreExportRows()) lines.push(row.map(esc).join(','));
   window.downloadText(lines.join('\n'), 'rest-ws-calls.csv');
 };
@@ -951,8 +1134,8 @@ window.wsreCopyMarkdown = function(btn) {
   if (wsreLastFiltered.length === 0) { window.mtToast('Nothing to copy — load a log first (and check the active filters).', 'warning'); return; }
   const esc = v => String(v).replace(/\|/g, '\\|').replace(/\n/g, ' ');
   const lines = [
-    '| ' + WSRE_EXPORT_HEADER.join(' | ') + ' |',
-    '|' + WSRE_EXPORT_HEADER.map(() => '---').join('|') + '|'
+    '| ' + wsreExportHeader().join(' | ') + ' |',
+    '|' + wsreExportHeader().map(() => '---').join('|') + '|'
   ];
   for (const row of wsreExportRows()) lines.push('| ' + row.map(esc).join(' | ') + ' |');
   navigator.clipboard.writeText(lines.join('\n')).then(() => {

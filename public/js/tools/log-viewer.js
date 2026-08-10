@@ -643,7 +643,12 @@ function logExplainError(idx) {
   if (!e) return;
   if (window.navigateWithReturn) window.navigateWithReturn('error-decoder');
   else if (window.navigate) window.navigate('error-decoder', null);
-  if (window.edxDecodeText) window.edxDecodeText(e.msg);
+  // The decoder's checklist says things like "look for two commits around this
+  // timestamp" — so send the timestamp and correlation ID along with the message
+  // instead of dropping them here. They are what turns those buttons from a
+  // suggestion into navigation.
+  const corr = e.raw.match(LOG_CORRID_PAT);
+  if (window.edxDecodeText) window.edxDecodeText(e.msg, { ts: e.ts, corrId: corr ? corr[0] : null });
 }
 
 // ============================================================

@@ -5,6 +5,31 @@ function escRegex(s){return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');}
 function copyToClipboard(text){if(navigator.clipboard)navigator.clipboard.writeText(text).catch(()=>fallbackCopy(text));else fallbackCopy(text);}
 function fallbackCopy(text){const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);}
 function downloadText(text,filename){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'text/plain'}));a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),10000);}
+// ── Mendix table → entity ────────────────────────────────────────────────────
+// PostgreSQL names tables `module$entity`; a Mendix developer thinks in
+// `Module.Entity`. When a domain model has been loaded from a live database
+// (Domain Model & Architecture → Load model from database) the translation is
+// published on window._mxTableMap, and the SQL-facing tools can speak the
+// developer's language instead of the database's.
+//
+// Progressive enrichment, the same contract edxMapTables already proves: with no
+// model loaded this returns null and every caller renders exactly what it
+// rendered before. A live database is a bonus here, never a requirement.
+let mxTableIdx = null, mxTableIdxFor = null;
+function mxEntityForTable(table) {
+  const map = window._mxTableMap;
+  if (!map || !table) return null;
+  // Rebuild the lookup only when a different map object arrives — the callers
+  // are row renderers, so this runs per visible row.
+  if (mxTableIdxFor !== map) {
+    mxTableIdx = {};
+    Object.keys(map).forEach(function (k) { mxTableIdx[String(k).toLowerCase()] = map[k]; });
+    mxTableIdxFor = map;
+  }
+  const key = String(table).replace(/^public\./i, '').replace(/"/g, '').trim().toLowerCase();
+  return mxTableIdx[key] || null;
+}
+
 function handleTextFileDrop(e, inputId, callbackName) {
   e.preventDefault();
   e.currentTarget.classList.remove('drag-over');
@@ -50,6 +75,7 @@ document.addEventListener('keydown', e => {
 // --- AUTO-GENERATED ESM EXPORTS ---
 window.escHtml = escHtml;
 window.escRegex = escRegex;
+window.mxEntityForTable = mxEntityForTable;
 window.copyToClipboard = copyToClipboard;
 window.fallbackCopy = fallbackCopy;
 window.downloadText = downloadText;

@@ -17,6 +17,7 @@ const IR_SOURCES = [
   { id: 'microflow-tracer',    label: 'Microflow Tracer — executions',       fn: 'mftReportSection' },
   { id: 'ws-rest-extractor',   label: 'REST & WS Extractor — calls',         fn: 'wsreReportSection' },
   { id: 'nginx-log',           label: 'Nginx — HTTP requests',               fn: 'nginxReportSection' },
+  { id: 'har-analyzer',        label: 'Client Traffic (HAR) — browser calls', fn: 'harReportSection' },
   { id: 'thread-dump',         label: 'JVM Health — thread dump',            fn: 'thread-dump-noop' }
 ];
 // JVM uses a different (argument-less) accessor name; map it explicitly.

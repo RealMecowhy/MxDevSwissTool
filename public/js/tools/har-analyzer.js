@@ -7,9 +7,11 @@
 // ============================================================
 
 let harEntries = [];
+let harLastCalls = [];   // the decoded Mendix calls of the current HAR, for the Incident Report
 
 function harReset() {
   harEntries = [];
+  harLastCalls = [];
   document.getElementById('har-results').style.display = 'none';
   document.getElementById('har-empty').style.display = 'flex';
   const input = document.getElementById('har-file-input');
@@ -261,6 +263,7 @@ function harAnalyze(har) {
   });
 
   const pageGroups = harGroupByPage(xasList, (har.log && har.log.pages) || []);
+  harLastCalls = xasList;
 
   harRender({ total: entries.length, xasCount, totalTime, totalBytes, xasBytes, xasTime, groupArr, xasList, detections, pageGroups });
 }
@@ -484,6 +487,47 @@ function harOpenXpathInFormatter() {
     if (window.formatXPathClick) window.formatXPathClick();
   }
 }
+
+// Incident Report source: the Mendix calls decoded from the loaded HAR, narrowed
+// to [fromMs, toMs]. This is the client half of an incident — until now every
+// section of the report stopped at the server boundary, even though the browser
+// timings were sitting right here, already decoded.
+//
+// Note on time: `x.startMs` is an offset relative to the first Mendix call (the
+// waterfall's own origin), not an epoch — the report needs absolute time to line
+// up with the log tools, so it is resolved from `x.started` here.
+window.harReportSection = function (fromMs, toMs) {
+  if (!harLastCalls.length) return null;
+  let firstMs = Infinity, lastMs = -Infinity;
+  const rows = [];
+  harLastCalls.forEach(function (x) {
+    const ms = Date.parse(x.started);
+    if (!isNaN(ms)) {
+      if (fromMs != null && ms < fromMs) return;
+      if (toMs != null && ms > toMs) return;
+      if (ms < firstMs) firstMs = ms;
+      if (ms > lastMs) lastMs = ms;
+    }
+    rows.push([
+      x.started || '',
+      x.action || '',
+      x.detail || '',
+      x.time != null ? +x.time.toFixed(1) : '',
+      x.bytes != null ? x.bytes : '',
+      x.status !== undefined && x.status !== null ? x.status : ''
+    ]);
+  });
+  if (!rows.length) return null;
+  return {
+    id: 'har-analyzer',
+    title: 'Client Traffic (HAR) — browser calls',
+    subtitle: rows.length + ' Mendix call' + (rows.length === 1 ? '' : 's') + ' decoded from the browser capture',
+    columns: ['Started', 'Action', 'Detail', 'Duration (ms)', 'Bytes', 'Status'],
+    rows: rows, total: rows.length,
+    firstMs: firstMs === Infinity ? null : firstMs,
+    lastMs: lastMs === -Infinity ? null : lastMs
+  };
+};
 
 // --- ESM EXPORTS ---
 window.harLoadFile = harLoadFile;
