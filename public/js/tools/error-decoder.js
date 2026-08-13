@@ -1139,6 +1139,387 @@
           { text: 'Trace the microflow to the activity that dereferenced it and find where the value should have been set.', tool: 'microflow-tracer' }
         ];
       }
+    },
+    // ── Mendix platform — second mining pass (wave 20) ──────────────────────
+    // Measured, not guessed: the 43 rules above were run over 340 863 real
+    // ERROR/WARNING/CRITICAL records from ten production apps (3.1 GB, 10.08–
+    // 13.08.2026) and recognised 75.7% of them by volume. Grouping the 82 891
+    // misses by log node showed ~58% were *platform* signatures the ruleset had
+    // no rule for; the rest were custom log nodes of one app each, which are
+    // deliberately left unmatched because they generalise to no other Mendix app.
+    // The thirteen rules below close that platform gap (measured: 75.7% → 89.7%).
+    //
+    // Most of them decode a WARNING rather than an exception. That is the point:
+    // these are the lines an operator scrolls past for months, and each one names
+    // a concrete modelling defect. Their specificity is set below the exception
+    // rules so they can never outrank a real root cause that appears alongside.
+    {
+      id: 'mx-autocommitted-on-logout',
+      title: 'Autocommitted objects survived until logout',
+      category: 'Platform',
+      // 25 301 records across 5 of the 10 apps — the single largest platform gap.
+      specificity: 78,
+      patterns: [/Some autocommitted objects still existed on logout for session '([^']*)'/i],
+      mechanism: function (m) {
+        const who = m[1] ? ' The session named here is <code>' + edxHtmlEscape(m[1]) + '</code>.' : '';
+        return 'Objects were created in this session and never explicitly committed, but Mendix wrote them to the database anyway because something associated with them <em>was</em> committed — that is what "autocommitted" means. They stayed in the database, owned by nothing, until the session ended; at logout the runtime deleted them again to avoid leaving corrupt rows behind. The message lists the count per entity on the lines below it.' + who;
+      },
+      causes: function () {
+        return [
+          'A microflow created an object, associated it with an object it then committed, and never committed or deleted the new object itself — the classic source of this warning.',
+          'A page created an object for the user to fill in (a wizard step, a temporary selection) and the user navigated away or logged out instead of finishing.',
+          'A non-persistable entity was modelled as persistable, so what was meant to be scratch data reaches the database on every association commit.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Read the entity names on the lines beneath this message (<code>- Module.Entity: N object(s).</code>) — they point straight at the microflow or page that creates them.' },
+          { text: 'Decide per entity whether it should be committed or deleted, or whether it should be non-persistable at all — the warning does not say which, only that neither happened.' },
+          { text: 'Check whether the same entity appears for many different sessions: one entity across many users is a modelling defect, a single session is a one-off abandoned wizard.', tool: 'log-viewer' },
+          { text: 'The deletes the runtime performs at logout show up as DELETE statements in the same window.', tool: 'log-query-extractor' }
+        ];
+      }
+    },
+    {
+      id: 'mx-slow-query-warning',
+      title: 'Query exceeded the slow-query threshold',
+      category: 'Database',
+      specificity: 76,
+      // `ConnectionBus_Queries` emits this verbatim once a statement passes the
+      // configured threshold. Seconds/milliseconds are captured so the card can
+      // state the actual duration.
+      patterns: [/Query executed in (\d+) seconds? and (\d+) milliseconds?:/i],
+      mechanism: function (m) {
+        const s = parseInt(m[1], 10) || 0;
+        const ms = parseInt(m[2], 10) || 0;
+        return 'The runtime timed a single SQL statement at <strong>' + edxHtmlEscape(String(s)) + ' s ' + edxHtmlEscape(String(ms)) + ' ms</strong> and logged it on <code>ConnectionBus_Queries</code> because it passed the configured slow-query threshold. The statement itself follows the message. The query <em>succeeded</em> — this is a duration report, not a failure, and the user waited at least this long for whatever triggered it.';
+      },
+      causes: function () {
+        return [
+          'A retrieve over an XPath that cannot use an index — most often a constraint over an association path, or a <code>contains()</code> that becomes a leading-wildcard LIKE.',
+          'A missing index on a column the generated WHERE or JOIN filters on.',
+          'The query returns or scans far more rows than the page shows, because the retrieve has no limit and paging is applied after the fact.',
+          'The statement is fine but the database was under load at that moment — the same query at other times would then be fast.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Check whether this same statement is slow every time or only sometimes: consistently slow is a plan/index problem, intermittently slow is contention.', tool: 'log-query-extractor' },
+          { text: 'Read the generated SQL under the message and map it back to the entity and XPath that produced it — the table aliases carry the module and entity names.' },
+          { text: 'Run the statement through an execution plan to see whether it scans where it should seek, and check with the suite\'s Index Advisor whether the WHERE/JOIN columns are actually indexed before adding anything.', tool: 'query-intelligence' },
+          { text: 'If the XPath uses <code>contains()</code> on a leading wildcard, that alone prevents an index from being used, whatever indexes exist.', tool: 'xpath-builder' }
+        ];
+      }
+    },
+    {
+      id: 'mx-widget-missing-parameter',
+      title: 'Widget XPath is missing a parameter it references',
+      category: 'Platform',
+      specificity: 74,
+      patterns: [/runtime operation '([^']*)' is missing parameters: \[([^\]]*)\]\. This might lead to an unresolvable XPath/i],
+      mechanism: function (m) {
+        const params = m[2] ? '<code>' + edxHtmlEscape(m[2]) + '</code>' : 'a parameter';
+        return 'A data source on a page declares an XPath constraint that references ' + params + ', but the client sent the request without supplying it. The runtime executed the retrieve anyway with that token unresolved, so the constraint did not filter the way the model says it should — silently returning the wrong set rather than throwing.';
+      },
+      causes: function () {
+        return [
+          'The XPath uses <code>$Search</code> (or another search-field variable) but the search field it belongs to is not on the page, was removed, or is not wired to this data source.',
+          'The XPath uses <code>[%CurrentObject%]</code> while the widget sits outside any data view providing that object — for example a list view placed next to, rather than inside, its context container.',
+          'A snippet containing the widget is reused in a page that does not supply the same context the snippet assumes.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Read the XPath quoted in the message — it names the entity and the token that stayed unresolved, which identifies the data source in Studio Pro.' },
+          { text: 'Open the page holding that data source and confirm the widget really is inside a container that provides the missing parameter.' },
+          { text: 'Compare the rows the user actually saw against what the constraint should have allowed — an unresolved constraint usually means too much data was returned, which is a security-relevant outcome, not only a cosmetic one.' },
+          { text: 'Check the retrieve this produced in the SQL log: the generated WHERE clause shows what the constraint collapsed to.', tool: 'log-query-extractor' }
+        ];
+      }
+    },
+    {
+      id: 'mx-microflow-not-permitted',
+      title: 'User attempted an action they are not allowed to run',
+      category: 'Authentication',
+      specificity: 80,
+      // Two phrasings appear in the wild depending on runtime version; both name
+      // the user and the microflow, and both mean the runtime refused the call.
+      patterns: [
+        /User '([^']*)' attempted to execute runtime operation '[^']*' \(microflow call '([^']*)'\) but does not have the required permissions/i,
+        /User '([^']*)' attempted to execute the microflow with action name '([^']*)',? but does not have the required permissions/i
+      ],
+      mechanism: function (m) {
+        const who = m[1] ? '<code>' + edxHtmlEscape(m[1]) + '</code>' : 'a user';
+        const mf = m[2] ? ' <code>' + edxHtmlEscape(m[2]) + '</code>' : '';
+        return 'The client asked the runtime to execute microflow' + mf + ' on behalf of ' + who + ', and the runtime refused because none of that user\'s roles grants access to it. <strong>Security worked</strong> — the microflow did not run. The line records the attempt, which is why it is worth reading rather than filtering.';
+      },
+      causes: function () {
+        return [
+          'The button or action is visible to a role that cannot execute the microflow behind it — visibility and execution rights were configured separately and drifted apart.',
+          'A user\'s roles changed (or a role lost a microflow grant on redeploy) while their session was still open with the old page loaded.',
+          'A deliberate attempt to invoke an operation the user discovered but is not entitled to — the same line covers both, so the pattern across users and time is what distinguishes them.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Count distinct users hitting this same microflow: many users means a misconfigured button, one user repeatedly means something worth looking at directly.', tool: 'log-viewer' },
+          { text: 'Compare the microflow\'s allowed roles in Studio Pro against the roles that can reach the page or button that calls it — the gap between the two is the defect.' },
+          { text: 'Check whether the same session produced other refusals in the same window.', tool: 'log-viewer' }
+        ];
+      }
+    },
+    {
+      id: 'mx-tokenreplacer-null-ids',
+      title: 'Retrieve by ID received a null ID list',
+      category: 'Platform',
+      specificity: 82,
+      // Verbatim Scala `require` failure from the runtime's data layer; the
+      // `Ids should not be null` text is emitted by DataStorageCore.retrieveId.
+      patterns: [
+        /requirement failed: Ids should not be null/i,
+        /IllegalArgumentException: requirement failed: Ids should not be null/i
+      ],
+      mechanism: function () {
+        return 'The runtime\'s data layer was asked to retrieve objects by ID and the ID collection handed to it was <code>null</code> rather than an empty list. A Scala <code>require</code> precondition in <code>DataStorageCore.retrieveId</code> rejected the call before any SQL ran, so this fails immediately and identically every time — nothing was read from the database.';
+      },
+      causes: function () {
+        return [
+          'A caller passed an uninitialised list where the API expects a (possibly empty) collection — an empty list is legal here, <code>null</code> is not.',
+          'An association or list variable was empty on this path and was forwarded straight into a retrieve-by-ID without a check.',
+          'A Marketplace module or custom Java action built the ID list from a lookup that returned nothing and did not normalise the result.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Read the stack under this line: the frame directly above <code>DataStorageCore.retrieveId</code> names the module or Java action that supplied the null.' },
+          { text: 'Check whether the failure is constant rather than load-dependent — a precondition failure is deterministic, which separates it from a timeout or contention issue.', tool: 'log-viewer' },
+          { text: 'Trace the microflow that invokes it to the activity producing the ID list.', tool: 'microflow-tracer' }
+        ];
+      }
+    },
+    {
+      id: 'mail-illegal-address',
+      title: 'Email rejected — malformed recipient address',
+      category: 'Integration',
+      specificity: 80,
+      // The offending string is captured from the ``…'' quoting javax.mail uses.
+      patterns: [
+        /AddressException:\s*(?:Illegal address|Domain contains illegal character|Local address contains illegal character|Missing final '@domain')[^`']*``([^']*)''/i,
+        /javax\.mail\.internet\.AddressException/i,
+        /Sending email caused an error:\s*(?:Illegal address|Domain contains illegal character)/i
+      ],
+      mechanism: function (m) {
+        const raw = m[1];
+        const shown = raw ? '<code>' + edxHtmlEscape(raw) + '</code>' : 'the address it was given';
+        const empty = raw === '' ? ' Here the string is <strong>empty</strong> — the address field was blank by the time the send ran.' : '';
+        return 'The mail library parsed ' + shown + ' as an RFC&nbsp;822 address and rejected it, so the message was never handed to the SMTP server. The failure is in the address string itself, not in connectivity or credentials — the mail server was never contacted.' + empty;
+      },
+      causes: function (m) {
+        const raw = m[1] || '';
+        const glued = /@[^\s;,]*@/.test(raw) || /\.[a-z]{2,}[a-z]{3,}@/i.test(raw);
+        return [
+          'Several addresses were concatenated without a separator, producing one invalid string instead of a recipient list — a comma or semicolon is missing where the list is assembled.' + (glued ? ' <strong>The captured string here shows exactly that shape: two addresses run together.</strong>' : ''),
+          'The recipient attribute was empty or whitespace when the send activity ran, because the retrieve that should have filled it returned nothing.',
+          'User-entered or imported data reached the address field without validation — trailing text, a display name, or a stray character.',
+          'A template or configuration value that should hold an address holds something else (a name, a placeholder that was never substituted).'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Read the quoted string in the message literally, including its length — an empty <code>``\'\'</code> and two glued-together addresses are different defects with different fixes.' },
+          { text: 'Find where the recipient list is built and confirm the separator used when joining multiple addresses.', tool: 'microflow-tracer' },
+          { text: 'Check whether the same malformed value recurs or each failure carries a different string: a recurring value is one bad record, varying values point at the joining logic.', tool: 'log-viewer' }
+        ];
+      }
+    },
+    {
+      id: 'mx-import-attribute-parse',
+      title: 'Import mapping could not parse a value into an attribute',
+      category: 'Integration',
+      specificity: 78,
+      patterns: [/A problem occurred parsing attribute '([^']*)' of object of type '([^']*)'\. The value was '([^']*)'/i],
+      mechanism: function (m) {
+        const attr = m[1] ? '<code>' + edxHtmlEscape(m[1]) + '</code>' : 'an attribute';
+        const type = m[2] ? ' on <code>' + edxHtmlEscape(m[2]) + '</code>' : '';
+        const val = m[3] === '' ? 'an <strong>empty</strong> value' : '<code>' + edxHtmlEscape(m[3]) + '</code>';
+        return 'An import mapping (JSON or XML) reached ' + attr + type + ' and could not turn ' + val + ' into the attribute\'s declared type, so the import stopped on this object. The message reports the attribute, the entity and the exact value — the transport and the schema match, the individual value does not.';
+      },
+      causes: function () {
+        return [
+          'The attribute is an enumeration and the incoming value is not one of its members — an empty string is the most common case, because "no value" is not a member unless it is modelled as one.',
+          'The value is longer than the attribute\'s maximum length (the wrapped exception is then a <code>StringLengthException</code> naming both lengths).',
+          'A number, date or boolean arrives in a format the parser does not accept — a locale-specific decimal separator, or a date without the expected pattern.',
+          'The source system started sending a value it never sent before, so a mapping that worked for months now fails on one record.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Read the wrapped exception directly beneath this line — it distinguishes an invalid enumeration member from a length overflow from a format mismatch, which need different fixes.' },
+          { text: 'Compare the reported value against the attribute\'s definition in Studio Pro (enumeration members, max length, type).' },
+          { text: 'Decide whether the mapping should reject or tolerate this value — an optional field receiving an empty string usually wants the attribute to allow it, not the sender to change.' },
+          { text: 'Inspect the raw payload that carried it to see whether one sender or one record is responsible.', tool: 'ws-rest-extractor' }
+        ];
+      }
+    },
+    {
+      id: 'mx-xsd-validation-failed',
+      title: 'XML failed schema (XSD) validation',
+      category: 'Integration',
+      specificity: 79,
+      // `cvc-*` are the W3C schema-assertion codes Xerces emits verbatim, so the
+      // rule fires regardless of which layer wrapped the parse failure.
+      patterns: [/(cvc-[a-z0-9-]+(?:\.[0-9a-z]+)*)\s*:\s*([^\n]{0,200})/i],
+      mechanism: function (m) {
+        const code = m[1] ? '<code>' + edxHtmlEscape(m[1]) + '</code>' : 'a schema assertion';
+        return 'An XML document was validated against an XSD and violated ' + code + ' — one of the W3C schema-assertion codes the parser emits verbatim. Validation failed before the document was mapped, so nothing was imported from it. The text after the code names the element that broke the rule and, usually, what was expected instead.';
+      },
+      causes: function (m) {
+        const code = m[1] || '';
+        const list = [];
+        if (/cvc-complex-type/i.test(code)) {
+          list.push('An element appeared where the schema did not allow it — often a whole SOAP envelope being validated against the schema of its <em>body</em>, so <code>Header</code> shows up where <code>Body</code> was expected. That is a wiring mistake, not a bad document.');
+        }
+        if (/cvc-(?:fractionDigits|maxLength|minLength|maxInclusive|minInclusive|length|pattern)/i.test(code)) {
+          list.push('A value is well-formed but outside a facet the schema declares (too many fraction digits, too long, outside a range, not matching a pattern) — the sender\'s precision or field width does not match the contract.');
+        }
+        list.push('The sender is using a newer or older version of the contract than the XSD deployed here.');
+        list.push('A namespace differs from the one the schema declares, so elements that look correct do not match.');
+        list.push('The document is assembled by string concatenation somewhere upstream and is not schema-valid by construction.');
+        return list;
+      },
+      checks: function () {
+        return [
+          { text: 'Read the assertion text: it names the element found and the element expected, which localises the problem to one position in the document.' },
+          { text: 'Confirm you are validating the right fragment — a <code>Header</code>/<code>Body</code> mismatch means the envelope is being fed to a schema written for the payload.' },
+          { text: 'Compare the deployed XSD against the version the sender built against.' },
+          { text: 'Check the document for invisible control characters or a BOM if the assertion looks impossible from reading the text.', tool: 'char-sanitizer' }
+        ];
+      }
+    },
+    {
+      id: 'saml-nothing-returned-for-id',
+      title: 'SAML artifact resolution returned nothing',
+      category: 'Authentication',
+      specificity: 76,
+      patterns: [/Nothing was returned for the requested ID/i],
+      mechanism: function () {
+        return 'The SAML module held a request ID and asked the identity provider for the assertion belonging to it, and the IdP answered without one. Login stops here: the runtime has a reference it cannot resolve into an authenticated identity, so no session is created. This is the artifact-binding leg of the flow, not the assertion-validation leg — the response arrived, it was simply empty.';
+      },
+      causes: function () {
+        return [
+          'The artifact was already resolved once — artifacts are single-use, so a retry, a refresh, or a duplicate callback finds nothing the second time.',
+          'The artifact expired before it was resolved; IdPs keep them for a very short window.',
+          'The runtime restarted (or the request was served by a different instance) between issuing the request and resolving the artifact, so the in-memory request state was gone.',
+          'The IdP and the SP disagree on which entity the artifact belongs to, so the lookup succeeds but matches no stored request.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Check whether the user reached a working session on a retry — a one-off failure that self-heals points at a duplicate or expired artifact rather than a broken configuration.' },
+          { text: 'Correlate the timestamp with app restarts or a scale event: lost in-memory request state explains a burst of these at one moment.', tool: 'log-viewer' },
+          { text: 'Inspect the SAML exchange and compare the request ID issued against the one resolved.', tool: 'saml-debugger' },
+          { text: 'Confirm the 303 redirect to <code>/SSO/assertion</code> actually arrived for these attempts.', tool: 'nginx-log' }
+        ];
+      }
+    },
+    {
+      id: 'poi-summaryinformation-null',
+      title: 'Excel/Office document has no summary metadata (benign)',
+      category: 'Integration',
+      // Deliberately low: this is noise, and must never outrank a real failure
+      // that happens to appear in the same pasted block.
+      specificity: 40,
+      patterns: [/(?:Document)?SummaryInformation property set came back as null/i],
+      mechanism: function () {
+        return 'Apache POI — the library Mendix uses to read Office documents — opened the file, looked for its optional <code>SummaryInformation</code> / <code>DocumentSummaryInformation</code> property stream (title, author, company) and did not find one, so it logged this and carried on. <strong>Nothing failed.</strong> The document was still read; only the optional metadata block is absent.';
+      },
+      causes: function () {
+        return [
+          'The file was produced by a generator (a reporting tool, a script, an export from another system) that writes cells but not the optional document-properties stream — by far the most common case.',
+          'The document properties were deliberately stripped, e.g. by a privacy/metadata-removal step before the file was sent.',
+          'The file is an older or minimal Office format variant that does not carry the stream at all.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Treat this as noise unless an actual import failure appears alongside it — the presence of this line says nothing about whether the import succeeded.' },
+          { text: 'If it dominates the log, it is worth filtering rather than fixing: the volume tracks how many generated files you import, not how many of them are broken.', tool: 'log-viewer' },
+          { text: 'Only if an import did fail, look for the real error near this line — POI logs this before it reports anything that actually went wrong.' }
+        ];
+      }
+    },
+    {
+      id: 'mx-user-creation-disabled',
+      title: 'SSO could not create a user — module setting is off',
+      category: 'Authentication',
+      specificity: 84,
+      patterns: [/User creation is currently disabled due to the inactive status of the '([^']*)' setting/i],
+      mechanism: function (m) {
+        const s = m[1] ? '<code>' + edxHtmlEscape(m[1]) + '</code>' : 'the user-creation setting';
+        return 'An authenticated identity arrived for which no local user account exists, and the module that would normally provision one refused because ' + s + ' is switched off in its configuration. Authentication itself succeeded — the identity is valid; the app simply has nowhere to put it, so the login cannot complete.';
+      },
+      causes: function () {
+        return [
+          'Just-in-time provisioning was never enabled in this environment, while accounts are expected to be created up front by a sync or by an administrator.',
+          'The environment was configured by copying another environment\'s configuration, where the setting was intentionally off.',
+          'The setting is off on purpose and this user genuinely should not have an account — in which case the correct outcome is exactly what happened.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Decide first whether users are meant to be provisioned automatically here at all — enabling the setting is only right if the answer is yes.' },
+          { text: 'If accounts come from a sync instead, check whether that sync ran and why this identity is missing from it.', tool: 'log-viewer' },
+          { text: 'Confirm the identity provider is sending the attributes the module needs to build an account, since provisioning would fail for a second reason otherwise.', tool: 'saml-debugger' }
+        ];
+      }
+    },
+    {
+      id: 'mx-cachebust-missing',
+      title: 'Static resource requested without a cachebust token',
+      category: 'Platform',
+      specificity: 60,
+      patterns: [/Invalid request for '([^']*)': no cachebust query string found/i],
+      mechanism: function (m) {
+        const f = m[1] ? '<code>' + edxHtmlEscape(m[1]) + '</code>' : 'a static resource';
+        return 'The runtime serves ' + f + ' only with the cache-busting query string it stamps into the deployed client, and this request arrived without one, so it was refused. Nothing in the application failed — the request did not come from a page this deployment served.';
+      },
+      causes: function () {
+        return [
+          'A browser or installed PWA is running a cached client from a previous deployment and still requests the old, unstamped URL.',
+          'A crawler, uptime monitor or link checker fetched the path directly, without going through the page that supplies the token.',
+          'A hard-coded reference somewhere (a bookmark, an external page, a mobile wrapper) points at the bare path.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Check the user agent behind these requests in the access log — a monitor or crawler explains them entirely and needs no fix.', tool: 'nginx-log' },
+          { text: 'If they come from real browsers, see whether they cluster shortly after a deployment: that is stale clients aging out, and it stops on its own.', tool: 'log-viewer' },
+          { text: 'Persistent requests from real users point at a cached service worker that is not updating — reproduce with an empty profile to confirm.' }
+        ];
+      }
+    },
+    {
+      id: 'mx-delete-after-download',
+      title: 'Delete-after-download on a file shown in the browser',
+      category: 'Platform',
+      specificity: 58,
+      patterns: [/Deleting files after download, which are also shown in the browser without caching them, will prevent files from being saved/i],
+      mechanism: function () {
+        return 'A download action is configured both to show the file in the browser (rather than force a save dialog) and to delete it afterwards, with caching off. The runtime is warning that these settings contradict each other: the browser displays the file in its viewer, and when the user then presses Save, the bytes are gone — the runtime already deleted them.';
+      },
+      causes: function () {
+        return [
+          '"Show in browser" and "Delete after download" are both enabled on the same download action, which is the exact combination this warning describes.',
+          'The file is a temporary generated document (a PDF report, an export) that the model intends to clean up immediately, without accounting for the browser viewing it rather than saving it.'
+        ];
+      },
+      checks: function () {
+        return [
+          { text: 'Open the download action and check the two settings together — the warning is about their combination, not either one alone.' },
+          { text: 'Decide which behaviour you actually want: forcing a save makes deletion safe, while showing in the browser means cleanup must happen later (a scheduled event), not on download.' },
+          { text: 'Check whether users have reported failed saves of this document — the warning fires on configuration, so it appears whether or not anyone has actually hit the problem.', tool: 'log-viewer' }
+        ];
+      }
     }
   ];
 
@@ -1235,7 +1616,10 @@ const EDX_TOOL_LABELS = {
   'thread-dump': 'JVM Health',
   'log-viewer': 'Log Viewer',
   'nginx-log': 'Nginx Log Analyzer',
-  'saml-debugger': 'SAML / OIDC Debugger'
+  'saml-debugger': 'SAML / OIDC Debugger',
+  'query-intelligence': 'Query Intelligence Suite',
+  'xpath-builder': 'XPath Formatter',
+  'char-sanitizer': 'Char Sanitizer'
 };
 
 function edxEsc(s) {

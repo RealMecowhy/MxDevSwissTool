@@ -1396,6 +1396,125 @@ ok('errdec: clean keeps unprefixed stack frames verbatim', cleaned.indexOf('\tat
 ok('errdec: clean drops blank lines', cleaned.split('\n').every(function (l) { return l.trim() !== ''; }));
 eq('errdec: clean is a no-op on already-plain text', edxCleanStackTrace('Caused by: java.lang.NullPointerException'), 'Caused by: java.lang.NullPointerException');
 
+// ── Wave 20: platform rules from the second mining pass ──────────────────────
+// Every line below is verbatim from the NewLogs corpus (10 production apps,
+// 3.1 GB, 10–13.08.2026). The ruleset recognised 75.7% of its 340 863
+// ERROR/WARNING records before these rules and 89.7% after.
+ok('errdec: autocommitted objects on logout',
+  edxIds("Core: Some autocommitted objects still existed on logout for session 'Anonymous_8c483d2b-9242-4b10-9ef1-36e495d960d7'.")
+    .indexOf('mx-autocommitted-on-logout') !== -1);
+ok('errdec: slow query warning',
+  edxIds('ConnectionBus_Queries: Query executed in 6 seconds and 794 milliseconds: SELECT "myconnect$ticketmc"."id" FROM "myconnect$ticketmc"')
+    .indexOf('mx-slow-query-warning') !== -1);
+ok('errdec: slow query states the measured duration',
+  /6 s 794 ms/.test(edxTop('ConnectionBus_Queries: Query executed in 6 seconds and 794 milliseconds: SELECT 1').mechanism));
+// "1 second"/"1 millisecond" singular must match too.
+ok('errdec: slow query handles singular units',
+  edxIds('Query executed in 1 second and 1 millisecond: SELECT 1').indexOf('mx-slow-query-warning') !== -1);
+ok('errdec: widget missing XPath parameter',
+  edxIds("WebUI: The runtime operation 'XCLCU1T9sVGRCPbmKhEJNA' is missing parameters: [Search]. This might lead to an unresolvable XPath: '//myConnect.TeamMC[contains(Name,$Search)]'.")
+    .indexOf('mx-widget-missing-parameter') !== -1);
+ok('errdec: widget rule names the missing parameter',
+  /Search/.test(edxTop("WebUI: The runtime operation 'X' is missing parameters: [Search]. This might lead to an unresolvable XPath: '//A[1]'.").mechanism));
+// Both runtime phrasings of the permission refusal are the same family.
+ok('errdec: permission refusal (runtime-operation phrasing)',
+  edxIds("WebUI: User 'zala2@raben-group.com' attempted to execute runtime operation 'nFjwXyMA4F6N8suJZAXz4A' (microflow call 'TicketsAndTeams.ACT_ShowDetailsPageOperator') but does not have the required permissions")
+    .indexOf('mx-microflow-not-permitted') !== -1);
+ok('errdec: permission refusal (action-name phrasing)',
+  edxIds("WebUI: User 'oara1@raben-group.com' attempted to execute the microflow with action name 'TimeWindows_DeliveryShow', but does not have the required permissions.")
+    .indexOf('mx-microflow-not-permitted') !== -1);
+ok('errdec: permission refusal names the microflow',
+  /TimeWindows_DeliveryShow/.test(edxTop("WebUI: User 'a@b.c' attempted to execute the microflow with action name 'TimeWindows_DeliveryShow', but does not have the required permissions.").mechanism));
+ok('errdec: TokenReplacer null ID list',
+  edxIds('TokenReplacer: requirement failed: Ids should not be null\njava.lang.IllegalArgumentException: requirement failed: Ids should not be null')
+    .indexOf('mx-tokenreplacer-null-ids') !== -1);
+ok('errdec: malformed email address',
+  edxIds("Email: Sending email caused an error: Illegal address\nCaused by: javax.mail.internet.AddressException: Illegal address in string ``''")
+    .indexOf('mail-illegal-address') !== -1);
+// The real defect behind 147 of these: two addresses concatenated with no separator.
+ok('errdec: glued-together addresses are called out',
+  /two addresses run together/.test(edxTop("javax.mail.internet.AddressException: Domain contains illegal character in string ``kacper.dabrowski@raben-group.comanna.wesolek@raben-group.com''").causes[0]));
+ok('errdec: an empty address string is reported as empty',
+  /empty<\/strong>/.test(edxTop("javax.mail.internet.AddressException: Illegal address in string ``''").mechanism));
+ok('errdec: import mapping attribute parse failure',
+  edxIds("JSON Import: A problem occurred parsing attribute 'Loading_Country' of object of type 'Integration.ShipmentTemp'. The value was ''. This isn't allowed by the schema.")
+    .indexOf('mx-import-attribute-parse') !== -1);
+ok('errdec: import parse failure names attribute and entity',
+  /Loading_Country[\s\S]*Integration\.ShipmentTemp/.test(edxTop("XML Import: A problem occurred parsing attribute 'Loading_Country' of object of type 'Integration.ShipmentTemp'. The value was 'x'.").mechanism));
+ok('errdec: XSD validation failure',
+  edxIds("XML Import: Error occurred while parsing xml: cvc-complex-type.2.4.a: Invalid content was found starting with element '{\"http://schemas.xmlsoap.org/soap/envelope/\":Header}'.")
+    .indexOf('mx-xsd-validation-failed') !== -1);
+ok('errdec: XSD complex-type failure suggests the envelope/body mix-up',
+  /Header<\/code>/.test(edxTop('cvc-complex-type.2.4.a: Invalid content was found starting with element X.').causes[0]));
+ok('errdec: XSD facet failure suggests a facet mismatch',
+  /facet/i.test(edxTop("cvc-fractionDigits-valid: Value '1201.9901' has 4 fraction digits, but the number of fraction digits has been limited to 2.").causes[0]));
+ok('errdec: SAML artifact resolved to nothing',
+  edxIds('SAML_SSO: Error occurred while making request: Nothing was returned for the requested ID.')
+    .indexOf('saml-nothing-returned-for-id') !== -1);
+ok('errdec: POI missing summary metadata',
+  edxIds('org.apache.poi.POIDocument: SummaryInformation property set came back as null')
+    .indexOf('poi-summaryinformation-null') !== -1);
+ok('errdec: POI variant with the Document prefix',
+  edxIds('org.apache.poi.POIDocument: DocumentSummaryInformation property set came back as null')
+    .indexOf('poi-summaryinformation-null') !== -1);
+// It is noise: it must never outrank a real failure pasted alongside it.
+eq('errdec: POI noise never outranks a real error',
+  edxTop('org.apache.poi.POIDocument: SummaryInformation property set came back as null\nERROR: deadlock detected').id, 'pg-deadlock');
+ok('errdec: POI card says nothing actually failed',
+  /Nothing failed/i.test(edxTop('SummaryInformation property set came back as null').mechanism));
+ok('errdec: SSO user creation disabled',
+  edxIds("UserCommons: User creation is currently disabled due to the inactive status of the 'Allow module to Create users' setting in the Configuration.")
+    .indexOf('mx-user-creation-disabled') !== -1);
+ok('errdec: missing cachebust token',
+  edxIds("Connector: Invalid request for 'manifest.webmanifest': no cachebust query string found.")
+    .indexOf('mx-cachebust-missing') !== -1);
+ok('errdec: delete-after-download contradiction',
+  edxIds("Connector: Deleting files after download, which are also shown in the browser without caching them, will prevent files from being saved after it's been shown in the browser.")
+    .indexOf('mx-delete-after-download') !== -1);
+
+// EDX_TOOL_LABELS is a module-scoped const in the decoder's UI half, so it is
+// not reachable through `global`; read it from the source instead. Every id it
+// labels must also be a real tool in core.js — a check pointing at an id that
+// no tool owns (e.g. a sub-feature name like "index-advisor", which lives
+// inside the Query Intelligence Suite) renders a button that opens nothing.
+const edxSource = require('fs').readFileSync(
+  require('path').join(__dirname, '..', 'public', 'js', 'tools', 'error-decoder.js'), 'utf8');
+const edxLabelBlock = (edxSource.match(/const EDX_TOOL_LABELS = \{([\s\S]*?)\};/) || [, ''])[1];
+const EDX_LABELLED_TOOLS = (edxLabelBlock.match(/'([^']+)':/g) || [])
+  .map(function (s) { return s.slice(1, -2); });
+ok('errdec: tool-label map was parsed', EDX_LABELLED_TOOLS.length >= 7, EDX_LABELLED_TOOLS.length);
+const coreSource = require('fs').readFileSync(
+  require('path').join(__dirname, '..', 'public', 'js', 'core.js'), 'utf8');
+EDX_LABELLED_TOOLS.forEach(function (id) {
+  ok('errdec: labelled tool "' + id + '" is a real tool in core.js',
+    coreSource.indexOf("{id:'" + id + "',") !== -1);
+});
+
+// The wave-20 rules must satisfy the same contract as every rule before them.
+['mx-autocommitted-on-logout', 'mx-slow-query-warning', 'mx-widget-missing-parameter',
+ 'mx-microflow-not-permitted', 'mx-tokenreplacer-null-ids', 'mail-illegal-address',
+ 'mx-import-attribute-parse', 'mx-xsd-validation-failed', 'saml-nothing-returned-for-id',
+ 'poi-summaryinformation-null', 'mx-user-creation-disabled', 'mx-cachebust-missing',
+ 'mx-delete-after-download'].forEach(function (id) {
+  const rule = global.EDX_RULES.filter(function (r) { return r.id === id; })[0];
+  ok('errdec: ' + id + ' is registered', !!rule);
+  if (!rule) return;
+  const m = ['x', 'x', 'x'];
+  ok('errdec: ' + id + ' explains a mechanism', rule.mechanism(m).length > 60);
+  ok('errdec: ' + id + ' lists causes as hypotheses', rule.causes(m).length >= 2);
+  ok('errdec: ' + id + ' offers checks', rule.checks(m).length >= 1);
+  const prose = rule.mechanism(m) + ' ' + rule.causes(m).join(' ') + ' ' + rule.checks(m).map(function (c) { return c.text; }).join(' ');
+  ok('errdec: ' + id + ' does not prescribe a fix',
+    !/\b(you should|you must|simply add|just add|fix it by)\b/i.test(prose));
+  // A check may only point at a tool the decoder can actually label — an
+  // unlabelled id silently renders no button, so the link would just vanish.
+  rule.checks(m).forEach(function (c) {
+    if (!c.tool) return;
+    ok('errdec: ' + id + ' links only labelled tools (' + c.tool + ')',
+      EDX_LABELLED_TOOLS.indexOf(c.tool) !== -1, c.tool);
+  });
+});
+
 // ── Shared export helpers (public/js/components/exporters.js) ────────────────
 // Pure builders attach to window/self; the browser-only download/copy wrappers
 // are guarded by `typeof document`, so require() in Node loads just the builders.
@@ -3092,13 +3211,54 @@ console.log('\nHTTP Status Codes');
 require('../public/js/tools/http-codes.js');
 
 const httpCodes = global.HTTP_CODES;
-eq('http codes: 22 codes total (unchanged by the 10.6 content pass)', httpCodes.length, 22);
+eq('http codes: 25 codes total (22 + 303/408/560 from the NewLogs pass)', httpCodes.length, 25);
 ok('http codes: every code has a non-empty "In Mendix" note', httpCodes.every(c => c.mendix && c.mendix.trim().length > 0));
 ok('http codes: the Mendix note is distinct from the generic description (no duplication)', httpCodes.every(c => c.mendix !== c.desc));
 ok('http search: matches by code number', global.httpMatchesSearch(httpCodes.find(c => c.code === 404), '404'));
 ok('http search: matches by name', global.httpMatchesSearch(httpCodes.find(c => c.code === 404), 'not found'));
 ok('http search: matches Mendix-specific content too (not just the generic desc)', global.httpMatchesSearch(httpCodes.find(c => c.code === 403), 'microflow'));
 ok('http search: a non-matching query excludes the code', !global.httpMatchesSearch(httpCodes.find(c => c.code === 404), 'gateway timeout'));
+
+// Coverage of *reality*: every status code below was observed in 7 791 364 real
+// requests across ten production Mendix apps. A reference table that silently
+// lacks one sends the reader to a search engine, which is the failure this
+// tool exists to prevent.
+[200, 301, 302, 303, 400, 401, 403, 404, 405, 408, 422, 500, 502, 560].forEach(function (code) {
+  ok('http codes: observed-in-production code ' + code + ' has an entry',
+    httpCodes.some(c => c.code === code));
+});
+// 551 occurred exactly once in the corpus — too thin to define, so it is named
+// in the 560 entry rather than given a fabricated meaning of its own.
+ok('http codes: the one-off 551 is explained in prose, not invented as an entry',
+  !httpCodes.some(c => c.code === 551) &&
+  /\b551\b/.test(httpCodes.map(c => c.name + c.desc + c.info + c.mendix).join(' ')));
+
+// Structural invariants for every entry, old and new.
+httpCodes.forEach(function (c) {
+  eq('http codes: ' + c.code + ' category matches its first digit', c.cat, String(c.code)[0]);
+  ok('http codes: ' + c.code + ' has name/desc/info', !!(c.name && c.desc && c.info));
+});
+ok('http codes: no duplicate codes', new Set(httpCodes.map(c => c.code)).size === httpCodes.length);
+ok('http codes: listed in ascending order',
+  httpCodes.every((c, i) => i === 0 || c.code > httpCodes[i - 1].code));
+
+// The three new entries carry the specific claims the log evidence supports.
+ok('http search: "560" is reachable', httpCodes.some(c => global.httpMatchesSearch(c, '560')));
+ok('http search: "551" reaches the entry that explains it', httpCodes.some(c => global.httpMatchesSearch(c, '551')));
+ok('http search: "sso" reaches the 303 entry',
+  httpCodes.filter(c => global.httpMatchesSearch(c, 'sso')).some(c => c.code === 303));
+ok('http search: "deep link" reaches the 303 entry',
+  httpCodes.filter(c => global.httpMatchesSearch(c, 'deep link')).some(c => c.code === 303));
+// 401 is two unrelated problems sharing one code; the entry must separate them.
+const http401 = httpCodes.find(c => c.code === 401);
+ok('http codes: 401 separates the /xas/ session case from the integration case',
+  /xas/.test(http401.mendix) && /odata|rest/i.test(http401.mendix), http401.mendix);
+// 560 is not IANA-registered — the entry must say so rather than implying a standard,
+// and must send the reader to the runtime log instead of guessing a cause.
+const http560 = httpCodes.find(c => c.code === 560);
+ok('http codes: 560 is flagged as non-standard', /non-standard|outside the IANA/i.test(http560.desc + http560.info));
+ok('http codes: 560 points at the runtime log rather than naming a cause', /runtime log/i.test(http560.mendix));
+ok('http codes: 303 is presented as normal traffic, not a fault', /not<\/strong> a problem|normally/i.test(http560 && httpCodes.find(c => c.code === 303).mendix));
 
 // =========================================================================
 // API ECONOMICS — real GZIP measurement, $select hint, compare mode (10.7)
@@ -3579,6 +3739,92 @@ eq('hour derivation: ISO/Mendix-style timestamp format', global.nginxDeriveHourS
 eq('hour derivation: unrecognized format falls back to a 13-char slice, not a crash', global.nginxDeriveHourStr('unrecognized-format-string'), 'unrecognized-'.slice(0, 13));
 
 ok('worker threshold: matches the 2 MB convention shared with LQE/MFT/WSRE', global.NGINX_WORKER_THRESHOLD === 2 * 1024 * 1024);
+
+// ── 404 classification (nginxClassifyTraffic) ────────────────────────────────
+// Every path below is verbatim from the NewLogs corpus. The rule it encodes:
+// a 404 belongs to a SCANNER, to a browser CONVENTION, or to your own APP —
+// and only the last is actionable. In 48 499 real 404s the old inline detector
+// flagged 2.9%; this classifier attributes ~96% to scanners and leaves 1.6% in
+// the app bucket, which is where the four genuinely broken references sat.
+const nxClassify = global.nginxClassifyTraffic;
+const nx404 = (url, ip, ua) => ({ status: 404, url: url, ip: ip || '10.0.0.1', userAgent: ua || 'Mozilla/5.0' });
+
+// Only 404s are classified — a 200 to the same path is normal traffic.
+eq('classify: non-404 requests are ignored',
+  nxClassify([{ status: 200, url: '/wp-login.php', ip: '1.2.3.4', userAgent: 'x' }]).total404, 0);
+eq('classify: empty input is not an error', nxClassify([]).total404, 0);
+
+// Scanner detection by path — a Mendix app serves no PHP/JSP/ASP/CGI at all,
+// which is what makes this signal honest rather than a guess.
+const nxScan = nxClassify([
+  nx404('/wp-login.php', '9.9.9.1'), nx404('/cgi-bin/login.cgi', '9.9.9.2'),
+  nx404('/realms/master/protocol/openid-connect/auth', '9.9.9.3'),
+  nx404('/+CSCOT+/translation-table', '9.9.9.4'), nx404('/_ignition/execute-solution', '9.9.9.5'),
+  nx404('/.env', '9.9.9.6'), nx404('/nuclei.svg', '9.9.9.7'), nx404('/graphql', '9.9.9.8')
+]);
+eq('classify: eight distinct real probe shapes all land in the scanner bucket', nxScan.scanner.requests, 8);
+eq('classify: ...and none of them leak into the app bucket', nxScan.app.requests, 0);
+ok('classify: the PHP reason explains why it is safe to dismiss',
+  /serves none/i.test(nxScan.scanner.paths.filter(p => p.path === '/wp-login.php')[0].reason));
+
+// Scanner detection by user agent, whatever the path.
+eq('classify: a known scanner user agent is enough on its own',
+  nxClassify([nx404('/', '9.9.9.9', 'Mozilla/5.0 (compatible; Nuclei - Open-source project)')]).scanner.requests, 1);
+
+// Browser/OS conventions are their own bucket — neither a fault nor an attack.
+const nxConv = nxClassify([
+  nx404('/apple-touch-icon.png', '1.1.1.1'), nx404('/apple-touch-icon-precomposed.png', '1.1.1.2'),
+  nx404('/favicon.ico', '1.1.1.3'), nx404('/.well-known/assetlinks.json', '1.1.1.4'),
+  nx404('/robots.txt', '1.1.1.5')
+]);
+eq('classify: browser/OS convention requests are neither scanner nor app', nxConv.convention.requests, 5);
+eq('classify: ...and they contribute no scanner sources', nxConv.sources.length, 0);
+
+// The app bucket: the honest default when nothing is proven.
+const nxApp = nxClassify([
+  nx404('/rest/networkerforshuttleplan/v1/leadtime', '2.2.2.1'),
+  nx404('/ui/theme-cape/images/myRaben_logoRed.png', '2.2.2.2'),
+  nx404('/fonts/KFOlCnqEu92Fr1MmEU9fABc4EsA.woff2', '2.2.2.3'),
+  nx404('/widgets/AutoCompleteForMendix.js.map', '2.2.2.4')
+]);
+eq('classify: a real broken app reference stays in the app bucket', nxApp.app.requests, 4);
+ok('classify: the app reason says it is most likely yours',
+  /your own app/i.test(nxApp.app.paths[0].reason), nxApp.app.paths[0].reason);
+
+// The behavioural pass — this is what shrank the app bucket from 45% to 1.6%
+// without maintaining an endless blocklist of probe paths.
+const nxSweepIp = '7.7.7.7';
+const nxSweep = nxClassify([
+  nx404('/wp-login.php', nxSweepIp), nx404('/index.php', nxSweepIp), nx404('/admin/index.php', nxSweepIp),
+  nx404('/ZXv3sTuY.htm', nxSweepIp)  // random name, matches no pattern — but same sweep
+]);
+eq('classify: an unrecognised path from a proven scanner IP is attributed to the sweep', nxSweep.app.requests, 0);
+ok('classify: ...and the reason says so explicitly',
+  /same source as \d+ confirmed probes/.test(nxSweep.scanner.paths.filter(p => p.path === '/ZXv3sTuY.htm')[0].reason));
+// The threshold protects a real user whose bookmark went stale.
+const nxFewProbes = nxClassify([
+  nx404('/wp-login.php', '8.8.8.8'),                 // 1 probe only — below NGINX_PROBE_MIN
+  nx404('/my/old/bookmarked/page', '8.8.8.8')
+]);
+eq('classify: one stray probe does not condemn that IP\'s other 404s', nxFewProbes.app.requests, 1);
+
+// Sources feed the "Scanner sources" table: ranked, with distinct-path breadth,
+// and preferring a concrete pattern reason over the derived one.
+const nxSrc = nxClassify([
+  nx404('/wp-login.php', '5.5.5.5'), nx404('/index.php', '5.5.5.5'), nx404('/admin.php', '5.5.5.5'),
+  nx404('/aaa.htm', '5.5.5.5'), nx404('/.env', '6.6.6.6')
+]);
+eq('classify: scanner sources are ranked by hits', nxSrc.sources[0].ip, '5.5.5.5');
+eq('classify: a source reports how many distinct paths it swept', nxSrc.sources[0].distinctPaths, 4);
+ok('classify: a source shows a concrete reason, not the derived "same source" text',
+  !/^same source as/.test(nxSrc.sources[0].reason), nxSrc.sources[0].reason);
+
+// A query string must not split one path into many rows.
+eq('classify: the query string is stripped before grouping',
+  nxClassify([nx404('/wp-login.php?a=1', '3.3.3.1'), nx404('/wp-login.php?a=2', '3.3.3.2')]).scanner.paths.length, 1);
+// Missing/odd fields must not throw — real logs carry "-" and empty agents.
+ok('classify: survives missing url/userAgent fields',
+  nxClassify([{ status: 404, ip: '-' }, { status: '404', url: '/x', ip: '-', userAgent: null }]).total404 === 2);
 
 // nginxStreamParseFile is async (it streams a Blob) — chained into the same
 // async sequence as the other async suites below so its assertions land
