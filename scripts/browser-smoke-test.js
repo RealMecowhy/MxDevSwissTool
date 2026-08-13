@@ -96,9 +96,18 @@ const LOG_SECOND_CORR = [
   '2026-07-20T10:00:11.000000 ' + P + '   DEBUG - MicroflowEngine: [1784273164806-115] Finished execution of microflow \'Mod.RefreshList\''
 ].join('\n');
 
+// Carries all three 404 populations the analyzer must tell apart: a scanner
+// sweep (four probes from one IP, so the behavioural pass engages), a browser
+// convention, and one genuinely broken reference in the app itself.
 const NGINX_LOG = [
   '10.0.0.1 - - [20/Jul/2026:10:00:01 +0000] "GET /xas/ HTTP/1.1" 200 512 "-" "Mozilla/5.0" 0.412',
-  '10.0.0.2 - - [20/Jul/2026:10:00:02 +0000] "POST /xas/ HTTP/1.1" 500 128 "-" "Mozilla/5.0" 1.900'
+  '10.0.0.2 - - [20/Jul/2026:10:00:02 +0000] "POST /xas/ HTTP/1.1" 500 128 "-" "Mozilla/5.0" 1.900',
+  '9.9.9.9 - - [20/Jul/2026:10:00:03 +0000] "GET /wp-login.php HTTP/1.1" 404 64 "-" "Mozilla/5.0" 0.001',
+  '9.9.9.9 - - [20/Jul/2026:10:00:04 +0000] "GET /cgi-bin/index.php HTTP/1.1" 404 64 "-" "Mozilla/5.0" 0.001',
+  '9.9.9.9 - - [20/Jul/2026:10:00:05 +0000] "GET /admin/index.php HTTP/1.1" 404 64 "-" "Mozilla/5.0" 0.001',
+  '9.9.9.9 - - [20/Jul/2026:10:00:06 +0000] "GET /qZk3xT.htm HTTP/1.1" 404 64 "-" "Mozilla/5.0" 0.001',
+  '10.0.0.3 - - [20/Jul/2026:10:00:07 +0000] "GET /apple-touch-icon.png HTTP/1.1" 404 64 "-" "Mozilla/5.0" 0.001',
+  '10.0.0.4 - - [20/Jul/2026:10:00:08 +0000] "GET /ui/theme/images/logo.png HTTP/1.1" 404 64 "-" "Mozilla/5.0" 0.001'
 ].join('\n');
 
 async function run() {
@@ -248,6 +257,23 @@ async function run() {
       const r = document.getElementById('nginx-results');
       return r && getComputedStyle(r).display !== 'none';
     }, { timeout: 20000 });
+
+    // 404 classification must reach the DOM, not just pass in Node: the summary
+    // row, the "yours" tag on the app-owned path, and the scanner source table.
+    // Read while the Dashboard tab is still showing — the Streams tab below
+    // replaces what is on screen.
+    const nx404Html = await page.evaluate(() =>
+      document.getElementById('nx-404-table').querySelector('tbody').innerHTML);
+    ok('nginx 404 table summarises the three populations', /from your own app/.test(nx404Html), nx404Html.slice(0, 200));
+    ok('nginx 404 table tags the app-owned reference first',
+      nx404Html.indexOf('yours') !== -1 && nx404Html.indexOf('/ui/theme/images/logo.png') !== -1, nx404Html.slice(0, 400));
+    ok('nginx 404 table keeps the browser-convention 404 out of the app bucket',
+      nx404Html.indexOf('/apple-touch-icon.png') === -1, nx404Html.slice(0, 400));
+    const nxBotsHtml = await page.evaluate(() =>
+      document.getElementById('nx-bots-table').querySelector('tbody').innerHTML);
+    ok('nginx scanner-source table names the sweeping IP', /9\.9\.9\.9/.test(nxBotsHtml), nxBotsHtml.slice(0, 200));
+    ok('nginx scanner-source table reports how many distinct paths it swept', /distinct path/.test(nxBotsHtml));
+
     // The per-row jump lives in the Streams tab.
     await page.evaluate(() => {
       const tab = document.querySelector('#panel-nginx-log [onclick*="nginxSwitchTab"][onclick*="stream"]');

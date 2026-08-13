@@ -285,6 +285,125 @@ function nginxParseLine(line) {
 // same list nginxAggregateAndRender already builds referrersMap from in a
 // separate pass below), not folded into the main stats loop, so it stays
 // independently testable without the DOM-heavy render function around it.
+// ── 404 classification (pure; window/self like edxDecode / logExtractInsights) ─
+//
+// Why this exists: in a real Mendix access log the 404s are not one population
+// but three, and mixing them hides the only one the developer can act on. In
+// 7 791 364 requests from ten production apps there were 48 499 404s, of which
+// ~96% were internet scanners probing for software the app does not run. The
+// handful that were genuinely broken references in the app itself — a REST
+// endpoint, a theme image, a webfont, two widget source maps — sat invisibly
+// underneath them.
+//
+// The classifier therefore answers "whose fault is this 404", not "is this a
+// bot": SCANNER (a probe for software you do not run), CONVENTION (a browser or
+// OS asking for something it always asks for), or APP (everything left — most
+// likely your own reference, and the honest default when nothing is proven).
+const NGINX_SCANNER_PATH = [
+  [/\.(?:php|phtml|jsp|jspx|asp|aspx|cgi|pl|do|action)(?:[/?]|$)/i, 'requests a PHP/JSP/ASP/CGI file — a Mendix app serves none'],
+  [/\/(?:wp-admin|wp-login|wp-json|wp-content|wp-includes|xmlrpc)/i, 'WordPress path'],
+  [/\/(?:phpmyadmin|pma|adminer|myadmin)(?:[/?]|$)/i, 'database admin panel probe'],
+  [/\/cgi-bin(?:[/?]|$)/i, 'CGI directory probe'],
+  [/\/\.(?:env|git|svn|aws|ssh|hg|bzr|bak)(?:[/?]|$)/i, 'secrets/VCS/backup file probe'],
+  [/\/(?:realms\/master|auth\/realms)/i, 'Keycloak probe'],
+  [/\/\+CSCOT\+\//i, 'Cisco appliance probe'],
+  [/\/(?:nagiosxi|CDGServer3|kylin|solr|jenkins|zabbix|grafana|_session|actuator|jmx-console|struts|_ignition|server-status)(?:[/?]|$)/i, 'probe for third-party software you do not run'],
+  [/\/(?:manager\/html|host-manager)/i, 'Tomcat manager probe'],
+  [/\/(?:nuclei|lander)(?:[./?]|$)/i, 'known scanner artefact'],
+  [/\/(?:graphql|api\/graphql)(?:[/?]|$)/i, 'GraphQL probe — Mendix publishes REST/OData, not GraphQL'],
+  [/(?:union\s+select|etc\/passwd|cmd\.exe|\/bin\/sh|%00|\.\.[/\\])/i, 'injection or path-traversal attempt'],
+  [/\/(?:login|admin|signin|user\/login|session_login)(?:[/?]|$)/i, 'generic login-page probe'],
+  [/\/(?:heapdump|\.DS_Store|web\.config|\.htaccess)(?:[/?]|$)/i, 'sensitive-file probe']
+];
+const NGINX_SCANNER_UA = [
+  [/(?:nikto|nmap|sqlmap|zgrab|masscan|nuclei|wpscan|dirbuster|gobuster|feroxbuster|netsparker|acunetix|zmeu)/i, 'known scanner user agent']
+];
+// Requested automatically by browsers/OSes; a 404 here means "not configured",
+// never "broken", so it must not be mixed into either of the other buckets.
+const NGINX_CONVENTION_PATH = [
+  [/^\/apple-touch-icon/i, 'iOS home-screen icon — Safari requests it unprompted'],
+  [/^\/favicon\.ico$/i, 'browser favicon request'],
+  [/^\/\.well-known\//i, 'well-known URI (app links, security.txt, change-password)'],
+  [/^\/(?:robots\.txt|sitemap\.xml|browserconfig\.xml|ads\.txt|llms\.txt)$/i, 'crawler/OS convention file']
+];
+// An IP needs this many pattern-confirmed probes before its *other* 404s are
+// attributed to the same sweep. Keeps one stray request from turning a real
+// user's stale bookmark into a "scanner".
+const NGINX_PROBE_MIN = 3;
+
+function nginxMatchList(list, value) {
+  for (let i = 0; i < list.length; i++) {
+    if (list[i][0].test(value)) return list[i][1];
+  }
+  return null;
+}
+
+// records → { total404, scanner, convention, app, sources }
+// Each bucket carries { requests, paths:[{path,hits,reason}] }; `sources` ranks
+// the IPs behind the scanner traffic. Pure: no DOM, no globals, safe in Node.
+function nginxClassifyTraffic(records) {
+  const rows = [];
+  for (let i = 0; i < records.length; i++) {
+    const r = records[i];
+    if (Number(r.status) !== 404) continue;
+    const url = String(r.url == null ? '' : r.url).replace(/\?.*/, '');
+    const ua = String(r.userAgent == null ? '' : r.userAgent);
+    let bucket = 'app';
+    let reason = 'not a known probe or browser convention — most likely a reference in your own app';
+    const uaHit = nginxMatchList(NGINX_SCANNER_UA, ua);
+    const convHit = uaHit ? null : nginxMatchList(NGINX_CONVENTION_PATH, url);
+    const pathHit = (uaHit || convHit) ? null : nginxMatchList(NGINX_SCANNER_PATH, url);
+    if (uaHit) { bucket = 'scanner'; reason = uaHit; }
+    else if (convHit) { bucket = 'convention'; reason = convHit; }
+    else if (pathHit) { bucket = 'scanner'; reason = pathHit; }
+    rows.push({ url: url, ip: r.ip || '-', bucket: bucket, reason: reason, byPattern: bucket === 'scanner' });
+  }
+
+  // Second pass — behaviour beats pattern matching. An IP that provably probed
+  // for software you do not run is not a legitimate client, so the rest of its
+  // 404s belong to the same sweep. This is what keeps the APP bucket small
+  // without maintaining an ever-growing blocklist of probe paths.
+  const confirmed = {};
+  rows.forEach(function (r) { if (r.byPattern) confirmed[r.ip] = (confirmed[r.ip] || 0) + 1; });
+  rows.forEach(function (r) {
+    if (r.bucket === 'app' && (confirmed[r.ip] || 0) >= NGINX_PROBE_MIN) {
+      r.bucket = 'scanner';
+      r.reason = 'same source as ' + confirmed[r.ip] + ' confirmed probes from this IP';
+    }
+  });
+
+  const buckets = { scanner: {}, convention: {}, app: {} };
+  const counts = { scanner: 0, convention: 0, app: 0 };
+  const sources = {};
+  rows.forEach(function (r) {
+    counts[r.bucket]++;
+    const b = buckets[r.bucket];
+    if (!b[r.url]) b[r.url] = { path: r.url, hits: 0, reason: r.reason };
+    b[r.url].hits++;
+    if (r.bucket !== 'scanner') return;
+    if (!sources[r.ip]) sources[r.ip] = { ip: r.ip, hits: 0, reason: r.reason, paths: {} };
+    sources[r.ip].hits++;
+    sources[r.ip].paths[r.url] = true;
+    // Prefer a concrete pattern reason over the derived "same source as…" one.
+    if (r.byPattern && /^same source as/.test(sources[r.ip].reason)) sources[r.ip].reason = r.reason;
+  });
+
+  function rank(map) {
+    return Object.keys(map).map(function (k) { return map[k]; })
+      .sort(function (a, b) { return b.hits - a.hits; });
+  }
+
+  return {
+    total404: rows.length,
+    scanner: { requests: counts.scanner, paths: rank(buckets.scanner) },
+    convention: { requests: counts.convention, paths: rank(buckets.convention) },
+    app: { requests: counts.app, paths: rank(buckets.app) },
+    sources: Object.keys(sources).map(function (k) {
+      return { ip: sources[k].ip, hits: sources[k].hits, reason: sources[k].reason, distinctPaths: Object.keys(sources[k].paths).length };
+    }).sort(function (a, b) { return b.hits - a.hits; })
+  };
+}
+
 function nginxUniqueIpsPerUrl(records) {
   const sets = {};
   records.forEach(r => {
@@ -438,16 +557,11 @@ async function nginxAggregateAndRender() {
     errors: 0,
     ips: {},
     urls: {},
-    notFounds: {},
     statuses: {},
     os: {},
     hours: {},
-    urlTimes: {},
-    bots: {}
+    urlTimes: {}
   };
-
-  const suspiciousPatterns = ['wp-admin', '.env', '.git', 'union select', 'passwd', 'etc/', 'cmd.exe'];
-  const suspiciousAgents = ['nikto', 'nmap', 'sqlmap', 'zgrab', 'curl', 'python-requests'];
 
   filteredLogs.forEach(parsed => {
     stats.total++;
@@ -456,7 +570,6 @@ async function nginxAggregateAndRender() {
     
     stats.ips[parsed.ip] = (stats.ips[parsed.ip] || 0) + 1;
     stats.urls[parsed.url] = (stats.urls[parsed.url] || 0) + 1;
-    if (parsed.status === 404) stats.notFounds[parsed.url] = (stats.notFounds[parsed.url] || 0) + 1;
     stats.statuses[parsed.status] = (stats.statuses[parsed.status] || 0) + 1;
     stats.hours[parsed.hourStr] = (stats.hours[parsed.hourStr] || 0) + 1;
     
@@ -468,19 +581,10 @@ async function nginxAggregateAndRender() {
     stats.urlTimes[parsed.url].totalBytes += parsed.bytes;
     stats.urlTimes[parsed.url].totalTime += parsed.time || 0;
     if (parsed.time != null) stats.urlTimes[parsed.url].times.push(parsed.time);
-
-    let botReason = null;
-    const lowerUrl = parsed.url.toLowerCase();
-    const lowerUa = parsed.userAgent.toLowerCase();
-    
-    suspiciousPatterns.forEach(p => { if(lowerUrl.includes(p)) botReason = 'Suspicious Path: ' + p; });
-    suspiciousAgents.forEach(p => { if(lowerUa.includes(p)) botReason = 'Suspicious Agent: ' + p; });
-    
-    if (botReason) {
-      if (!stats.bots[parsed.ip]) stats.bots[parsed.ip] = { reason: botReason, hits: 0 };
-      stats.bots[parsed.ip].hits++;
-    }
   });
+
+  // Who the 404s belong to — scanners, browser conventions, or your own app.
+  const traffic = nginxClassifyTraffic(filteredLogs);
 
   document.getElementById('nx-total-reqs').textContent = stats.total.toLocaleString('pl-PL');
   document.getElementById('nx-unique-ips').textContent = Object.keys(stats.ips).length.toLocaleString('pl-PL');
@@ -561,12 +665,14 @@ async function nginxAggregateAndRender() {
     document.getElementById('nx-time-chart').innerHTML = '<div style="color:var(--text-muted);display:flex;align-items:center;justify-content:center;height:100%">No data</div>';
   }
 
-  const toRows = (arr, total, isIp = false, isUrl = false) => arr.map(([k, c], i) => {
+  // isUrl dropped with the old 404 table — the 404 card now renders its own rows
+  // so it can carry the classification tag, and no caller passes a URL any more.
+  const toRows = (arr, total, isIp = false) => arr.map(([k, c], i) => {
     let trHtml = `<tr>`;
     let keyStyle = `padding:4px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`;
-    if (isIp || isUrl) keyStyle += `cursor:pointer;color:var(--info);text-decoration:underline`;
-    let clickAttr = isIp ? `onclick="nginxSetFilter('ip', '${k}')"` : (isUrl ? `onclick="nginxSetFilter('url', '${k.replace(/'/g, "\\'")}')"` : '');
-    
+    if (isIp) keyStyle += `cursor:pointer;color:var(--info);text-decoration:underline`;
+    let clickAttr = isIp ? `onclick="nginxSetFilter('ip', '${k}')"` : '';
+
     trHtml += `<td style="${keyStyle}" title="${k}" ${clickAttr}>${k}</td>`;
     if (isIp) trHtml += `<td style="padding:4px 8px" id="nx-geo-${i}">Loading...</td>`;
     trHtml += `<td style="padding:4px 8px">${c.toLocaleString('pl-PL')}</td>`;
@@ -576,7 +682,6 @@ async function nginxAggregateAndRender() {
   }).join('');
 
   const topUrls = Object.entries(stats.urls).sort((a,b)=>b[1]-a[1]).slice(0,10);
-  const top404s = Object.entries(stats.notFounds).sort((a,b)=>b[1]-a[1]).slice(0,10);
   const topOs = Object.entries(stats.os).sort((a,b)=>b[1]-a[1]).slice(0,10);
   const topIps = Object.entries(stats.ips).sort((a,b)=>b[1]-a[1]).slice(0,10);
 
@@ -597,7 +702,7 @@ async function nginxAggregateAndRender() {
     .slice(0, 10)
     .map(([url, d]) => [url, d.totalBytes, d.count]);
 
-  const topBots = Object.entries(stats.bots).sort((a,b)=>b[1].hits-a[1].hits).slice(0,10);
+  const topBots = traffic.sources.slice(0, 10);
 
   const referrersMap = {};
   filteredLogs.forEach(l => {
@@ -610,7 +715,29 @@ async function nginxAggregateAndRender() {
     const uniqueIps = urlUniqueIps[url] || 0;
     return `<tr><td style="padding:4px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--info);text-decoration:underline" title="${url}" onclick="nginxSetFilter('url', '${url.replace(/'/g, "\\'")}')">${url}</td><td style="padding:4px 8px">${c.toLocaleString('pl-PL')}</td><td style="padding:4px 8px">${((c / stats.total) * 100).toFixed(1)}%</td><td style="padding:4px 8px">${uniqueIps.toLocaleString('pl-PL')}</td></tr>`;
   }).join('');
-  document.getElementById('nx-404-table').querySelector('tbody').innerHTML = toRows(top404s, 0, false, true);
+  // 404s, split by whose fault they are. The app-owned ones come first: they are
+  // the only bucket the developer can fix, and on a public app they are heavily
+  // outnumbered by scanner probes, which is exactly how they used to get missed.
+  const n404Row = (p, tag, tagColor) =>
+    `<tr><td style="padding:4px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--info);text-decoration:underline" title="${window.escHtml(p.path)} — ${window.escHtml(p.reason)}" onclick="nginxSetFilter('url', '${p.path.replace(/'/g, "\\'")}')">${window.escHtml(p.path)}</td>` +
+    `<td style="padding:4px 8px"><span style="color:${tagColor};font-size:0.7rem;text-transform:uppercase;letter-spacing:0.03em">${tag}</span> ${p.hits.toLocaleString('pl-PL')}</td></tr>`;
+  const appPaths = traffic.app.paths.slice(0, 10);
+  const fillPaths = traffic.scanner.paths.slice(0, Math.max(0, 10 - appPaths.length));
+  let n404Html = '';
+  if (traffic.total404 === 0) {
+    n404Html = '<tr><td colspan="2" style="padding:var(--sp-3);color:var(--text-muted)">No 404s in this selection.</td></tr>';
+  } else {
+    n404Html += `<tr><td colspan="2" style="padding:6px 8px;background:var(--bg-elevated);font-size:0.72rem;color:var(--text-muted)">` +
+      `${traffic.total404.toLocaleString('pl-PL')} 404s: <strong style="color:var(--danger)">${traffic.app.requests.toLocaleString('pl-PL')} from your own app</strong>, ` +
+      `${traffic.scanner.requests.toLocaleString('pl-PL')} scanner probes, ${traffic.convention.requests.toLocaleString('pl-PL')} browser conventions` +
+      `</td></tr>`;
+    if (!appPaths.length) {
+      n404Html += '<tr><td colspan="2" style="padding:6px 8px;color:var(--text-muted)">None of them point at your own app — nothing to fix here.</td></tr>';
+    }
+    n404Html += appPaths.map(p => n404Row(p, 'yours', 'var(--danger)')).join('');
+    n404Html += fillPaths.map(p => n404Row(p, 'scanner', 'var(--text-muted)')).join('');
+  }
+  document.getElementById('nx-404-table').querySelector('tbody').innerHTML = n404Html;
   document.getElementById('nx-os-table').querySelector('tbody').innerHTML = toRows(topOs, 0);
   document.getElementById('nx-ip-table').querySelector('tbody').innerHTML = toRows(topIps, stats.total, true);
 
@@ -622,9 +749,11 @@ async function nginxAggregateAndRender() {
     `<tr><td style="padding:4px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--info);text-decoration:underline" title="${u[0]}" onclick="nginxSetFilter('url', '${u[0].replace(/'/g, "\\\\'")}')">${u[0]}</td><td style="padding:4px 8px">${nginxFormatBytes(u[1])}</td><td style="padding:4px 8px">${u[2].toLocaleString('pl-PL')}</td></tr>`
   ).join('');
 
-  document.getElementById('nx-bots-table').querySelector('tbody').innerHTML = topBots.map(b =>
-    `<tr><td style="padding:4px 8px;cursor:pointer;color:var(--info);text-decoration:underline" title="${b[0]}" onclick="nginxSetFilter('ip', '${b[0]}')">${b[0]}</td><td style="padding:4px 8px;color:var(--danger)">${b[1].reason}</td><td style="padding:4px 8px">${b[1].hits.toLocaleString('pl-PL')}</td></tr>`
-  ).join('');
+  document.getElementById('nx-bots-table').querySelector('tbody').innerHTML = topBots.length
+    ? topBots.map(b =>
+        `<tr><td style="padding:4px 8px;cursor:pointer;color:var(--info);text-decoration:underline" title="${window.escHtml(b.ip)}" onclick="nginxSetFilter('ip', '${b.ip.replace(/'/g, "\\'")}')">${window.escHtml(b.ip)}</td><td style="padding:4px 8px;color:var(--danger)">${window.escHtml(b.reason)}<span style="color:var(--text-muted)"> &middot; ${b.distinctPaths.toLocaleString('pl-PL')} distinct path${b.distinctPaths === 1 ? '' : 's'}</span></td><td style="padding:4px 8px">${b.hits.toLocaleString('pl-PL')}</td></tr>`
+      ).join('')
+    : '<tr><td colspan="3" style="padding:var(--sp-3);color:var(--text-muted)">No scanner traffic in this selection — every 404 here looks like a browser convention or a reference in your own app.</td></tr>';
 
   document.getElementById('nx-ref-table').querySelector('tbody').innerHTML = toRows(topReferrers, 0);
 
@@ -955,6 +1084,7 @@ window.nginxSendToAnonymizer = nginxSendToAnonymizer;
 
 // Exposed for scripts/parser-test.js (pure functions, no DOM).
 window.nginxUniqueIpsPerUrl = nginxUniqueIpsPerUrl;
+window.nginxClassifyTraffic = nginxClassifyTraffic;
 window.nginxDeriveHourStr = nginxDeriveHourStr;
 window.nginxStreamParseFile = nginxStreamParseFile;
 window.NGINX_WORKER_THRESHOLD = NGINX_WORKER_THRESHOLD;

@@ -14,6 +14,45 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.41.0 — 2026-08-13
+
+Mined from a new reference corpus: **3.1 GB of production logs from ten Mendix
+apps** (340 863 ERROR/WARNING records, 7 791 364 HTTP requests). Every number
+below was measured by running the shipped code over that corpus, not estimated.
+
+- **Error Decoder: 43 → 56 rules, coverage 75.7% → 89.7%.** The existing ruleset
+  was run over all 340 863 records to find what it missed; grouping the 82 891
+  misses by log node showed ~58% were platform signatures with no rule. Thirteen
+  new ones close that gap: autocommitted objects surviving to logout (25 301
+  records alone), slow-query warnings, widget XPaths missing a parameter, refused
+  microflow calls, `Ids should not be null`, malformed email recipients, import
+  mapping and XSD validation failures, missing cachebust tokens, and more. Most
+  decode a *warning* rather than an exception — the lines an operator scrolls
+  past for months, each naming a concrete modelling defect. What stays unmatched
+  is deliberate: each app's own custom log nodes, which generalise to no other
+  Mendix app. `_local_assets/edx-coverage.js` reproduces the figure.
+- **Nginx Analyzer: 404s are classified by whose fault they are.** The bot
+  detector was inline in the render function — unmeasurable and untestable — and
+  caught 1 415 of 48 499 real 404s (2.9%). It is now a pure
+  `nginxClassifyTraffic(records)` splitting them into scanner probes (95.5%),
+  browser conventions (2.9%) and **your own broken references (1.6%)** — the only
+  fixable group, now listed first and tagged. That surfaced a dead REST endpoint,
+  a missing theme image, a missing webfont and two undeployed widget source maps
+  that had been invisible under the noise. Classification uses path and user agent,
+  then attributes an IP's remaining 404s to the same sweep once it has made three
+  confirmed probes — behaviour instead of an ever-growing blocklist, which is what
+  shrank the app bucket from 45.4% to 1.6%. **Scanner sources** now also reports
+  how many *distinct* paths each IP swept (the top one asked for 4 676).
+- **HTTP Status Codes: the codes a Mendix access log actually returns.** Added
+  **303** (62 769× in the corpus — SAML SSO and Deep Link completing, and normally
+  not a problem), **560** (not IANA-registered but the Mendix runtime's own, on
+  `/xas/`; established by correlation — every one lines up to the millisecond with
+  an `An error has occurred while handling the request` line in the runtime log)
+  and **408**. **401** was rewritten as the two unrelated problems that share it:
+  an expired browser session on `/xas/` versus wrong integration credentials on
+  `/odata/`–`/rest/`. `551` occurred exactly once in 7.8M requests — too thin to
+  define, so it is named in the 560 entry rather than given an invented meaning.
+
 ## v1.40.0 — 2026-08-10
 
 - **Frontend architecture documented as it actually is.** `docs/frontend-architecture.md`
