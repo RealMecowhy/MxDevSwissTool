@@ -10,10 +10,13 @@ jobs:
   lint-and-build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # v5 was the first major of both actions to run on node24; v7 is current.
+      # The runner forces node24 on anything still declaring node20, so staying
+      # on v4 meant running untested-against code plus a deprecation warning.
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
       - run: npm install
       - run: npm run lint
       - run: npm run build

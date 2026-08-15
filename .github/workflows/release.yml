@@ -13,7 +13,7 @@ jobs:
       
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Prepare Release Package
         run: |
@@ -39,7 +39,11 @@ jobs:
         run: zip -r ../MxDevSwissTool-Release-${{ github.ref_name }}.zip ./*
 
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v1
+        # v1 declared node20 and was being force-run on node24 by the runner.
+        # Every input used below still exists in v3, and `token` keeps defaulting
+        # to github.token, so the `permissions: contents: write` above is still
+        # what authorises the publish — no secret needs adding.
+        uses: softprops/action-gh-release@v3
         with:
           files: MxDevSwissTool-Release-${{ github.ref_name }}.zip
           name: Release ${{ github.ref_name }}
