@@ -14,6 +14,40 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.42.0 — 2026-08-15
+
+- **The anonymizer now masks the secrets its Help had been promising.** The Help
+  listed AWS access keys, generic API keys, passwords embedded in URLs and
+  `Cookie`/`Set-Cookie` headers under "Auth Tokens"; the code only ever matched
+  JWTs and `Bearer`/`Basic`. In a tool whose job is to decide whether a secret
+  leaves the building, an overstated coverage claim is a security problem, not a
+  documentation one — someone reads the Help, believes their AWS key was masked,
+  and sends the log. All four are now implemented, plus a fifth: the same
+  sensitive headers **inside a HAR**, where the name and value sit in separate
+  JSON fields and neither the raw-header nor the `label=value` rule could see
+  them. A HAR is the densest secret-bearing file a developer shares, and this
+  toolkit has an analyzer for it.
+- **Only the secret is replaced, not its context.** `Cookie: [COOKIE]`,
+  `api_key=[SECRET]`, `scheme://user:[URL_PASSWORD]@host` — the label, header
+  name, URL host and user survive, so the log is still diagnosable after
+  anonymizing. Generic secrets are matched by their *label* rather than by value
+  shape, because an API key has no universal format; the Help now says so
+  plainly, including the consequence that a secret under an unusual name needs a
+  custom keyword or regex.
+- **Fixed: a URL password was labelled `[EMAIL]` and took the hostname with it.**
+  `scheme://user:pass@host` parses as an e-mail address (`pass@host`), and e-mail
+  masking is on by default, so the e-mail rule won the tie on identical start
+  offsets. The password was still masked — no leak — but the label was wrong and
+  the hostname the URL rule deliberately preserves was swallowed. Secret rules
+  now register ahead of every general-purpose rule. Found by running the real
+  Worker in a browser; the unit tests could not see it because each isolates a
+  single rule with the other categories switched off.
+- **First tests for this tool, ever.** ~35 assertions that execute the stringified
+  `workerLogic` — the exact source that ships to the browser — including a group
+  that runs with the real default checkboxes to cover cross-category collisions.
+  Verified against 2 454 066 lines of production logs plus a HAR, a CSV and an
+  XML export: zero false positives.
+
 ## v1.41.0 — 2026-08-13
 
 Mined from a new reference corpus: **3.1 GB of production logs from ten Mendix

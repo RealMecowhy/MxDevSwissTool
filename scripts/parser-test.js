@@ -1515,6 +1515,156 @@ EDX_LABELLED_TOOLS.forEach(function (id) {
   });
 });
 
+// ── Log & Text Anonymizer — secret masking (public/js/tools/log-anonymizer.js) ─
+// The masking logic lives inside workerLogic(), which ships to the browser as
+// `'(' + workerLogic.toString() + ')();'`. The test extracts and runs that exact
+// source, so what is asserted here is what actually executes — not a re-implementation.
+// This tool decides whether a secret leaves the building, so the important
+// assertions are the negative ones: the raw secret must NOT survive anywhere in
+// the output.
+console.log('\nLog & Text Anonymizer — secret masking');
+const anonSrc = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'tools', 'log-anonymizer.js'), 'utf8');
+const anonStart = anonSrc.indexOf('  function workerLogic() {');
+const anonEnd = anonSrc.indexOf('\n  }\n', anonSrc.indexOf('processNextChunk();', anonStart));
+ok('anon: workerLogic source located', anonStart !== -1 && anonEnd > anonStart);
+const anonWorkerSrc = anonSrc.slice(anonStart, anonEnd + 4);
+
+// Minimal worker host: onmessage/postMessage plus the setTimeout the chunk loop uses.
+function anonRun(text, overrides) {
+  const opts = Object.assign({
+    uuid: false, ip: false, email: false, mendixId: false, datetime: false,
+    number: false, mac: false, creditcard: false, auth: true,
+    consistent: false, keywords: '', customRegex: ''
+  }, overrides || {});
+  let done = null;
+  const fakeSelf = {
+    postMessage: function (m) { if (m.type === 'complete') done = m; },
+    setTimeout: setTimeout
+  };
+  const factory = new Function('self', 'setTimeout', anonWorkerSrc + '; return workerLogic;');
+  factory(fakeSelf, setTimeout).call(fakeSelf);
+  fakeSelf.onmessage({ data: { rawText: text, opts: opts } });
+  // The loop defers through setTimeout(…, 0); drain the macrotask queue.
+  return new Promise(function (resolve) {
+    (function poll() {
+      if (!done) return setTimeout(poll, 0);
+      // \x01/\x02 wrap every replaced span so the viewer can <mark> it. They are
+      // stripped by VirtualTextViewer.getText(), which is what Copy and Download
+      // call — so `visible` is the text the user actually walks away with, and
+      // that is what these assertions must judge.
+      done.visible = done.result.replace(/\x01|\x02/g, '');
+      resolve(done);
+    })();
+  });
+}
+
+async function runAnonTests() {
+  // 1. AWS access key ID — identified by shape alone.
+  let r = await anonRun('cfg loaded key=AKIAIOSFODNN7EXAMPLE region=eu-west-1');
+  ok('anon: AWS access key is masked', r.visible.indexOf('AKIAIOSFODNN7EXAMPLE') === -1, r.visible);
+  ok('anon: ...and labelled as an AWS key', /\[AWS_KEY\]/.test(r.visible), r.visible);
+  ok('anon: surrounding context survives', /region=eu-west-1/.test(r.visible), r.visible);
+  // A temporary-credentials prefix counts too.
+  r = await anonRun('ASIAY34FZKBOKMUTVV7A');
+  ok('anon: temporary (ASIA) key is masked too', /^\[AWS_KEY\]$/.test(r.visible.trim()), r.visible);
+
+  // 2. Password embedded in a URL — only the password goes.
+  r = await anonRun('jdbc:postgresql://svc_user:Hunter2Secret@db.internal:5432/app');
+  ok('anon: URL password is masked', r.visible.indexOf('Hunter2Secret') === -1, r.visible);
+  ok('anon: ...and the host is preserved for diagnosis', /db\.internal:5432\/app/.test(r.visible), r.visible);
+  ok('anon: ...and so is the user', /svc_user/.test(r.visible), r.visible);
+  // A URL with no credentials must not be touched.
+  r = await anonRun('GET https://api.example.com:443/v1/orders');
+  eq('anon: a plain URL with a port is left alone', r.visible, 'GET https://api.example.com:443/v1/orders');
+
+  // 3. Cookie headers — value to end of line, header name kept.
+  r = await anonRun('Cookie: JSESSIONID=9F8A2B; XSRF-TOKEN=abc123\nnext line');
+  ok('anon: cookie value is masked', r.visible.indexOf('JSESSIONID=9F8A2B') === -1, r.visible);
+  ok('anon: ...the header name stays readable', /Cookie: \[COOKIE\]/.test(r.visible), r.visible);
+  ok('anon: ...and the following line is untouched', /\nnext line/.test(r.visible), r.visible);
+  r = await anonRun('Set-Cookie: sid=xyz; HttpOnly');
+  ok('anon: Set-Cookie is covered as well', r.visible.indexOf('sid=xyz') === -1 && /Set-Cookie: \[COOKIE\]/.test(r.visible), r.visible);
+
+  // 4. Generic secrets, anchored on the label rather than the value's shape.
+  for (const line of ['api_key=abcd1234efgh', 'apiKey: "abcd1234efgh"', 'client_secret=abcd1234efgh',
+                      'password = abcd1234efgh', 'AWS_SECRET_ACCESS_KEY=abcd1234efgh']) {
+    r = await anonRun(line);
+    ok('anon: secret masked in `' + line + '`', r.visible.indexOf('abcd1234efgh') === -1, r.visible);
+  }
+  r = await anonRun('api_key=abcd1234efgh');
+  ok('anon: the label survives so the line stays readable', /api_key=\[SECRET\]/.test(r.visible), r.visible);
+
+  // Precision: a label-shaped word that is not an assignment must not trigger.
+  r = await anonRun('Password validation failed for user bob');
+  eq('anon: "Password validation failed" is not an assignment', r.visible, 'Password validation failed for user bob');
+  r = await anonRun('passwordPolicy applies to all tenants');
+  eq('anon: a longer word starting with the label is not an assignment', r.visible, 'passwordPolicy applies to all tenants');
+
+  // 5. The trap that shaped the ruleset: `Authorization:` is deliberately NOT a
+  // secret label, because its value starts with "Bearer " — a label-anchored
+  // rule would mask the word "Bearer" and leave the token itself in the log.
+  r = await anonRun('Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig');
+  ok('anon: the bearer token itself is masked', r.visible.indexOf('eyJhbGciOiJIUzI1NiJ9') === -1, r.visible);
+  ok('anon: ...and not merely the word Bearer', !/Bearer eyJ/.test(r.visible), r.visible);
+
+  // 6. A JWT inside a cookie must not survive because the cookie rule "won".
+  r = await anonRun('Cookie: auth=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig; theme=dark');
+  ok('anon: a JWT nested in a cookie is masked with the cookie', r.visible.indexOf('eyJhbGciOiJIUzI1NiJ9') === -1, r.visible);
+  ok('anon: ...and nothing of the cookie value leaks', r.visible.indexOf('theme=dark') === -1, r.visible);
+
+  // 7. HAR shape: name and value are separate JSON fields, so neither the
+  // raw-header nor the label=value rule can see them. A HAR is the densest
+  // secret-bearing file a developer shares, and this toolkit analyses HARs.
+  r = await anonRun('{"name": "Cookie", "value": "JSESSIONID=9F8A2B; theme=dark"}');
+  ok('anon: a Cookie header in HAR/JSON shape is masked', r.visible.indexOf('JSESSIONID=9F8A2B') === -1, r.visible);
+  ok('anon: ...and the header name survives so the HAR stays readable',
+    /"name": "Cookie", "value": "\[HEADER_SECRET\]"/.test(r.visible), r.visible);
+  r = await anonRun('{"name":"x-api-key","value":"abcd1234efgh"}');
+  ok('anon: x-api-key in HAR shape is masked', r.visible.indexOf('abcd1234efgh') === -1, r.visible);
+  // An innocuous header of the same shape must be left completely alone.
+  r = await anonRun('{"name": "User-Agent", "value": "Mozilla/5.0 (Windows NT 10.0)"}');
+  eq('anon: a non-sensitive HAR header is untouched', r.visible, '{"name": "User-Agent", "value": "Mozilla/5.0 (Windows NT 10.0)"}');
+
+  // 7b. Cross-category collisions under the REAL default checkboxes. The tests
+  // above isolate one rule each, which is exactly why they could not catch this:
+  // `scheme://user:pass@host` parses as an e-mail (pass@host), and e-mail masking
+  // is on by default, so before the ordering fix the e-mail rule won the tie —
+  // labelling a credential [EMAIL] and swallowing the hostname. Caught in a real
+  // browser run, not by the unit tests.
+  const UI_DEFAULTS = { uuid: true, ip: true, email: true, mendixId: true, mac: true, creditcard: true, auth: true };
+  r = await anonRun('jdbc:postgresql://svc_user:Hunter2Secret@db.internal:5432/app', UI_DEFAULTS);
+  ok('anon: URL password wins over the e-mail rule that also matches it',
+    /\[URL_PASSWORD\]/.test(r.visible), r.visible);
+  ok('anon: ...so the hostname is still preserved with e-mail masking on',
+    /db\.internal:5432\/app/.test(r.visible), r.visible);
+  ok('anon: ...and the password is gone either way', r.visible.indexOf('Hunter2Secret') === -1, r.visible);
+  // A real e-mail must still be masked as an e-mail — the fix must not steal it.
+  r = await anonRun('user bob@example.com signed in', UI_DEFAULTS);
+  ok('anon: a genuine e-mail is still labelled EMAIL',
+    /\[EMAIL\]/.test(r.visible) && r.visible.indexOf('bob@example.com') === -1, r.visible);
+  // A secret value shaped like an IP/UUID belongs to the secret rule.
+  r = await anonRun('password=10.1.2.3', UI_DEFAULTS);
+  ok('anon: an IP-shaped secret is labelled SECRET, not IP', /password=\[SECRET\]/.test(r.visible), r.visible);
+
+  // 8. Regression: the pre-existing categories still behave.
+  r = await anonRun('user a@b.com from 10.1.2.3', { email: true, ip: true });
+  ok('anon: emails still masked', r.visible.indexOf('a@b.com') === -1 && /\[EMAIL\]/.test(r.visible), r.visible);
+  ok('anon: IPs still masked', r.visible.indexOf('10.1.2.3') === -1 && /\[IP\]/.test(r.visible), r.visible);
+  // Credit cards still gate on Luhn (the `accept` callback, now fed the tail text).
+  r = await anonRun('card 4111111111111111 id 4503599627370496', { creditcard: true });
+  ok('anon: a Luhn-valid card is masked', r.visible.indexOf('4111111111111111') === -1, r.visible);
+  ok('anon: a Luhn-invalid lookalike is left alone', /4503599627370496/.test(r.visible), r.visible);
+
+  // 8. Consistent masking numbers each distinct secret.
+  r = await anonRun('a api_key=SECRET_ONE\nb api_key=SECRET_TWO\nc api_key=SECRET_ONE', { consistent: true });
+  ok('anon: consistent masking reuses one alias per distinct secret',
+    /\[SECRET-1\][\s\S]*\[SECRET-2\][\s\S]*\[SECRET-1\]/.test(r.visible), r.visible);
+
+  // 9. Counted under the auth statistic, so the summary reflects the work.
+  r = await anonRun('AKIAIOSFODNN7EXAMPLE api_key=abcd1234efgh');
+  eq('anon: both secrets are counted under `auth`', r.stats.auth, 2);
+}
+
 // ── Shared export helpers (public/js/components/exporters.js) ────────────────
 // Pure builders attach to window/self; the browser-only download/copy wrappers
 // are guarded by `typeof document`, so require() in Node loads just the builders.
@@ -4494,7 +4644,7 @@ console.log('\nSettings backup');
 })();
 
 // ── Summary ─────────────────────────────────────────────────────────────────
-runXlsxAsyncTests().then(runApiEconAsyncTests).then(runNginxAsyncTests).then(function () {
+runXlsxAsyncTests().then(runApiEconAsyncTests).then(runNginxAsyncTests).then(runAnonTests).then(function () {
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
   process.exit(failed === 0 ? 0 : 1);
 }, function (err) {
