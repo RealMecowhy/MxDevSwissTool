@@ -14,6 +14,32 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.43.1 — 2026-08-16
+
+A layout defect in the Nginx Log Analyzer, found while regenerating the README
+screenshots — and the reason it went unnoticed for so long is worth recording.
+
+- **Error Log results no longer leak onto the Access Log tab.** The results block
+  was nested one level too high in the markup — a sibling of the tab container
+  rather than a child of it. Two consequences, both fixed by moving a single
+  closing tag: analysing an error log and then switching back to Access Log left
+  the error results sitting on screen under the wrong tab, and the emptied input
+  container kept its `flex: 1` share, pushing the results down behind **365 px of
+  blank space**. The Access Log tab was always nested correctly, which is why only
+  one half of the tool showed the bug.
+- **README screenshots regenerated against v1.43.x** and reduced to the 24 the
+  README actually references — three orphans that no page linked to are gone.
+
+The screenshot pipeline itself had been reporting success while producing wrong
+images: it drove a "Gantt" tab the Nginx analyzer has never had (so that shot was
+a byte-identical copy of the Access Log one), it skipped the Query Extractor demo
+on a fixture path that had moved (so that shot showed an empty tool), and it drove
+the Data Factory UI from before the v1.19.0 wizard rewrite (so that shot showed an
+empty first step). All three are fixed in the dev-only generator, which is not part
+of the shipped package.
+
+---
+
 ## v1.43.0 — 2026-08-16
 
 Acting on an external audit — but only on the parts that survived being checked
