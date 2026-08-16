@@ -1168,13 +1168,28 @@ window.lqeExplainLive = async function(btn) {
     const resp = await fetch('http://localhost:9999/livedb/explain', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(Object.assign({}, window.mtDb.getConfig(), { sql: sql }))
+      // Mendix logs its SQL with JDBC '?' placeholders, which PostgreSQL cannot
+      // parse. The Bridge rewrites them; when the log also captured the bound
+      // values (only at TRACE level) sending them along gets a plan for the real
+      // values instead of a generic one.
+      body: JSON.stringify(Object.assign({}, window.mtDb.getConfig(), {
+        sql: sql,
+        params: (q.params && q.params.length) ? q.params : undefined
+      }))
     });
     const data = await resp.json();
     if (!data || data.error || typeof data.plan !== 'string') {
-      window.mtToast('EXPLAIN live failed: ' + ((data && data.message) || 'no plan returned') +
-            '\n\nTip: queries with parameter placeholders can\'t be planned directly — copy the query and substitute values, or paste an EXPLAIN plan manually.', 'error');
+      window.mtToast('EXPLAIN live failed: ' + ((data && data.message) || 'no plan returned'), 'error');
       return;
+    }
+    // Say which kind of plan this is: a generic plan is planned without values,
+    // so its row estimates are not the ones the failing execution saw.
+    if (data.mode === 'generic') {
+      window.mtToast('Planned with ' + data.params + ' placeholder(s) but no captured values, so this is a ' +
+        'GENERIC plan — the shape is real, the row estimates are not value-specific. ' +
+        'Raise ConnectionBus_Queries to TRACE to capture parameter values.', 'info');
+    } else if (data.mode === 'params') {
+      window.mtToast('Planned using the ' + data.params + ' parameter value(s) captured in the log.', 'success');
     }
     window.navigateWithReturn('query-intelligence');
     const tabBtn = document.querySelector('#panel-query-intelligence .tab[data-help-key="query-intelligence-explain"]');

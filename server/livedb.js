@@ -49,6 +49,48 @@ function isReadOnlySelect(sql) {
   return true;
 }
 
+// Mendix logs its SQL with JDBC placeholders — `?`, not PostgreSQL's `$1`. Every
+// query the Log Query Extractor pulls out of a real log therefore fails a plain
+// `EXPLAIN` with a syntax error: measured on two production logs, 1970/1985 and
+// 1208/1209 statements carry at least one. "Run EXPLAIN live" was effectively
+// dead on real input while working perfectly on hand-typed examples.
+//
+// The scan skips string literals and quoted identifiers so a '?' inside them is
+// left alone — Mendix double-quotes every table and column ("myconnect$ticket"),
+// so identifier handling is not optional here.
+function normalizeParamPlaceholders(sql) {
+  const s = String(sql == null ? '' : sql);
+  let out = '';
+  let n = 0;
+  let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (c === "'" || c === '"') {
+      const quote = c;
+      out += c; i++;
+      while (i < s.length) {
+        if (s[i] === quote) {
+          if (s[i + 1] === quote) { out += quote + quote; i += 2; continue; } // escaped
+          out += quote; i++; break;
+        }
+        out += s[i]; i++;
+      }
+      continue;
+    }
+    if (c === '?') { n++; out += '$' + n; i++; continue; }
+    out += c; i++;
+  }
+  // Already-numbered placeholders (a hand-written query, or one we rewrote once
+  // already) still have to be counted so the caller picks the right EXPLAIN mode.
+  if (n === 0) {
+    const existing = out.match(/\$\d+/g);
+    if (existing) {
+      n = existing.reduce(function (max, t) { return Math.max(max, parseInt(t.slice(1), 10) || 0); }, 0);
+    }
+  }
+  return { sql: out, count: n };
+}
+
 function mapDbConfig(dbConfig) {
   dbConfig = dbConfig || {};
   return {
@@ -88,12 +130,46 @@ async function runExplain(Client, dbConfig, sql, opts) {
     await client.connect();
     await client.query('BEGIN TRANSACTION READ ONLY');
     await client.query('SET LOCAL statement_timeout = ' + Number(timeoutMs));
+
+    const norm = normalizeParamPlaceholders(stripped);
+    const params = (opts && Array.isArray(opts.params)) ? opts.params : null;
+    let text = 'EXPLAIN ' + norm.sql;
+    let values = null;
+    let mode = 'plain';
+
+    if (norm.count > 0) {
+      if (params && params.length === norm.count) {
+        // Best case: the log captured the actual bound values, so the plan is the
+        // one the database really chose for this execution.
+        values = params;
+        mode = 'params';
+      } else {
+        // No values available — GENERIC_PLAN (PostgreSQL 16+) plans the statement
+        // without them. Substituting NULL instead, as is sometimes suggested,
+        // would silently produce a plan for `col = NULL`, which is not the query
+        // the user is looking at.
+        const v = await client.query('SHOW server_version_num');
+        const num = parseInt((v.rows[0] || {}).server_version_num, 10) || 0;
+        if (num < 160000) {
+          await client.query('ROLLBACK');
+          return {
+            error: true,
+            message: 'This query has ' + norm.count + ' parameter placeholder(s) and no captured values. ' +
+              'Planning it without values needs PostgreSQL 16+ (EXPLAIN GENERIC_PLAN); this server reports ' +
+              (num ? (num / 10000 | 0) : 'an unknown version') + '. Paste the query with literal values instead.'
+          };
+        }
+        text = 'EXPLAIN (GENERIC_PLAN) ' + norm.sql;
+        mode = 'generic';
+      }
+    }
+
     // Text format on purpose: visualizeSqlExplain() parses the classic indented
     // EXPLAIN text (Seq Scan / cost= / Filter: / Sort Key:), NOT FORMAT JSON.
-    const r = await client.query('EXPLAIN ' + stripped);
+    const r = values ? await client.query(text, values) : await client.query(text);
     await client.query('ROLLBACK');
     const plan = r.rows.map(row => row['QUERY PLAN']).join('\n');
-    return { plan: plan };
+    return { plan: plan, mode: mode, params: norm.count };
   } catch (e) {
     try { await client.query('ROLLBACK'); } catch (_) {}
     return { error: true, message: e.message };
@@ -982,7 +1058,7 @@ async function runDistinctValues(Client, dbConfig, opts) {
 }
 
 module.exports = {
-  isReadOnlySelect, stripSqlComments, runPing, runExplain,
+  isReadOnlySelect, stripSqlComments, normalizeParamPlaceholders, runPing, runExplain,
   assessStatsWindow, findRedundantIndexes, buildIndexAdvice, runIndexAdvisor,
   buildDomainModel, domainModelToArchJson, mxTypeName, runDomainModel,
   runSeedSchema, runDistinctValues, isSafeTableName,

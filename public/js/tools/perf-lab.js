@@ -908,8 +908,36 @@ async function plStartServerRun(cfg) {
   }
 }
 
+// The poll is a self-chaining timeout, which a hidden tab throttles to about one
+// firing per minute. The Bridge tolerates that (its dead man's switch is 90 s),
+// but the numbers on screen would still be a minute stale the instant the user
+// comes back. Holding the handle lets `visibilitychange` cancel the pending wait
+// and poll straight away, so returning to the tab shows current data rather than
+// whatever the throttled timer last managed to fetch.
+let plPollTimer = null;
+let plVisibilityBound = false;
+
+function plSchedulePoll(delay) {
+  if (plPollTimer) clearTimeout(plPollTimer);
+  plPollTimer = setTimeout(function () { plPollTimer = null; plPoll(); }, delay);
+}
+
+// Bound on the first poll rather than at module scope: everything below the pure
+// section of a tool file must be assignments only, or `require()`ing it in the
+// Node test suite touches `document` and throws. Registering here also means the
+// listener only exists once a server run is actually in flight.
+function plBindVisibility() {
+  if (plVisibilityBound || typeof document === 'undefined') return;
+  plVisibilityBound = true;
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden || !plSession || !plRunning) return;
+    plSchedulePoll(0);
+  });
+}
+
 async function plPoll() {
   if (!plSession) return;
+  plBindVisibility();
   try {
     const res = await fetch(`${PL_AGENT_URL}/perf/stats?sessionId=${plSession.id}&sinceBucket=${plSession.sinceBucket}&sinceSample=${plSession.sinceSample}`);
     const stats = await res.json();
@@ -937,7 +965,7 @@ async function plPoll() {
     plRender(plVmFromStats(stats), !running);
 
     if (running) {
-      setTimeout(plPoll, 1000);
+      plSchedulePoll(1000);
     } else {
       if (stats.stopReason && stats.stopReason.indexOf('Auto-stopped') === 0) plShowError(stats.stopReason);
       plFinish();
@@ -966,6 +994,7 @@ function plStop() {
 // them with a partial view.
 function plFinish() {
   const wasServerRun = plSession !== null;
+  if (plPollTimer) { clearTimeout(plPollTimer); plPollTimer = null; }
   plSession = null;
   plRunning = false;
   plEl('pl-btn-start').style.display = 'inline-block';
