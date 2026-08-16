@@ -14,6 +14,23 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.42.1 — 2026-08-15
+
+No user-facing change: the application in this ZIP is identical to v1.42.0 apart
+from the version string. It exists to carry the CI/release-pipeline fix below to
+a tag, which is the only way the new publish action can actually be exercised.
+
+- **The workflows no longer run on the deprecated Node 20 action runtime.** The
+  runner had started forcing node24 on `actions/checkout@v4`,
+  `actions/setup-node@v4` and `softprops/action-gh-release@v1`, all of which still
+  declared node20 — so every run carried a deprecation warning and executed code
+  on a runtime it was not built against. Now on the current majors (checkout v7,
+  setup-node v7, action-gh-release v3).
+- **CI builds on Node 24 instead of 20, which fixed a real mismatch rather than
+  just modernising.** `puppeteer` 25 declares `engines.node >= 22.12.0` and
+  `vite` 8 `^20.19.0 || >=22.12.0`, so the test suite had been running on a Node
+  older than its own toolchain supports.
+
 ## v1.42.0 — 2026-08-15
 
 - **The anonymizer now masks the secrets its Help had been promising.** The Help
