@@ -181,6 +181,12 @@ const TOOLS_HELP = {
             <li><strong>Result Data:</strong> The raw output rows returned by the database.</li>
             <li><strong>Query Plan:</strong> The PostgreSQL execution plan in JSON format. Click <strong>Visualize Plan</strong> to open it in the Query Intelligence Explain visualizer with index suggestions &mdash; a floating <strong>&larr; Back</strong> pill returns you straight to the extractor.</li>
             <li><strong>Run EXPLAIN live (optional):</strong> If you have a local/dev PostgreSQL database of the app, fill in the read-only <em>Live database</em> panel below the plan and click <strong>Connect</strong>. Then <strong>Run EXPLAIN live</strong> executes <code>EXPLAIN</code> on the selected <code>SELECT</code> against that database and shows the fresh plan &mdash; no DBeaver, no waiting for a logged plan. This is entirely optional: without a connection the extractor works exactly as before (logged plans and manual paste). The connection is read-only (single <code>SELECT</code> only, <code>EXPLAIN</code> without <code>ANALYZE</code>, inside a <code>READ ONLY</code> transaction with a statement timeout).</li>
+            <li><strong>Queries with <code>?</code> placeholders work too.</strong> Mendix logs its SQL with JDBC placeholders rather than PostgreSQL&rsquo;s <code>$1</code>, which is why nearly every statement taken from a real log used to fail with a bare syntax error &mdash; on a production log, 43 of 44 distinct queries. They are rewritten to <code>$1&hellip;$n</code> before planning, and what happens next depends on whether the log also captured the values:
+              <ul>
+                <li><strong>Values captured</strong> (only at <code>ConnectionBus_Queries</code> TRACE): the plan is for those actual values &mdash; the plan the database really chose.</li>
+                <li><strong>No values</strong>: PostgreSQL 16+ plans it generically (<code>EXPLAIN (GENERIC_PLAN)</code>). The plan <em>shape</em> is real, but the row estimates are not value-specific, and the tool says so rather than letting you read them as if they were. On PostgreSQL 15 or older you get a plain explanation of why it cannot be planned, instead of a raw syntax error.</li>
+              </ul>
+              Substituting <code>NULL</code> for the missing values would have been easier, but it produces a plan for <code>column = NULL</code> &mdash; a different query from the one you are looking at.</li>
           </ul>
         </li>
       </ol>

@@ -14,6 +14,56 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.43.0 — 2026-08-16
+
+Acting on an external audit — but only on the parts that survived being checked
+against the code. Several of its findings were measured and turned out not to be
+defects; those are listed at the end so nobody re-opens them.
+
+- **"Run EXPLAIN live" now works on queries taken from a log.** Mendix writes its
+  SQL with JDBC `?` placeholders, not PostgreSQL's `$1`, and PostgreSQL cannot
+  parse them — so the feature failed on almost everything real while working
+  perfectly on hand-typed examples. Measured by SQLSTATE on a production log:
+  **43 of 44 distinct queries died with `syntax_error`; now 3 do** — and those
+  three are not queries at all, they are SAML log lines the Query Extractor
+  mis-extracts as SQL. Placeholders are rewritten, then planned one of three
+  ways: with the **actual values** when the log captured them (TRACE only), with
+  PostgreSQL 16's `EXPLAIN (GENERIC_PLAN)` when it did not, and plainly when
+  there are none. The UI says which kind of plan it is, because a generic plan's
+  row estimates are not value-specific. Substituting `NULL` would have been
+  easier and would have produced a plan for `column = NULL` — a different query.
+- **The Bridge no longer dies silently on a port conflict.** `listen()` failures
+  arrive as an event, not an exception; with no listener Node killed the process
+  with a raw stack trace and the UI just said "Bridge Offline" forever. Now it
+  names the port, the likely cause (an earlier Bridge still running) and the
+  command to find the owner.
+- **`/project-insights` no longer freezes the Bridge.** Its directory walks were
+  synchronous, so scanning `deployment/web` and `javasource` blocked everything
+  else the Bridge was doing — live log streaming, load-test polling, OTEL ingest.
+  On a 13 000-file tree the old code blocked the event loop for **1 270 ms**; the
+  new one leaves it responsive (worst gap **64 ms** while serving 27 concurrent
+  requests), with identical results.
+- **Long load tests survive a background tab.** Browsers throttle timers in a
+  hidden tab to roughly one firing per minute, but the Bridge's dead-man switch
+  gave up after 15 s — so switching tabs killed a healthy run with "the browser
+  stopped polling for results". The switch now waits 90 s, and the page polls
+  immediately on returning so the numbers are current rather than a minute stale.
+- **A truncated OTLP timestamp no longer rejects a whole batch of spans.** The
+  zero-dependency protobuf decoder read `fixed64` fields without checking the
+  buffer length, so a short field threw out of the decoder and turned into HTTP
+  400 for the entire request.
+
+Checked and deliberately **not** changed, with the evidence, so they stay closed:
+exporting 30 000 rows takes **108 ms** (not the reported 3–8 s freeze); the
+virtual list forces an explicit height on every row and its content is
+`nowrap`, so rows cannot vary; the cross-tool Data Hub holds log text **by
+reference**, so it costs no extra memory and moving it to IndexedDB would add a
+copy; the SAML debugger says "signed (ds:Signature present)", never that an
+assertion is valid; the Architecture visualizer already guards models over 150
+entities. One proposed fix was rejected as incorrect: treating the leading column
+of a composite `UNIQUE(a, b)` index as unique would turn a correctly detected
+many-to-many into a false one-to-many — `UNIQUE(a, b)` does not make `a` unique.
+
 ## v1.42.1 — 2026-08-15
 
 No user-facing change: the application in this ZIP is identical to v1.42.0 apart

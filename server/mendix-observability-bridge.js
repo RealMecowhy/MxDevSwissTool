@@ -13,6 +13,7 @@
 
 const http = require('http');
 const fs = require('fs');
+const fsp = require('fs').promises;
 const path = require('path');
 const { exec } = require('child_process');
 const crypto = require('crypto');
@@ -318,6 +319,16 @@ function readVarint(buffer, offset) {
   return { value: val, offset };
 }
 
+// OTLP nanosecond timestamps are `fixed64`, so a well-formed payload always
+// carries 8 bytes. A truncated or oddly-packed field would make readBigUInt64LE
+// throw RangeError out of the decoder, and handleOtlpRequest turns that into a
+// 400 — rejecting an otherwise valid batch of spans over one bad timestamp.
+// Guarding the read degrades that field to '0' and keeps the batch.
+function readFixed64LE(buf) {
+  if (!buf || buf.length < 8) return '0';
+  return Buffer.from(buf).readBigUInt64LE(0).toString();
+}
+
 function decodeProtobufRaw(buffer, start = 0, end = buffer.length) {
   const result = {};
   let offset = start;
@@ -394,7 +405,7 @@ function mapStatus(raw) {
 
 function mapSpanEvent(raw) {
   const fields = decodeProtobufRaw(raw);
-  const timeUnixNano = fields[1] ? Buffer.from(fields[1][0]).readBigUInt64LE(0).toString() : '0';
+  const timeUnixNano = readFixed64LE(fields[1] && fields[1][0]);
   const name = fields[2] ? fields[2][0].toString('utf8') : '';
   const attributes = (fields[3] || []).map(kv => mapKeyValue(kv));
   return { timeUnixNano, name, attributes };
@@ -409,8 +420,8 @@ function mapSpan(raw) {
     parentSpanId: fields[4] ? fields[4][0].toString('hex') : '',
     name: fields[5] ? fields[5][0].toString('utf8') : '',
     kind: fields[6] ? Number(fields[6][0]) : 0,
-    startTimeUnixNano: fields[7] ? Buffer.from(fields[7][0]).readBigUInt64LE(0).toString() : '0',
-    endTimeUnixNano: fields[8] ? Buffer.from(fields[8][0]).readBigUInt64LE(0).toString() : '0',
+    startTimeUnixNano: readFixed64LE(fields[7] && fields[7][0]),
+    endTimeUnixNano: readFixed64LE(fields[8] && fields[8][0]),
     attributes: (fields[9] || []).map(kv => mapKeyValue(kv)),
     events: (fields[10] || []).map(ev => mapSpanEvent(ev)),
     status: fields[13] ? mapStatus(fields[13][0]) : null
@@ -459,14 +470,14 @@ function mapTracesProtobufToJson(buffer) {
 function mapLogRecord(raw) {
   const fields = decodeProtobufRaw(raw);
   return {
-    timeUnixNano: fields[1] ? Buffer.from(fields[1][0]).readBigUInt64LE(0).toString() : '0',
+    timeUnixNano: readFixed64LE(fields[1] && fields[1][0]),
     severityNumber: fields[2] ? Number(fields[2][0]) : 0,
     severityText: fields[3] ? fields[3][0].toString('utf8') : '',
     body: fields[5] ? mapAnyValue(fields[5][0]) : null,
     attributes: (fields[6] || []).map(kv => mapKeyValue(kv)),
     traceId: fields[9] ? fields[9][0].toString('hex') : '',
     spanId: fields[10] ? fields[10][0].toString('hex') : '',
-    observedTimeUnixNano: fields[11] ? Buffer.from(fields[11][0]).readBigUInt64LE(0).toString() : '0'
+    observedTimeUnixNano: readFixed64LE(fields[11] && fields[11][0])
   };
 }
 
@@ -1122,15 +1133,26 @@ const server = http.createServer((req, res) => {
           const prj = payload.projectRoot;
           if (!prj) throw new Error("Missing projectRoot");
 
-          const getDirSize = (dirPath) => {
+          // Async on purpose. These walks cover `deployment/web` and `javasource`,
+          // which in an enterprise app hold tens of thousands of files; done with
+          // readdirSync/statSync/readFileSync they blocked the event loop for
+          // seconds, and everything else the Bridge is doing at that moment —
+          // live log streaming, load-test polling, OTEL ingest — stalled with it.
+          // `withFileTypes` also removes one stat() syscall per entry.
+          const getDirSize = async (dirPath) => {
+            let entries;
+            try {
+              entries = await fsp.readdir(dirPath, { withFileTypes: true });
+            } catch (e) {
+              return 0; // missing directory — same as the old existsSync check
+            }
             let size = 0;
-            if (!fs.existsSync(dirPath)) return 0;
-            const files = fs.readdirSync(dirPath);
-            for (const file of files) {
-              const fullPath = path.join(dirPath, file);
-              const stats = fs.statSync(fullPath);
-              if (stats.isFile()) size += stats.size;
-              else if (stats.isDirectory()) size += getDirSize(fullPath);
+            for (const entry of entries) {
+              const fullPath = path.join(dirPath, entry.name);
+              try {
+                if (entry.isDirectory()) size += await getDirSize(fullPath);
+                else if (entry.isFile()) size += (await fsp.stat(fullPath)).size;
+              } catch (e) { /* entry vanished or unreadable — skip it, as before */ }
             }
             return size;
           };
@@ -1140,49 +1162,63 @@ const server = http.createServer((req, res) => {
             jsMB: 0,
             cssMB: 0
           };
-          
-          try {
-            bundleSize.jsMB = +(getDirSize(path.join(prj, 'deployment', 'web', 'js')) / 1024 / 1024).toFixed(2);
-            bundleSize.cssMB = +(getDirSize(path.join(prj, 'deployment', 'web', 'css')) / 1024 / 1024).toFixed(2);
-            bundleSize.totalMB = +(getDirSize(path.join(prj, 'deployment', 'web')) / 1024 / 1024).toFixed(2);
-          } catch(e){}
-
-          const widgets = [];
-          try {
-            const wDir = path.join(prj, 'widgets');
-            if (fs.existsSync(wDir)) {
-              widgets.push(...fs.readdirSync(wDir).filter(f => f.endsWith('.mpk')));
-            }
-          } catch(e){}
 
           const javaIssues = [];
-          const scanJava = (dirPath) => {
-            if (!fs.existsSync(dirPath)) return;
-            const files = fs.readdirSync(dirPath);
-            for (const file of files) {
-              const fullPath = path.join(dirPath, file);
-              const stats = fs.statSync(fullPath);
-              if (stats.isFile() && fullPath.endsWith('.java')) {
-                const content = fs.readFileSync(fullPath, 'utf8');
-                const lines = content.split('\n');
-                lines.forEach((line, i) => {
+          const scanJava = async (dirPath) => {
+            let entries;
+            try {
+              entries = await fsp.readdir(dirPath, { withFileTypes: true });
+            } catch (e) {
+              return;
+            }
+            const javaFiles = [];
+            for (const entry of entries) {
+              const fullPath = path.join(dirPath, entry.name);
+              if (entry.isDirectory()) await scanJava(fullPath);
+              else if (entry.isFile() && fullPath.endsWith('.java')) javaFiles.push(fullPath);
+            }
+            // Read in small batches: one at a time is needlessly slow on a large
+            // javasource tree, all at once would open thousands of descriptors.
+            for (let i = 0; i < javaFiles.length; i += 16) {
+              const batch = javaFiles.slice(i, i + 16);
+              const contents = await Promise.all(batch.map(f =>
+                fsp.readFile(f, 'utf8').catch(() => null)
+              ));
+              contents.forEach((content, k) => {
+                if (content == null) return;
+                const fullPath = batch[k];
+                content.split('\n').forEach((line, i2) => {
                   if (line.includes('System.out.print') || line.includes('System.err.print')) {
-                    javaIssues.push({ file: path.basename(fullPath), line: i + 1, issue: 'System.out.println used instead of Core.getLogger()' });
+                    javaIssues.push({ file: path.basename(fullPath), line: i2 + 1, issue: 'System.out.println used instead of Core.getLogger()' });
                   }
                   if (/password\s*=\s*["'][^"']+["']/i.test(line)) {
-                    javaIssues.push({ file: path.basename(fullPath), line: i + 1, issue: 'Hardcoded password detected' });
+                    javaIssues.push({ file: path.basename(fullPath), line: i2 + 1, issue: 'Hardcoded password detected' });
                   }
                 });
-              } else if (stats.isDirectory()) {
-                scanJava(fullPath);
-              }
+              });
             }
           };
-          try {
-            scanJava(path.join(prj, 'javasource'));
-          } catch(e){}
 
-          sendJson(req, res, { success: true, bundleSize, widgets, javaIssues });
+          (async () => {
+            try {
+              bundleSize.jsMB = +(await getDirSize(path.join(prj, 'deployment', 'web', 'js')) / 1024 / 1024).toFixed(2);
+              bundleSize.cssMB = +(await getDirSize(path.join(prj, 'deployment', 'web', 'css')) / 1024 / 1024).toFixed(2);
+              bundleSize.totalMB = +(await getDirSize(path.join(prj, 'deployment', 'web')) / 1024 / 1024).toFixed(2);
+            } catch (e) { /* leave the zeros, as before */ }
+
+            const widgets = [];
+            try {
+              const wDir = path.join(prj, 'widgets');
+              const wFiles = await fsp.readdir(wDir);
+              widgets.push(...wFiles.filter(f => f.endsWith('.mpk')));
+            } catch (e) { /* no widgets directory */ }
+
+            try {
+              await scanJava(path.join(prj, 'javasource'));
+            } catch (e) { /* partial scan is still worth returning */ }
+
+            sendJson(req, res, { success: true, bundleSize, widgets, javaIssues });
+          })().catch(e => sendError(req, res, `Insights error: ${e.message}`, 400));
         } catch (e) {
           sendError(req, res, `Insights error: ${e.message}`, 400);
         }
@@ -1237,7 +1273,7 @@ const server = http.createServer((req, res) => {
           if (!Client) return sendError(req, res, "PostgreSQL features require the 'pg' module. Run 'npm install pg' in the tool directory and restart the Bridge.");
           const sql = body.sql;
           const cfg = { host: body.host, port: body.port, user: body.user, password: body.password, database: body.database };
-          livedb.runExplain(Client, cfg, sql, { timeoutMs: 5000 })
+          livedb.runExplain(Client, cfg, sql, { timeoutMs: 5000, params: Array.isArray(body.params) ? body.params : null })
             .then(r => sendJson(req, res, r))
             .catch(e => sendError(req, res, `Live DB explain error: ${e.message}`));
         } catch (e) {
@@ -1511,6 +1547,29 @@ const server = http.createServer((req, res) => {
 
 // Initialize bridge
 initializeLogWatcher();
+
+// A listen() failure arrives as an 'error' event, not an exception — without a
+// listener Node turns it into an unhandled error and kills the process with a
+// raw stack trace. The common cause is an orphaned bridge from a previous run
+// (or another OTEL collector on 4318), and the symptom the user actually sees is
+// the UI stuck on "Bridge Offline" with nothing explaining why.
+function listenFailed(label, port, err) {
+  if (err && err.code === 'EADDRINUSE') {
+    console.error(`\n[Bridge] Cannot start: port ${port} (${label}) is already in use.`);
+    console.error(`         Most often this is an earlier bridge still running in another terminal.`);
+    console.error(`         Find the owner:  netstat -ano | findstr :${port}      (Windows)`);
+    console.error(`                          lsof -i :${port}                     (macOS/Linux)`);
+    console.error(`         Then close that process, or free the port, and start again.\n`);
+  } else if (err && err.code === 'EACCES') {
+    console.error(`\n[Bridge] Cannot start: permission denied binding port ${port} (${label}).\n`);
+  } else {
+    console.error(`\n[Bridge] Cannot start ${label} on port ${port}:`, err && err.message ? err.message : err, '\n');
+  }
+  process.exit(1);
+}
+
+server.on('error', (err) => listenFailed('HTTP bridge', PORT, err));
+otlpServer.on('error', (err) => listenFailed('OTLP collector', OTLP_PORT, err));
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`=========================================================================`);

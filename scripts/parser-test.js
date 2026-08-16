@@ -1770,6 +1770,36 @@ ok('livedb: leading block comment allowed', livedb.isReadOnlySelect('/* c */ SEL
 ok('livedb: leading line comment allowed', livedb.isReadOnlySelect('-- c\nSELECT 1') === true);
 ok('livedb: leading paren allowed', livedb.isReadOnlySelect('(SELECT 1)') === true);
 ok('livedb: DELETE keyword inside a string literal still read-only', livedb.isReadOnlySelect("SELECT * FROM audit WHERE action='DELETE'") === true);
+// ── JDBC placeholders (wave 24) ─────────────────────────────────────────────
+// Mendix logs its SQL with `?`, not `$1`, so every query the Log Query Extractor
+// hands to "Run EXPLAIN live" used to die on a syntax error. Measured on two
+// production logs: 1970/1985 and 1208/1209 statements carry at least one.
+const nph = livedb.normalizeParamPlaceholders;
+eq('livedb: a single ? becomes $1', nph('SELECT * FROM t WHERE a = ?').sql, 'SELECT * FROM t WHERE a = $1');
+eq('livedb: placeholders are numbered in order', nph('SELECT * FROM t WHERE a = ? AND b = ?').sql,
+  'SELECT * FROM t WHERE a = $1 AND b = $2');
+eq('livedb: the count is reported', nph('SELECT ? , ? , ?').count, 3);
+eq('livedb: a query without placeholders is untouched', nph('SELECT 1').sql, 'SELECT 1');
+eq('livedb: ...and reports zero', nph('SELECT 1').count, 0);
+// A '?' inside a literal is data, not a placeholder.
+eq('livedb: ? inside a string literal is left alone', nph("SELECT * FROM t WHERE q = 'why?'").sql,
+  "SELECT * FROM t WHERE q = 'why?'");
+eq('livedb: ...and is not counted', nph("SELECT * FROM t WHERE q = 'why?'").count, 0);
+// Mendix double-quotes every identifier, so identifier handling is not optional.
+eq('livedb: ? inside a quoted identifier is left alone', nph('SELECT "od?d" FROM t WHERE a = ?').sql,
+  'SELECT "od?d" FROM t WHERE a = $1');
+eq('livedb: escaped quotes inside a literal do not end it',
+  nph("SELECT * FROM t WHERE a = 'it''s ?' AND b = ?").sql,
+  "SELECT * FROM t WHERE a = 'it''s ?' AND b = $2".replace('$2', '$1'));
+// An already-numbered query keeps its numbering but still reports a count, so
+// runExplain picks GENERIC_PLAN rather than a plain EXPLAIN that would fail.
+eq('livedb: existing $n placeholders are counted, not renumbered', nph('SELECT * FROM t WHERE a = $1 AND b = $2').count, 2);
+eq('livedb: ...and the text is unchanged', nph('SELECT * FROM t WHERE a = $1').sql, 'SELECT * FROM t WHERE a = $1');
+// Real Mendix shape: dollar signs live in table names, and must not be mistaken
+// for placeholders.
+eq('livedb: a Mendix $ table name is not a placeholder',
+  nph('SELECT "myconnect$ticketmc"."id" FROM "myconnect$ticketmc" WHERE "id" = ?').count, 1);
+
 ok('livedb: multi-statement rejected', livedb.isReadOnlySelect('SELECT 1; DROP TABLE t') === false);
 ok('livedb: UPDATE rejected', livedb.isReadOnlySelect('UPDATE t SET a=1') === false);
 ok('livedb: DELETE rejected', livedb.isReadOnlySelect('DELETE FROM t') === false);

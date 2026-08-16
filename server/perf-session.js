@@ -256,7 +256,13 @@ function clampConcurrency(v, max) {
 // A continuous run has no end of its own, so a closed browser tab would leave
 // the Bridge hammering the target indefinitely. The 1 Hz poll doubles as a dead
 // man's switch.
-const POLL_TIMEOUT_MS = 15000;
+// 90 s, not 15 s: browsers throttle timers in a hidden tab to roughly one firing
+// per minute, so the 1 Hz poll legitimately goes quiet for ~60 s the moment the
+// user switches tabs. At 15 s the switch fired on a perfectly healthy run and
+// killed it with "the browser stopped polling for results" — the dead man's
+// switch has to outlast the throttle it is being judged against. A genuinely
+// closed tab still stops the run, just 90 s later.
+const POLL_TIMEOUT_MS = 90000;
 
 function superviseTick() {
   const s = session;
