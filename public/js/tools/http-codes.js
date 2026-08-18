@@ -47,7 +47,7 @@ function renderHttpGrid(){
     if(grouped[cat]&&grouped[cat].length>0){
       const ci=HTTP_CATS[cat];
       html+='<div style="grid-column: 1 / -1; margin-top: var(--sp-4); margin-bottom: 4px; border-bottom: 1px solid var(--border-subtle); padding-bottom: var(--sp-2);"><h3 style="font-size: 1.1rem; color: var(--text-primary); margin-bottom: 4px;">'+ci.title+'</h3><p style="font-size: .8rem; color: var(--text-secondary);">'+ci.desc+'</p></div>';
-      html+=grouped[cat].map(c=>'<div class="http-card" style="cursor:pointer" onclick="showHttpModal('+c.code+')"><div class="http-code http-'+c.cat+'xx">'+c.code+'</div><div><div class="http-name">'+escHtml(c.name)+'</div><div class="http-desc">'+escHtml(c.desc)+'</div>'+(c.mendix?'<div class="http-desc" style="color:var(--accent);margin-top:2px"><strong>In Mendix:</strong> '+escHtml(c.mendix)+'</div>':'')+'</div></div>').join('');
+      html+=grouped[cat].map(c=>'<div class="http-card" style="cursor:pointer" onclick="showHttpModal('+c.code+')"><div class="http-code http-'+c.cat+'xx">'+c.code+'</div><div><div class="http-name">'+escHtml(c.name)+'</div><div class="http-desc">'+escHtml(c.desc)+'</div>'+(c.mendix?'<div class="http-desc" style="color:var(--accent);margin-top:2px"><strong>In Mendix:</strong> '+c.mendix+'</div>':'')+'</div></div>').join('');
     }
   });
   document.getElementById('http-grid').innerHTML=html;
@@ -65,8 +65,8 @@ function showHttpModal(code) {
   titleEl.textContent = c.name;
 
   bodyEl.innerHTML = '<p>' + escHtml(c.desc) + '</p>' +
-    (c.mendix ? '<h4>In Mendix</h4><p>' + escHtml(c.mendix) + '</p>' : '') +
-    (c.info ? '<h4>More Information</h4><p>' + escHtml(c.info) + '</p>' : '') +
+    (c.mendix ? '<h4>In Mendix</h4><p>' + c.mendix + '</p>' : '') +
+    (c.info ? '<h4>More Information</h4><p>' + c.info + '</p>' : '') +
     (c.example ? '<h4>Example</h4><div class="modal-example">' + escHtml(c.example) + '</div>' : '');
     
   modal.classList.add('active');
