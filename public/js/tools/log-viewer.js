@@ -39,6 +39,17 @@ const LOG_PAT_SIMPLE  = /^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+
 const LOG_PAT_TIME    = /^\[?(\d{2}:\d{2}:\d{2}(?:\.\d+)?)\]?\s+(TRACE|DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL)\s+([^:\n]{1,60}):\s*(.*)$/i;
 const LOG_PATTERNS    = [LOG_PAT_CLOUD, LOG_PAT_STUDIO, LOG_PAT_SIMPLE, LOG_PAT_TIME];
 
+// The foreign-log-line rule lives in the shared parser so both parsers stay in step.
+// Resolved lazily: core.js imports this module before mendix-log-parser.js, so the
+// factory is not on window yet while this file is being evaluated.
+let logForeignParser;
+function logForeign(line, inheritedTs) {
+  if (logForeignParser === undefined) {
+    logForeignParser = window.createMendixLogParser ? window.createMendixLogParser() : null;
+  }
+  return logForeignParser ? logForeignParser.foreignRecord(line, inheritedTs) : null;
+}
+
 // Lines that are continuation/stack-trace lines (not new log entries)
 function logIsContinuation(line) {
   return /^\s/.test(line)                // starts with whitespace (tab indent)
@@ -261,7 +272,16 @@ function logParseContent(text, filename) {
 
     // Not matched and not a continuation → treat as continuation of previous or standalone
     if (!matched) {
-      if (prev) {
+      // …unless it is a foreign log line: a library bundled with the app (opensaml, the AWS
+      // SDK, Xerces) logging through its own framework straight to stdout, so the line has no
+      // Mendix prefix. It is not a continuation, and gluing it onto the previous entry
+      // corrupted that entry's message.
+      const foreign = logForeign(line, prev ? prev.ts : '');
+      if (foreign) {
+        prev = { line: lineNum, ts: foreign.timestamp, level: foreign.level, node: foreign.logNode,
+                 msg: foreign.message, raw: raw, file: filename, stackLines: 0 };
+        entries.push(prev);
+      } else if (prev) {
         prev.msg += '\n' + line;
         prev.raw += '\n' + line;
       } else {

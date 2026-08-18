@@ -96,6 +96,15 @@ const LOG_SECOND_CORR = [
   '2026-07-20T10:00:11.000000 ' + P + '   DEBUG - MicroflowEngine: [1784273164806-115] Finished execution of microflow \'Mod.RefreshList\''
 ].join('\n');
 
+// A slow-query warning interrupted by two foreign log lines — the shape that used to
+// leave `ORDER BY … ASC [JettyServer-14065] INFO org.opensaml…` in the runnable SQL.
+const FOREIGN_LOG = [
+  '2026-08-11T02:06:59.500000 ' + P + '   WARNING - ConnectionBus_Queries: Query executed in 10 seconds and 259 milliseconds: SELECT "t"."id" FROM "t" ORDER BY "t"."id" ASC',
+  '[JettyServer-13962] INFO org.opensaml.xmlsec.algorithm.AlgorithmSupport - Mapping from algorithm URI http://www.w3.org/2001/04/xmlenc#rsa-oaep-mgf1p to key length not available',
+  'WARNING: Supplied DOM uses namespaces, but is not created as namespace-aware',
+  '2026-08-11T02:06:59.600000 ' + P + '   ERROR - Connector: 404 - file not found for file: odm.example.sql'
+].join('\n');
+
 // Carries all three 404 populations the analyzer must tell apart: a scanner
 // sweep (four probes from one IP, so the behavioural pass engages), a browser
 // convention, and one genuinely broken reference in the app itself.
@@ -306,6 +315,31 @@ async function run() {
       await page.evaluate(() => /constraint/i.test(document.getElementById('edx-results').textContent)));
     ok('...and carries the log row it came from',
       await page.evaluate(() => getComputedStyle(document.getElementById('edx-context')).display !== 'none'));
+
+    // Foreign log lines: a bundled library (opensaml, the AWS SDK, Xerces) logging
+    // through its own framework straight to stdout. The Log Viewer has its own parser,
+    // so the shared parser's unit tests cannot see this branch — and it is the branch
+    // that used to glue such a line onto whatever record came before it.
+    console.log('\nForeign log lines');
+    currentTool = 'log-viewer';
+    await page.evaluate(t => {
+      window.navigate('log-viewer', null);
+      window.logClear();
+      window.logLoadText(t, 'foreign.log');
+    }, FOREIGN_LOG);
+    await page.waitForFunction(() => document.querySelectorAll('#log-container .log-row').length > 0, { timeout: 20000 });
+    const foreignRows = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('#log-container .log-row')).map(r => r.innerText.replace(/\s+/g, ' ').trim()));
+    eq('each foreign line becomes its own row', foreignRows.length, 4);
+    ok('the slow-query SQL stops at the statement',
+      !/JettyServer|opensaml/.test(foreignRows[0]), foreignRows[0]);
+    ok('the slf4j line is filed under its logger, keeping the thread name',
+      /org\.opensaml\.xmlsec\.algorithm\.AlgorithmSupport/.test(foreignRows[1]) && /\[JettyServer-13962\]/.test(foreignRows[1]),
+      foreignRows[1]);
+    ok('a foreign line inherits the timestamp of the record it interrupted',
+      foreignRows[1].indexOf('2026-08-11T02:06:59.500000') !== -1, foreignRows[1]);
+    ok('the java.util.logging line lands under External as a WARN',
+      /External/.test(foreignRows[2]) && /WARN/.test(foreignRows[2]), foreignRows[2]);
 
     // Correlation Flow: the list has to be discoverable, and picking a row has to
     // render the flow (wave 20, C5). Help promised this list for a year before it

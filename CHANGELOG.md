@@ -14,6 +14,72 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.43.2 — 2026-08-18
+
+One parsing bug, reported from the Query Extractor and traced back to the log
+parser every log tool shares — plus two display fixes that were already waiting in
+the tree.
+
+- **Log lines from bundled libraries no longer get glued onto the record above
+  them.** Mendix Cloud interleaves the runtime's own log with anything a bundled
+  library prints straight to stdout — opensaml, the AWS SDK, Xerces — and those
+  lines carry no Mendix prefix, no container tag and no timestamp. The parser
+  treated every unrecognized line as a continuation, which is right for stack
+  traces and multi-line query plans and wrong for these: the foreign text was
+  appended to whatever record happened to be open. When that record was a
+  `ConnectionBus_Queries` slow-query warning, the text landed **inside the SQL**,
+  so the Runnable SQL panel ended a statement with
+  `ORDER BY … ASC [JettyServer-14065] INFO org.opensaml…` and the SQL formatter
+  dutifully rendered the library's `from` as a second `FROM` clause. Measured on
+  a production log of 123 883 records: **23 769 records carried foreign text and
+  130 of 556 extracted queries had corrupted SQL — now 0 and 0**, with the query
+  count itself unchanged. Across the ten-app reference corpus the bug hit **6 of
+  10 apps**; the four clean ones use neither SAML nor S3, which is the whole
+  pattern. Apps that do are hit hard: ~19% of all records in the worst file.
+- **Those lines now appear as their own entries** rather than vanishing —
+  filed under the logger that wrote them (`org.opensaml.xmlsec.algorithm.AlgorithmSupport`),
+  at their own level, keeping the thread name, and inheriting the timestamp of the
+  record they interrupted, since they carry none of their own. Nothing is dropped:
+  the skipped-line counter is unchanged on every file in the corpus.
+
+Both parsers were fixed, because there are two: the shared one behind the Query
+Extractor, Microflow Tracer and WS/REST Extractor, and the Log Viewer's own. Their
+routes into the bug differed — the shared parser treats any unmatched line as a
+continuation, the Log Viewer falls through its pattern list into the same glue —
+but the corrupted output was identical.
+
+v1.43.0 recorded this defect from the other end without recognising it: three
+queries that still could not be planned by "Run EXPLAIN live" were written off as
+"SAML log lines the Query Extractor mis-extracts as SQL". They were not
+mis-extracted. They were correctly extracted statements with a SAML log line
+stapled to the end.
+
+The on-prem log format is a separate, still-open gap: the shared parser does not
+recognise it at all (`2026-07-10 11:39:04.612 INFO - Node: msg` — a space instead
+of `T`, no container tag), so `detectFormat` falls through to CSV and shreds the
+file on commas. The Log Viewer is unaffected; it has its own pattern for that
+shape. Left for its own change rather than folded in here.
+
+Two display fixes ride along, unrelated to any of the above:
+
+- **HTTP Status Codes no longer prints its own markup as text.** Three entries — 303,
+  401 and 560 — write `<code>` and `<strong>` into their *In Mendix* and *More
+  Information* text, because what they are drawing a distinction between is URL paths
+  (`/SSO/assertion` vs `/link/…`, `/xas/` vs `/odata/…`), and those have to read as
+  code for the sentence to make its point. Both render paths escaped those fields, so
+  the reader got a literal `<strong>two unrelated problems that share one code</strong>`
+  mid-sentence instead. The two fields that carry markup now render as HTML; `name` and
+  `desc`, which carry none, stay escaped. The table is a hardcoded literal in the tool's
+  own source and nothing user-supplied reaches it.
+- **The JSON Formatter's empty-state icon is drawn from the icon sprite** like every
+  other one. It was the last place still carrying a hand-pasted inline SVG, and that
+  copy put its two chevrons on `x=2…22` while the page outline they sit on spans
+  `x=4…20` — so the brackets crossed and overshot the edges of the document they were
+  meant to sit inside. The XML Formatter's identical empty state had been using the
+  sprite all along.
+
+---
+
 ## v1.43.1 — 2026-08-16
 
 A layout defect in the Nginx Log Analyzer, found while regenerating the README

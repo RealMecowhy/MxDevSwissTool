@@ -102,7 +102,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.43.1</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.43.2</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -288,7 +288,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.43.1</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.43.2</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -1055,7 +1055,7 @@
           <div class="json-pane-body" style="position:relative;" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="handleTextFileDrop(event, 'json-input', 'jsonFormat')">
             <textarea class="json-input-area" id="json-input" placeholder=" " oninput="jsonFormat()"></textarea>
             <div class="empty-state-overlay">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><use href="#icon-doc-edit"></use></svg>
               <p>Paste JSON or Drop a file here</p>
             </div>
           </div>

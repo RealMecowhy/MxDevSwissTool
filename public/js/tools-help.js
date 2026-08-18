@@ -30,6 +30,7 @@ const TOOLS_HELP = {
         <li><strong>ConnectionBus errors:</strong> Usually indicate database problems, query timeouts, or attempts to write incomplete objects.</li>
         <li><strong>ActionManager errors:</strong> Indicate a failure in Microflow / Activity execution. Check the Microflow name provided in the log and navigate to it in Mendix Studio Pro.</li>
         <li><strong>Jetty / Connector errors:</strong> Suggest network issues, dropped client HTTP connections, or server response timeouts to a user request.</li>
+        <li><strong>Rows whose logger is a Java package name</strong> (e.g. <code>org.opensaml.xmlsec.algorithm.AlgorithmSupport</code>) or the literal <code>External</code> did not come from the Mendix runtime. They were printed to stdout by a library bundled with the app &mdash; opensaml, the AWS SDK, Xerces &mdash; through its own logging framework, so they carry no Mendix log node and no timestamp of their own. They are shown at the time of the runtime record they interrupted, which is accurate to the second but not to the microsecond. Apps using SAML or S3 produce tens of thousands of them per day; they are ordinary library chatter, not application errors.</li>
       </ul>
     `
   },

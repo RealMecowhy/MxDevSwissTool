@@ -19,14 +19,55 @@
     // Live-log line (single line; continuations are handled separately):
     //   2026-07-01T14:51:09.591808 [runtime-container/v7f5t]  ERROR - Connector: message
     var LOG_PAT_CLOUD = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+\[[^\]]+\]\s+(TRACE|DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL)\s+-\s+([^:\n]+?):\s*(.*)$/i;
+    // Foreign log lines: a library bundled with the app (opensaml, the AWS SDK, Xerces) logs
+    // through its own framework straight to stdout, so the line lands in the middle of the
+    // Mendix log WITHOUT the Mendix prefix. Two shapes occur in real cloud logs:
+    //   [JettyServer-13962] INFO org.opensaml.xmlsec.algorithm.AlgorithmSupport - Mapping from …
+    //   WARNING: Supplied DOM uses namespaces, but is not created as namespace-aware
+    // These are NOT continuations. Appending them to the open record corrupted its message —
+    // and when that record was a ConnectionBus_Queries slow-query warning, the foreign text
+    // ended up inside the SQL the Log Query Extractor reads back out of it.
+    var LOG_PAT_FOREIGN = /^\[([^\]\n]+)\]\s+(TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL)\s+([\w$]+(?:\.[\w$]+)+)\s+-\s+(.*)$/;
+    // The java.util.logging ladder only. ERROR/WARN/FATAL are deliberately absent: a PostgreSQL
+    // detail line inside a Java stack trace legitimately starts with "ERROR:", and that one IS
+    // a continuation of the record above it.
+    var LOG_PAT_FOREIGN_JUL = /^(SEVERE|WARNING|INFO|CONFIG|FINE|FINER|FINEST):(.*)$/;
     var CSV_HEADER = ['Type', 'TimeStamp', 'LogNode', 'Message'];
     var PROGRESS_EVERY = 512 * 1024; // report progress roughly every 512 KB of input
 
     function normLevel(l) {
       l = (l || '').toUpperCase();
       if (l === 'WARNING') return 'WARN';
-      if (l === 'ERR' || l === 'FATAL') return 'ERROR';
+      if (l === 'ERR' || l === 'FATAL' || l === 'SEVERE') return 'ERROR';
+      if (l === 'CONFIG' || l === 'FINE' || l === 'FINER' || l === 'FINEST') return 'DEBUG';
       return l;
+    }
+
+    // A foreign log line -> its own record; anything else -> null (a genuine continuation).
+    // The timestamp is inherited from the record the line interrupted: a foreign line carries
+    // none of its own, and an empty one would drop it out of every time-window filter.
+    function foreignRecord(line, inheritedTs) {
+      var m = line.match(LOG_PAT_FOREIGN);
+      if (m) {
+        return {
+          level: normLevel(m[2]),
+          timestamp: inheritedTs,
+          logNode: m[3],
+          message: '[' + m[1] + '] ' + m[4],
+          cause: ''
+        };
+      }
+      m = line.match(LOG_PAT_FOREIGN_JUL);
+      if (m) {
+        return {
+          level: normLevel(m[1]),
+          timestamp: inheritedTs,
+          logNode: 'External',
+          message: m[2].trim(),
+          cause: ''
+        };
+      }
+      return null;
     }
 
     // A row is the CSV header if its first four fields are exactly the column names.
@@ -160,8 +201,17 @@
           };
           records.push(current);
         } else if (line.trim()) {
-          if (current) current.message += '\n' + line;
-          else skipped++; // preamble/garbage before the first recognized log line
+          var foreign = foreignRecord(line, current ? current.timestamp : '');
+          if (foreign) {
+            // Own record, and it becomes the open one: a stack trace printed after a
+            // foreign line belongs to that line, not to the Mendix record before it.
+            records.push(foreign);
+            current = foreign;
+          } else if (current) {
+            current.message += '\n' + line;
+          } else {
+            skipped++; // preamble/garbage before the first recognized log line
+          }
         }
 
         if (onProgress && end >= nextProgress) {
@@ -181,7 +231,7 @@
       return { format: format, records: res.records, skipped: res.skipped };
     }
 
-    return { detectFormat: detectFormat, parse: parse, parseCsv: parseCsv, parseLive: parseLive };
+    return { detectFormat: detectFormat, parse: parse, parseCsv: parseCsv, parseLive: parseLive, foreignRecord: foreignRecord };
   }
 
   // Attach to the ambient global — window on the main thread, the worker global inside

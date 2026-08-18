@@ -152,6 +152,37 @@ ok('SQL@ line captured under ConnectionBus_Retrieve', r.records[3].message.index
 const preamble = parser.parse('garbage before any log line\n' + live);
 eq('preamble line counted as skipped', preamble.skipped, 1);
 
+// Foreign log lines (opensaml/AWS SDK/Xerces writing to stdout without the Mendix prefix).
+// Measured on the real corpus: 6 of 10 apps carry them, and in myOrder they contaminated
+// ~19% of all records — including 130 of 556 extracted queries, whose "runnable SQL" ended
+// with `ORDER BY … ASC [JettyServer-14065] INFO org.opensaml…`.
+const foreign =
+  '2026-08-11T02:06:59.5 [runtime-container/x]  WARNING - ConnectionBus_Queries: Query executed in 10 seconds and 259 milliseconds: SELECT "t"."id" FROM "t" ORDER BY "t"."id" ASC\n' +
+  '[JettyServer-13962] INFO org.opensaml.xmlsec.algorithm.AlgorithmSupport - Mapping from algorithm URI http://www.w3.org/2001/04/xmlenc#rsa-oaep-mgf1p to key length not available\n' +
+  'WARNING: Supplied DOM uses namespaces, but is not created as namespace-aware\n' +
+  '2026-08-11T02:06:59.6 [runtime-container/x]  ERROR - Connector: 404 - file not found';
+r = parser.parse(foreign);
+eq('foreign lines become their own records', r.records.length, 4);
+ok('slow-query SQL stops at the statement',
+  r.records[0].message.indexOf('JettyServer') === -1 && r.records[0].message.indexOf('opensaml') === -1,
+  JSON.stringify(r.records[0].message));
+eq('foreign slf4j logNode is the logger', r.records[1].logNode, 'org.opensaml.xmlsec.algorithm.AlgorithmSupport');
+eq('foreign slf4j level', r.records[1].level, 'INFO');
+ok('foreign slf4j keeps the thread name', r.records[1].message.indexOf('[JettyServer-13962]') === 0);
+eq('foreign line inherits the interrupted record timestamp', r.records[1].timestamp, '2026-08-11T02:06:59.5');
+eq('foreign JUL logNode', r.records[2].logNode, 'External');
+eq('foreign JUL level is normalized', r.records[2].level, 'WARN');
+eq('the Mendix record after them is unaffected', r.records[3].logNode, 'Connector');
+// A PostgreSQL detail line inside a stack trace also starts with a level word — it stays a
+// continuation, which is why ERROR/WARN/FATAL are absent from the JUL ladder.
+const pgDetail = parser.parse(
+  '2026-08-11T02:00:00.0 [runtime-container/x]  ERROR - M2EE: boom\n' +
+  '\tat com.mendix.Foo.run(Foo.java:42)\n' +
+  'ERROR: relation "shipments$order" does not exist');
+eq('a PostgreSQL ERROR: detail line is not split off', pgDetail.records.length, 1);
+ok('…and stays on the record it belongs to',
+  pgDetail.records[0].message.indexOf('relation "shipments$order"') !== -1);
+
 // ── Reference files (local only; skipped on a clean checkout) ────────────────
 console.log('\nReference files (local only)');
 function firstExisting(candidates) {
