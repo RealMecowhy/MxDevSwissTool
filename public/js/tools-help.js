@@ -367,6 +367,7 @@ const TOOLS_HELP = {
         <li>Click <strong>Analyze Logs</strong>. The tool provides two views: <strong>Analyzer</strong> (interactive statistical tables and charts) and <strong>Log Stream</strong> (raw log lines with syntax highlighting).</li>
         <li>In <strong>Log Stream</strong> (Access Log), hover a request row and click <strong>SQL in window</strong> to jump to the Log Query Extractor scoped to that request's time window — connecting a slow front-door response to the database work behind it (needs a TRACE log loaded there).</li>
         <li>Use the global filter toolbar to instantly narrow down results across both views by HTTP status code, specific time ranges, dates, or custom search queries (IP, URL, method).</li>
+        <li>The <strong>Timeline Correlator</strong> tab links rtr requests (loaded in Access Log, Mendix Cloud format) to application runtime activity: paste or load the matching application log, set a match window in milliseconds, and click <strong>Correlate</strong>. The runtime side is built from whichever the log actually has &mdash; correlation-ID groups (flow name, nodes touched, error/warning counts) on a TRACE/DEBUG log, and plain ERROR/WARNING lines on an ordinary INFO-level production log, which is the common case and still pairs up perfectly well. A swimlane shows both sides on a shared timeline, and the table below lists every match closest-first, with a button to open the matching runtime activity in the Log Viewer.</li>
         <li>To load a different file or start over, use the <strong>Clear</strong> button to reset the tool's memory and inputs.</li>
       </ol>
     `,
@@ -378,6 +379,7 @@ const TOOLS_HELP = {
         <li><strong>5xx Status Codes:</strong> Indicate a failure in the Mendix backend application (e.g., Mendix server is down or dropped the connection).</li>
         <li><strong>High traffic from a single IP:</strong> If one IP sends thousands of requests per minute, it could be a DoS attack attempt or a looped client script. Consider blocking such IPs at the firewall level.</li>
         <li><strong>p95 / p99 response time:</strong> the slowest-URLs table shows the 95th and 99th percentile next to the average. A healthy average can still hide a slow tail that some users hit on every request — a high p99 with a low average points at intermittent slowness (lock contention, cold cache, GC pauses) rather than a uniformly slow endpoint.</li>
+        <li><strong>Timeline Correlator matches are time-proximity, not identity.</strong> The rtr log carries no field that identifies a request across logs (checked against ten real apps: no <code>x-request-id</code>, nothing echoing the runtime's own correlation ID) — so "matched within &plusmn;Nms" means exactly that, and never "this is confirmed to be the request that triggered it". Treat a match as a strong lead to open and read, not as proof.</li>
       </ul>
     `
   },

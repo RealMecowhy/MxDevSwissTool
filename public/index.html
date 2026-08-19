@@ -102,7 +102,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.47.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.48.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -288,7 +288,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.47.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.48.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -2789,6 +2789,7 @@ EntityName -> OtherEntity : Association"></textarea>
         <div class="tabs" style="display:flex;gap:16px;border-bottom:1px solid var(--border);margin-bottom:-8px;flex-shrink:0;">
           <button type="button" class="tab active" onclick="nginxSwitchTab('access')" id="nx-tab-access" style="cursor:pointer;padding:8px;border-bottom:2px solid var(--primary);font-weight:bold;color:var(--text)">Access Log</button>
           <button type="button" class="tab" onclick="nginxSwitchTab('error')" id="nx-tab-error" style="cursor:pointer;padding:8px;border-bottom:2px solid transparent;color:var(--text-muted)">Error Log</button>
+          <button type="button" class="tab" onclick="nginxSwitchTab('correlator')" id="nx-tab-correlator" style="cursor:pointer;padding:8px;border-bottom:2px solid transparent;color:var(--text-muted)">Timeline Correlator</button>
         </div>
         
         <div id="nx-content-access" style="display:flex;flex-direction:column;gap:var(--sp-4); flex:1; min-height:0;">
@@ -3093,6 +3094,39 @@ EntityName -> OtherEntity : Association"></textarea>
               <div style="font-size:0.75rem;color:var(--text-muted);text-align:right;margin-top:4px">Showing <span id="nx-error-stream-count">0</span> logs</div>
             </div>
           </div>
+        </div>
+
+        <div id="nx-content-correlator" style="display:none;flex-direction:column;gap:var(--sp-4); flex:1; min-height:0;">
+          <div style="padding:var(--sp-3) var(--sp-4); border:1px solid var(--border); background:var(--bg-elevated); border-radius:var(--r-md); font-size:0.8rem; color:var(--text-secondary); line-height:1.5;">
+            Links rtr (nginx) requests from the <strong>Access Log</strong> tab to application runtime activity by time proximity &mdash; the rtr log carries no correlation ID, so a match here means "close in time", not a confirmed same request. Load an rtr log above first, then paste or load the matching application runtime log below.
+          </div>
+          <div class="card" id="nx-corr-input-card" ondragover="event.preventDefault(); this.classList.add('drag-over');" ondragleave="this.classList.remove('drag-over');" ondrop="if(typeof nxCorrHandleAppLogDrop === 'function') nxCorrHandleAppLogDrop(event); else event.preventDefault();" style="transition:all 0.2s">
+            <div class="card-body">
+              <div style="position:relative; height:120px; margin-bottom:var(--sp-2);">
+                <textarea class="textarea" id="nx-corr-app-log-input" style="height:100%; width:100%; resize:none;" placeholder=" "></textarea>
+                <div class="empty-state-overlay">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><use href="#icon-doc-plain"></use></svg>
+                  <p style="margin:0">Paste the application runtime log, or drag &amp; drop the file here</p>
+                  <div style="margin-top:var(--sp-2); display:flex; gap:var(--sp-2); pointer-events:auto;">
+                    <label class="btn btn-secondary btn-sm" for="nx-corr-app-log-file-input" style="cursor:pointer">Browse Files</label>
+                    <button class="btn btn-primary btn-sm" onclick="document.getElementById('nx-corr-app-log-input').focus()">Paste Log Content</button>
+                  </div>
+                </div>
+                <input type="file" id="nx-corr-app-log-file-input" style="display:none" accept=".log,.txt,.csv" onchange="if(window.nxCorrLoadAppLogFiles) window.nxCorrLoadAppLogFiles(this.files)">
+              </div>
+              <div style="display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap">
+                <label style="font-size:0.75rem;color:var(--text-muted);display:flex;align-items:center;gap:4px">Match window:
+                  <input class="input input-mono" id="nx-corr-window-ms" type="number" min="100" step="100" value="3000" style="width:80px">ms
+                </label>
+                <button class="btn btn-primary btn-sm" onclick="if(window.nxCorrRun) window.nxCorrRun()">Correlate</button>
+                <button class="btn btn-secondary btn-sm" onclick="if(window.nxCorrClear) window.nxCorrClear()">Clear</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid-3" id="nx-corr-summary" style="display:none"></div>
+
+          <div id="nx-corr-output" style="flex:1;overflow-y:auto"></div>
         </div>
         </div>
       </div>

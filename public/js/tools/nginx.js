@@ -6,26 +6,24 @@ window.nginxParsedLogs = [];
 window.nginxErrorParsedLogs = [];
 window.nginxActiveTab = 'access';
 
+// access/error/correlator — three top-level tabs sharing one active/inactive
+// styling loop (was two tabs hardcoded twice; generalized when the Timeline
+// Correlator tab was added rather than duplicated a third time).
+const NGINX_TABS = ['access', 'error', 'correlator'];
 function nginxSwitchTab(tab) {
   window.nginxActiveTab = tab;
-  document.getElementById('nx-tab-access').classList.remove('active');
-  document.getElementById('nx-tab-access').setAttribute('aria-selected', 'false');
-  document.getElementById('nx-tab-access').style.borderBottomColor = 'transparent';
-  document.getElementById('nx-tab-access').style.color = 'var(--text-muted)';
-
-  document.getElementById('nx-tab-error').classList.remove('active');
-  document.getElementById('nx-tab-error').setAttribute('aria-selected', 'false');
-  document.getElementById('nx-tab-error').style.borderBottomColor = 'transparent';
-  document.getElementById('nx-tab-error').style.color = 'var(--text-muted)';
-
-  document.getElementById('nx-content-access').style.display = 'none';
-  document.getElementById('nx-content-error').style.display = 'none';
-
-  document.getElementById('nx-tab-' + tab).classList.add('active');
-  document.getElementById('nx-tab-' + tab).setAttribute('aria-selected', 'true');
-  document.getElementById('nx-tab-' + tab).style.borderBottomColor = 'var(--primary)';
-  document.getElementById('nx-tab-' + tab).style.color = 'var(--text)';
-  document.getElementById('nx-content-' + tab).style.display = 'flex';
+  NGINX_TABS.forEach(function (t) {
+    const tabBtn = document.getElementById('nx-tab-' + t);
+    const content = document.getElementById('nx-content-' + t);
+    const active = t === tab;
+    if (tabBtn) {
+      tabBtn.classList.toggle('active', active);
+      tabBtn.setAttribute('aria-selected', active ? 'true' : 'false');
+      tabBtn.style.borderBottomColor = active ? 'var(--primary)' : 'transparent';
+      tabBtn.style.color = active ? 'var(--text)' : 'var(--text-muted)';
+    }
+    if (content) content.style.display = active ? 'flex' : 'none';
+  });
 }
 
 function nginxHandleDrop(e) {

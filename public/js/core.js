@@ -185,7 +185,7 @@ async function navigate(toolId, navEl, initialTab) {
     iconEl.style.color = tool.color || 'var(--accent)';
   }
   document.getElementById('topbar-title').textContent = tool.label;
-  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.47.0' : (tool.desc || '');
+  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.48.0' : (tool.desc || '');
   const previousTool = currentTool;
   currentTool = toolId;
   window.currentTool = currentTool;
@@ -590,6 +590,10 @@ import './tools/sql-engine.js';
 import * as jvmHealth from './tools/jvm-health.js';
 import * as mockServer from './tools/mock-server.js';
 import * as nginx from './tools/nginx.js';
+// Side-effect import: adds the Nginx panel's "Timeline Correlator" tab
+// (window.nxCorrRun/nxCorrelate/…) — companion to nginx.js, not a separate
+// tool entry, same pattern as the Data Factory / Perf Lab companion files.
+import './tools/nginx-correlator.js';
 import * as odata from './tools/odata.js';
 import * as passwordGenerator from './tools/password-generator.js';
 import * as perfLab from './tools/perf-lab.js';
