@@ -102,7 +102,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.48.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.49.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -288,7 +288,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.48.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.49.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -1536,7 +1536,7 @@
     <!-- TIMESTAMP -->
     <div class="tool-panel" id="panel-timestamp">
       <div class="tool-actions"><button class="btn btn-secondary btn-sm" id="ts-btn-now">Set to Now</button></div>
-      <div class="tool-body">
+      <div class="tool-body tool-body-narrow">
         <div class="form-group" style="margin-bottom:var(--sp-4)">
           <div class="form-label">Input (epoch ms/s, ISO 8601, or any date string)</div>
           <div class="form-row"><input class="input input-mono" id="ts-input" placeholder="1716220800000  or  2024-05-20T12:00:00Z" style="flex:1"><button class="btn btn-primary" id="ts-btn-convert">Convert</button></div>
@@ -1685,7 +1685,7 @@
         <button class="btn btn-secondary btn-sm" onclick="window.odataTest(this)" title="Send one GET request via the Observability Bridge (localhost/private targets by default — see notice on refusal)">Test</button>
         <button class="btn btn-secondary btn-sm" onclick="odataCopyUrl()">Copy URL</button>
       </div>
-      <div class="tool-body">
+      <div class="tool-body tool-body-narrow">
         <div class="form-group" style="margin-bottom:var(--sp-4)"><div class="form-label">Service Base URL</div><input class="input input-mono" id="odata-base" placeholder="https://myapp.mendixcloud.com/odata/PublishedService/v1" oninput="odataBuild()"></div>
         <div class="grid-2" style="gap:var(--sp-4);margin-bottom:var(--sp-4)">
           <div class="form-group"><div class="form-label">Entity / Resource</div><input class="input input-mono" id="odata-entity" placeholder="Customers" oninput="odataBuild()"></div>
@@ -2579,7 +2579,7 @@ EntityName -> OtherEntity : Association"></textarea>
         <div id="hash-file-info" style="margin-bottom:var(--sp-3);font-size:0.8rem;color:var(--info);display:none"></div>
         <div id="hash-results" style="display:flex;flex-direction:column;gap:var(--sp-2)"></div>
 
-        <details style="margin-top:var(--sp-4);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-2) var(--sp-3)">
+        <details class="tool-body-narrow" style="margin-top:var(--sp-4);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-2) var(--sp-3)">
           <summary style="font-weight:600;font-size:0.82rem;cursor:pointer">BCrypt Verify — Mendix password hash + plaintext &rarr; match</summary>
           <div style="display:flex;gap:var(--sp-4);margin:var(--sp-2) 0">
             <div class="form-group" style="flex:1">
@@ -2594,7 +2594,7 @@ EntityName -> OtherEntity : Association"></textarea>
           <div id="hash-bcrypt-result"></div>
         </details>
 
-        <details style="margin-top:var(--sp-3);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-2) var(--sp-3)">
+        <details class="tool-body-narrow" style="margin-top:var(--sp-3);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-2) var(--sp-3)">
           <summary style="font-weight:600;font-size:0.82rem;cursor:pointer">HMAC-SHA256 — webhook signature verification</summary>
           <div class="form-group" style="margin:var(--sp-2) 0">
             <div class="form-label">Message</div>
@@ -2611,7 +2611,7 @@ EntityName -> OtherEntity : Association"></textarea>
 
     <!-- PASSWORD GENERATOR -->
     <div class="tool-panel" id="panel-password-generator">
-      <div class="tool-body">
+      <div class="tool-body tool-body-narrow">
         <div style="display:flex;gap:var(--sp-4);flex-wrap:wrap">
           <div class="form-group" style="flex:1;min-width:300px">
             <div class="form-label">Password Length: <span id="pwd-len-val">20</span></div>

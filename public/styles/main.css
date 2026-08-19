@@ -3787,6 +3787,78 @@ kbd {
 .nxc-bar-err  { background: color-mix(in srgb, var(--danger) 70%, transparent); }
 .nxc-matched { outline: 2px solid var(--accent); outline-offset: 1px; }
 
+/* =========================================
+   ULTRAWIDE / 4K READABILITY
+   =========================================
+   3440x1440 and 4K are common in this audience. Dashboards and split-editors
+   (Log Viewer, HAR, Nginx, the JSON/XML/SQL formatters) already benefit from
+   the extra width and are left untouched. What follows targets the other
+   half: short single-purpose fields and prose that just stretched
+   edge-to-edge with nothing in them. Every rule below is a max-width or an
+   align-items change — it only ever engages when there's width to spare, so
+   nothing here needs a media query or changes anything on a normal laptop
+   screen. */
+
+/* KPI tiles (Nginx/HAR/Telemetry summary rows) stop growing once each card
+   is comfortably sized instead of stretching to fill 3-4 wide columns.
+   Scoped to grids that actually hold .stat-item, so the JVM/HTTP chart
+   grids that share the same .grid-3/.grid-4 classes are unaffected. */
+.grid-3:has(.stat-item),
+.grid-4:has(.stat-item) {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 260px));
+}
+
+/* Stat grids stretch every card in a row to the tallest one's height —
+   harmless at normal widths, but ultrawide packs more cards per row, so one
+   taller card (e.g. a wrapped label) drags every sibling down with it.
+   Top-align instead; each card keeps its own natural height. */
+.http-grid {
+  align-items: start;
+}
+
+/* Error Decoder prose: explanatory paragraphs and cause/check lists read
+   worse the wider they run. Cap to a comfortable measure; the card and the
+   split ratio next to it stay full width. */
+.edx-mechanism,
+.edx-list,
+.edx-disclaimer {
+  max-width: 90ch;
+}
+
+/* Short single-line/short-paste fields: capping the field itself (not its
+   form-group or whatever follows) leaves tables, decoded claims and
+   dashboards below free to use the full width. */
+#log-search,
+#nx-access-search {
+  max-width: 480px;
+}
+#jwt-input,
+#saml-input,
+#saml-oidc-input {
+  max-width: 900px;
+}
+
+/* Pure short-field forms: centering a comfortable column reads better than
+   fields separated by a thousand empty pixels. Applied only where every
+   field in the tool is genuinely short (config toggles, epoch/date strings,
+   OData query parts) — tools whose main input is an arbitrary-size paste
+   (JSON/expression/log/payload editors) keep full width instead. */
+.tool-body-narrow {
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* HAR waterfall: the only dashboard in the app that is a single unpaired
+   column (every other dashboard — Nginx, Telemetry — already pairs cards
+   two-up via .grid-2 and stays reasonably sized on its own). Left full
+   width, the microflow-name column and the duration bars end up at
+   opposite edges of the screen with nothing between them, and the bars
+   lose the scale that makes the waterfall readable. */
+#har-results {
+  max-width: 1900px;
+}
+
 /* Respect the OS "reduce motion" setting across the whole app, not just the
    toasts it originally covered: modal fades, panel transitions, spinners and
    the sidebar collapse all played regardless. Durations are collapsed rather
