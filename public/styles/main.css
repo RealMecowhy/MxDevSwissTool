@@ -3767,6 +3767,26 @@ kbd {
 @keyframes mt-toast-in  { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
 @keyframes mt-toast-out { to { opacity: 0; transform: translateX(12px); } }
 
+/* =========================================
+   NGINX ↔ APP LOG TIMELINE CORRELATOR (Fala 25)
+   ========================================= */
+.nxc-swimlane { display: flex; flex-direction: column; gap: var(--sp-2); }
+.nxc-lane-label { font-size: 0.72rem; color: var(--text-muted); font-weight: 600; }
+.nxc-lane { position: relative; height: 28px; background: var(--bg-base); border-radius: var(--r-sm); margin-bottom: var(--sp-3); }
+.nxc-dot {
+  position: absolute; top: 50%; width: 8px; height: 8px; border-radius: 50%;
+  transform: translate(-50%, -50%); cursor: default;
+}
+.nxc-dot-2xx { background: var(--success); }
+.nxc-dot-3xx { background: var(--info); }
+.nxc-dot-4xx { background: var(--warning); }
+.nxc-dot-5xx { background: var(--danger); }
+.nxc-bar { position: absolute; top: 6px; height: 16px; min-width: 3px; border-radius: 3px; cursor: default; }
+.nxc-bar-ok   { background: color-mix(in srgb, var(--success) 55%, transparent); }
+.nxc-bar-warn { background: color-mix(in srgb, var(--warning) 65%, transparent); }
+.nxc-bar-err  { background: color-mix(in srgb, var(--danger) 70%, transparent); }
+.nxc-matched { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 /* Respect the OS "reduce motion" setting across the whole app, not just the
    toasts it originally covered: modal fades, panel transitions, spinners and
    the sidebar collapse all played regardless. Durations are collapsed rather

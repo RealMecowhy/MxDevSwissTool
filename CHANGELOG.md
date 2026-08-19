@@ -14,6 +14,31 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.48.0 — 2026-08-19
+
+**Nginx Log Analyzer — Timeline Correlator.** A new tab links rtr (nginx)
+requests to application runtime activity on a shared timeline. The rtr log
+carries no correlation ID — checked field by field against ten real apps —
+so every match is labelled "within &plusmn;Nms", never a confirmed identity;
+that distinction is the whole trust argument for the feature and is stated
+wherever a match is shown, not just here.
+
+The runtime side is built from whatever the application log actually has,
+not from one assumption: correlation-ID groups (flow name, nodes, error/
+warning counts) when the log runs TRACE/DEBUG, and plain ERROR/WARNING
+lines when it does not. The second case turned out to be the *normal* one —
+checked against the same ten-app corpus, none of them log below INFO in
+production, so none ever emit a correlation ID. Building the runtime lane
+from correlation-ID groups alone would have made this feature empty-state
+on every real log it has ever seen; the fix was building it from both
+along with a real example that only the ERROR-line path finds: an rtr 404
+for `/wp-login.php` and the application's own "file not found" ERROR line,
+3.2 ms apart, with no correlation ID involved at all.
+
+A swimlane shows both sides on one time axis, and the match table below
+lists every pair closest-first with a jump to open that activity in the
+Log Viewer.
+
 ## v1.47.0 — 2026-08-19
 
 Domain Model & Architecture's working view is now an owned, interactive SVG

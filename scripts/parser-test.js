@@ -4284,6 +4284,83 @@ async function runNginxAsyncTests() {
 }
 
 // =========================================================================
+// NGINX (rtr) ↔ APPLICATION LOG TIMELINE CORRELATOR (Fala 25)
+// =========================================================================
+// log-viewer.js is required here (not elsewhere in this file) purely for
+// window.logExtractCorrelations, which nxCorrBuildRuntimeEvents consumes.
+console.log('\nNginx ↔ App Log Timeline Correlator');
+require('../public/js/tools/log-viewer.js');
+require('../public/js/tools/nginx-correlator.js');
+
+// ── nxCorrTsToMs ──
+eq('ts→ms: parses microsecond fraction', global.nxCorrTsToMs('2026-08-10T00:00:04.812837'), Date.parse('2026-08-10T00:00:04Z') + 812.837);
+eq('ts→ms: parses without a fraction', global.nxCorrTsToMs('2026-08-10T00:00:04'), Date.parse('2026-08-10T00:00:04Z'));
+ok('ts→ms: garbage input is NaN, not a crash', isNaN(global.nxCorrTsToMs('not a timestamp')));
+ok('ts→ms: empty input is NaN', isNaN(global.nxCorrTsToMs('')));
+
+// ── nxCorrBuildRuntimeEvents ──
+// The corpus this shipped against (ten real apps, NewLogs) runs INFO-and-above
+// only — never TRACE/DEBUG — so it never emits a [corrId] bracket anywhere.
+// These fixtures cover exactly the two sources that therefore matter in
+// practice: bare ERROR/WARNING lines, and (separately) corrId groups when a
+// richer log does have them.
+const nxcBareRecords = [
+  { level: 'ERROR', timestamp: '2026-08-10T00:02:55.139200', logNode: 'Connector', message: '404 - file not found for file: wp-login.php' },
+  { level: 'INFO', timestamp: '2026-08-10T00:02:55.200000', logNode: 'Core', message: 'Nothing wrong here' },
+  { level: 'WARN', timestamp: '2026-08-10T00:03:00.000000', logNode: 'Scheduler', message: 'Queue backing up' }
+];
+const nxcBareEvents = global.nxCorrBuildRuntimeEvents(nxcBareRecords, []);
+eq('runtime events: INFO lines produce no event', nxcBareEvents.length, 2);
+ok('runtime events: ERROR line becomes a point event', nxcBareEvents.some(e => e.kind === 'entry' && e.level === 'ERROR' && /wp-login/.test(e.message)));
+ok('runtime events: WARN line becomes a point event too', nxcBareEvents.some(e => e.kind === 'entry' && e.level === 'WARN'));
+
+const nxcGroupRecord = [
+  { level: 'DEBUG', timestamp: '2026-08-10T00:05:00.000000', logNode: 'MicroflowEngine', message: '[abc123] Starting execution of microflow \'ACT_Order_Create\'' }
+];
+const nxcFlowGroups = [{ id: 'abc123', flow: 'ACT_Order_Create', nodes: ['MicroflowEngine'], errors: 0, warnings: 0, count: 1, firstMs: 1000, lastMs: 2000 }];
+const nxcMixedEvents = global.nxCorrBuildRuntimeEvents(nxcGroupRecord, nxcFlowGroups);
+eq('runtime events: a record already inside a corrId group is not also added as a bare point', nxcMixedEvents.length, 1);
+eq('runtime events: the group itself becomes one flow event', nxcMixedEvents[0].kind, 'flow');
+eq('runtime events: a group with an unparseable span is dropped rather than crashing', global.nxCorrBuildRuntimeEvents([], [{ id: 'x', firstMs: NaN, lastMs: NaN }]).length, 0);
+
+// ── nxCorrelate ──
+const nxcRtr = [
+  { rawLine: '2026-08-10T00:02:55.142369 [nginx/x]   request="GET /wp-login.php HTTP/1.1" status="404"', status: 404, method: 'GET', url: '/wp-login.php', time: 0.001, ip: '1.2.3.4' },
+  { rawLine: '2026-08-10T00:10:00.000000 [nginx/x]   request="GET /far-away HTTP/1.1" status="200"', status: 200, method: 'GET', url: '/far-away', time: 0.001, ip: '1.2.3.4' },
+  { rawLine: 'not-a-timestamp', status: 200, method: 'GET', url: '/no-ts', time: 0, ip: '1.2.3.4' }
+];
+const nxcEvents = [
+  { kind: 'entry', ms: global.nxCorrTsToMs('2026-08-10T00:02:55.139200'), msEnd: global.nxCorrTsToMs('2026-08-10T00:02:55.139200'), level: 'ERROR', node: 'Connector', message: '404 - file not found for file: wp-login.php' }
+];
+const nxcResult = global.nxCorrelate(nxcRtr, nxcEvents, 3000);
+eq('correlate: a request with no parseable timestamp is dropped, not matched', nxcResult.requests.length, 2);
+eq('correlate: the near-simultaneous request/event pair links', nxcResult.links.length, 1);
+eq('correlate: the distant request does not link within a 3s window', nxcResult.links.some(l => nxcResult.requests[l.reqIndex].url === '/far-away'), false);
+ok('correlate: the linked distance matches the real 3.2ms gap seen in the corpus', nxcResult.links[0].distMs > 3 && nxcResult.links[0].distMs < 4, nxcResult.links[0].distMs);
+eq('correlate: default window applies when none is given', global.nxCorrelate(nxcRtr, nxcEvents, undefined).windowMs, 3000);
+eq('correlate: empty inputs produce empty output, not a crash', global.nxCorrelate([], [], 1000).links.length, 0);
+
+// ── Real corpus (when present locally) — the pair that led to this design ──
+const nxcRtrFile = path.join(__dirname, '..', '_local_assets', 'FilesForTest', 'NewLogs', 'Bridge', 'rtr_logs_eb2b8f2f-501f-4856-a13b-9e9705118f0d_2026-08-10.txt');
+const nxcAppFile = path.join(__dirname, '..', '_local_assets', 'FilesForTest', 'NewLogs', 'Bridge', 'logs_eb2b8f2f-501f-4856-a13b-9e9705118f0d_2026-08-10.txt');
+if (fs.existsSync(nxcRtrFile) && fs.existsSync(nxcAppFile)) {
+  const nxcRtrText = fs.readFileSync(nxcRtrFile, 'utf8');
+  const nxcAppText = fs.readFileSync(nxcAppFile, 'utf8');
+  const nxcRealRtr = nxcRtrText.split(/\r?\n/).filter(Boolean).map(global.nginxParseLine).filter(Boolean);
+  const nxcRealParsed = global.createMendixLogParser().parse(nxcAppText);
+  const nxcRealCorr = global.logExtractCorrelations(nxcRealParsed.records);
+  const nxcRealEvents = global.nxCorrBuildRuntimeEvents(nxcRealParsed.records, nxcRealCorr.groups);
+  const nxcRealResult = global.nxCorrelate(nxcRealRtr, nxcRealEvents, 3000);
+  ok('real corpus: this app log runs INFO-and-above only, so every runtime event is a bare entry, none a corrId flow',
+    nxcRealEvents.length > 0 && nxcRealEvents.every(e => e.kind === 'entry'));
+  const nxcWpMatches = nxcRealResult.links.filter(l => nxcRealResult.requests[l.reqIndex].url === '/wp-login.php');
+  ok('real corpus: rtr 404s for /wp-login.php pair up with the app log\'s "file not found" ERROR line', nxcWpMatches.length > 0);
+  ok('real corpus: the match distance is a few milliseconds, not a coincidence across the window', nxcWpMatches.every(l => l.distMs < 50));
+} else {
+  console.log('  (skipped: real corpus not present locally — _local_assets/FilesForTest/NewLogs/Bridge)');
+}
+
+// =========================================================================
 // HASH GENERATOR — BCrypt verification (12.9)
 // =========================================================================
 // Fixtures generated with the independent `bcryptjs` library (not this app's
