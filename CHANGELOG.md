@@ -14,6 +14,143 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.47.0 — 2026-08-19
+
+Domain Model & Architecture's working view is now an owned, interactive SVG
+canvas instead of a static Mermaid picture — the question behind this wave
+was "what does a developer actually need this for," and the answer split
+into two roles the tool now keeps separate: **exploring** a model (click,
+expand, drag, inspect) and **documenting** one (Mermaid text, unchanged,
+still the export path for GitHub/Confluence).
+
+- **Click an entity for its real structure.** A new Details panel — reading
+  the live model directly, not the stripped `{name,type}` projection Mermaid
+  uses — shows the table name, every column name and type, and every
+  association with its FK column or junction table and which side is "1".
+  None of this is visible in Studio Pro.
+- **Double-click to expand attributes in place**, one entity at a time — the
+  ring it sits on widens automatically so nothing overlaps, verified down to
+  a genuinely enormous case in the reference app: one entity with 174
+  attributes expanded cleanly with zero collisions.
+- **Drag any entity out of the way.** Positions are kept in an override map
+  keyed by entity, so a drag survives expanding or collapsing unrelated
+  nodes, and only resets when you explore a different focus entity.
+- **Coloured by module**, same palette as the Diagram/Modules Mermaid views,
+  with a legend for the modules actually on screen and the focus entity
+  outlined in accent.
+- Pan, zoom, zoom-to-fit and the light/dark theme redraw are the exact same
+  code architecture.js already had for Mermaid — the canvas draws into the
+  same container and gets all of it for free.
+- Two real bugs caught during verification, not by inspection: an
+  **async race** where the Mermaid diagram's own (unawaited) render could
+  finish late and silently overwrite an already-drawn canvas, and
+  **Modules view clearing the explore state** it wasn't supposed to own
+  anymore, which made "peek at Modules, then click Explore" forget where you
+  were. Both are now fixed and covered by the manual verification pass.
+- New pure, unit-tested layout engine (`arch-canvas.js`, 27 assertions) —
+  radial rings by hop distance from the focus entity, deterministic node
+  sizing, and a documented decision *not* to try colouring individual
+  association lines: the vendored Mermaid's `classDiagram` grammar has no
+  `linkStyle` at all, confirmed by reading its parser tables, not assumed.
+- **Fixed: Data Factory's generated INSERT statements could assign duplicate
+  ids on a mature application.** Mendix ids are 64-bit; once an application's
+  ids pass 2^53, a JS `Number` can no longer represent every following
+  integer exactly, so `MAX(id) + 1` silently stopped incrementing and every
+  generated row after that point got the same id — the INSERT would fail on
+  a unique-constraint violation from the second such row on. Id handling
+  (`server/livedb.js`'s `runSeedSchema`, and `data-factory.js` /
+  `data-factory-seed.js`) now carries ids as `BigInt` end to end instead of
+  passing them through `Number()`.
+
+## v1.46.0 — 2026-08-19
+
+Domain Model & Architecture was reported unusable on a real application
+(277 entities, 34 modules): the connection panel ate half the window, the JSON
+pane held half the width permanently, and the diagram opened at 3% zoom in a
+652 × 382 px box. Measured on that same application, with the same module
+selected:
+
+| | before | after |
+|---|---|---|
+| zoom after auto-fit | 3% | 12% |
+| diagram panel | 652 × 382 px | 1320 × 698 px |
+| diagram canvas height | 13 138 px | 1 522 px |
+| connection panel | 449 px (50% of the body) | 34 px, collapsed |
+| model summary strip | 220 px | 77 px |
+
+- **The connection form now collapses once a model is loaded**, and the model
+  summary moved out of it so it stays on screen — it is the working surface,
+  the form is setup you touch once. On a *failed* load the panel stays open,
+  because then the form is exactly what you need.
+- **Split / JSON / Diagram switch**, reusing the same pane manager seven other
+  tools already use. Loading from a database switches to Diagram on its own:
+  the JSON is a generated projection at that point, not something being typed.
+- **Attributes: Auto / All / None.** Attribute rows are what make a real model
+  enormous, and Auto drops them past 12 entities. This, not the extra panel
+  width, is what moves the fit percentage.
+- **Entities are coloured by module**, with a legend for the modules actually
+  on screen, and the explored entity is outlined in accent. `System` is always
+  neutral grey — platform infrastructure, not your model. Colours are literal
+  hex rather than CSS variables so `Copy Mermaid` still renders in GitHub and
+  Confluence; a theme switch therefore regenerates the diagram.
+- **Fixed: an entity with no attributes rendered an empty `{ }` class body,
+  which mermaid rejects outright** — "Expecting 'MEMBER', got 'STRUCT_STOP'" —
+  taking the *whole* diagram down, not just that entity. Latent before (models
+  from a database always had attributes) and unavoidable once attributes could
+  be hidden.
+- Per-association colouring was investigated and **is not possible**: the
+  vendored mermaid's `classDiagram` grammar has no `linkStyle`. Relation lines
+  got a contrast lift instead; cardinality remains on the edge labels.
+
+## v1.45.0 — 2026-08-19
+
+Domain Model Explorer — the follow-up parked on 10.08 when the module picker
+shipped: pick a whole module because it's the only filter available, even
+when the actual question is "what touches this one entity."
+
+- **Explore one entity and its neighbors.** Below the module picker, type or
+  pick an entity, choose 1 or 2 hops, and the tool draws just that entity
+  and what associates to it — no new dependency, no new query, the same
+  in-memory model the module picker already projects from. The 150-entity
+  size guard that protects "All modules" applies here too, since a 2-hop
+  radius around a hub can still be large.
+- **Click a neighbor to re-center there.** The result isn't a one-shot
+  filter: clicking any entity node in an explored diagram walks the
+  neighborhood outward from that entity instead, at the same radius —
+  scoped to stay off diagrams drawn from the module picker, where a click
+  doing something new would be a surprise.
+- Help and README updated; `archProjectModel` (the module-based projector)
+  is refactored to share its entity/association-shaping logic with the new
+  neighbor-based path (`archProjectEntities`) rather than duplicating it —
+  and picked up 3 regression tests in the process, since it had none before.
+
+## v1.44.0 — 2026-08-19
+
+Domain Model & Architecture reframed: the tool was named and documented as a
+diagram generator, but three of its four real value props have nothing to do
+with drawing a picture — reading a model out of a live Postgres with no
+`.mpr`/Studio Pro, publishing a table→entity map the Error Decoder and
+Query Intelligence Suite pick up automatically, and a module dependency view
+Studio Pro cannot produce (it renders one module per tab). A 150-entity guard
+already stops the one mode that genuinely doesn't scale ("draw the whole
+model"), so this wave fixes the promise rather than the renderer.
+
+- **Model insights panel.** Loading a model now surfaces, before you draw
+  anything: the most-coupled module pairs, the highest-degree ("hub")
+  entities, and a count of orphan entities with zero associations — all
+  derived client-side from data already in memory, no new queries. Verified
+  against a real 338-entity/40-module application: `System.User` (109
+  associations) and `Beneficiary.Beneficiary` (47) surfaced as the top hubs,
+  `MxModelReflection ↔ System` (18) as the tightest module coupling, and 66
+  entities flagged as orphans.
+- **Tool renamed** from "Domain Model & Architecture Diagrammer" /
+  "... Visualizer" (two different oversold names in help text and README) to
+  the plain "Domain Model & Architecture" already used in the sidebar.
+- **Help rewritten**: the live-database path now leads instead of appearing
+  as step 4, the previously-undocumented Modules view gets its own step, and
+  a new interpretation section explains what a hub, an orphan, and a module
+  coupling count actually mean for someone reading an unfamiliar model.
+
 ## v1.43.2 — 2026-08-18
 
 One parsing bug, reported from the Query Extractor and traced back to the log

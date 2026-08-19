@@ -102,7 +102,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.43.2</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.47.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -288,7 +288,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.43.2</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.47.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -2470,11 +2470,16 @@
     <!-- ARCHITECTURE -->
     <div class="tool-panel" id="panel-architecture">
       <div class="tool-actions">
+          <div class="btn-group" style="margin-right:auto">
+            <button type="button" class="btn btn-secondary btn-xs active" aria-pressed="true" onclick="window.archSetPaneView('split', this)">Split</button>
+            <button type="button" class="btn btn-secondary btn-xs" aria-pressed="false" onclick="window.archSetPaneView('raw', this)">JSON</button>
+            <button type="button" class="btn btn-secondary btn-xs" aria-pressed="false" onclick="window.archSetPaneView('result', this)" title="Hide the source pane and give the diagram the full width">Diagram</button>
+          </div>
           <button class="btn btn-secondary btn-sm" onclick="archCopyMermaid()">Copy Mermaid</button>
           <button class="btn btn-secondary btn-sm" onclick="archDownloadSvg()">Download SVG</button>
           <button class="btn btn-primary btn-sm" onclick="archGenerate()">Generate Diagram</button>
         </div>
-      <div class="tool-body" style="display:flex;flex-direction:column;gap:var(--sp-3)">
+      <div class="tool-body" style="display:flex;flex-direction:column;gap:var(--sp-2)">
         <!-- Live DB (Wave 6 R3): optional — pasting a model keeps working unchanged -->
         <details id="arch-livedb" style="border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-2) var(--sp-3)">
           <summary style="font-weight:600;font-size:0.82rem;cursor:pointer">Load the domain model from a live Mendix database <span style="color:var(--text-muted);font-weight:400">— optional, read-only</span></summary>
@@ -2486,24 +2491,52 @@
           </div>
           <div id="arch-livedb-bar" data-mt-db-connection style="margin-bottom:var(--sp-2)"></div>
           <button class="btn btn-primary btn-sm" onclick="window.archLoadFromDb(this)">Load model from database</button>
-          <div id="arch-model-summary" style="margin-top:var(--sp-2)"></div>
         </details>
-        <div style="display:flex;gap:var(--sp-4);flex:1;min-height:0">
-        <div style="flex:1;display:flex;flex-direction:column">
-           <div class="form-label">Input Data (JSON or Pseudocode)</div>
-           <textarea class="code-area" id="arch-input" style="flex:1" placeholder="EntityName
+        <!-- Outside the <details> on purpose: the connection form is setup you touch once,
+             this is the working surface you keep using — and it stays visible when
+             archLoadFromDb collapses the panel above after a successful load. -->
+        <div id="arch-model-summary"></div>
+        <div id="arch-split" data-orig-grid="1fr 1fr" style="display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-4);flex:1;min-height:0">
+        <div>
+           <div style="display:flex;align-items:center;gap:var(--sp-2);margin-bottom:4px">
+             <div class="form-label" style="margin:0">Entity</div>
+             <div class="btn-group" style="margin-left:auto">
+               <button type="button" id="arch-leftpane-details-btn" class="btn btn-secondary btn-xs" aria-pressed="false" onclick="window.archSetLeftPane('details', this)">Details</button>
+               <button type="button" id="arch-leftpane-source-btn" class="btn btn-secondary btn-xs active" aria-pressed="true" onclick="window.archSetLeftPane('source', this)">Source</button>
+             </div>
+           </div>
+           <!-- Structure of whatever entity is selected on the canvas — table
+                name, column names, FK/junction facts. Reads archLiveModel
+                directly, not the {name,type}-only JSON the Mermaid path uses.
+                Hidden by default: without a database this pane has nothing to
+                show, and Source (the textarea) is what a no-DB user needs
+                first — archSetViewMode switches this automatically once
+                Explore actually has an entity to describe. -->
+           <div id="arch-details-pane" style="display:none;flex:1;min-height:0;border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg-elevated);overflow:hidden"></div>
+           <div id="arch-source-pane" style="display:flex;flex:1;min-height:0;flex-direction:column">
+             <textarea class="code-area" id="arch-input" style="flex:1" placeholder="EntityName
   attr1: String
   attr2: Integer
 
 EntityName -> OtherEntity : Association"></textarea>
+           </div>
         </div>
-        <div style="flex:1;display:flex;flex-direction:column;overflow-y:auto">
+        <div style="overflow:hidden">
            <div style="display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;margin-bottom:var(--sp-1)">
              <div class="form-label" style="margin:0">Architecture Visualization</div>
              <div id="arch-view-toggle" class="btn-group" style="margin-left:var(--sp-2)">
-               <button type="button" class="btn btn-secondary btn-xs active" data-view="entities" onclick="window.archSetViewMode('entities')">Entities</button>
+               <button type="button" class="btn btn-secondary btn-xs" data-view="canvas" onclick="window.archSetViewMode('canvas')" title="Interactive canvas — expand, drag, and inspect entities">Explore</button>
+               <button type="button" class="btn btn-secondary btn-xs active" data-view="entities" onclick="window.archSetViewMode('entities')">Diagram</button>
                <button type="button" class="btn btn-secondary btn-xs" data-view="modules" onclick="window.archSetViewMode('modules')" title="Requires a model loaded from a live database">Modules</button>
              </div>
+             <label style="font-size:0.72rem;color:var(--text-muted);display:inline-flex;align-items:center;gap:4px;white-space:nowrap">Attributes
+               <select id="arch-attr-mode" style="font-size:0.72rem;padding:1px 2px" onchange="window.archSetAttrMode(this.value)"
+                 title="Attribute rows are what makes a large diagram enormous — Auto hides them above 12 entities">
+                 <option value="auto">Auto</option>
+                 <option value="all">All</option>
+                 <option value="none">None</option>
+               </select>
+             </label>
              <div id="arch-zoom-controls" class="btn-group" style="margin-left:auto" title="Scroll to zoom, drag to pan">
                <button type="button" class="btn btn-secondary btn-xs" onclick="window.archZoomBy(1/1.25)" title="Zoom out">&minus;</button>
                <span id="arch-zoom-level" style="font-size:0.72rem;color:var(--text-muted);min-width:44px;text-align:center;align-self:center">100%</span>
@@ -2514,9 +2547,11 @@ EntityName -> OtherEntity : Association"></textarea>
              <input type="text" id="arch-entity-search" placeholder="Find entity…" style="width:160px;font-size:0.78rem;padding:2px 6px" oninput="window.archSearchEntity()" onkeydown="if(event.key==='Enter')window.archSearchEntity()">
              <span id="arch-entity-search-status" style="font-size:0.72rem;color:var(--text-muted);white-space:nowrap"></span>
            </div>
+           <!-- Module colour legend — rendered only when there is something to explain. -->
+           <div id="arch-legend" style="display:none;gap:var(--sp-2);flex-wrap:wrap;align-items:center;margin-bottom:var(--sp-1);font-size:0.7rem;color:var(--text-muted)"></div>
            <!-- Scrolls at the diagram's natural size (mermaid's useMaxWidth is off, see mtLoadMermaid);
                 archRenderMermaid puts a zoom wrapper inside so drag-to-pan and wheel-zoom work. -->
-           <div id="arch-output" style="flex:1;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-4);display:flex;flex-direction:column;overflow:auto">
+           <div id="arch-output" style="flex:1;min-height:0;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-4);display:flex;flex-direction:column;overflow:auto">
               <div style="color:var(--text-muted)">Diagram will appear here...</div>
            </div>
         </div>
