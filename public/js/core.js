@@ -185,7 +185,7 @@ async function navigate(toolId, navEl, initialTab) {
     iconEl.style.color = tool.color || 'var(--accent)';
   }
   document.getElementById('topbar-title').textContent = tool.label;
-  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.43.2' : (tool.desc || '');
+  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.47.0' : (tool.desc || '');
   const previousTool = currentTool;
   currentTool = toolId;
   window.currentTool = currentTool;
@@ -522,6 +522,10 @@ function buildHomeGrid() {
 
 import * as apiEconomics from './tools/api-economics.js';
 import * as architecture from './tools/architecture.js';
+// Side-effect import: the pure radial-layout engine for the entity canvas
+// (architecture.js's Explore view). Kept separate so it stays testable
+// without mermaid/DOM, same reasoning as the data-factory-* split above.
+import './tools/arch-canvas.js';
 import * as charSanitizer from './tools/char-sanitizer.js';
 import * as dataFactory from './tools/data-factory.js';
 // Side-effect import: the declarative generator engine (parametrized value

@@ -1619,6 +1619,16 @@ kbd {
   display: grid;
   overflow: hidden;
 }
+/* Domain Model & Architecture panes. This belongs in CSS rather than inline:
+   uiSetView un-hides a pane with `style.display = ''`, which would wipe an
+   inline `display:flex` and leave the pane as a block — the diagram would then
+   size to its content instead of filling the panel. */
+#arch-split > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
 .json-pane {
   border-right: 1px solid var(--border);
   flex-direction: column;

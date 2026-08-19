@@ -68,6 +68,16 @@ function dfwNote(html, kind) {
   return '<div class="dfw-notice dfw-' + (kind || 'info') + '">' + html + '</div>';
 }
 function dfwShort(name) { return name && name.indexOf('.') !== -1 ? name.split('.')[1] : name; }
+
+// A Mendix id as an exact BigInt (null when there is none). Ids are 64-bit and
+// in a mature app exceed 2^53, past which a JS float can no longer represent
+// consecutive integers — Number(id) + 1 returns the SAME number, so every row
+// would carry an identical id and the INSERT would fail on a unique violation
+// from the second row on. Never put an id through Number().
+function dfwParseId(v) {
+  if (v === null || v === undefined || v === '') return null;
+  try { return BigInt(String(v).trim()); } catch (e) { return null; }
+}
 function dfwRng() {
   return dfw.repro && DFW.seedRng ? DFW.seedRng(parseInt(dfw.seed, 10) || 1) : Math.random;
 }
@@ -280,6 +290,10 @@ DFW.dfwParseDdl = function () {
   const res = DFW.dfSchemaFromTable(t);
   const cols = res.schema.map(function (s) {
     const src = dfwDdlSource(t, s.name);
+    // The Mendix system id is always literally "id" — give it the same
+    // sequential MAX(id)+1 treatment the live-DB paths use (dfwColsFromEntity),
+    // instead of a random generator that hands out colliding, non-unique ids.
+    if (String(s.name).toLowerCase() === 'id') return dfwMkCol(s.name, src, 'Positive value', { role: 'id', unique: true });
     return dfwMkCol(s.name, src, s.type);
   });
   dfw.colsByEntity[SINGLE_KEY] = cols;
@@ -986,7 +1000,7 @@ function dfwBuildSql(sampleRows, preview) {
   return dfwBuildSqlSingle(sampleRows, preview);
 }
 
-function dfwSqlHeader(rowsTotal, tableCount, startId, endId) {
+function dfwSqlHeader(rowsTotal, tableCount, startId, endId, assumed) {
   const dbName = (DFW.mtDb && DFW.mtDb.getConfig && DFW.mtDb.getConfig().database) || '(manual)';
   return [
     '-- =====================================================================',
@@ -994,7 +1008,9 @@ function dfwSqlHeader(rowsTotal, tableCount, startId, endId) {
     '-- Database : ' + dbName,
     '-- Generated: ' + new Date().toISOString(),
     '-- Rows     : ' + rowsTotal + ' across ' + tableCount + ' table' + (tableCount === 1 ? '' : 's'),
-    (startId ? '-- Id range : ' + startId + '–' + endId + ' (single global counter, from MAX(id)+1)' : '-- Ids     : none (no id column)'),
+    (startId ? '-- Id range : ' + startId + '–' + endId + (assumed
+      ? ' (assumed — no live database was read; if the target table already has rows, change the starting id or it WILL collide)'
+      : ' (single global counter, from MAX(id)+1)') : '-- Ids     : none (no id column)'),
     '--',
     '-- BEFORE YOU RUN THIS:',
     '--   1. STOP the Mendix app — ids come from MAX(id)+1 and a running runtime',
@@ -1036,9 +1052,12 @@ function dfwBuildSqlSingle(sampleRows, preview) {
   const table = dfw.tableName || 'my_table';
   const rng = preview ? Math.random : dfwRng();
   const detail = dfw.detail || {};
-  const startId = Number(detail.startId) || null;
+  // BigInt throughout: a Mendix id passes 2^53 in a mature app, and float
+  // arithmetic there repeats values instead of incrementing (see dfwParseId).
+  const startId = dfwParseId(detail.startId);
   const count = preview ? Math.min(sampleRows || 3, dfw.count) : dfw.count;
-  const idBase = startId || 1;
+  const idBase = startId || 1n;
+  const hasIdCol = cols.some(function (c) { return c.role === 'id'; });
 
   // Physical column contract for the table (live single mode; empty for manual).
   const cm = {};
@@ -1071,13 +1090,14 @@ function dfwBuildSqlSingle(sampleRows, preview) {
   const rows = [];
   for (let r = 0; r < count; r++) {
     rows.push(emit.map(function (x) {
-      if (x.role === 'id') return String(idBase + r);
+      if (x.role === 'id') return String(idBase + BigInt(r));
       if (x.role === 'system') return DFW.seedSqlLiteral(dfwSystemValue(x.meta, rng, r), x.meta);
       return DFW.seedSqlLiteral(dfwRawValue(x.col, r, rng), x.meta || dfwMetaFor(x.col));
     }));
   }
   const insert = DFW.seedInsertStatement(table, colNames, rows);
-  const parts = [dfwSqlHeader(count, 1, startId, startId ? (idBase + count - 1) : null),
+  const headerStartId = startId || (hasIdCol ? idBase : null);
+  const parts = [dfwSqlHeader(count, 1, headerStartId, headerStartId ? String(idBase + BigInt(count) - 1n) : null, !startId && hasIdCol),
     '', '-- ' + table + '  (' + count + ' rows)', insert];
   if (preview) return parts.join('\n') + '\n' + (count < dfw.count ? '-- …' + (dfw.count - count) + ' more rows\n' : '') + DFW_SQL_FOOTER;
   return parts.join('\n') + '\n' + DFW_SQL_FOOTER;
@@ -1096,13 +1116,14 @@ function dfwBuildSqlMulti(sampleRows, preview) {
   const rng = preview ? Math.random : dfwRng();
 
   // id pools on one shared counter, parents before children (dfw.order).
-  let nextId = Number(detail.startId) || 1;
+  // BigInt: see dfwParseId — float arithmetic repeats ids past 2^53.
+  let nextId = dfwParseId(detail.startId) || 1n;
   const startId = nextId;
   const idPool = {};
   dfw.order.forEach(function (n) {
     const count = dfw.sel[n] ? dfw.sel[n].count : 0;
     const ids = new Array(count);
-    for (let i = 0; i < count; i++) ids[i] = nextId++;
+    for (let i = 0; i < count; i++) { ids[i] = nextId; nextId += 1n; }
     idPool[n] = ids;
   });
 
@@ -1130,7 +1151,7 @@ function dfwBuildSqlMulti(sampleRows, preview) {
     let oneIds = [];
     const oneSelected = !!(dfw.sel[a.one] && dfw.sel[a.one].count > 0);
     if (oneSelected) oneIds = oneIds.concat(idPool[a.one] || []);
-    if (!oneSelected || cfg.useExisting) { const t = byName[a.one] && byName[a.one].table; oneIds = oneIds.concat((existingIds[t] || []).map(Number)); }
+    if (!oneSelected || cfg.useExisting) { const t = byName[a.one] && byName[a.one].table; oneIds = oneIds.concat((existingIds[t] || []).map(dfwParseId)); }
     if (!oneIds.length) { if (!nullable) return '-- Cannot build: ' + dfwShort(a.many) + ' → ' + dfwShort(a.one) + ' is required but has no parent rows.'; continue; }
     const assignment = DFW.seedDistribute(oneIds, dfw.sel[a.many].count, {
       mode: cfg.mode, cardinality: a.cardinality === '1-1' ? '1-1' : '1-*',
@@ -1143,7 +1164,7 @@ function dfwBuildSqlMulti(sampleRows, preview) {
   const parts = [];
   let rowsTotal = 0;
   dfw.order.forEach(function (n) { rowsTotal += dfw.sel[n] ? dfw.sel[n].count : 0; });
-  parts.push(dfwSqlHeader(rowsTotal, dfw.order.length, startId, nextId - 1));
+  parts.push(dfwSqlHeader(rowsTotal, dfw.order.length, startId, String(nextId - 1n)));
 
   dfw.order.forEach(function (n) {
     const e = byName[n];

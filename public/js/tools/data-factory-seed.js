@@ -244,6 +244,10 @@ function seedSqlLiteral(value, colMeta) {
   switch (family) {
     case 'int':
     case 'bigint': {
+      // An id/FK arrives as a BigInt precisely so it stays exact past 2^53 —
+      // routing it through Number() here would undo that and re-introduce the
+      // duplicate-id collision the BigInt pipeline exists to prevent.
+      if (typeof value === 'bigint') return String(value);
       const n = Math.round(Number(value));
       return isFinite(n) ? String(n) : 'NULL';
     }

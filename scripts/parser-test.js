@@ -2888,6 +2888,20 @@ eq('literal: boolean false', global.seedSqlLiteral(false, { family: 'bool' }), '
 eq('literal: a date value is quoted',
   global.seedSqlLiteral('2020-01-01 12:00:00', { family: 'date' }), "'2020-01-01 12:00:00'");
 
+// A Mendix id is a 64-bit bigint that outgrows 2^53, where a float can no
+// longer hold consecutive integers. Routing one through Number() produced the
+// same id for several rows and the INSERT died on a unique violation, so the
+// id pipeline is BigInt end to end and must stay exact here.
+eq('literal: a BigInt id past 2^53 is written exactly',
+  global.seedSqlLiteral(9223372036854775807n, { family: 'bigint' }), '9223372036854775807');
+eq('literal: consecutive BigInt ids stay distinct past 2^53',
+  global.seedSqlLiteral(9223372036854775n + 1n, { family: 'bigint' }), '9223372036854776');
+ok('literal: two adjacent BigInt ids do not collapse to one value',
+  global.seedSqlLiteral(9223372036854775n, { family: 'bigint' }) !==
+  global.seedSqlLiteral(9223372036854776n, { family: 'bigint' }));
+eq('literal: a BigInt FK is exact for an int column too',
+  global.seedSqlLiteral(9007199254740993n, { family: 'int' }), '9007199254740993');
+
 // (value generation moved to the shared engine — see "generator engine" tests)
 
 // ── INSERT assembly ─────────────────────────────────────────────────────────
@@ -3707,6 +3721,219 @@ ok('module mermaid: starts with graph LR', archCode.indexOf('graph LR') === 0);
 ok('module mermaid: node label includes entity count', /eShop \(3\)/.test(archCode));
 ok('module mermaid: edge label includes cross-module count', /---\|"2"\|/.test(archCode));
 ok('module mermaid: empty model shows an explicit placeholder, not a blank diagram', /No modules loaded/.test(global.archModuleGraphToMermaid({ nodes: [], edges: [] })));
+
+const archModelWithEntities = Object.assign({}, archModel, {
+  entities: [{ name: 'eShop.Customer' }, { name: 'eShop.Order' }, { name: 'System.User' }, { name: 'Admin.Role' }, { name: 'eShop.Unused' }]
+});
+const archCounts = global.archEntityAssocCounts(archModelWithEntities);
+eq('entity assoc counts: hub entity (appears on both sides of 3 associations) sorts first', archCounts[0].name, 'eShop.Customer');
+eq('entity assoc counts: hub entity count', archCounts[0].count, 3);
+ok('entity assoc counts: entity absent from any association is absent from the tally', !archCounts.some(function (c) { return c.name === 'eShop.Unused'; }));
+
+const archOrphans = global.archOrphanEntities(archModelWithEntities, archCounts);
+eq('orphan entities: entity with zero associations is the only orphan', archOrphans.length, 1);
+eq('orphan entities: names the right entity', archOrphans[0], 'eShop.Unused');
+
+// Domain Model Explorer (entity + 1-2 hop neighborhood) — full-shaped fixture
+// (archProjectEntities reads shortName/table/attributes, unlike archModelWithEntities above).
+const archFullModel = {
+  entities: [
+    { name: 'eShop.Customer', shortName: 'Customer', module: 'eShop', table: 'eshop$customer', superName: null, attributes: [{ name: 'Name', type: 'String' }] },
+    { name: 'eShop.Order', shortName: 'Order', module: 'eShop', table: 'eshop$order', superName: null, attributes: [] },
+    { name: 'System.User', shortName: 'User', module: 'System', table: 'system$user', superName: null, attributes: [] },
+    { name: 'Admin.Role', shortName: 'Role', module: 'Admin', table: 'admin$role', superName: null, attributes: [] },
+    { name: 'eShop.Unrelated', shortName: 'Unrelated', module: 'eShop', table: 'eshop$unrelated', superName: null, attributes: [] }
+  ],
+  associations: [
+    { one: 'eShop.Customer', many: 'eShop.Order', shortName: 'Customer_Order', cardinality: '1-*' },
+    { one: 'eShop.Customer', many: 'System.User', shortName: 'Customer_User', cardinality: '1-1' },
+    { one: 'Admin.Role', many: 'System.User', shortName: 'Role_User', cardinality: '1-*' }
+  ]
+};
+
+const archNbr1 = global.archEntityNeighborhood(archFullModel, 'eShop.Customer', 1);
+eq('neighborhood radius 1: start + direct neighbors only', archNbr1.size, 3);
+ok('neighborhood radius 1: includes the start entity', archNbr1.has('eShop.Customer'));
+ok('neighborhood radius 1: does not reach a 2-hop-away entity yet', !archNbr1.has('Admin.Role'));
+
+const archNbr2 = global.archEntityNeighborhood(archFullModel, 'eShop.Customer', 2);
+eq('neighborhood radius 2: pulls in the neighbor-of-neighbor', archNbr2.size, 4);
+ok('neighborhood radius 2: reaches the 2-hop entity', archNbr2.has('Admin.Role'));
+
+const archNbrIsolated = global.archEntityNeighborhood(archFullModel, 'eShop.Unrelated', 1);
+eq('neighborhood: a disconnected entity returns only itself', archNbrIsolated.size, 1);
+
+const archProjByModule = global.archProjectModel(archFullModel, ['eShop']);
+eq('project by module: keeps every entity in the module, unrelated ones included', archProjByModule.entities.length, 3);
+eq('project by module: drops an association reaching outside the module', archProjByModule.associations.length, 1);
+
+const archProjAll = global.archProjectModel(archFullModel, []);
+eq('project by module: empty selection means the whole model, not nothing', archProjAll.entities.length, 5);
+
+const archProjByEntities = global.archProjectEntities(archFullModel, new Set(['eShop.Customer', 'eShop.Order', 'System.User']));
+eq('project by entity set: keeps exactly the given entities', archProjByEntities.entities.length, 3);
+eq('project by entity set: keeps only associations with both ends inside the set', archProjByEntities.associations.length, 2);
+ok('project by entity set: the association reaching outside the set is dropped', !archProjByEntities.associations.some(function (a) { return a.name === 'Role_User'; }));
+
+// Diagram rendering: attribute modes, module colours, focus highlight.
+eq('attr mode: explicit "all" wins over the entity count', global.archResolveAttrMode('all', 500), 'all');
+eq('attr mode: explicit "none" wins too', global.archResolveAttrMode('none', 1), 'none');
+eq('attr mode: auto keeps attributes for a small diagram', global.archResolveAttrMode('auto', 12), 'all');
+eq('attr mode: auto drops them one entity past the limit', global.archResolveAttrMode('auto', 13), 'none');
+
+const archDiagJson = {
+  entities: [
+    { name: 'Customer', fullName: 'eShop.Customer', attributes: [{ name: 'Name', type: 'String(200)' }] },
+    { name: 'Order', fullName: 'eShop.Order', attributes: [] },
+    { name: 'User', fullName: 'System.User', attributes: [] },
+    { name: 'Role', fullName: 'Admin.Role', attributes: [] }
+  ],
+  associations: [{ name: 'Customer_Order', parent: 'Customer', child: 'Order', type: '1-*' }],
+  focus: 'Customer'
+};
+
+const archColors = global.archAssignModuleColors(archDiagJson.entities, 'dark');
+ok('module colours: System is neutral, not a palette hue', archColors.get('System').fill === archColors.get('Admin.Role') || archColors.get('System').stroke === '#5a5a5a');
+ok('module colours: the app module gets a real hue', archColors.get('eShop').stroke !== archColors.get('System').stroke);
+
+const archDiag = global.archBuildClassDiagram(archDiagJson, { theme: 'dark', attrMode: 'all' });
+ok('class diagram: still starts with classDiagram', archDiag.indexOf('classDiagram') === 0);
+ok('class diagram: entity carries its module style class', /class Customer:::mod_eShop/.test(archDiag));
+ok('class diagram: classDef is emitted for a used module', /classDef mod_eShop fill:#/.test(archDiag));
+ok('class diagram: classDef carries NO trailing semicolon (mermaid truncates #hex;)', !/classDef [^\n]*;/.test(archDiag));
+ok('class diagram: classDef comes after the class declarations, or defineClass finds nothing to style',
+  archDiag.indexOf('classDef mod_eShop') > archDiag.indexOf('class Customer'));
+ok('class diagram: focus entity gets the highlight class', /cssClass "Customer" archFocus/.test(archDiag));
+// defineClass only styles classes that ALREADY carry the name, so a classDef
+// emitted before its cssClass silently styles nothing.
+ok('class diagram: cssClass precedes its classDef, or the focus style never lands',
+  archDiag.indexOf('cssClass "Customer" archFocus') < archDiag.indexOf('classDef archFocus'));
+ok('class diagram: the focus classDef is last, so it outranks the module stroke',
+  archDiag.indexOf('classDef archFocus') > archDiag.indexOf('classDef mod_eShop'));
+ok('class diagram: attributes rendered in "all" mode', /String 200 Name/.test(archDiag));
+ok('class diagram: cardinality still emitted', /"1" --> "\*"/.test(archDiag));
+
+const archDiagNone = global.archBuildClassDiagram(archDiagJson, { theme: 'dark', attrMode: 'none' });
+ok('class diagram: "none" mode emits no attribute rows', !/String 200 Name/.test(archDiagNone));
+ok('class diagram: "none" mode keeps the entities themselves', /class Customer/.test(archDiagNone));
+// An empty `{ }` body is "Expecting 'MEMBER', got 'STRUCT_STOP'" and rejects the whole diagram.
+ok('class diagram: "none" mode emits NO empty class body (mermaid rejects the whole diagram)', !/\{\s*\}/.test(archDiagNone));
+ok('class diagram: an attribute-less entity gets no empty body in "all" mode either', !/\{\s*\}/.test(archDiag));
+ok('class diagram: "none" mode keeps associations', /Customer "1" --> "\*" Order/.test(archDiagNone));
+
+const archDiagLight = global.archBuildClassDiagram(archDiagJson, { theme: 'light', attrMode: 'all' });
+ok('class diagram: the light theme emits a different palette, not the dark one',
+  archDiagLight.match(/classDef mod_eShop [^\n]*/)[0] !== archDiag.match(/classDef mod_eShop [^\n]*/)[0]);
+
+// A hand-pasted model has no fullName, so there is no module to colour by.
+const archDiagPlain = global.archBuildClassDiagram({
+  entities: [{ name: 'Foo', attributes: [] }], associations: []
+}, { theme: 'dark', attrMode: 'all' });
+ok('class diagram: a model without fullName degrades to no colours instead of throwing', /class Foo\b/.test(archDiagPlain) && !/:::/.test(archDiagPlain));
+ok('class diagram: ...and emits no classDef at all', !/classDef mod_/.test(archDiagPlain));
+
+const archDiagNoFocus = global.archBuildClassDiagram({
+  entities: [{ name: 'Foo', fullName: 'M.Foo', attributes: [] }], associations: [], focus: 'NotHere'
+}, { theme: 'dark', attrMode: 'all' });
+ok('class diagram: a focus naming an entity outside the drawing is ignored, not emitted', !/archFocus/.test(archDiagNoFocus));
+
+// =========================================================================
+// DOMAIN MODEL CANVAS — pure radial layout (arch-canvas.js)
+// =========================================================================
+console.log('\nDomain Model & Architecture — entity canvas layout');
+require('../public/js/tools/arch-canvas.js');
+
+const acModel = {
+  entities: [
+    { name: 'eShop.Customer', shortName: 'Customer', module: 'eShop', table: 'eshop$customer', attributes: [{ name: 'Name', type: 'String(200)' }, { name: 'Email', type: 'String(100)' }] },
+    { name: 'eShop.Order', shortName: 'Order', module: 'eShop', table: 'eshop$order', attributes: [{ name: 'Total', type: 'Decimal' }] },
+    { name: 'eShop.OrderLine', shortName: 'OrderLine', module: 'eShop', table: 'eshop$orderline', attributes: [{ name: 'Qty', type: 'Integer' }] },
+    { name: 'System.User', shortName: 'User', module: 'System', table: 'system$user', attributes: [{ name: 'Name', type: 'String(100)' }] },
+    { name: 'Admin.Role', shortName: 'Role', module: 'Admin', table: 'admin$role', attributes: [] },
+    { name: 'eShop.Unreachable', shortName: 'Unreachable', module: 'eShop', table: 'eshop$unreachable', attributes: [] }
+  ],
+  associations: [
+    { one: 'eShop.Customer', many: 'eShop.Order', shortName: 'Customer_Order', cardinality: '1-*', storage: 'column', table: 'eshop$order', columns: ['customer_id'] },
+    { one: 'eShop.Order', many: 'eShop.OrderLine', shortName: 'Order_OrderLine', cardinality: '1-*', storage: 'column', table: 'eshop$orderline', columns: ['order_id'] },
+    { one: 'eShop.Customer', many: 'System.User', shortName: 'Customer_User', cardinality: '1-1', storage: 'column', table: 'system$user', columns: ['customer_id'] },
+    { one: 'Admin.Role', many: 'System.User', shortName: 'Role_User', cardinality: '1-*', storage: 'junction', table: 'admin$role_user', columns: ['role_id', 'user_id'] }
+  ]
+};
+
+const acHops = global.archHopDistances(acModel.associations, 'eShop.Customer');
+eq('hop distances: the focus entity is its own ring 0', acHops.get('eShop.Customer'), 0);
+eq('hop distances: a direct association is ring 1', acHops.get('eShop.Order'), 1);
+eq('hop distances: a neighbor-of-neighbor is ring 2', acHops.get('eShop.OrderLine'), 2);
+eq('hop distances: reachable through two intermediate entities (Customer->User->Role)', acHops.get('Admin.Role'), 2);
+ok('hop distances: an entity with no associations at all is absent, not ring Infinity', !acHops.has('eShop.Unreachable'));
+
+const acCollapsed = global.archNodeSize({ shortName: 'Order', attributes: [{ name: 'Total', type: 'Decimal' }] }, false);
+const acExpanded = global.archNodeSize({ shortName: 'Order', attributes: [{ name: 'Total', type: 'Decimal' }] }, true);
+eq('node size: collapsed height is just the header', acCollapsed.h, global.ARCH_CANVAS.HEADER_H);
+ok('node size: expanding grows the height', acExpanded.h > acCollapsed.h);
+eq('node size: collapsed and expanded keep the same width (title, not rows, is longer here)', acCollapsed.w, acExpanded.w);
+
+const acLayout = global.archLayoutRadial(acModel, { focus: 'eShop.Customer', expanded: new Set() });
+const acById = new Map(acLayout.nodes.map(function (n) { return [n.id, n]; }));
+eq('layout: every entity in the model gets a node', acLayout.nodes.length, acModel.entities.length);
+eq('layout: focus sits on ring 0', acById.get('eShop.Customer').ring, 0);
+eq('layout: direct neighbor sits on ring 1', acById.get('eShop.Order').ring, 1);
+eq('layout: neighbor-of-neighbor sits on ring 2', acById.get('eShop.OrderLine').ring, 2);
+ok('layout: an entity unreachable from the focus still gets placed, on an outer ring', acById.get('eShop.Unreachable').ring > 2);
+ok('layout: no node has a negative coordinate (canvas margin honoured)',
+  acLayout.nodes.every(function (n) { return n.x >= 0 && n.y >= 0; }));
+ok('layout: width/height cover every node, not just the origin', acLayout.nodes.every(function (n) {
+  return n.x + n.w <= acLayout.width && n.y + n.h <= acLayout.height;
+}));
+
+function acRectsOverlap(a, b) {
+  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+}
+let acOverlap = false;
+for (let i = 0; i < acLayout.nodes.length && !acOverlap; i++) {
+  for (let j = i + 1; j < acLayout.nodes.length; j++) {
+    if (acRectsOverlap(acLayout.nodes[i], acLayout.nodes[j])) { acOverlap = true; break; }
+  }
+}
+ok('layout: no two node rectangles overlap', !acOverlap);
+
+const acLayout2 = global.archLayoutRadial(acModel, { focus: 'eShop.Customer', expanded: new Set() });
+eq('layout: deterministic — same input, same coordinates', JSON.stringify(acLayout.nodes.map(function (n) { return [n.id, n.x, n.y]; })),
+  JSON.stringify(acLayout2.nodes.map(function (n) { return [n.id, n.x, n.y]; })));
+
+const acLayoutExpanded = global.archLayoutRadial(acModel, { focus: 'eShop.Customer', expanded: new Set(['eShop.Order']) });
+const acOrderCollapsed = acById.get('eShop.Order');
+const acOrderExpanded = new Map(acLayoutExpanded.nodes.map(function (n) { return [n.id, n]; })).get('eShop.Order');
+ok('layout: expanding a node grows its own box', acOrderExpanded.h > acOrderCollapsed.h);
+let acOverlapExpanded = false;
+for (let i = 0; i < acLayoutExpanded.nodes.length && !acOverlapExpanded; i++) {
+  for (let j = i + 1; j < acLayoutExpanded.nodes.length; j++) {
+    if (acRectsOverlap(acLayoutExpanded.nodes[i], acLayoutExpanded.nodes[j])) { acOverlapExpanded = true; break; }
+  }
+}
+ok('layout: expanding a node does not introduce an overlap (ring radius grows with it)', !acOverlapExpanded);
+
+const acOverrides = new Map([['eShop.Order', { x: 5, y: 5 }]]);
+const acLayoutDragged = global.archLayoutRadial(acModel, { focus: 'eShop.Customer', expanded: new Set(), overrides: acOverrides });
+const acOrderDragged = new Map(acLayoutDragged.nodes.map(function (n) { return [n.id, n]; })).get('eShop.Order');
+eq('layout: a dragged position overrides the computed one', acOrderDragged.x, 5);
+eq('layout: ...on both axes', acOrderDragged.y, 5);
+ok('layout: ...and is flagged so the renderer knows not to auto-reflow it', acOrderDragged.overridden);
+
+eq('layout: edges keep only associations where both ends are drawn', acLayout.edges.length, acModel.associations.length);
+const acEdge = acLayout.edges.find(function (e) { return e.name === 'Role_User'; });
+eq('layout: edge carries the FK/junction facts needed for the details panel', acEdge.storage, 'junction');
+eq('layout: ...and the junction table name', acEdge.table, 'admin$role_user');
+
+const acLayoutScoped = global.archLayoutRadial(acModel, { focus: 'eShop.Customer', expanded: new Set(), maxHops: 1 });
+eq('layout: maxHops scopes a large model down to a neighborhood', acLayoutScoped.nodes.length, 3); // Customer, Order, User
+ok('layout: ...dropping the 2-hop entity', !acLayoutScoped.nodes.some(function (n) { return n.id === 'eShop.OrderLine'; }));
+ok('layout: ...and the disconnected one', !acLayoutScoped.nodes.some(function (n) { return n.id === 'eShop.Unreachable'; }));
+eq('layout: maxHops also drops edges reaching outside the scoped set', acLayoutScoped.edges.length, 2);
+
+const acAnchor = global.archEdgeAnchor({ x: 100, y: 100, w: 40, h: 20 }, 500, 110);
+eq('edge anchor: a target straight to the right leaves from the right edge', acAnchor.x, 140);
+eq('edge anchor: ...at the vertical center', acAnchor.y, 110);
 
 // =========================================================================
 // QUERY INTELLIGENCE — OQL association-join → SQL JOIN translation (12.3)

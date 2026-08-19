@@ -3,6 +3,167 @@
 
 let archLastMermaidCode = '';
 
+// =========================================================================
+// Colours
+// =========================================================================
+// Literal hex, never var(--…): `Copy Mermaid` has to render natively in
+// GitHub and Confluence, where none of our CSS custom properties exist. The
+// cost is that a theme switch must REGENERATE the code, not just repaint it
+// (see archRerenderForTheme).
+//
+// Deliberately not built from the app's semantic tokens: --accent, --warning
+// and --danger all collapse into one orange-red band in the light theme, so
+// three of the eight modules would be indistinguishable there.
+const ARCH_MODULE_PALETTE = {
+  dark: [
+    { fill: '#17324a', stroke: '#4da3e0', text: '#dceaf5' },
+    { fill: '#1a3b28', stroke: '#4caf72', text: '#dcf0e4' },
+    { fill: '#33244a', stroke: '#a77ee0', text: '#ece2f8' },
+    { fill: '#123c3c', stroke: '#3fb8b0', text: '#d9f2f0' },
+    { fill: '#45213a', stroke: '#d472b8', text: '#f8e2f1' },
+    { fill: '#45350f', stroke: '#d9a531', text: '#f8eed4' },
+    { fill: '#232a52', stroke: '#7b8ae0', text: '#e2e6f8' },
+    { fill: '#33400f', stroke: '#9cb944', text: '#eef4d8' }
+  ],
+  light: [
+    { fill: '#e3f0fa', stroke: '#2b7cb8', text: '#123249' },
+    { fill: '#e2f4e8', stroke: '#2e8b52', text: '#14351f' },
+    { fill: '#f0e8fa', stroke: '#7a4fb0', text: '#2f1c47' },
+    { fill: '#dff2f1', stroke: '#1f8b84', text: '#0e3634' },
+    { fill: '#fae4f2', stroke: '#b34d92', text: '#4a1a3a' },
+    { fill: '#fbf0d8', stroke: '#ab7c14', text: '#4a3608' },
+    { fill: '#e6e9fa', stroke: '#4f5cb0', text: '#1e2347' },
+    { fill: '#eef4d9', stroke: '#6e8a1e', text: '#2f3a09' }
+  ]
+};
+
+// System (and anything past the palette) stays neutral: it is infrastructure,
+// not the application's own model — the same reason the loader preselects the
+// largest non-System module.
+const ARCH_NEUTRAL = {
+  dark: { fill: '#262626', stroke: '#5a5a5a', text: '#c8c8c8' },
+  light: { fill: '#f0f0f0', stroke: '#a8a8a8', text: '#444444' }
+};
+
+const ARCH_FOCUS_STROKE = { dark: '#ff8700', light: '#e67e00' };
+
+// Attribute rows are what turns a real model into a 13 000 px canvas, so above
+// this many entities they are dropped unless the user asks for them.
+const ARCH_ATTR_AUTO_LIMIT = 12;
+
+let archAttrMode = 'auto';   // 'auto' | 'all' | 'none'
+
+function archCurrentTheme() {
+  return (typeof document !== 'undefined' &&
+    document.documentElement.getAttribute('data-theme') === 'light') ? 'light' : 'dark';
+}
+
+function archResolveAttrMode(mode, entityCount) {
+  if (mode === 'all' || mode === 'none') return mode;
+  return entityCount > ARCH_ATTR_AUTO_LIMIT ? 'none' : 'all';
+}
+
+// One palette slot per module actually present in this drawing — not per
+// module in the model. Eight hues is already past what the eye separates
+// reliably, and a 40-module application would just be noise.
+function archAssignModuleColors(entities, theme) {
+  const pal = ARCH_MODULE_PALETTE[theme] || ARCH_MODULE_PALETTE.dark;
+  const neutral = ARCH_NEUTRAL[theme] || ARCH_NEUTRAL.dark;
+  const counts = new Map();
+  (entities || []).forEach(e => {
+    if (!e.fullName || String(e.fullName).indexOf('.') === -1) return;
+    const m = String(e.fullName).split('.')[0];
+    counts.set(m, (counts.get(m) || 0) + 1);
+  });
+  const colors = new Map();
+  Array.from(counts.entries())
+    .filter(function (kv) { return kv[0] !== 'System'; })
+    .sort(function (a, b) { return b[1] - a[1] || (a[0] < b[0] ? -1 : 1); })
+    .forEach(function (kv, i) { colors.set(kv[0], i < pal.length ? pal[i] : neutral); });
+  if (counts.has('System')) colors.set('System', neutral);
+  return colors;
+}
+
+function archStyleClassId(moduleName) {
+  return 'mod_' + String(moduleName).replace(/[^A-Za-z0-9_]/g, '_');
+}
+
+// Pure: JSON model -> mermaid classDiagram source. Split out of archGenerate
+// so the colouring and attribute rules are testable without a DOM.
+function archBuildClassDiagram(json, opts) {
+  opts = opts || {};
+  const theme = opts.theme === 'light' ? 'light' : 'dark';
+  const entities = json.entities || [];
+  const showAttrs = archResolveAttrMode(opts.attrMode, entities.length) === 'all';
+  const colors = archAssignModuleColors(entities, theme);
+
+  let code = 'classDiagram\n';
+  const used = new Set();
+
+  entities.forEach(ent => {
+    const mod = (ent.fullName && String(ent.fullName).indexOf('.') !== -1)
+      ? String(ent.fullName).split('.')[0] : null;
+    const styleId = (mod && colors.has(mod)) ? archStyleClassId(mod) : null;
+    if (styleId) used.add(mod);
+    const decl = `class ${ent.name}${styleId ? ':::' + styleId : ''}`;
+    // Mermaid reads parentheses in a class member as a method signature, so
+    // `String(200) Name` renders as a method rather than a field (visibly
+    // inconsistent with unparameterised types next to it). The precise type
+    // stays in the JSON; only the label drops the ().
+    const rows = (showAttrs && ent.attributes ? ent.attributes : []).map(attr => {
+      const type = String(attr.type == null ? '' : attr.type).replace(/\s*\(([^)]*)\)/, ' $1');
+      return `    ${type.trim()} ${attr.name}\n`;
+    });
+    // An empty `{ }` body is a parse error — "Expecting 'MEMBER', got
+    // 'STRUCT_STOP'" — which rejects the WHOLE diagram, not just this class.
+    // A bodyless `class Foo` is the valid form and the only one that works
+    // when attributes are hidden.
+    code += rows.length ? `  ${decl} {\n${rows.join('')}  }\n` : `  ${decl}\n`;
+  });
+
+  // Generalization, as supplied by the live-database loader. `extends` holds
+  // the fully qualified name so it stays unambiguous across modules; the
+  // arrow is only drawn when that super entity is actually in the diagram,
+  // otherwise Mermaid would invent a bare node for a filtered-out class.
+  const byFullName = {};
+  entities.forEach(ent => {
+    if (ent.fullName) byFullName[ent.fullName] = ent.name;
+    byFullName[ent.name] = ent.name;
+  });
+  entities.forEach(ent => {
+    const superName = ent.extends && byFullName[ent.extends];
+    if (superName) code += `  ${superName} <|-- ${ent.name}\n`;
+  });
+
+  (json.associations || []).forEach(assoc => {
+    // The cardinality labels used to be compared against '1-*)' etc. — with
+    // a stray ')' that no input could ever match, so every association fell
+    // through to a plain arrow and cardinality was silently dropped.
+    const arrow = assoc.type === '1-*' ? '"1" --> "*"' :
+                  assoc.type === '*-*' ? '"*" --> "*"' :
+                  assoc.type === '1-1' ? '"1" --> "1"' : '-->';
+    code += `  ${assoc.parent} ${arrow} ${assoc.child} : ${assoc.name}\n`;
+  });
+
+  // Order below is not cosmetic. mermaid's defineClass applies styles by
+  // walking the classes declared SO FAR that already carry the name, while
+  // ::: and cssClass only ATTACH the name without pulling styles. So every
+  // classDef has to come after everything that names it, or it silently
+  // styles nothing. Also no trailing ';' — mermaid truncates `#hex;`.
+  const hasFocus = json.focus && entities.some(e => e.name === json.focus);
+  if (hasFocus) code += `  cssClass "${json.focus}" archFocus\n`;
+
+  used.forEach(mod => {
+    const c = colors.get(mod);
+    code += `  classDef ${archStyleClassId(mod)} fill:${c.fill},stroke:${c.stroke},color:${c.text},stroke-width:1.5px\n`;
+  });
+  // Last of all: the focus entity also carries a module class, and the styles
+  // that land later win, so this is what makes the highlight beat the module's
+  // own thinner stroke.
+  if (hasFocus) code += `  classDef archFocus stroke:${ARCH_FOCUS_STROKE[theme]},stroke-width:4px\n`;
+  return code;
+}
+
 function archCopyMermaid() {
   if (!archLastMermaidCode) {
     window.mtToast('Generate a diagram first.', 'warning');
@@ -27,9 +188,16 @@ function archDownloadSvg() {
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
 
-function archGenerate() {
+function archGenerate(preserveExplore) {
   const input = document.getElementById('arch-input').value.trim();
   const out = document.getElementById('arch-output');
+  // A genuine content change (module pick, typed pseudocode) ends the explore
+  // trail — archExploreFrom re-sets it right after calling this function, so
+  // exploring stays intact across THAT call. archSetViewMode's 'entities'
+  // branch passes preserveExplore=true for the other case: just switching to
+  // look at the Diagram tab of whatever is already loaded, which must not
+  // make Explore forget where it was when the user switches back.
+  if (!preserveExplore) archExploreState = null;
   archViewMode = 'entities';
   const toggle = document.getElementById('arch-view-toggle');
   if (toggle) toggle.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.view === 'entities'));
@@ -39,50 +207,14 @@ function archGenerate() {
   }
   
   let mermaidCode = 'classDiagram\n';
-  
+
   try {
     const json = JSON.parse(input);
-    if (json.entities) {
-      json.entities.forEach(ent => {
-        mermaidCode += `  class ${ent.name} {\n`;
-        if (ent.attributes) {
-          ent.attributes.forEach(attr => {
-            // Mermaid reads parentheses in a class member as a method signature,
-            // so `String(200) Name` renders as a method rather than a field
-            // (visibly inconsistent with unparameterised types next to it).
-            // The precise type stays in the JSON; only the label drops the ().
-            const type = String(attr.type == null ? '' : attr.type).replace(/\s*\(([^)]*)\)/, ' $1');
-            mermaidCode += `    ${type.trim()} ${attr.name}\n`;
-          });
-        }
-        mermaidCode += `  }\n`;
-      });
-      // Generalization, as supplied by the live-database loader. `extends` holds
-      // the fully qualified name so it stays unambiguous across modules; the
-      // arrow is only drawn when that super entity is actually in the diagram,
-      // otherwise Mermaid would invent a bare node for a filtered-out class.
-      const byFullName = {};
-      json.entities.forEach(ent => {
-        if (ent.fullName) byFullName[ent.fullName] = ent.name;
-        byFullName[ent.name] = ent.name;
-      });
-      json.entities.forEach(ent => {
-        const superName = ent.extends && byFullName[ent.extends];
-        if (superName) mermaidCode += `  ${superName} <|-- ${ent.name}\n`;
-      });
-    }
-    if (json.associations) {
-      json.associations.forEach(assoc => {
-        // The cardinality labels used to be compared against '1-*)' etc. — with
-        // a stray ')' that no input could ever match, so every association fell
-        // through to a plain arrow and cardinality was silently dropped.
-        const arrow = assoc.type === '1-*' ? '"1" --> "*"' :
-                      assoc.type === '*-*' ? '"*" --> "*"' :
-                      assoc.type === '1-1' ? '"1" --> "1"' : '-->';
-        mermaidCode += `  ${assoc.parent} ${arrow} ${assoc.child} : ${assoc.name}\n`;
-      });
-    }
+    const theme = archCurrentTheme();
+    mermaidCode = archBuildClassDiagram(json, { theme: theme, attrMode: archAttrMode });
+    archRenderLegend(json.entities || [], theme);
   } catch(e) {
+    archRenderLegend([], archCurrentTheme());
     // pseudo-code parsing
     // EntityName
     //  attr: Type
@@ -123,7 +255,62 @@ function archGenerate() {
   }
   
   archLastMermaidCode = mermaidCode;
-  archRenderMermaid(mermaidCode);
+  // Returned so callers that need the finished SVG (theme re-render, explore
+  // centring) can await it — rendering is async since mermaid 11.
+  return archRenderMermaid(mermaidCode);
+}
+
+// archGenerate() clears the explore trail by design. These callers redraw the
+// SAME view for a different reason (attribute mode, theme, pane width), so the
+// trail has to survive them.
+function archRegenerate() {
+  const keep = archExploreState;
+  const p = archGenerate();
+  archExploreState = keep;
+  return p;
+}
+
+window.archSetAttrMode = function (mode) {
+  archAttrMode = mode;
+  archRegenerate();
+};
+
+// Reuses the app-wide split manager (core.js) that seven other tools already
+// use, then refits: the SVG was measured against the previous pane width, so
+// without this the diagram keeps the old scale in a differently sized panel.
+window.archSetPaneView = function (mode, btn) {
+  if (window.uiSetView) window.uiSetView('arch-split', mode, btn);
+  if (document.querySelector('#arch-output svg')) {
+    archMeasureDiagram();
+    window.archZoomFit();
+  }
+};
+
+// Which modules are in the current picture, and in what colour. Only rendered
+// when there is something to explain.
+function archRenderLegend(entities, theme) {
+  const box = document.getElementById('arch-legend');
+  if (!box) return;
+  const colors = archAssignModuleColors(entities, theme);
+  if (!colors.size) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.style.display = 'flex';
+  box.innerHTML = Array.from(colors.entries()).map(([mod, c]) => `
+    <span style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap">
+      <span style="width:10px;height:10px;border-radius:2px;background:${c.fill};border:1.5px solid ${c.stroke};display:inline-block"></span>
+      ${archEsc(mod)}</span>`).join('');
+}
+
+// Mermaid draws relation lines in a low-contrast grey that vanishes on a large
+// diagram. Per-edge colouring is not available — classDiagram has no
+// linkStyle — but the whole set can at least be made visible.
+function archEnhanceEdges() {
+  const svg = document.querySelector('#arch-output svg');
+  if (!svg) return;
+  const color = archCurrentTheme() === 'light' ? '#6b6b6b' : '#9a9a9a';
+  svg.querySelectorAll('g.edgePaths path, path.relation').forEach(p => {
+    p.style.stroke = color;
+    p.style.strokeWidth = '1.6px';
+  });
 }
 
 
@@ -140,18 +327,26 @@ function archGenerate() {
 
 let archLiveModel = null;
 
+// Set only while the current diagram came from archExploreFrom — lets a
+// click on a node re-center the explore instead of doing nothing (or, on a
+// module-picked diagram, being ignored — see archInitPanZoom).
+let archExploreState = null;
+
 function archEsc(s) {
   return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// Mirrors domainModelToArchJson() on the server so the picker can re-project
-// without a round trip when the user changes the module selection.
-function archProjectModel(model, moduleNames) {
-  const wanted = moduleNames && moduleNames.length ? new Set(moduleNames) : null;
-  const moduleOf = n => (String(n).indexOf('.') === -1 ? '(none)' : String(n).split('.')[0]);
-  const shortOf = n => (String(n).indexOf('.') === -1 ? String(n) : String(n).slice(String(n).indexOf('.') + 1));
-  const entities = model.entities.filter(e => !wanted || wanted.has(moduleOf(e.name)));
+function archShortOf(n) {
+  return String(n).indexOf('.') === -1 ? String(n) : String(n).slice(String(n).indexOf('.') + 1);
+}
+
+// Mirrors domainModelToArchJson() on the server so the picker (module-based
+// or neighborhood-based) can re-project without a round trip. `entityNames`
+// is a Set of full names to keep, or null for the whole model.
+function archProjectEntities(model, entityNames) {
+  const wanted = entityNames;
+  const entities = model.entities.filter(e => !wanted || wanted.has(e.name));
   const names = new Set(entities.map(e => e.name));
   return {
     entities: entities.map(e => ({
@@ -163,8 +358,41 @@ function archProjectModel(model, moduleNames) {
     })),
     associations: model.associations
       .filter(a => names.has(a.one) && names.has(a.many))
-      .map(a => ({ name: a.shortName, parent: shortOf(a.one), child: shortOf(a.many), type: a.cardinality }))
+      .map(a => ({ name: a.shortName, parent: archShortOf(a.one), child: archShortOf(a.many), type: a.cardinality }))
   };
+}
+
+function archProjectModel(model, moduleNames) {
+  const wantedModules = moduleNames && moduleNames.length ? new Set(moduleNames) : null;
+  if (!wantedModules) return archProjectEntities(model, null);
+  const moduleOf = n => (String(n).indexOf('.') === -1 ? '(none)' : String(n).split('.')[0]);
+  const entityNames = new Set(model.entities.filter(e => wantedModules.has(moduleOf(e.name))).map(e => e.name));
+  return archProjectEntities(model, entityNames);
+}
+
+// Pure BFS over the association graph (same edges archBuildModuleGraph
+// walks, one hop = one association) — the start entity plus everything
+// reachable within `radius` hops. A disconnected entity yields just itself.
+function archEntityNeighborhood(model, startFullName, radius) {
+  const adj = new Map();
+  (model.associations || []).forEach(a => {
+    if (!adj.has(a.one)) adj.set(a.one, new Set());
+    if (!adj.has(a.many)) adj.set(a.many, new Set());
+    adj.get(a.one).add(a.many);
+    adj.get(a.many).add(a.one);
+  });
+  const visited = new Set([startFullName]);
+  let frontier = [startFullName];
+  for (let hop = 0; hop < radius; hop++) {
+    const next = [];
+    frontier.forEach(n => {
+      (adj.get(n) || new Set()).forEach(nb => {
+        if (!visited.has(nb)) { visited.add(nb); next.push(nb); }
+      });
+    });
+    frontier = next;
+  }
+  return visited;
 }
 
 // Push the current selection into the existing textarea and render. Everything
@@ -177,9 +405,10 @@ window.archApplyModules = function () {
   document.getElementById('arch-input').value = JSON.stringify(projected, null, 2);
   const count = document.getElementById('arch-pick-count');
   if (count) {
-    count.textContent = `${projected.entities.length} entities · ${projected.associations.length} associations selected`;
+    // Sits in the <summary>, so it stays readable while the picker is collapsed.
+    count.textContent = `${picked.length} of ${archLiveModel.modules.length} selected · ${projected.entities.length} entities · ${projected.associations.length} associations`;
   }
-  archGenerate();
+  return archGenerate();
 };
 
 // Above this many entities, one Mermaid diagram tends to hang or freeze the
@@ -198,6 +427,61 @@ window.archToggleModules = function (all) {
   window.archApplyModules();
 };
 
+// Resolves a typed/picked entity name (full name from the datalist, or a
+// unique short name typed by hand) to the full name, draws it plus its
+// neighborhood, and — unlike the module picker — leaves a trail
+// (archExploreState) so clicking a node in the result can recenter there.
+window.archExploreFrom = async function (query, radius) {
+  const status = document.getElementById('arch-explore-status');
+  const setStatus = msg => { if (status) status.textContent = msg; };
+  if (!archLiveModel) return;
+  const q = String(query || '').trim();
+  if (!q) { setStatus('Type or pick an entity first.'); return; }
+  const hops = parseInt(radius, 10) === 2 ? 2 : 1;
+
+  let start = archLiveModel.entities.find(e => e.name === q);
+  if (!start) {
+    const qLower = q.toLowerCase();
+    const matches = archLiveModel.entities.filter(e => e.shortName.toLowerCase() === qLower);
+    if (matches.length === 1) start = matches[0];
+    else if (matches.length > 1) { setStatus(`"${q}" matches ${matches.length} entities in different modules — pick one from the list.`); return; }
+  }
+  if (!start) { setStatus(`No entity named "${q}".`); return; }
+
+  const neighborhood = archEntityNeighborhood(archLiveModel, start.name, hops);
+  if (neighborhood.size > ARCH_LARGE_MODEL_ENTITIES) {
+    const proceed = confirm(
+      `${start.shortName} has ${neighborhood.size} entities within ${hops} hop(s), which can be slow or unreadable ` +
+      'in the browser. Try 1 hop instead, or continue anyway?'
+    );
+    if (!proceed) return;
+  }
+
+  const projected = archProjectEntities(archLiveModel, neighborhood);
+  // Carried inside the JSON rather than through a side channel, so it travels
+  // the existing "JSON -> #arch-input -> archGenerate" pipeline, survives
+  // Copy Mermaid, and works for a hand-pasted model too.
+  projected.focus = start.shortName;
+  document.getElementById('arch-input').value = JSON.stringify(projected, null, 2);
+  // Awaited on purpose: archRenderMermaid is async (it may fetch the 3.5 MB
+  // renderer on first use), and it overwrites #arch-output when it finally
+  // resolves. Switching to the canvas below before this settles was a real
+  // race — the canvas would render, then the Diagram render would land late
+  // and silently wipe it back out to a stale Mermaid SVG.
+  await archGenerate();
+
+  const shortToFull = new Map();
+  archLiveModel.entities.forEach(e => { if (neighborhood.has(e.name)) shortToFull.set(e.shortName, e.name); });
+  archExploreState = { radius: hops, shortToFull, center: start.name };
+  setStatus(`${start.shortName} + ${neighborhood.size - 1} neighbor(s) within ${hops} hop(s) — ${projected.entities.length} entities · ${projected.associations.length} associations.`);
+
+  // "Explore" now means the interactive canvas, not the Mermaid diagram —
+  // archGenerate() above only kept the Diagram tab and Copy Mermaid working
+  // in the background. archSetViewMode owns what "entering canvas mode"
+  // means, so it is the one place, not duplicated here.
+  window.archSetViewMode('canvas');
+};
+
 function archRenderModelSummary(model) {
   const box = document.getElementById('arch-model-summary');
   if (!box) return;
@@ -212,23 +496,71 @@ function archRenderModelSummary(model) {
       <input type="checkbox" value="${archEsc(m.name)}" onchange="window.archApplyModules()">
       ${archEsc(m.name)} <span style="color:var(--text-muted)">(${m.entityCount})</span></label>`).join('');
 
+  // Three compact rows instead of six stacked blocks: this strip is now
+  // permanently on screen (it moved out of the collapsible DB panel), so every
+  // pixel it takes is a pixel the diagram does not get.
   box.innerHTML = `
     <div style="border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-2) var(--sp-3);background:var(--bg-elevated)">
-      <div style="display:flex;gap:var(--sp-3);flex-wrap:wrap;align-items:center;font-size:0.78rem;margin-bottom:var(--sp-2)">
-        <strong>${s.entityCount}</strong> entities · <strong>${s.attributeCount}</strong> attributes ·
+      <div style="display:flex;gap:var(--sp-3);flex-wrap:wrap;align-items:center;font-size:0.76rem;margin-bottom:4px">
+        <span><strong>${s.entityCount}</strong> entities · <strong>${s.attributeCount}</strong> attributes ·
         <strong>${s.associationCount}</strong> associations · <strong>${s.moduleCount}</strong> modules
-        ${s.inheritedCount ? `· ${s.inheritedCount} inherit` : ''}
+        ${s.inheritedCount ? `· ${s.inheritedCount} inherit` : ''}</span>
+        <span style="color:var(--text-secondary)">${card}</span>
         <span style="margin-left:auto">${meta}</span>
       </div>
-      <div style="font-size:0.74rem;color:var(--text-secondary);margin-bottom:var(--sp-2)">${card}</div>
-      <div style="font-size:0.74rem;color:var(--text-muted);margin-bottom:4px">
-        Pick the modules to draw — a whole application is unreadable as one diagram.
-        <button class="btn btn-ghost btn-xs" onclick="window.archToggleModules(true)">All</button>
-        <button class="btn btn-ghost btn-xs" onclick="window.archToggleModules(false)">None</button>
-        <span id="arch-pick-count" style="margin-left:var(--sp-2)"></span>
+      <div style="display:flex;gap:var(--sp-4);flex-wrap:wrap;align-items:flex-start;margin-bottom:4px">
+        ${archRenderModelInsights(model)}
+        <details style="font-size:0.74rem;color:var(--text-secondary)">
+          <summary style="cursor:pointer;color:var(--text-muted)">Modules — <span id="arch-pick-count">pick what to draw</span></summary>
+          <div style="margin-top:4px">
+            <button class="btn btn-ghost btn-xs" onclick="window.archToggleModules(true)">All</button>
+            <button class="btn btn-ghost btn-xs" onclick="window.archToggleModules(false)">None</button>
+            <div id="arch-module-list" style="max-height:110px;overflow:auto;margin-top:4px">${boxes}</div>
+          </div>
+        </details>
       </div>
-      <div id="arch-module-list" style="max-height:120px;overflow:auto">${boxes}</div>
+      <div style="font-size:0.74rem;color:var(--text-muted);display:flex;gap:4px;flex-wrap:wrap;align-items:center">
+        Explore one entity:
+        <input list="arch-entity-datalist" id="arch-explore-input" placeholder="Entity name…" style="width:180px;font-size:0.76rem;padding:1px 4px"
+          onkeydown="if(event.key==='Enter'){window.archExploreFrom(this.value, document.getElementById('arch-explore-radius').value);event.preventDefault();}">
+        <datalist id="arch-entity-datalist">${model.entities.map(e => `<option value="${archEsc(e.name)}">${archEsc(e.shortName)} (${archEsc(e.module)})</option>`).join('')}</datalist>
+        <select id="arch-explore-radius" style="font-size:0.76rem">
+          <option value="1">1 hop</option>
+          <option value="2">2 hops</option>
+        </select>
+        <button class="btn btn-ghost btn-xs" onclick="window.archExploreFrom(document.getElementById('arch-explore-input').value, document.getElementById('arch-explore-radius').value)">Explore</button>
+        <span id="arch-explore-status"></span>
+      </div>
     </div>`;
+}
+
+// Answers "where do I start reading this model" before the user draws
+// anything — most-coupled module pairs, hub entities, orphan entities. All
+// three are cheap tallies over data already in `model`, not new server work.
+function archRenderModelInsights(model) {
+  if (!model.modules || !model.modules.length) return '';
+  const edges = archBuildModuleGraph(model).edges.slice(0, 5);
+  const counts = archEntityAssocCounts(model);
+  const hubs = counts.slice(0, 5).filter(c => c.count > 0);
+  const orphans = archOrphanEntities(model, counts);
+
+  const couplingList = edges.length
+    ? edges.map(e => `<li>${archEsc(e.a)} &harr; ${archEsc(e.b)} <span style="color:var(--text-muted)">(${e.count})</span></li>`).join('')
+    : '<li style="color:var(--text-muted)">No cross-module associations.</li>';
+  const hubList = hubs.length
+    ? hubs.map(h => `<li>${archEsc(h.name)} <span style="color:var(--text-muted)">(${h.count})</span></li>`).join('')
+    : '<li style="color:var(--text-muted)">No entities with associations.</li>';
+  const orphanNames = orphans.map(n => `<li>${archEsc(n)}</li>`).join('');
+
+  return `
+    <details style="font-size:0.74rem;color:var(--text-secondary)">
+      <summary style="cursor:pointer;color:var(--text-muted)">Model insights — most-coupled modules, hub &amp; orphan entities</summary>
+      <div style="display:flex;gap:var(--sp-4);flex-wrap:wrap;margin-top:var(--sp-2)">
+        <div><strong>Most-coupled modules</strong><ul style="margin:4px 0 0 1.1em;padding:0">${couplingList}</ul></div>
+        <div><strong>Hub entities</strong><ul style="margin:4px 0 0 1.1em;padding:0">${hubList}</ul></div>
+        <div><strong>Orphan entities (${orphans.length})</strong>${orphanNames ? `<ul style="margin:4px 0 0 1.1em;padding:0">${orphanNames}</ul>` : ''}</div>
+      </div>
+    </details>`;
 }
 
 // =========================================================================
@@ -266,6 +598,27 @@ function archBuildModuleGraph(model) {
   return { nodes, edges };
 }
 
+// Per-entity association count, sorted desc — the hub entities (widest blast
+// radius for a schema change) sit at the top. Same tally shape as the module
+// graph above, just keyed by entity instead of module.
+function archEntityAssocCounts(model) {
+  const counts = new Map();
+  (model.associations || []).forEach(a => {
+    counts.set(a.one, (counts.get(a.one) || 0) + 1);
+    counts.set(a.many, (counts.get(a.many) || 0) + 1);
+  });
+  return Array.from(counts.entries())
+    .map(([name, count]) => ({ name, count }))
+    .sort((x, y) => y.count - x.count);
+}
+
+// Entities with zero associations — set-difference against the tally above,
+// not a separate pass over associations.
+function archOrphanEntities(model, counts) {
+  const withAssoc = new Set(counts.map(c => c.name));
+  return (model.entities || []).map(e => e.name).filter(name => !withAssoc.has(name));
+}
+
 function archModuleGraphToMermaid(graph) {
   let code = 'graph LR\n';
   graph.nodes.forEach(n => {
@@ -278,18 +631,42 @@ function archModuleGraphToMermaid(graph) {
   return code;
 }
 
-let archViewMode = 'entities'; // 'entities' | 'modules'
+let archViewMode = 'entities'; // 'entities' (Diagram, mermaid) | 'modules' (mermaid) | 'canvas' (Explore, owned SVG)
 
 window.archSetViewMode = function (mode) {
   archViewMode = mode;
   document.querySelectorAll('#arch-view-toggle button').forEach(b => b.classList.toggle('active', b.dataset.view === mode));
+  // The left pane follows the right one: Details only means anything next to
+  // the canvas, Source (the JSON/pseudocode textarea) is what drives Diagram
+  // and Modules — and is what a no-database user needs, so it stays the
+  // fallback rather than a blank Details pane.
+  const leftBtn = document.getElementById(mode === 'canvas' ? 'arch-leftpane-details-btn' : 'arch-leftpane-source-btn');
+  if (window.archSetLeftPane) window.archSetLeftPane(mode === 'canvas' ? 'details' : 'source', leftBtn);
   if (mode === 'modules') {
     if (!archLiveModel) { window.mtToast('Load a domain model from a live database first — the module dependency view needs the full module list.', 'warning'); archViewMode = 'entities'; return; }
+    // NOT clearing archExploreState here (unlike before canvas existed):
+    // it now also carries WHERE Explore was, so switching to canvas() can
+    // resume there — clearing it here made "peek at Modules, then click
+    // Explore again" forget the last-explored entity. The legacy mermaid
+    // click-to-recenter handler that archExploreState used to gate is now
+    // gated on archViewMode itself instead (see archInitPanZoom's mouseup).
     const graph = archBuildModuleGraph(archLiveModel);
     archLastMermaidCode = archModuleGraphToMermaid(graph);
     archRenderMermaid(archLastMermaidCode);
+  } else if (mode === 'canvas') {
+    if (!archLiveModel) { window.mtToast('Load a domain model from a live database first — Explore needs the full model.', 'warning'); archViewMode = 'entities'; return; }
+    // Nothing explored yet this session: a blank canvas explains nothing, so
+    // guide the user to the control that starts one instead of drawing
+    // anything (same "no empty states" rule the rest of the tool follows).
+    if (!archExploreState || !archExploreState.center) {
+      if (window.archCanvasRenderEmpty) window.archCanvasRenderEmpty();
+      return;
+    }
+    if (window.archCanvasRender) window.archCanvasRender(archLiveModel, archExploreState.center, archExploreState.radius);
   } else {
-    archGenerate();
+    // Just switching to look at the Diagram tab, not a content change —
+    // preserve the explore trail so switching back to Explore resumes it.
+    archGenerate(true);
   }
 };
 
@@ -410,10 +787,29 @@ function archInitPanZoom() {
     out.scrollTop = archPanScrollY - (e.clientY - archPanY);
   });
 
-  window.addEventListener('mouseup', function () {
+  window.addEventListener('mouseup', function (e) {
     if (!archPanning) return;
     archPanning = false;
     out.style.cursor = 'grab';
+    // A click (negligible movement between mousedown and mouseup) on a node,
+    // while an explore trail is active, recenters there — otherwise this
+    // control is a one-shot filter, not something you can actually walk.
+    // Gated on archViewMode, not just archExploreState: the latter now
+    // survives switching to Modules (so Explore can resume there later),
+    // so without this a click on a MODULE node could match a stray entity
+    // short name and misfire. This whole branch is Mermaid-specific anyway
+    // (text-prefix matching a node's label) — the canvas has real node
+    // identity and its own click handling in arch-canvas.js.
+    if (archViewMode === 'entities' && archExploreState && Math.hypot(e.clientX - archPanX, e.clientY - archPanY) < 5) {
+      const target = document.elementFromPoint(e.clientX, e.clientY);
+      const node = target && target.closest('g.node, g.classGroup, g[class*="class"]');
+      const text = node ? (node.textContent || '').trim() : '';
+      // Longest name first: "UserToken" must not be shadowed by a "User" prefix match.
+      const shortName = Array.from(archExploreState.shortToFull.keys())
+        .sort((a, b) => b.length - a.length)
+        .find(name => text.startsWith(name));
+      if (shortName) window.archExploreFrom(archExploreState.shortToFull.get(shortName), archExploreState.radius);
+    }
   });
 }
 
@@ -421,12 +817,24 @@ function archInitPanZoom() {
 // leaves an existing diagram in the old colours — dark-theme edges on a light
 // background are invisible. core.js calls this after flipping the theme.
 window.archRerenderForTheme = function () {
+  if (archViewMode === 'canvas') {
+    if (window.archCanvasRerenderForTheme) window.archCanvasRerenderForTheme();
+    return;
+  }
   if (!archLastMermaidCode || !document.querySelector('#arch-output svg')) return;
   if (window.mtMermaidApplyTheme) window.mtMermaidApplyTheme();
   const keepZoom = archZoom;
-  archRenderMermaid(archLastMermaidCode).then(function () {
-    archApplyZoom(keepZoom);   // a re-paint is not a reason to lose the user's view
-  });
+  // The module graph carries no colours of ours, so a repaint is enough. An
+  // entity diagram has the palette baked in as literal hex (so Copy Mermaid
+  // stays portable), which means the source itself has to be rebuilt.
+  const redraw = archViewMode === 'modules'
+    ? archRenderMermaid(archLastMermaidCode)
+    : archRegenerate();
+  if (redraw && redraw.then) {
+    redraw.then(function () {
+      archApplyZoom(keepZoom);   // a re-paint is not a reason to lose the user's view
+    });
+  }
 };
 
 // Mermaid is fetched on first use (3.5 MB), so this is async now. The existing
@@ -457,6 +865,7 @@ async function archRenderMermaid(mermaidCode) {
       return;
     }
     archMeasureDiagram();
+    archEnhanceEdges();
     archInitPanZoom();
     // A model wider than the panel opens fitted: at natural size the user would
     // be staring at the top-left corner of something they just asked to see.
@@ -527,7 +936,29 @@ window.archLoadFromDb = async function (btn) {
       const cb = document.querySelector(`#arch-module-list input[value="${CSS.escape(first.name)}"]`);
       if (cb) cb.checked = true;
     }
-    window.archApplyModules();
+    // Awaited: this kicks off an async Mermaid render (module-picker diagram)
+    // that overwrites #arch-output when it resolves. The auto-explore below
+    // does the same into the same element — without waiting here, whichever
+    // one finishes last wins the race and the other's render is silently lost.
+    await window.archApplyModules();
+    // Explore (the canvas) is the working view now — default to the biggest
+    // hub so it opens with something meaningful rather than an empty prompt.
+    // archExploreFrom's own >150-entity confirm() guard still applies, same
+    // as a manual Explore — no separate, stricter cutoff here: on a real
+    // 277-entity application the actual top hub had 60 direct neighbours,
+    // comfortably under 150 but well past an over-cautious lower cap that
+    // was tried first and silently did nothing for exactly this case.
+    const hub = archEntityAssocCounts(data).find(c => c.count > 0);
+    if (hub) await window.archExploreFrom(hub.name, '1');
+    // The connection form is setup you touch once — with a model loaded it is
+    // only taking vertical space from the diagram. Collapsed on success only:
+    // on failure the form is exactly what the user needs to reach.
+    const livedb = document.getElementById('arch-livedb');
+    if (livedb) livedb.open = false;
+    // The JSON pane now holds a machine-generated projection, not something
+    // being typed — give its half of the width to the diagram.
+    const diagramBtn = document.querySelector('#panel-architecture .tool-actions .btn-group .btn:last-child');
+    window.archSetPaneView('result', diagramBtn);
   } catch (e) {
     if (box) {
       box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">Observability Bridge not reachable on http://localhost:9999. Start it with "npm run bridge" — Live DB needs the Bridge to reach PostgreSQL.</div>`;
@@ -547,5 +978,28 @@ window.archModuleOf = archModuleOf;
 window.archMermaidId = archMermaidId;
 window.archBuildModuleGraph = archBuildModuleGraph;
 window.archModuleGraphToMermaid = archModuleGraphToMermaid;
+window.archEntityAssocCounts = archEntityAssocCounts;
+window.archOrphanEntities = archOrphanEntities;
+window.archProjectModel = archProjectModel;
+window.archProjectEntities = archProjectEntities;
+window.archEntityNeighborhood = archEntityNeighborhood;
+window.archBuildClassDiagram = archBuildClassDiagram;
+window.archResolveAttrMode = archResolveAttrMode;
+window.archAssignModuleColors = archAssignModuleColors;
+
+// Exposed so arch-canvas.js (a separate module, own closure) can draw into the
+// SAME #arch-output/#arch-zoom container and get pan/zoom/theme-on-repaint for
+// free, instead of re-implementing navigation that already exists here.
+window.archMeasureDiagram = archMeasureDiagram;
+window.archApplyZoom = archApplyZoom;
+window.archInitPanZoom = archInitPanZoom;
+window.archCurrentTheme = archCurrentTheme;
+window.archRenderLegend = archRenderLegend;
+window.ARCH_FOCUS_STROKE = ARCH_FOCUS_STROKE;
+window.ARCH_LARGE_MODEL_ENTITIES = ARCH_LARGE_MODEL_ENTITIES;
+Object.defineProperty(window, 'archZoom', { get: function () { return archZoom; } });
+Object.defineProperty(window, 'archOutClientWidth', { get: function () {
+  const el = document.getElementById('arch-output'); return el ? el.clientWidth : 0;
+} });
 
 export function init() {}

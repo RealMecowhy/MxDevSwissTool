@@ -988,21 +988,29 @@ async function runSeedSchema(Client, dbConfig, opts) {
     // Start id: MAX(id)+1 over the requested tables that actually have an id.
     // Mendix ids are one global space, so a single counter from here up never
     // collides with existing rows in any table we insert into.
-    let startId = 1;
+    //
+    // BigInt, and returned as a STRING, is load-bearing. A Mendix id is a 64-bit
+    // bigint that in a mature app runs past 2^53, where a JS float stops being
+    // exact: Number(id) + 1 silently returns the SAME value, so every generated
+    // row gets an identical id and the INSERT dies on a unique violation from the
+    // second row on. pg already hands int8 back as a string to avoid this — the
+    // damage was converting it to a float here.
+    let startId = 1n;
     for (const t of tables) {
       if (!hasId[t]) continue;
       const m = await client.query('SELECT COALESCE(MAX(id), 0) AS m FROM ' + quoteIdent(t));
-      const v = Number(m.rows[0].m) + 1;
+      const v = BigInt(String(m.rows[0].m)) + 1n;
       if (v > startId) startId = v;
     }
 
-    // Bounded sample of existing parent ids for "link to existing".
+    // Bounded sample of existing parent ids for "link to existing". Kept as
+    // strings for the same reason — these become FK literals verbatim.
     const existingIds = {};
     for (const t of Object.keys(sampleExisting)) {
       if (!isSafeTableName(t) || !hasId[t]) continue;
       const k = Math.max(1, Math.min(5000, Number(sampleExisting[t]) || 0));
       const r = await client.query('SELECT id FROM ' + quoteIdent(t) + ' LIMIT ' + k);
-      existingIds[t] = r.rows.map(function (row) { return row.id; });
+      existingIds[t] = r.rows.map(function (row) { return String(row.id); });
     }
 
     // Single-column UNIQUE indexes on the requested tables. A generated value
@@ -1018,7 +1026,7 @@ async function runSeedSchema(Client, dbConfig, opts) {
     const uniqueColumns = uniqRes.rows.map(function (r) { return r.tbl + '|' + r.col; });
 
     await client.query('ROLLBACK');
-    return { columns: columns, startId: startId, existingIds: existingIds, uniqueColumns: uniqueColumns };
+    return { columns: columns, startId: String(startId), existingIds: existingIds, uniqueColumns: uniqueColumns };
   } catch (e) {
     try { await client.query('ROLLBACK'); } catch (_) {}
     return { error: true, message: e.message };
