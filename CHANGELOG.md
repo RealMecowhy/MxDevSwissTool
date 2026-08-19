@@ -14,6 +14,42 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.49.0 — 2026-08-19
+
+**Ultrawide / 4K readability pass.** A DOM-measurement audit across all 37
+tools at 3440x1440 (checked with realistic loaded data, not empty states)
+found two opposite failure modes on wide monitors: dashboards and
+split-editors (Log Viewer, HAR, Nginx, the JSON/XML/SQL formatters) already
+benefit from the extra width, but short single-purpose fields, prose, and
+KPI tiles just stretched edge-to-edge with nothing to fill them.
+
+- **KPI tiles stop over-growing.** `.grid-3`/`.grid-4` rows that hold
+  `.stat-item` cards (Nginx, HAR, Telemetry summaries) now cap each card's
+  width via `auto-fit` instead of stretching to fill 3-4 wide columns —
+  scoped with `:has()` so the JVM/HTTP chart grids sharing the same classes
+  are unaffected.
+- **Stat rows top-align.** `.http-grid` no longer stretches every card in a
+  row to match its tallest sibling — one card with a long description no
+  longer drags five short ones down with it.
+- **Error Decoder prose is capped to a readable measure** (~90ch) instead of
+  running the full width of the card.
+- **Short paste fields stop stretching**: JWT/SAML input, and the Log
+  Viewer/Nginx search boxes, are capped to a sane width while whatever
+  follows them (tables, decoded claims, dashboards) stays full width.
+- **Pure short-field forms are centered** at a comfortable ~1200px instead
+  of spreading two panes a thousand empty pixels apart — Password
+  Generator, Timestamp Converter, OData Builder, and Hash Generator's
+  BCrypt/HMAC sub-forms. Tools whose main input is an arbitrary-size paste
+  (JSON/expression/log/payload editors) were deliberately left full width.
+- **HAR's waterfall gets a width cap** so the duration bars keep a readable
+  scale instead of being compressed into a sliver at the right edge while
+  the microflow name sits alone at the left.
+
+All changes are CSS-only (plus five `class=` additions); verified against
+the existing 1892-assertion test suite and a fresh screenshot pass at both
+1920x1080 (no regression — a couple of the fixes, like top-aligned stat
+rows, are net improvements there too) and 3440x1440.
+
 ## v1.48.0 — 2026-08-19
 
 **Nginx Log Analyzer — Timeline Correlator.** A new tab links rtr (nginx)
