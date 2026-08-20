@@ -23,7 +23,7 @@ function sqlSetIndentSize(v) { sqlIndentSize = parseInt(v, 10) === 4 ? 4 : 2; sq
 function sqlSetKeywordCase(v) { sqlKeywordCase = (v === 'lower' || v === 'preserve') ? v : 'upper'; sqlFormat(); }
 
 function sqlFormat() {
-  const raw=document.getElementById('sql-input').value; if(!raw.trim()){document.getElementById('sql-output').innerHTML='<span style="color:var(--text-muted)">Output will appear here...</span>';return;}
+  const raw=document.getElementById('sql-input').value; if(!raw.trim()){document.getElementById('sql-output').innerHTML='<div class="empty-output">Output will appear here…</div>';return;}
   fvRender('sql-output', sqlHighlight(prettifySQL(raw)));
 }
 function sqlMinify() {

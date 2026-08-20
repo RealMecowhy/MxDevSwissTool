@@ -255,7 +255,7 @@ function formatOql() {
   const input = document.getElementById('oql-input').value;
   const out = document.getElementById('oql-output');
   if (!input.trim()) {
-    out.innerHTML = '<span style="color:var(--text-muted)">Output will appear here...</span>';
+    out.innerHTML = '<div class="empty-output">Output will appear here…</div>';
     return;
   }
   const formatted = sqePrettify(input, {
@@ -424,7 +424,7 @@ function visualizeSqlExplain() {
       // database walk it in order and skip the sort entirely.
       if (lastLineHadLimit && !/Sort\s*Key:/i.test(line)) {
         suggestions.push('This <em>Sort</em> directly feeds the <em>Limit</em> above it — a classic "Top N" query. ' +
-          '👉 <strong style="color:var(--primary)">Add an index matching the Sort Key</strong> (see below) so the database can walk rows already in order and skip the sort.');
+          '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px;margin-right:6px"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg><strong style="color:var(--primary)">Add an index matching the Sort Key</strong> (see below) so the database can walk rows already in order and skip the sort.');
       }
       l = l.replace(/Sort(?!\sKey)/g, '<span style="color:var(--warning);font-weight:bold" title="Sorting in memory (or on disk). Often avoidable by adding a corresponding index.">Sort</span>');
     }
@@ -454,7 +454,7 @@ function visualizeSqlExplain() {
           const target = entity
             ? `open entity <strong>${entity}</strong> (table <code>${currentScanTable}</code>)`
             : `find the entity corresponding to table <code>${currentScanTable}</code>`;
-          suggestions.push(`Observed filtering on column <code>${cols[0]}</code> associated with table <strong>${currentScanTable}</strong> during a <em>Seq Scan</em>. <br>👉 <strong style="color:var(--primary)">Open Domain Model in Mendix Studio Pro</strong>, ${target}, and add an Index for attribute <code>${cols[0]}</code>.`);
+          suggestions.push(`Observed filtering on column <code>${cols[0]}</code> associated with table <strong>${currentScanTable}</strong> during a <em>Seq Scan</em>. <br><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px;margin-right:6px"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg><strong style="color:var(--primary)">Open Domain Model in Mendix Studio Pro</strong>, ${target}, and add an Index for attribute <code>${cols[0]}</code>.`);
         }
       }
     }
@@ -465,7 +465,7 @@ function visualizeSqlExplain() {
         // Check for DESC/ASC in the line or assume ascending
         let direction = key.toUpperCase().includes('DESC') ? 'Descending (Z to A)' : 'Ascending (A to Z)';
         let cleanKey = key.replace(/ DESC| ASC/ig, '').replace(/,/g, '');
-        suggestions.push(`The query sorts data by <code>${key}</code>, which requires a memory/disk <em>Sort</em> node. To optimize this: <br>👉 <strong style="color:var(--primary)">Open Domain Model in Mendix Studio Pro</strong>, find the corresponding entity, and add an Index on attribute <code>${cleanKey}</code>. Set the index sorting direction to: <strong>${direction}</strong>.`);
+        suggestions.push(`The query sorts data by <code>${key}</code>, which requires a memory/disk <em>Sort</em> node. To optimize this: <br><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px;margin-right:6px"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg><strong style="color:var(--primary)">Open Domain Model in Mendix Studio Pro</strong>, find the corresponding entity, and add an Index on attribute <code>${cleanKey}</code>. Set the index sorting direction to: <strong>${direction}</strong>.`);
       }
     }
 
@@ -482,7 +482,7 @@ function visualizeSqlExplain() {
           if (pct >= 50) {
             suggestions.push(`<strong>${pct}% of rows were discarded by the Filter</strong>${currentScanTable ? ' on <strong>' + currentScanTable + '</strong>' : ''} ` +
               `(${removed} removed, ${kept} kept). The database examined far more rows than it needed. ` +
-              `👉 A selective index on the filtered column would let it skip the discarded rows instead of reading and rejecting each one.`);
+              `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px;margin-right:6px"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>A selective index on the filtered column would let it skip the discarded rows instead of reading and rejecting each one.`);
           }
         }
       }
@@ -498,7 +498,7 @@ function visualizeSqlExplain() {
     const unindexed = Array.from(seqScanTables).filter(t => !indexedTables.has(t));
     if (unindexed.length) {
       suggestions.push(`<strong>Hash Join present alongside a Seq Scan on ${unindexed.map(t => '<code>' + t + '</code>').join(', ')}</strong> with no Index Scan seen on ` +
-        `${unindexed.length === 1 ? 'that table' : 'those tables'} anywhere in this plan. 👉 If the join or filter column there is selective, an index may let the planner avoid the sequential scan (or switch to a cheaper Nested Loop).`);
+        `${unindexed.length === 1 ? 'that table' : 'those tables'} anywhere in this plan. <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px;margin-right:6px"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>If the join or filter column there is selective, an index may let the planner avoid the sequential scan (or switch to a cheaper Nested Loop).`);
     }
   }
 
@@ -521,7 +521,7 @@ function visualizeSqlExplain() {
     // Unique suggestions
     let uniqueSugg = [...new Set(suggestions)];
     reportHtml += `<div style="margin-bottom:var(--sp-3);background:var(--bg-sunken);border:1px dashed var(--primary);padding:var(--sp-3);border-radius:var(--r-md)">`;
-    reportHtml += `<h4 style="margin-top:0;margin-bottom:var(--sp-2);color:var(--primary)">💡 Optimization Suggestions (Where to add indexes)</h4>`;
+    reportHtml += `<h4 style="margin-top:0;margin-bottom:var(--sp-2);color:var(--primary)"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px;margin-right:6px"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"/></svg>Optimization Suggestions (Where to add indexes)</h4>`;
     reportHtml += `<ul style="margin:0;padding-left:20px;font-size:0.9rem;line-height:1.6;color:var(--text-muted)">`;
     uniqueSugg.forEach(s => reportHtml += `<li>${s}</li>`);
     reportHtml += `</ul></div>`;

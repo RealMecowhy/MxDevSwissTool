@@ -14,11 +14,15 @@ function jsonResetInteractiveState() {
   if (bc) bc.style.display = 'none';
   const countEl = document.getElementById('json-find-count');
   if (countEl) countEl.textContent = '';
+  // Nothing rendered means nothing to search. The find bar sat above an empty
+  // pane offering to search output that did not exist yet.
+  const bar = document.getElementById('json-find-bar');
+  if (bar) bar.style.display = 'none';
 }
 
 function jsonFormat() {
   const raw = document.getElementById('json-input').value.trim();
-  if (!raw) { document.getElementById('json-tree-output').innerHTML = '<span style="color:var(--text-muted)">Output will appear here...</span>'; document.getElementById('json-status').innerHTML=''; jsonResetInteractiveState(); return; }
+  if (!raw) { document.getElementById('json-tree-output').innerHTML = '<div class="empty-output">Output will appear here…</div>'; document.getElementById('json-status').innerHTML=''; jsonResetInteractiveState(); return; }
   try {
     const parsed = JSON.parse(raw);
     document.getElementById('json-status').innerHTML = '<span class="badge badge-success">&#10003; Valid JSON</span>';
@@ -28,12 +32,47 @@ function jsonFormat() {
     jsonBuildPathIndex();
     const bc = document.getElementById('json-breadcrumb');
     if (bc) bc.style.display = 'none';
+    const bar = document.getElementById('json-find-bar');
+    if (bar) bar.style.display = '';
     jsonFind();
   } catch(e) {
     document.getElementById('json-status').innerHTML = '<span class="badge badge-error">&#10007; Invalid</span>';
-    document.getElementById('json-tree-output').innerHTML = '<div class="jt-error">Parse error: '+escHtml(e.message)+'</div>';
+    document.getElementById('json-tree-output').innerHTML = jsonRenderParseError(e.message);
     jsonResetInteractiveState();
   }
+}
+
+// The engine hands us the exact offset ("...at position 4192 (line 118 column 7)")
+// and the tool used to print it and stop there — on a 4000-line document that
+// leaves the user counting characters. Offer to put the caret on it instead.
+function jsonRenderParseError(message) {
+  const at = /position (\d+)/.exec(message);
+  const where = /line (\d+) column (\d+)/.exec(message);
+  const place = where ? 'Line ' + where[1] + ', column ' + where[2] : (at ? 'Offset ' + at[1] : '');
+  return '<div class="notice notice-error" style="align-items:flex-start">' +
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+      'stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/>' +
+      '<line x1="12" y1="16" x2="12.01" y2="16"/></svg>' +
+    '<div>' +
+      '<div style="font-weight:600">Invalid JSON</div>' +
+      (place ? '<div style="font-size:0.78rem;margin-top:2px">' + escHtml(place) + '</div>' : '') +
+      '<div style="font-size:0.78rem;color:var(--text-secondary);margin-top:2px">' + escHtml(message) + '</div>' +
+      (at ? '<button class="btn btn-secondary btn-xs" style="margin-top:var(--sp-2)" ' +
+            'onclick="window.jsonRevealError(' + at[1] + ')">Show in input</button>' : '') +
+    '</div></div>';
+}
+
+function jsonRevealError(pos) {
+  const ta = document.getElementById('json-input');
+  if (!ta) return;
+  ta.focus();
+  const end = Math.min(pos + 1, ta.value.length);
+  ta.setSelectionRange(Math.max(0, pos), end);
+  // A textarea does not scroll to the selection on its own. Measuring the line
+  // height off the computed style is close enough to land the caret on screen.
+  const before = ta.value.slice(0, pos).split('\n').length - 1;
+  const lh = parseFloat(getComputedStyle(ta).lineHeight) || 16;
+  ta.scrollTop = Math.max(0, (before * lh) - (ta.clientHeight / 2));
 }
 function jsonMinify() {
   try { document.getElementById('json-tree-output').innerHTML = '<span class="jt-str">'+escHtml(JSON.stringify(JSON.parse(document.getElementById('json-input').value)))+'</span>'; jsonResetInteractiveState(); }
@@ -224,6 +263,7 @@ window.jsonExpandAll = jsonExpandAll;
 window.jsonCollapseAll = jsonCollapseAll;
 window.jsonFind = jsonFind;
 window.jsonFindNav = jsonFindNav;
+window.jsonRevealError = jsonRevealError;
 
 export function init() {
   const pane = document.getElementById('json-output-pane');

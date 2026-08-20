@@ -162,6 +162,8 @@ The full history is in [CHANGELOG.md](CHANGELOG.md) — including the 21 version
 
 The toolkit is a Progressive Web App. On first load a service worker caches the entire interface — every tool module, the styles and the in-app help — so the whole toolkit keeps working with no network, including tools you have never opened before.
 
+**Fonts ship with the app.** Inter and JetBrains Mono are embedded in the stylesheet rather than fetched from Google Fonts at boot. A cross-origin stylesheet is never precached by a service worker, so until v1.50.0 every offline, air-gapped or proxy-blocked session quietly fell back to Segoe UI and Consolas — and every online session announced the app’s launch to a third party, which is not what "runs entirely locally" is supposed to mean.
+
 **Startup is deliberately light.** The two heavy rendering libraries — the diagram renderer (3.5 MB, used by *Domain Model & Architecture*) and the charting library (200 KB, used by *Metrics & Telemetry* and the *Performance Lab*) — are no longer part of the startup payload; they are fetched the first time a tool actually draws something. The page that opens on launch went from 5.5 MB to 1.9 MB. Offline is unaffected: the service worker still caches both in the background, so those tools work without a network too.
 
 * **Install it as an app**: in Chrome or Edge, use the install icon in the address bar (or ⋮ → *Cast, save and share* → *Install page as app*). It then opens in its own window without browser chrome and starts from the same local files.

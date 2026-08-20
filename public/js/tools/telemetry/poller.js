@@ -123,7 +123,7 @@ export function tmDumpAllMetrics() {
       let html = `<div style="max-height:70vh;overflow-y:auto;font-family:var(--font-mono);font-size:0.78rem">`;
       html += `<p style="color:var(--text-secondary);margin-bottom:12px"><strong>Total unique metrics received: ${allNames.length}</strong> &mdash; Visualized: ${used.length}, Not used: ${unused.length}</p>`;
 
-      html += `<h4 style="color:var(--success);margin:8px 0 4px">✅ Currently Visualized (${used.length})</h4>`;
+      html += `<h4 style="color:var(--success);margin:8px 0 4px"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px;margin-right:6px"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>Currently Visualized (${used.length})</h4>`;
       html += `<table style="width:100%;border-collapse:collapse;margin-bottom:16px">`;
       html += `<tr style="text-align:left;border-bottom:1px solid var(--border)"><th style="padding:4px 8px">Metric Name</th><th style="padding:4px 8px">Labels</th><th style="padding:4px 8px">Sample Value</th></tr>`;
       for (let name of used) {
@@ -153,7 +153,7 @@ export function tmDumpAllMetrics() {
 
       let modal = document.createElement('div');
       modal.style.cssText = 'background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:24px;max-width:900px;width:90%;max-height:85vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)';
-      modal.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><h3 style="margin:0;color:var(--text-primary)">📊 Prometheus Metrics Inventory</h3><button onclick="this.closest('[style*=fixed]').remove()" style="background:none;border:none;color:var(--text-muted);font-size:1.5rem;cursor:pointer">&times;</button></div>${html}`;
+      modal.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><h3 style="margin:0;color:var(--text-primary)"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px;margin-right:6px"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Prometheus Metrics Inventory</h3><button onclick="this.closest('[style*=fixed]').remove()" style="background:none;border:none;color:var(--text-muted);font-size:1.5rem;cursor:pointer">&times;</button></div>${html}`;
       overlay.appendChild(modal);
       document.body.appendChild(overlay);
     })

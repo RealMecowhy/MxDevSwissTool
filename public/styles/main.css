@@ -1,6 +1,10 @@
 :root {
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono: "Space Grotesk", "JetBrains Mono", "Fira Code", monospace;
+  /* "Space Grotesk" used to head this list. It is a SANS-SERIF, not a monospace,
+     and it was never among the fonts the app loaded — so it silently resolved to
+     the next entry. Had anyone installed it locally (it is a common Google font)
+     every log row, code area and aligned column would have lost its grid. */
+  --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, "Fira Code", monospace;
   --sp-1: 4px;
   --sp-2: 8px;
   --sp-3: 12px;
@@ -135,7 +139,15 @@
 }
 html {
   height: 100%;
-  font-size: 13px;
+  /* Was 13px, which put .nav-section-label at 9.1px, .form-label and
+     .btn-secondary at 9.4px and #topbar-subtitle at 9.8px - under the 12px floor
+     every modern design system keeps for UI labels, and the main reason the app
+     read as cramped despite its colours being fine. The @media (width>=2400px)
+     bump to 14px covered only ultrawides; between 1440 and 2400, where most
+     users are, nothing applied.
+     Density-critical surfaces (log rows, the level matrix, tables) keep their own
+     rem sizes on purpose - small IS correct there. */
+  font-size: 14px;
 }
 body {
   font-family: var(--font-sans);
@@ -226,7 +238,7 @@ pre,
 .logo-sub {
   color: var(--text-muted);
   white-space: nowrap;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   overflow: hidden;
 }
 #sidebar-nav {
@@ -243,7 +255,7 @@ pre,
   margin-top: var(--sp-2);
   white-space: nowrap;
   transition: opacity var(--t-base);
-  font-size: 0.7rem;
+  font-size: 0.78rem;
   font-weight: 700;
   overflow: hidden;
   display: flex;
@@ -326,7 +338,7 @@ pre,
   flex-shrink: 0;
   margin-left: auto;
   padding: 1px 5px;
-  font-size: 0.6rem;
+  font-size: 0.68rem;
   font-weight: 700;
 }
 .collapsed .nav-label,
@@ -450,7 +462,7 @@ pre,
 }
 #topbar-subtitle {
   color: var(--text-muted);
-  font-size: 0.75rem;
+  font-size: 0.80rem;
   white-space: nowrap;
   text-overflow: ellipsis;
   overflow: hidden;
@@ -467,7 +479,7 @@ pre,
   transition: background var(--t-fast);
   border: 1px solid var(--border);
   color: var(--text-secondary);
-  font-size: 0.75rem;
+  font-size: 0.80rem;
   font-weight: 500;
   font-family: var(--font-sans);
   background: 0 0;
@@ -558,17 +570,35 @@ pre,
   width: 14px;
   height: 14px;
 }
+/* Nothing anywhere in the app acknowledged a press: .btn declares
+   `transition: all` but no state ever changed on :active. */
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+/* opacity alone left a disabled --accent button still reading as saturated
+   orange — the Data Factory "Next" looked clickable while it was not.
+   Desaturating as well is what actually separates the two states. */
 .btn:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
+  filter: saturate(0.4);
   cursor: not-allowed;
 }
 .btn-primary {
   background: var(--accent);
   color: #fff;
   border-color: var(--accent);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 20%),
+    inset 0 1px 0 rgb(255 255 255 / 12%);
 }
 .btn-primary:hover:not(:disabled) {
   background: var(--accent-hover);
+  box-shadow:
+    0 4px 12px var(--accent-subtle),
+    inset 0 1px 0 rgb(255 255 255 / 12%);
+}
+.btn-primary:active:not(:disabled) {
+  box-shadow: inset 0 1px 3px rgb(0 0 0 / 25%);
 }
 .btn-secondary {
   color: var(--text-secondary);
@@ -599,13 +629,13 @@ pre,
 .btn-xs {
   height: var(--control-h-xs);
   padding: 0 var(--sp-2);
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   line-height: 1;
 }
 .btn-sm {
   height: var(--control-h-sm);
   padding: 0 var(--sp-2);
-  font-size: 0.72rem;
+  font-size: 0.78rem;
 }
 .btn-lg {
   height: var(--control-h-lg);
@@ -671,15 +701,39 @@ select.select.select-sm {
   padding-right: var(--sp-2);
   font-size: 0.72rem;
 }
+/* This selector is more specific than `.select`, so it would otherwise undo the
+   room reserved there for the custom chevron and the value would run under it. */
+select.select.select-sm {
+  padding-right: var(--sp-5);
+}
 .input:focus,
 .textarea:focus,
 .select:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px #2f81f726;
+  /* was #2f81f726 — a blue glow around an orange focus border, on every form
+     control in the app. Two brand colours on one element in one state. */
+  box-shadow: 0 0 0 3px var(--accent-subtle);
 }
 .input::placeholder,
 .textarea::placeholder {
   color: var(--text-muted);
+}
+/* Failed validation used to be reported only in a summary box at the foot of the
+   form — in the REST Load Tester, ~350px below the field it was about, while the
+   button that triggered it sat top-right. Three separate places to look. The
+   summary stays; this marks the field itself so the message has a subject. */
+.input.is-invalid,
+.textarea.is-invalid,
+.select.is-invalid,
+.code-area.is-invalid {
+  border-color: var(--danger);
+}
+.input.is-invalid:focus,
+.textarea.is-invalid:focus,
+.select.is-invalid:focus,
+.code-area.is-invalid:focus {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-subtle);
 }
 .textarea {
   resize: vertical;
@@ -689,6 +743,105 @@ select.select.select-sm {
 }
 .select option {
   background: var(--bg-elevated);
+}
+/* Native form controls. There are 38 checkboxes in the app and none of them had a
+   single rule, so they rendered as the OS default: bright blue, 13px, and — worst
+   of it — an unchecked box is a filled WHITE square, which on a near-black panel
+   reads louder than a checked one. The eye was drawn to the options that are off.
+   accent-color alone fixes the hue but not the size or the unchecked fill, hence
+   the full appearance:none treatment. */
+input[type="range"],
+progress {
+  accent-color: var(--accent);
+}
+input[type="checkbox"],
+input[type="radio"] {
+  appearance: none;
+  -webkit-appearance: none;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  cursor: pointer;
+  transition:
+    background var(--t-fast),
+    border-color var(--t-fast);
+}
+input[type="checkbox"] {
+  border-radius: var(--r-sm);
+}
+input[type="radio"] {
+  border-radius: var(--r-full);
+}
+input[type="checkbox"]:hover:not(:disabled),
+input[type="radio"]:hover:not(:disabled) {
+  border-color: var(--accent-muted);
+}
+input[type="checkbox"]:checked,
+input[type="radio"]:checked {
+  background-color: var(--accent);
+  border-color: var(--accent);
+}
+input[type="checkbox"]:checked {
+  /* stroke is #fff rather than a token: the box underneath is always --accent,
+     which is the same orange in both themes, so the tick must not follow --text. */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23fff' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='3.5 8.5 6.5 11.5 12.5 4.5'/%3E%3C/svg%3E");
+  background-size: 100% 100%;
+}
+input[type="radio"]:checked {
+  box-shadow: inset 0 0 0 3px var(--bg-elevated);
+}
+input[type="checkbox"]:disabled,
+input[type="radio"]:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+input[type="checkbox"]:focus-visible,
+input[type="radio"]:focus-visible,
+input[type="range"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* 15 <details> in the app and only the Telemetry chart groups had any styling, so
+   the rest opened with the browser's default ▶ triangle — the one tell that says
+   "nobody styled this". Borders rather than a glyph, so the chevron inherits the
+   summary's own colour and rotates on open instead of swapping character. */
+details > summary {
+  list-style: none;
+  cursor: pointer;
+}
+details > summary::-webkit-details-marker {
+  display: none;
+}
+details > summary::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: var(--sp-2);
+  vertical-align: baseline;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--t-fast);
+  opacity: 0.7;
+}
+details[open] > summary::before {
+  transform: rotate(45deg);
+}
+/* Native select keeps the OS chevron unless appearance is cleared. The stroke is a
+   fixed mid-grey because a data: URI cannot inherit currentColor, and #888 is the
+   one value that reads on both the dark and the light --bg-elevated. */
+.select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: var(--sp-6);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23888888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='2.5 4.5 6 8 9.5 4.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--sp-2) center;
+  background-size: 12px 12px;
 }
 .input-mono {
   font-family: var(--font-mono);
@@ -707,7 +860,7 @@ select.select.select-sm {
 }
 .form-label {
   color: var(--text-secondary);
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 600;
 }
 .tabs {
@@ -792,6 +945,11 @@ select.select.select-sm {
   gap: var(--sp-2);
   align-items: flex-start;
   font-size: 0.8rem;
+  /* A notice is prose. Declared rather than inherited so it stays readable when
+     it is rendered inside a monospace container — the JSON/XML output panes set
+     --font-mono on the tree they share with the parse-error notice. */
+  font-family: var(--font-sans);
+  line-height: 1.5;
   display: flex;
 }
 .notice svg {
@@ -803,7 +961,7 @@ select.select.select-sm {
 .notice-info {
   background: var(--info-subtle);
   color: var(--info);
-  border: 1px solid #58a6ff33;
+  border: 1px solid color-mix(in srgb, var(--info) 30%, transparent);
 }
 .notice-warn,
 .notice-warning {
@@ -869,6 +1027,20 @@ select.select.select-sm {
   height: 1px;
   margin: var(--sp-3) 0;
 }
+/* Vertical divider for an action bar — .sep is a horizontal rule for stacked
+   content and does not work turned on its side. */
+.toolbar-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: var(--sp-1) var(--sp-1);
+  background: var(--border);
+  flex-shrink: 0;
+}
+.toolbar-sep:first-child,
+.toolbar-sep:last-child,
+.toolbar-sep + .toolbar-sep {
+  display: none;
+}
 .stat-item {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
@@ -886,7 +1058,7 @@ select.select.select-sm {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-muted);
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 600;
 }
 .stat-value {
@@ -921,43 +1093,55 @@ kbd {
 }
 .code-area:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px #2f81f726;
+  /* was #2f81f726 — a blue glow around an orange focus border, on every form
+     control in the app. Two brand colours on one element in one state. */
+  box-shadow: 0 0 0 3px var(--accent-subtle);
 }
+/* Was 190px tall with a duplicate product name and ~60% dead space, and in the
+   light theme the accent-muted gradient washed out to nothing so it read as an
+   empty grey slab. Now a compact band: the tagline leads, the accent edge marks
+   it, and the gradient is strong enough to be visible on white. */
 .home-hero {
   background: linear-gradient(
-    135deg,
+    120deg,
     var(--bg-surface) 0%,
-    var(--accent-muted) 100%
+    var(--accent-subtle) 100%
   );
   border: 1px solid var(--border);
-  border-radius: var(--r-xl);
-  padding: var(--sp-8);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-lg);
+  padding: var(--sp-5) var(--sp-6);
   margin-bottom: var(--sp-5);
   position: relative;
   overflow: hidden;
 }
 .home-hero:before {
   content: "";
-  background: radial-gradient(circle, #2f81f733 0%, #0000 70%);
+  background: radial-gradient(circle, var(--accent-subtle) 0%, #0000 70%);
   border-radius: 50%;
   width: 200px;
   height: 200px;
   position: absolute;
-  top: -60px;
-  right: -60px;
-}
-.home-hero h1 {
-  background: linear-gradient(135deg, var(--text-primary), #58a6ff);
-  -webkit-text-fill-color: transparent;
-  -webkit-background-clip: text;
-  background-clip: text;
-  font-size: 1.6rem;
+  top: -80px;
+  right: -40px;
 }
 .home-hero p {
-  color: var(--text-secondary);
-  margin-top: var(--sp-2);
-  max-width: 480px;
-  font-size: 0.85rem;
+  position: relative;
+  color: var(--text-primary);
+  max-width: 620px;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+.home-hero-foot {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-top: var(--sp-4);
+}
+.home-hero-stat {
+  font-size: 0.78rem;
+  color: var(--text-muted);
 }
 .home-grid {
   gap: var(--sp-5);
@@ -975,9 +1159,12 @@ kbd {
   margin: var(--sp-6) 0 var(--sp-4);
   font-size: 0.78rem;
 }
+/* Cards stay stretched to a uniform height on purpose: every card is the same
+   kind of thing, and ragged bottoms would imply a hierarchy among peers. The
+   min track grew from 200px so the longer tool names stop wrapping to two lines. */
 .home-grid-group {
   gap: var(--sp-3);
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
   display: grid;
 }
 .home-tool-card {
@@ -998,6 +1185,23 @@ kbd {
   transform: translateY(-4px);
   box-shadow: 0 8px 24px rgba(255, 135, 0, 0.15), inset 0 0 0 1px var(--accent);
 }
+/* Replaces the "Launch Module" line that was printed on every one of the 36
+   cards - 36 copies of the same instruction, on cards that are clickable whole. */
+.home-tool-card:after {
+  content: "\2192";
+  position: absolute;
+  right: var(--sp-4);
+  bottom: var(--sp-3);
+  color: var(--accent);
+  font-size: 1rem;
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity var(--t-fast), transform var(--t-fast);
+}
+.home-tool-card:hover:after {
+  opacity: 1;
+  transform: translateX(0);
+}
 .home-tool-icon {
   border-radius: var(--r-md);
   justify-content: center;
@@ -1006,14 +1210,20 @@ kbd {
   height: 40px;
   display: flex;
 }
+/* Was mono + uppercase + 0.05em tracking at 1.1rem in 200px-min columns, so
+   "MENDIX ERROR DECODER", "LOG & TEXT ANONYMIZER" and "CLIENT TRAFFIC (HAR)"
+   each broke over two lines and their descriptions started at different heights.
+   Caps also cost word-shape recognition on the one label meant to be scanned
+   fastest. The mono/caps treatment stays on .home-section-header, which is a
+   section marker and does not wrap. */
 .home-tool-name {
-  font-family: var(--font-mono);
-  font-size: 1.1rem;
+  font-family: var(--font-sans);
+  font-size: 0.95rem;
   font-weight: 600;
+  line-height: 1.3;
   margin-bottom: var(--sp-2);
   color: var(--text-primary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: -0.01em;
 }
 .home-tool-desc {
   font-family: var(--font-sans);
@@ -1077,7 +1287,7 @@ kbd {
   -webkit-user-select: none;
   user-select: none;
   border: 1px solid #0000;
-  font-size: 0.72rem;
+  font-size: 0.76rem;
   font-weight: 700;
 }
 .level-filter-btn:not(.active) {
@@ -1134,7 +1344,7 @@ kbd {
   flex-wrap: wrap;
   flex-shrink: 0;
   align-items: center;
-  font-size: 0.72rem;
+  font-size: 0.76rem;
   display: flex;
 }
 .log-stat {
@@ -1154,22 +1364,13 @@ kbd {
   line-height: 1;
   overflow: hidden auto;
 }
+/* Centring wrapper only - the box itself is .empty-state. */
 #log-empty-state {
   justify-content: center;
   align-items: center;
-  gap: var(--sp-4);
   height: 100%;
-  color: var(--text-muted);
   flex-direction: column;
   display: flex;
-}
-#log-empty-state svg {
-  opacity: 0.4;
-  width: 48px;
-  height: 48px;
-}
-#log-empty-state p {
-  font-size: 0.85rem;
 }
 .log-row {
   padding: 2px var(--sp-4);
@@ -1443,8 +1644,11 @@ kbd {
 .log-matrix .lm-warn  { color: var(--log-warning); }
 .log-matrix .lm-error { color: var(--log-error); }
 .log-matrix .lm-critical { color: var(--log-critical); }
-.log-matrix td.lm-error { background: #f851490f; }
-.log-matrix td.lm-critical { background: #f851491f; }
+/* The flat #f851490f / #f851491f tints that used to sit on every ERROR and
+   CRITICAL cell are gone: logRenderMatrix now paints each non-zero cell with a
+   per-column heat value inline, which overrides them, so they only ever applied
+   to cells that no longer exist. They were hardcoded hex besides - identical in
+   both themes and blind to --log-error. */
 /* ── Correlation Flow: the ranked ID list ── */
 .log-corr-head {
   color: var(--text-secondary);
@@ -1522,6 +1726,9 @@ kbd {
 .log-insights-grid {
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
   gap: var(--sp-3);
+  /* Cards stretched to the tallest sibling in their row, so a card with a short
+     sample sat in a box padded with dead space and the row bottoms disagreed. */
+  align-items: start;
   display: grid;
 }
 .log-insights-card {
@@ -1677,6 +1884,107 @@ kbd {
   outline: none;
   font-size: 0.78rem;
   line-height: 1.6;
+}
+/* =========================================
+   EMPTY STATES - two kinds, deliberately
+   =========================================
+   An empty panel is either waiting for the USER to supply something (drop a
+   file, paste text) or waiting for the APP to produce something (a diagram, a
+   formatted tree, test results). Those want opposite treatments, and the app
+   previously mixed them: the JSON Formatter showed a centred icon-and-prose
+   block on the left and a bare grey line of mono text on the right, in the
+   same view.
+
+   .empty-state   - the input kind. A visible drop target: dashed border, icon,
+                    one sentence, actions. The Log Viewer said "Drop a log file
+                    here" with nothing on screen marking where "here" was.
+   .empty-output  - the output kind. Quiet and centred; it is a status, not a
+                    call to action, so it must not compete with real content. */
+.empty-state {
+  max-width: 460px;
+  margin: auto;
+  padding: var(--sp-6);
+  text-align: center;
+  /* Declared, not inherited: #log-container sets --font-mono and line-height:1
+     for the log rows, which the box would otherwise pick up - prose set in a
+     monospace at line-height 1 is exactly the "unfinished" look this component
+     exists to fix. */
+  font-family: var(--font-sans);
+  line-height: 1.5;
+  border: 1.5px dashed var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  transition:
+    border-color var(--t-base),
+    background var(--t-base);
+}
+/* Only on an actual drag, never on hover: the box itself is not clickable (the
+   buttons inside it are), so lighting it up under the cursor would promise a
+   click target that does not exist. Where the drop zone is the whole container
+   - the Log Viewer, for one - `.drag-drop-zone.drag-over::after` already draws
+   the feedback over everything, so this rule is for boxes that own the drop. */
+.empty-state.drag-over {
+  border-color: var(--accent);
+  background: var(--accent-subtle);
+}
+.empty-state svg {
+  width: 40px;
+  height: 40px;
+  color: var(--text-muted);
+  margin-bottom: var(--sp-3);
+}
+.empty-state-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--sp-2);
+}
+.empty-state-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.empty-state-actions {
+  display: flex;
+  gap: var(--sp-2);
+  justify-content: center;
+  margin-top: var(--sp-4);
+}
+/* The "how to get this data" block is reference material, not part of the first
+   read - it used to sit open between the hint and the buttons, which is why the
+   empty Log Viewer had four competing blocks of text. */
+.empty-state details {
+  margin-top: var(--sp-4);
+  text-align: left;
+}
+.empty-state details > summary {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-align: center;
+  list-style: none;
+}
+.empty-state details > summary:hover {
+  color: var(--text-secondary);
+}
+.empty-output {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  flex: 1;
+  min-height: 120px;
+  padding: var(--sp-6);
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-family: var(--font-sans);
+  text-align: center;
+}
+.empty-output svg {
+  width: 32px;
+  height: 32px;
+  opacity: 0.35;
 }
 .empty-state-overlay {
   justify-content: center;
@@ -1974,7 +2282,7 @@ kbd {
   color: var(--accent);
   border-radius: var(--r-sm);
   font-family: var(--font-mono);
-  border: 1px solid #2f81f74d;
+  border: 1px solid var(--accent-muted);
   margin: 2px;
   padding: 2px 6px;
   font-size: 0.72rem;
@@ -2731,7 +3039,14 @@ kbd {
 }
 .help-section code {
   border: 1px solid var(--border);
-  word-break: break-all;
+  /* was word-break:break-all, which let the chip's BOX split across lines:
+     `Type, TimeStamp, LogNod` on one line and `e, Message` in a second bordered
+     box on the next. inline-block keeps it one rectangle - long content wraps
+     inside the box and makes it taller instead of cutting it in two. */
+  display: inline-block;
+  max-width: 100%;
+  word-break: break-word;
+  vertical-align: bottom;
   background: var(--bg-hover) !important;
   border-radius: var(--r-sm) !important;
   font-family: var(--font-mono) !important;
@@ -3163,7 +3478,7 @@ kbd {
   width: 260px;
   height: 260px;
   border-radius: 50%;
-  background: radial-gradient(circle, #2f81f733 0%, #0000 70%);
+  background: radial-gradient(circle, var(--accent-subtle) 0%, #0000 70%);
   pointer-events: none;
 }
 .welcome-hero-icon {
@@ -3184,7 +3499,7 @@ kbd {
 }
 .welcome-hero h2 {
   font-size: 1.45rem;
-  background: linear-gradient(135deg, var(--text-primary), #58a6ff);
+  background: linear-gradient(135deg, var(--text-primary) 30%, var(--accent));
   -webkit-text-fill-color: transparent;
   -webkit-background-clip: text;
   background-clip: text;
@@ -3686,6 +4001,35 @@ kbd {
   min-width: 2px;
 }
 /* ── Domain Model entity search hit (scroll + flash) ── */
+.arch-zoom-float {
+  position: absolute;
+  right: var(--sp-3);
+  bottom: var(--sp-3);
+  z-index: 5;
+  background: var(--bg-surface);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-sm);
+}
+/* Copyable command line in the Telemetry quickstart. */
+.tm-cmd {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: var(--sp-2) 0;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.tm-cmd code {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--accent);
+  white-space: nowrap;
+}
 .arch-search-hit rect,
 .arch-search-hit polygon {
   stroke: var(--accent) !important;
@@ -3704,7 +4048,13 @@ kbd {
    screen at the same time. */
 #mt-toast-container {
   position: fixed;
-  top: calc(56px + var(--sp-3));
+  /* Anchored bottom-right, not below the 56px topbar. The old `top` put the stack
+     directly over `.tool-actions`, so an error toast covered Export / Clear /
+     Load — the very buttons the message was asking the user to reach for.
+     Toasts are appended, and the container grows upward from the bottom edge, so
+     the newest one sits nearest the corner and older ones ride up. `.return-chip`
+     is bottom-CENTRE, so nothing collides. */
+  bottom: var(--sp-5);
   right: var(--sp-4);
   z-index: 10000;
   display: flex;
@@ -3724,7 +4074,9 @@ kbd {
   border-radius: var(--r-md);
   background: var(--bg-elevated);
   color: var(--text);
-  box-shadow: 0 6px 20px rgb(0 0 0 / 28%);
+  /* 0 6px 20px rgb(0 0 0 / 28%) barely registered against #111 — the toast read as
+     a flat patch rather than something floating above the page. */
+  box-shadow: var(--shadow-md);
   font-size: 0.82rem;
   line-height: 1.45;
   animation: mt-toast-in 0.18s ease-out;

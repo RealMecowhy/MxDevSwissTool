@@ -131,10 +131,12 @@ document.addEventListener('keydown', e => {
   if (btn) { e.preventDefault(); btn.click(); }
 });
 
-// Load fonts
-(function(){
-  const l=document.createElement('link');l.rel='stylesheet';l.href='https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap';document.head.appendChild(l);
-})();
+// Fonts are self-hosted in styles/fonts.css (linked from index.html), not fetched
+// from fonts.googleapis.com at boot as they were before. The remote stylesheet was
+// cross-origin, so the service worker never precached it: offline and air-gapped
+// sessions fell back to Segoe UI + Consolas, and every online boot told Google the
+// app had started - both at odds with the offline-first, nothing-leaves-the-machine
+// promise on the Home screen.
 
 // ============================================================
 

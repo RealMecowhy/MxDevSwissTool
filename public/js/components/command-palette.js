@@ -114,14 +114,20 @@ export function initCommandPalette(toolsList, navigateFn) {
       return;
     }
 
+    // The three flex children each need an explicit sizing rule. Without them a
+    // flex item's default min-width:auto refuses to shrink below its content, so
+    // the long-description rows (REST & WS Extractor, Mendix Error Decoder) pushed
+    // their siblings out: the icon span collapsed to zero width and vanished, the
+    // section label was shoved past the container edge, and text-overflow:ellipsis
+    // never fired because the row simply overflowed instead of being constrained.
     resultsContainer.innerHTML = currentResults.map((t, idx) => `
       <div class="cmd-result-item ${idx === 0 ? 'active' : ''}" data-idx="${idx}" style="display:flex; align-items:center; padding:var(--sp-2) var(--sp-3); cursor:pointer; border-radius:var(--r-md); margin-bottom:2px;">
-        <span style="font-size:1.2rem; color:${t.color}; margin-right:var(--sp-3); width:24px; text-align:center;">${t.icon}</span>
-        <div style="flex:1;">
-          <div style="font-weight:600; color:var(--text);">${t.label}</div>
+        <span style="font-size:1.2rem; color:${t.color}; margin-right:var(--sp-3); width:24px; flex-shrink:0; text-align:center;">${t.icon}</span>
+        <div style="flex:1; min-width:0;">
+          <div style="font-weight:600; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${t.label}</div>
           <div style="font-size:0.75rem; color:var(--text-secondary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${t.desc}</div>
         </div>
-        <div style="font-size:0.7rem; color:var(--text-secondary);">${t.section}</div>
+        <div style="font-size:0.7rem; color:var(--text-secondary); flex-shrink:0; white-space:nowrap; margin-left:var(--sp-3);">${t.section}</div>
       </div>
     `).join('');
 

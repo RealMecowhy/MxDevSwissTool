@@ -56,7 +56,7 @@ export function tmConnectAgent() {
       statusText.textContent = 'Connection Failed';
       statusText.style.color = 'var(--danger)';
       
-      document.getElementById('tm-agent-info-text').innerHTML = `Could not reach Agent at <strong>${escHtml(agentUrl)}</strong>. <br/><span style="color:var(--danger)">Error: ${escHtml(err.message)}</span><br/>Ensure you ran <code>node mendix-observability-bridge.js</code> in your Mendix project directory.`;
+      document.getElementById('tm-agent-info-text').innerHTML = `Could not reach Agent at <strong>${escHtml(agentUrl)}</strong>. <br/><span style="color:var(--danger)">Error: ${escHtml(err.message)}</span><br/>Ensure you ran <code>node server/mendix-observability-bridge.js</code> in your Mendix project directory.`;
       
       btn.classList.remove('btn-success');
       btn.classList.add('btn-primary');
