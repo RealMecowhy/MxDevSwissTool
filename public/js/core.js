@@ -185,7 +185,7 @@ async function navigate(toolId, navEl, initialTab) {
     iconEl.style.color = tool.color || 'var(--accent)';
   }
   document.getElementById('topbar-title').textContent = tool.label;
-  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.49.0' : (tool.desc || '');
+  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.52.0' : (tool.desc || '');
   const previousTool = currentTool;
   currentTool = toolId;
   window.currentTool = currentTool;
@@ -456,8 +456,7 @@ function createHomeCard(tool) {
       '<span style="font-size:1.5rem;color:'+tool.color+'">'+tool.icon+'</span>' +
     '</div>' +
     '<div class="home-tool-name">'+tool.label+'</div>' +
-    '<div class="home-tool-desc">'+tool.desc+'</div>' +
-    '<div style="margin-top:auto;padding-top:16px;font-size:0.8rem;color:var(--accent);font-weight:600;font-family:var(--font-mono)">Launch Module &#8594;</div>';
+    '<div class="home-tool-desc">'+tool.desc+'</div>';
     
   const starBtn = card.querySelector('.card-fav-btn');
   starBtn.onclick = (e) => {
@@ -473,12 +472,19 @@ function buildHomeGrid() {
   if (!container) return;
   container.innerHTML = '';
 
+  const listed = TOOLS.filter(t => t.id !== 'home' && !t.hidden);
+  const countEl = document.getElementById('home-tool-count');
+  if (countEl) {
+    const sections = new Set(listed.map(t => t.section || 'Other'));
+    countEl.textContent = listed.length + ' tools across ' + sections.size + ' categories';
+  }
+
   // Render favorites at the very top if any
   const starredTools = TOOLS.filter(t => favoriteTools.includes(t.id));
   if (starredTools.length > 0) {
     const favHeader = document.createElement('div');
     favHeader.className = 'home-section-header';
-    favHeader.innerHTML = '⭐ Favorites';
+    favHeader.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px;margin-right:6px"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>Favorites';
     container.appendChild(favHeader);
 
     const favGrid = document.createElement('div');

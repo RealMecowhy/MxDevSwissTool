@@ -125,7 +125,7 @@ function sanitizeSwitchTab(tabId) {
 // Clear all inputs/outputs
 function sanitizeClearInput() {
   document.getElementById('char-sanitizer-input').value = '';
-  document.getElementById('char-sanitizer-preview').innerHTML = '<span style="color:var(--text-muted)">Output will appear here...</span>';
+  document.getElementById('char-sanitizer-preview').innerHTML = '<div class="empty-output">Output will appear here…</div>';
   document.getElementById('char-sanitizer-status').innerHTML = '';
   document.getElementById('char-sanitizer-stats-summary').className = 'notice notice-info';
   document.getElementById('char-sanitizer-stats-summary').textContent = 'Analyze some text to view statistics.';

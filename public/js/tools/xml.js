@@ -15,12 +15,16 @@ function xmlResetInteractiveState() {
   xmlXPathIndex = -1;
   const countEl = document.getElementById('xml-xpath-count');
   if (countEl) countEl.textContent = '';
+  // Nothing rendered means nothing to query — the XPath bar used to offer a
+  // search over output that did not exist yet.
+  const bar = document.getElementById('xml-find-bar');
+  if (bar) bar.style.display = 'none';
 }
 
 function xmlFormat() {
   const raw = document.getElementById('xml-input').value.trim();
   if (!raw) {
-    document.getElementById('xml-tree-output').innerHTML = '<span style="color:var(--text-muted)">Output will appear here...</span>';
+    document.getElementById('xml-tree-output').innerHTML = '<div class="empty-output">Output will appear here…</div>';
     document.getElementById('xml-status').innerHTML = '';
     xmlResetInteractiveState();
     return;
@@ -42,6 +46,8 @@ function xmlFormat() {
     xmlIdCounter = 0;
     document.getElementById('xml-tree-output').innerHTML = roots.map(r => renderXmlTree(r, 0)).join('\n');
     addXmlToggleListeners();
+    const xfBar = document.getElementById('xml-find-bar');
+    if (xfBar) xfBar.style.display = '';
     const xpathInput = document.getElementById('xml-xpath-input');
     if (xpathInput && xpathInput.value.trim()) xmlXPathEval();
   } catch(e) {

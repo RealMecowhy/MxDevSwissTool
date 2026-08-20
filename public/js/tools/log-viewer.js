@@ -332,6 +332,21 @@ function logParseContent(text, filename) {
   document.getElementById('log-send-anon-btn').style.display = 'inline-flex';
   document.getElementById('log-empty-state').style.display = 'none';
   document.getElementById('log-virtual-list').style.display = 'block';
+  logSetDataDependentUI(true);
+}
+
+// Search, level chips, the time range, the node filter and the date select are
+// all no-ops with nothing loaded — the empty Log Viewer used to present the full
+// filter bar plus an enabled Export and Clear over zero rows, and clicking Export
+// there did nothing at all: no file, no toast, no explanation. Same rule the app
+// already applies to Aggregate Errors and the two Anonymize buttons.
+function logSetDataDependentUI(hasData) {
+  const bar = document.getElementById('log-filter-toolbar');
+  if (bar) bar.style.display = hasData ? '' : 'none';
+  ['log-export-btn', 'log-clear-btn'].forEach(function (id) {
+    const b = document.getElementById(id);
+    if (b) b.disabled = !hasData;
+  });
 }
 function logBuildDateFilter() {
   const dates = [...new Set(logAllEntries.map(e => { const m = e.ts.match(/(\d{4}-\d{2}-\d{2})/); return m ? m[1] : null; }).filter(Boolean))];
@@ -589,6 +604,7 @@ function logClear() {
   document.getElementById('log-analyze-btn').style.display='none';
   document.getElementById('log-anon-copy-btn').style.display='none';
   document.getElementById('log-send-anon-btn').style.display='none';
+  logSetDataDependentUI(false);
   logClearSignatureFilter();
   
   // Clear filters
@@ -605,8 +621,8 @@ function logClear() {
   const corrBtn = document.getElementById('log-corr-stream-btn');
   if (corrBtn) corrBtn.style.display = 'none';
   logRenderCorrelations();
-  document.getElementById('log-sequence-output').innerHTML = '<span style="color:var(--text-muted);margin-top:var(--sp-5)">Sequence diagram will appear here...</span>';
-  document.getElementById('log-gantt-output').innerHTML = '<span style="color:var(--text-muted)">Gantt chart will appear here...</span>';
+  document.getElementById('log-sequence-output').innerHTML = '<div class="empty-output">Sequence diagram will appear here…</div>';
+  document.getElementById('log-gantt-output').innerHTML = '<div class="empty-output">Gantt chart will appear here…</div>';
   const insOut = document.getElementById('log-insights-output');
   if (insOut) insOut.innerHTML = '<div class="log-insights-empty"><p style="font-weight:600;margin-bottom:6px">No log loaded yet</p>'
     + '<p style="font-size:0.8rem;color:var(--text-muted)">Insights scans WARNING/ERROR patterns and shows a card for each problem that actually appears. Click a card to filter the stream.</p></div>';
@@ -1523,12 +1539,38 @@ function logRenderMatrix() {
   });
   thead += '<th class="lm-total-th">Total</th></tr>';
 
+  // Heat per COLUMN, not per row or globally. The question this table answers is
+  // "for this severity, which node is responsible?", and only column scaling
+  // answers it: globally, MicroflowEngine's 76 204 TRACE entries would flatten
+  // every other cell to invisible, and per row every row would get one full-heat
+  // cell, which says nothing. Log scale because the counts span 2 … 98 482.
+  //
+  // levelVar is spelled out rather than built from the level name: the level is
+  // WARN but the token is --log-warning, so `'--log-' + l.toLowerCase()` yields an
+  // undefined custom property for that one column and color-mix silently drops the
+  // whole declaration — WARN would be the only column with no heat.
+  const levelVar = {
+    TRACE: '--log-trace', DEBUG: '--log-debug', INFO: '--log-info',
+    WARN: '--log-warning', ERROR: '--log-error', CRITICAL: '--log-critical'
+  };
+  const colMax = {};
+  m.levels.forEach(function (l) {
+    colMax[l] = m.nodes.reduce(function (mx, row) { return Math.max(mx, row.counts[l] || 0); }, 0);
+  });
+  function heat(level, c) {
+    const mx = colMax[level] || 0;
+    const v = levelVar[level];
+    if (c <= 0 || mx <= 0 || !v) return '';
+    const t = Math.log(c + 1) / Math.log(mx + 1);
+    return ' style="background:color-mix(in srgb, var(' + v + ') ' + Math.round(8 + 42 * t) + '%, transparent)"';
+  }
+
   const body = m.nodes.map(function (row) {
     let tr = '<tr><td class="lm-node" onclick="logInsightFilter(' + logJsStr(row.node) + ',\'\',\'\')" title="Filter the stream to node ' + escHtml(row.node) + '">' + escHtml(row.node) + '</td>';
     m.levels.forEach(function (l) {
       const c = row.counts[l] || 0;
       if (c === 0) { tr += '<td class="lm-cell lm-zero">·</td>'; return; }
-      tr += '<td class="lm-cell ' + (levelClass[l] || '') + '" onclick="logInsightFilter(' + logJsStr(row.node) + ',' + logJsStr(l) + ',\'\')" title="Filter to ' + escHtml(row.node) + ' · ' + l + ' (' + c + ')">' + c + '</td>';
+      tr += '<td class="lm-cell ' + (levelClass[l] || '') + '"' + heat(l, c) + ' onclick="logInsightFilter(' + logJsStr(row.node) + ',' + logJsStr(l) + ',\'\')" title="Filter to ' + escHtml(row.node) + ' · ' + l + ' (' + c + ')">' + c + '</td>';
     });
     tr += '<td class="lm-cell lm-total" onclick="logInsightFilter(' + logJsStr(row.node) + ',\'\',\'\')">' + row.total + '</td></tr>';
     return tr;
@@ -1603,14 +1645,16 @@ function logRenderInsights() {
   }
 
   const cards = cats.map(function (c, i) {
+    // 'info' used --accent, the brand colour and the loudest thing on the tab,
+    // for the card that is explicitly not a problem. --info reads as a note.
     const sevColor = c.severity === 'error' ? 'var(--log-error)'
-      : (c.severity === 'info' ? 'var(--accent)' : 'var(--log-warning)');
+      : (c.severity === 'info' ? 'var(--info)' : 'var(--log-warning)');
     const span = (c.firstTs && c.lastTs && c.firstTs !== c.lastTs)
       ? '<span class="log-insights-span" title="First → last occurrence">' + escHtml(logInsightsShortTs(c.firstTs)) + ' → ' + escHtml(logInsightsShortTs(c.lastTs)) + '</span>' : '';
     const itemsHtml = (c.items && c.items.length) ? '<div class="log-insights-items" id="log-insights-items-' + i + '" style="display:none">'
       + c.items.slice(0, 12).map(function (it) {
           return '<div class="log-insights-item" onclick="logInsightFilter(' + logInsightsAttr(it.filter) + ')" title="Filter the stream to these entries">'
-            + '<span class="log-insights-item-count">' + it.count + '×</span>'
+            + '<span class="log-insights-item-count" title="' + it.count + ' entries">' + logInsightsCount(it.count) + '×</span>'
             + '<span class="log-insights-item-label">' + escHtml(it.label) + '</span></div>';
         }).join('')
       + (c.items.length > 12 ? '<div style="font-size:0.72rem;color:var(--text-muted);padding:4px 8px">…and ' + (c.items.length - 12) + ' more</div>' : '')
@@ -1622,7 +1666,7 @@ function logRenderInsights() {
 
     return '<div class="log-insights-card" style="border-left:3px solid ' + sevColor + '">'
       + '<div class="log-insights-card-head" onclick="logInsightFilter(' + logInsightsAttr(c.filter) + ')" title="Filter the stream to these entries">'
-      +   '<span class="log-insights-count" style="background:' + sevColor + '">' + c.count + '×</span>'
+      +   '<span class="log-insights-count" style="background:' + sevColor + '" title="' + c.count + ' entries">' + logInsightsCount(c.count) + '×</span>'
       +   '<div style="flex:1;min-width:0">'
       +     '<div class="log-insights-title">' + escHtml(c.title) + '</div>'
       +     '<div class="log-insights-sub">' + escHtml(c.subtitle) + '</div>'
@@ -1662,6 +1706,18 @@ function logInsightsOpenTool(toolId) {
 function logInsightsShortTs(ts) {
   const m = String(ts).match(/(\d{2}:\d{2}:\d{2})/);
   return m ? m[1] : ts;
+}
+
+// A count badge is a label, not a figure to read digit by digit. "176908×" was
+// four times wider than its neighbours and broke the row's rhythm — and it sat
+// on the one card that is an observation rather than a problem, so the widest,
+// loudest element on the tab was also the least actionable. The exact number is
+// still one hover away.
+function logInsightsCount(n) {
+  if (!isFinite(n)) return String(n);
+  if (n >= 1000000) return (n / 1000000).toFixed(n < 10000000 ? 1 : 0).replace(/\.0$/, '') + 'M';
+  if (n >= 10000) return Math.round(n / 1000) + 'k';
+  return String(n);
 }
 
 // Serializes a filter object into an inline-handler argument list, safely quoted.

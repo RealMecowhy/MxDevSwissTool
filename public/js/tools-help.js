@@ -417,7 +417,7 @@ const TOOLS_HELP = {
     howToGet: `
       <ol>
         <li>Open the page in Chrome/Edge/Firefox and press <strong>F12</strong> to open DevTools, then go to the <strong>Network</strong> tab.</li>
-        <li>Enable <strong>Preserve log</strong> and click the clear (🚫) button to start fresh.</li>
+        <li>Enable <strong>Preserve log</strong> and click the clear (<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>) button to start fresh.</li>
         <li>Reproduce the slow interaction (open the page, click the button, etc.).</li>
         <li>Right-click anywhere in the request list and choose <strong>Save all as HAR with content</strong> (or the download icon).</li>
       </ol>
@@ -448,7 +448,7 @@ const TOOLS_HELP = {
     howToGet: `
       <p>To have the Mendix app generate this data, it needs proper configuration:</p>
       <ol>
-        <li><strong>Local Diagnostics (Agent Mode):</strong> Run the utility script <code>node mendix-observability-bridge.js</code> in the terminal at the project root. This script proxies logs from the local Mendix and connects to the PostgreSQL database (the database metrics part requires the optional <code>pg</code> module: run <code>npm install pg</code> once in the tool directory).</li>
+        <li><strong>Local Diagnostics (Agent Mode):</strong> Run the utility script <code>node server/mendix-observability-bridge.js</code> in the terminal at the project root. This script proxies logs from the local Mendix and connects to the PostgreSQL database (the database metrics part requires the optional <code>pg</code> module: run <code>npm install pg</code> once in the tool directory).</li>
         <li><strong>Enable OpenTelemetry (Mendix 11.12+):</strong> In Mendix Studio Pro, go to <em>Settings</em> → <em>Configurations</em> → <em>Edit</em>. In the <strong>OpenTelemetry</strong> tab, select:
           <ul>
             <li><strong>Enable OpenTelemetry:</strong> Yes</li>
@@ -965,7 +965,7 @@ Customer [1] -- [*] Order : places</pre>
   'mock-server': {
     title: 'Mock Server & Chaos Engineering',
     description: 'A fully functional local Mock Server that allows you to simulate external API responses and test Chaos Engineering (intentionally introducing network faults). This tool works in tandem with the Mendix Observability Bridge to expose a real HTTP endpoint on your localhost.',
-    howToGet: `Before using this tool, you must start the local bridge by running <code>node mendix-observability-bridge.js</code> in your terminal. Once running, you can configure your Mendix <em>Call REST</em> actions to send requests to <code>http://localhost:9999/mock</code> &mdash; no authentication header is needed, and any sub-path works too (<code>/mock/orders</code>, <code>/mock/customers</code>), so several REST activities can point at it at once.
+    howToGet: `Before using this tool, you must start the local bridge by running <code>node server/mendix-observability-bridge.js</code> in your terminal. Once running, you can configure your Mendix <em>Call REST</em> actions to send requests to <code>http://localhost:9999/mock</code> &mdash; no authentication header is needed, and any sub-path works too (<code>/mock/orders</code>, <code>/mock/customers</code>), so several REST activities can point at it at once.
       <br><br><strong>The app must run on this machine.</strong> The bridge listens on <code>127.0.0.1</code> only, so it is reachable from a project running locally in Studio Pro. An app deployed to Mendix Cloud or another server cannot reach your laptop &mdash; for those, mock the call in the app itself.`,
     howToUse: `
       <ol>

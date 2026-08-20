@@ -14,6 +14,159 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.50.0 — 2026-08-20
+
+**Visual audit, wave 1.** An outside-in UI/UX pass — driven from the running
+app and DOM measurements rather than from the source — found that the polish
+gap was mostly a handful of systemic defects, not a hundred small ones. This
+is the highest impact-to-effort half of that list.
+
+- **Fonts are self-hosted.** Inter and JetBrains Mono were pulled from
+  `fonts.googleapis.com` by a `<link>` injected at boot. A cross-origin
+  stylesheet is never precached by the service worker, so offline and
+  air-gapped sessions — the "restricted enterprise laptop" the Home screen
+  targets — silently fell back to Segoe UI + Consolas, and every online boot
+  told Google the app had started. Both subsets (latin + latin-ext, so the
+  Char Sanitizer's Central-European repair table renders in the UI font) are
+  now embedded as woff2 data URIs in `styles/fonts.css`. The single-file
+  build grows 1.44 MB → 1.59 MB and makes no external request at all.
+- **`--font-mono` no longer starts with a sans-serif.** "Space Grotesk" headed
+  the monospace stack. It was never among the loaded fonts so it resolved to
+  the next entry — but had anyone installed it locally, every log row, code
+  area and aligned column would have lost its grid.
+- **Native controls follow the accent.** 38 checkboxes had no styling at all
+  and rendered as 13px OS-blue, with the *unchecked* box a filled white square
+  that read louder than a checked one on a dark panel. Checkboxes, radios and
+  range inputs are now 16px, themed, and correct in both directions.
+- **The blue leaks are gone.** Every input in the app focused with an orange
+  border and a *blue* glow; the product name on Home and in the welcome modal
+  faded into GitHub blue; an orange chip in the Regex tester had a blue border.
+  Syntax-highlighting blues are untouched — that palette is its own system.
+- **Ctrl+K stopped dropping icons and labels.** The palette rows are a flex
+  row whose middle child had no `min-width: 0`, so long descriptions refused
+  to shrink and pushed their siblings out: two rows lost their icon entirely,
+  their category label was shoved past the container edge, and
+  `text-overflow: ellipsis` never fired. Three properties.
+- **Toasts moved to the bottom-right.** They were pinned below the 56px
+  topbar, which is exactly where `.tool-actions` sits — an error toast covered
+  the Export / Clear / Load buttons the message was asking the user to reach
+  for.
+- **Buttons acknowledge a press.** `.btn` declared `transition: all` but no
+  `:active` state existed anywhere in the app. Disabled buttons are now
+  desaturated as well as faded, so a disabled `--accent` primary (the Data
+  Factory "Next") stops looking clickable.
+- **Theme-blind boxes fixed.** The Microflow Tracer's N+1 banner and badge were
+  hardcoded Material Orange 50 — a cream box glowing on a black panel — and the
+  Telemetry setup command was pale green on 30% black, ~1.9:1 and effectively
+  invisible in the light theme. All now use the existing tokens.
+- **Leaked Markdown rendered as HTML.** Three lines in the Telemetry config
+  guide showed literal `**Protobuf**` and backticks on screen.
+
+---
+
+## v1.51.0 — 2026-08-20
+
+**Visual audit, wave 2.** Consistency and states: what the app shows before there
+is anything to show, and what it does when input is wrong.
+
+- **Empty states are a component now, in two deliberate kinds.** A panel is either
+  waiting for the *user* (drop a file) or for the *app* (render a diagram), and
+  those want opposite treatments — the JSON Formatter had a centred icon block on
+  the left and a bare line of grey mono text top-left on the right, in one view.
+  `.empty-state` is the input kind: a real dashed drop target with an icon, one
+  sentence and its actions. `.empty-output` is the quiet output kind, applied to
+  all fourteen "… will appear here" placeholders, in the markup *and* in the JS
+  paths that reset them.
+- **The Log Viewer said "Drop a log file here" with nothing marking where "here"
+  was.** It now has a visible target, and the "How to get this data" block — one
+  of four competing blocks of text on that screen — is collapsed behind a summary.
+- **Controls that do nothing are no longer offered.** The empty Log Viewer
+  presented the whole filter bar (search, six level chips, time range, node,
+  date) plus an enabled Export and Clear over zero rows; clicking Export there
+  produced no file, no toast, nothing at all. The filter bar is hidden and the two
+  data-dependent buttons are disabled until a log is loaded, matching the rule the
+  tool already applied to Aggregate Errors. Same for the JSON and XML find bars,
+  which offered to search output that did not exist yet.
+- **Validation happens at the field.** "Enter a target URL." rendered ~350px below
+  the field it was about, while the button that triggered it sat top-right, and the
+  field itself got no styling — three places to look. The field is now marked and
+  focused, and if it is inside a collapsed `<details>` (the Headers & Body case)
+  that section is opened first, because the old message pointed at a field that was
+  not even on screen.
+- **The JSON parse error became actionable.** The engine reports the exact offset
+  and the tool printed it and stopped, which on a 4000-line document leaves the
+  user counting characters. The error is now a proper notice with a **Show in
+  input** button that puts the caret on the offending character.
+- **Native controls, the rest of them.** All 30 `<select>`s carry the class (four
+  did not) and get a themed chevron instead of the OS one; range inputs follow the
+  accent; and the fourteen `<details>` that had no styling stop opening with the
+  browser's default ▶ triangle.
+- **One icon system.** The last 15 colour emoji are gone, replaced by icons from
+  the same 24×24 stroke set as the rest of the app. Colour emoji render in the OS
+  emoji font and cannot be matched to the line weight or colour of an SVG sitting
+  next to them.
+- `.notice` and `.empty-state` declare their own font instead of inheriting: both
+  can be rendered inside monospace containers (the log rows, the JSON output tree),
+  and prose at `line-height: 1` in a monospace was the look these components exist
+  to remove.
+
+---
+
+## v1.52.0 — 2026-08-20
+
+**Visual audit, wave 3.** Density, hierarchy and the screens that opened on the
+wrong thing.
+
+- **Base font 13px → 14px.** Nine pixels was the real reason the app read as
+  cramped: `.nav-section-label` rendered at 9.1px, `.form-label` and
+  `.btn-secondary` at 9.4px, `#topbar-subtitle` at 9.8px — under the 12px floor
+  every modern design system keeps for UI labels. The `@media (width>=2400px)`
+  bump to 14px only ever covered ultrawides. Eleven chrome-level tokens were
+  raised on top of the base; the density-critical surfaces (log rows, the level
+  matrix, tree views, code areas, data grids) keep their sizes, because small is
+  correct there. Nothing overflows: swept 12 tools × 2 themes.
+- **The level matrix is a heat map.** 27 rows × 6 columns of bare numbers from 2
+  to 98 482, with no visual encoding, meant reading every cell to find where it
+  was hot. Each non-zero cell is now tinted by its share of its own COLUMN, on a
+  log scale — column-wise because the question the table answers is "for this
+  severity, which node is responsible?", and a global scale would let
+  MicroflowEngine's 76 204 TRACE entries flatten everything else to invisible.
+- **Home reads like a product, not a terminal.** Tool names were monospace CAPS
+  with letter-spacing at 1.1rem in 200px columns, so three of them wrapped to two
+  lines and knocked their descriptions out of alignment; now sans, sentence case,
+  and none of the 36 wrap. "Launch Module →" is gone from all 36 cards — 36
+  copies of one instruction on cards that are clickable whole — replaced by an
+  arrow that appears on hover. The hero drops from 190px to 121px, loses the
+  third copy of the product name, gains a tool count, and its gradient is now
+  visible in the light theme instead of washing out to an empty grey slab.
+- **Zoom moved onto the canvas.** The Architecture visualisation header carried
+  five separate control groups; the −/100%/+/Fit/1:1 cluster now floats bottom-
+  right over the diagram, where every other canvas tool puts it.
+- **Telemetry opens on what to do, not on documentation.** The tab used to open
+  into ~800 words of reference with the agent's status as a 10px line in a corner.
+  Two steps and a copyable command come first; the reference is one click away.
+- **The documented agent command was wrong** — `node mendix-observability-bridge.js`
+  in six places, while the file lives in `server/` and both the launcher and
+  `npm start` use `server\mendix-observability-bridge.js`. Anyone following the
+  instructions got "Cannot find module". Fixed everywhere, including the script
+  that would have regenerated the stale copy.
+- **Smaller things**: the Log Viewer action bar is grouped by what the buttons do
+  rather than being seven undivided peers, and "Anonymize & Copy" / "Anonymize in
+  Tool" — which differed by one word and had to be read and compared — became
+  "Copy anonymized" and "Open in Anonymizer". Insights count badges shorten past
+  10 000 (`176908×` was four times wider than its neighbours and sat on the one
+  card that is an observation, not a problem — it also stops using the brand
+  accent). Inline `<code>` chips in Help stop splitting their box across lines.
+
+Not done, and why: **skeleton loaders**. The audit called for them on the premise
+that a 65 MB parse showed no feedback. Measured on real paint frames, the global
+loader does appear before the parse blocks and stays on screen through it (the
+spinner is transform-based, so the compositor keeps it moving), and its text
+clears contrast in both themes — 20.1:1 dark, 6.1:1 light. The premise was wrong,
+so there was nothing to fix.
+
+---
+
 ## v1.49.0 — 2026-08-19
 
 **Ultrawide / 4K readability pass.** A DOM-measurement audit across all 37

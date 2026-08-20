@@ -806,7 +806,7 @@ function mftRenderExecList(list) {
     const indent = e.depth ? '<span style="color:var(--text-muted)">' + '&nbsp;&nbsp;'.repeat(Math.min(e.depth, 6)) + '└ </span>' : '';
     const recBadge = e.recursive ? '<span title="This microflow was already on the call stack when this execution started (recursion)" style="margin-left:4px;font-size:0.7rem;font-weight:700;color:var(--warning);background:var(--warning-subtle);padding:0 4px;border-radius:var(--r-sm)">REC</span>' : '';
     const unfBadge = !e.finished ? '<span title="No Finished record — the log window probably ends mid-execution" style="margin-left:4px;font-size:0.7rem;font-weight:700;color:var(--danger);background:var(--danger-subtle);padding:0 4px;border-radius:var(--r-sm)">…</span>' : '';
-    const n1Badge = (e.nPlusOne && e.nPlusOne.length) ? '<span title="N+1 detected: ' + e.nPlusOne.map(function(d) { return d.type + ' ×' + d.count; }).join(', ') + '" style="margin-left:4px;font-size:0.7rem;font-weight:700;color:#e65100;background:#fff3e0;padding:0 4px;border-radius:var(--r-sm)">N+1</span>' : '';
+    const n1Badge = (e.nPlusOne && e.nPlusOne.length) ? '<span title="N+1 detected: ' + e.nPlusOne.map(function(d) { return d.type + ' ×' + d.count; }).join(', ') + '" style="margin-left:4px;font-size:0.7rem;font-weight:700;color:var(--warning);background:var(--warning-subtle);padding:0 4px;border-radius:var(--r-sm)">N+1</span>' : '';
 
     el.innerHTML =
       '<div style="color:var(--text-muted); font-family:var(--font-mono); font-size:0.72rem">' + mftEsc(timeShort) + '</div>' +

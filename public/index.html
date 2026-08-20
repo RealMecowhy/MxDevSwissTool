@@ -6,6 +6,7 @@
 <title>MxDev Swiss Tool &mdash; Developer Toolkit</title>
 <link rel="icon" type="image/png" href="logo.png?v=2">
 <meta name="description" content="All-in-one developer toolkit for Mendix: log viewer, JSON formatter, XPath builder, JWT decoder, and many more tools. Works in any browser, no installation required.">
+<link rel="stylesheet" href="styles/fonts.css">
 <link rel="stylesheet" href="styles/main.css">
 <link rel="manifest" href="manifest.json">
 <!-- chart.js and mermaid.min.js are NOT loaded here on purpose: together they are
@@ -102,7 +103,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.49.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.52.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -288,7 +289,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.49.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.52.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -310,13 +311,18 @@
     <!-- HOME -->
     <div class="tool-panel active" id="panel-home">
       <div class="tool-body">
+        <!-- No <h1> with the product name: the sidebar logo and the topbar title
+             already carry it, so a third copy spent the most valuable strip on the
+             page repeating what the user can read twice over. -->
         <div class="home-hero">
-          <h1>MxDev Swiss Tool</h1>
           <p>Your all-in-one developer toolkit for Mendix. No installation required &mdash; open in any browser. Works on restricted enterprise laptops.</p>
-          <button type="button" class="btn btn-secondary btn-sm" style="margin-top:var(--sp-4)" onclick="if(window.showWelcomeTour)window.showWelcomeTour()">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
-            Welcome tour
-          </button>
+          <div class="home-hero-foot">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="if(window.showWelcomeTour)window.showWelcomeTour()">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+              Welcome tour
+            </button>
+            <span class="home-hero-stat" id="home-tool-count"></span>
+          </div>
         </div>
         <div class="home-grid" id="home-tools-grid"></div>
       </div>
@@ -325,11 +331,18 @@
     <!-- LOG VIEWER -->
     <div class="tool-panel" id="panel-log-viewer">
       <div class="tool-actions">
+          <!-- Grouped left to right: work with what is loaded | discard it | load more.
+               Seven same-weight buttons in one undivided row read as a wall; two
+               separators give the eye three stops instead of seven. The dividers sit
+               only between groups that always hold at least one always-present button
+               (Export, Clear, Load), so a hidden button can never leave one dangling. -->
           <button class="btn btn-secondary btn-sm" id="log-analyze-btn" style="display:none" onclick="logOpenAggregator()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Aggregate Errors</button>
-          <button class="btn btn-secondary btn-sm" id="log-anon-copy-btn" style="display:none" onclick="logAnonymizeAndCopy()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#icon-shield"></use></svg>Anonymize &amp; Copy</button>
-          <button class="btn btn-secondary btn-sm" id="log-send-anon-btn" style="display:none" onclick="logSendToAnonymizer()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Anonymize in Tool</button>
-          <button class="btn btn-secondary btn-sm" onclick="logExportFiltered()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export Filtered</button>
-          <button class="btn btn-danger btn-sm" onclick="logClear()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Clear</button>
+          <button class="btn btn-secondary btn-sm" id="log-anon-copy-btn" style="display:none" onclick="logAnonymizeAndCopy()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#icon-shield"></use></svg>Copy anonymized</button>
+          <button class="btn btn-secondary btn-sm" id="log-send-anon-btn" style="display:none" onclick="logSendToAnonymizer()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Open in Anonymizer</button>
+          <button class="btn btn-secondary btn-sm" id="log-export-btn" disabled onclick="logExportFiltered()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export Filtered</button>
+          <span class="toolbar-sep" aria-hidden="true"></span>
+          <button class="btn btn-danger btn-sm" id="log-clear-btn" disabled onclick="logClear()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Clear</button>
+          <span class="toolbar-sep" aria-hidden="true"></span>
           <button class="btn btn-secondary btn-sm" onclick="logOpenPasteModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>Paste Logs</button>
           <label class="btn btn-primary btn-sm" for="log-file-input"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Load Log File</label>
           <input type="file" id="log-file-input" style="display:none" accept=".log,.txt,.csv,.gz" multiple onchange="logLoadFiles(this.files)">
@@ -347,7 +360,7 @@
 
         <!-- LOG STREAM TAB -->
         <div id="log-tab-stream" style="display:flex;flex-direction:column;flex:1;height:calc(100% - 40px)">
-      <div class="log-toolbar">
+      <div class="log-toolbar" id="log-filter-toolbar" style="display:none">
         <div class="log-toolbar-row1">
           <input class="input input-mono" id="log-search" placeholder="Search messages, nodes, text..." oninput="logApplyFilters()">
           <div class="log-level-filters">
@@ -396,13 +409,18 @@
       </div>
       <div id="log-container" class="drag-drop-zone" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="logHandleDrop(event)">
         <div id="log-empty-state">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><use href="#icon-doc-plain"></use></svg>
-          <p>Drop a log file here or use &ldquo;Load Log File&rdquo;</p>
-          <p style="font-size:.75rem">Supports Mendix Cloud live logs (.txt/.log) &amp; Studio Pro CSV exports &bull; Multiple files merged chronologically &bull; .gz archives &bull; Large files OK</p>
-          <div class="data-req"><span class="data-req-title">How to get this data</span>Any Mendix log works &mdash; no special level needed for INFO/WARN/ERROR. Mendix Cloud: <em>Environment &rarr; Details &rarr; Logs</em> (download the file or a <b>.gz</b> archive). Studio Pro: the Console, or <b>deployment/log/log.txt</b> in the project folder. To see microflow/SQL/integration detail, raise the relevant log node to DEBUG/TRACE first.</div>
-          <div style="margin-top:var(--sp-3); display:flex; gap:var(--sp-2)">
-            <label class="btn btn-secondary btn-sm" for="log-file-input-empty" style="cursor:pointer">Browse Files</label>
-            <button class="btn btn-primary btn-sm" onclick="logOpenPasteModal()">Paste Log Content</button>
+          <div class="empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><use href="#icon-doc-plain"></use></svg>
+            <div class="empty-state-title">Drop a log file here</div>
+            <div class="empty-state-hint">Mendix Cloud live logs (.txt/.log) and Studio Pro CSV exports &bull; multiple files merged chronologically &bull; .gz archives &bull; large files OK</div>
+            <div class="empty-state-actions">
+              <label class="btn btn-secondary btn-sm" for="log-file-input-empty" style="cursor:pointer">Browse Files</label>
+              <button class="btn btn-primary btn-sm" onclick="logOpenPasteModal()">Paste Log Content</button>
+            </div>
+            <details>
+              <summary>How to get this data</summary>
+              <div class="data-req">Any Mendix log works &mdash; no special level needed for INFO/WARN/ERROR. Mendix Cloud: <em>Environment &rarr; Details &rarr; Logs</em> (download the file or a <b>.gz</b> archive). Studio Pro: the Console, or <b>deployment/log/log.txt</b> in the project folder. To see microflow/SQL/integration detail, raise the relevant log node to DEBUG/TRACE first.</div>
+            </details>
           </div>
           <input type="file" id="log-file-input-empty" style="display:none" accept=".log,.txt,.csv,.gz" multiple onchange="if(window.logLoadFiles) window.logLoadFiles(this.files)">
         </div>
@@ -452,7 +470,7 @@
            <span style="font-size:0.8rem;color:var(--text-muted);margin-left:var(--sp-3)">Generates a basic sequence flow based on log nodes (max 100 entries).</span>
         </div>
         <div id="log-sequence-output" style="flex:1;overflow:auto;padding:var(--sp-4);display:flex;justify-content:center">
-           <span style="color:var(--text-muted);margin-top:var(--sp-5)">Sequence diagram will appear here...</span>
+           <div class="empty-output">Sequence diagram will appear here…</div>
         </div>
       </div>
 
@@ -463,7 +481,7 @@
            <span style="font-size:0.8rem;color:var(--text-muted);margin-left:var(--sp-3)">Visualizes time elapsed between consecutive log entries (max 500 entries).</span>
         </div>
         <div id="log-gantt-output" style="flex:1;overflow:auto;padding:var(--sp-4)">
-           <span style="color:var(--text-muted)">Gantt chart will appear here...</span>
+           <div class="empty-output">Gantt chart will appear here…</div>
         </div>
       </div>
       
@@ -867,7 +885,7 @@
               <span class="log-stat" title="Average of measured durations across visible executions">Avg: <strong id="mft-stat-avg">–</strong></span>
               <span class="log-stat" onclick="window.mftSelectSlowest()" style="cursor:pointer;" title="Slowest visible execution — click to select it">Slowest: <strong id="mft-stat-slowest" style="color:var(--accent);">–</strong></span>
               <span class="log-stat" title="Executions without a Finished record — the log window likely ends mid-execution">Unfinished: <strong id="mft-stat-unfinished">0</strong></span>
-              <span class="log-stat" title="Executions with detected N+1 patterns (DB retrieve inside a loop)" style="display:none;">N+1 issues: <strong id="mft-stat-n1" style="color:#e65100;">0</strong></span>
+              <span class="log-stat" title="Executions with detected N+1 patterns (DB retrieve inside a loop)" style="display:none;">N+1 issues: <strong id="mft-stat-n1" style="color:var(--warning);">0</strong></span>
             </div>
             <!-- Executions header (click to sort) -->
             <div id="mft-exec-header" style="display:grid; grid-template-columns:118px 1fr 84px 56px 48px; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border); font-size:0.75rem; font-weight:600; color:var(--text-muted); background:var(--bg);">
@@ -920,7 +938,7 @@
             <div style="flex:1; overflow:auto;">
               <!-- TIMELINE TAB -->
               <div id="mft-tab-timeline" style="padding:var(--sp-3); display:flex; height:100%; flex-direction:column;">
-                <div id="mft-timeline-n1" style="display:none; margin-bottom:var(--sp-3); padding:var(--sp-3); background:#fff3e0; border:1px solid #ffcc80; border-radius:var(--r-md); color:#e65100; font-size:0.8rem;"></div>
+                <div id="mft-timeline-n1" style="display:none; margin-bottom:var(--sp-3); padding:var(--sp-3); background:var(--warning-subtle); border:1px solid var(--warning); border-radius:var(--r-md); color:var(--warning); font-size:0.8rem;"></div>
                 <div style="flex:1; overflow:auto; border:1px solid var(--border); border-radius:var(--r-md); background:var(--bg-elevated);">
                   <table style="width:100%; border-collapse:collapse; font-size:0.8rem;">
                     <thead>
@@ -1062,14 +1080,14 @@
         </div>
         <div class="json-pane">
           <div class="json-pane-header"><h4 id="json-out-label">Formatted Output</h4><span id="json-status"></span><button class="btn btn-ghost btn-sm" onclick="jsonCopyOutput()">Copy</button><button class="btn btn-ghost btn-sm" onclick="jsonExpandAll()">Expand</button><button class="btn btn-ghost btn-sm" onclick="jsonCollapseAll()">Collapse</button></div>
-          <div class="json-find-bar">
+          <div class="json-find-bar" id="json-find-bar" style="display:none">
             <input type="text" class="input" id="json-find-input" placeholder="Find in JSON (key or value)..." oninput="jsonFind()">
             <span id="json-find-count" class="json-find-count"></span>
             <button class="btn btn-ghost btn-sm" onclick="jsonFindNav(-1)" title="Previous match">&uarr;</button>
             <button class="btn btn-ghost btn-sm" onclick="jsonFindNav(1)" title="Next match">&darr;</button>
           </div>
           <div id="json-breadcrumb" class="json-breadcrumb" style="display:none"></div>
-          <div class="json-pane-body" id="json-output-pane"><div class="json-tree" id="json-tree-output" style="color:var(--text-muted)">Output will appear here...</div></div>
+          <div class="json-pane-body" id="json-output-pane"><div class="json-tree" id="json-tree-output"><div class="empty-output">Output will appear here…</div></div></div>
         </div>
       </div>
     </div>
@@ -1096,14 +1114,14 @@
         </div>
         <div class="json-pane">
           <div class="json-pane-header"><h4 id="xml-out-label">Formatted Output</h4><span id="xml-status"></span><button class="btn btn-ghost btn-sm" onclick="xmlCopyOutput()">Copy</button><button class="btn btn-ghost btn-sm" onclick="xmlExpandAll()">Expand</button><button class="btn btn-ghost btn-sm" onclick="xmlCollapseAll()">Collapse</button></div>
-          <div class="json-find-bar">
+          <div class="json-find-bar" id="xml-find-bar" style="display:none">
             <input type="text" class="input" id="xml-xpath-input" placeholder="Query nodes with XPath 1.0 (W3C), e.g. //Customer[@id='1']" title="Standard W3C XPath 1.0, evaluated natively against this XML document — a structural search that returns and highlights matching nodes. This is the XPath language built for XML; it is NOT the Mendix XPath dialect used by the separate 'XPath Formatter' tool (that one is for database entity constraints)." oninput="xmlXPathEval()">
             <span id="xml-xpath-count" class="json-find-count"></span>
             <button class="btn btn-ghost btn-sm" onclick="xmlXPathNav(-1)" title="Previous match">&uarr;</button>
             <button class="btn btn-ghost btn-sm" onclick="xmlXPathNav(1)" title="Next match">&darr;</button>
             <label class="json-find-ns-toggle"><input type="checkbox" id="xml-hide-ns" onchange="xmlToggleNamespaces()"> Hide namespaces</label>
           </div>
-          <div class="json-pane-body" id="xml-output-pane"><div class="json-tree" id="xml-tree-output" style="color:var(--text-muted)">Output will appear here...</div></div>
+          <div class="json-pane-body" id="xml-output-pane"><div class="json-tree" id="xml-tree-output"><div class="empty-output">Output will appear here…</div></div></div>
         </div>
       </div>
     </div>
@@ -1176,7 +1194,7 @@
                   <input type="checkbox" id="cs-opt-show-markers" checked onchange="sanitizeAnalyze()"> Show place markers (e.g. [ZWSP])
                 </label>
               </div>
-              <div id="char-sanitizer-preview" class="char-preview-container" style="flex:1;">Output will appear here...</div>
+              <div id="char-sanitizer-preview" class="char-preview-container" style="flex:1;"><div class="empty-output">Output will appear here…</div></div>
             </div>
             
             <!-- Tab 2: Statistics & Issues -->
@@ -1288,7 +1306,7 @@
             </div>
             <div class="json-pane">
               <div class="json-pane-header"><h4>Formatted Output</h4><button class="btn btn-ghost btn-sm" onclick="copyToClipboard(document.getElementById('oql-output').innerText)">Copy</button></div>
-              <div class="json-pane-body"><pre id="oql-output" style="font-family:var(--font-mono);font-size:.78rem;line-height:1.6;white-space:pre-wrap;color:var(--text-muted)">Output will appear here...</pre></div>
+              <div class="json-pane-body"><pre id="oql-output" style="font-family:var(--font-mono);font-size:.78rem;line-height:1.6;white-space:pre-wrap"><div class="empty-output">Output will appear here…</div></pre></div>
             </div>
           </div>
         </div>
@@ -1458,7 +1476,7 @@
             </div>
             <div style="display:flex;flex-direction:column;min-height:0;min-width:0">
               <div class="form-label">Assertion Summary</div>
-              <div id="saml-summary" style="flex:1;min-height:280px;overflow:auto;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-3)"><div style="color:var(--text-muted)">Issuer, subject, audience, validity window and attributes will appear here...</div></div>
+              <div id="saml-summary" style="flex:1;min-height:280px;overflow:auto;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-3)"><div class="empty-output">Issuer, subject, audience, validity window and attributes will appear here…</div></div>
             </div>
           </div>
         </div>
@@ -1472,7 +1490,7 @@
             <div class="form-label">id_token (JWT)</div>
             <textarea class="code-area" id="saml-oidc-input" rows="4" placeholder="eyJhbGciOiJSUzI1NiIsImtpZCI6..."></textarea>
           </div>
-          <div id="saml-oidc-output" style="background:var(--bg-base);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-3)"><div style="color:var(--text-muted)">Decoded header and claims will appear here...</div></div>
+          <div id="saml-oidc-output" style="background:var(--bg-base);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-3)"><div class="empty-output">Decoded header and claims will appear here…</div></div>
         </div>
       </div>
     </div>
@@ -1651,7 +1669,7 @@
         </div>
         <div class="json-pane">
           <div class="json-pane-header"><h4>Formatted Output</h4><button class="btn btn-ghost btn-sm" onclick="fvToggleEdit('sql-output','sql-edit',this)" title="Toggle an editable view of the formatted result">Edit</button><button class="btn btn-ghost btn-sm" onclick="fvCopy('sql-output','sql-edit')">Copy</button></div>
-          <div class="json-pane-body"><pre id="sql-output" class="fmt-view" style="font-family:var(--font-mono);font-size:.78rem;line-height:1.6;white-space:pre-wrap;color:var(--text-muted)">Output will appear here...</pre><textarea id="sql-edit" class="json-input-area fmt-edit" spellcheck="false" style="display:none;white-space:pre;overflow-wrap:normal;font-size:.78rem"></textarea></div>
+          <div class="json-pane-body"><pre id="sql-output" class="fmt-view" style="font-family:var(--font-mono);font-size:.78rem;line-height:1.6;white-space:pre-wrap"><div class="empty-output">Output will appear here…</div></pre><textarea id="sql-edit" class="json-input-area fmt-edit" spellcheck="false" style="display:none;white-space:pre;overflow-wrap:normal;font-size:.78rem"></textarea></div>
         </div>
       </div>
     </div>
@@ -1946,7 +1964,7 @@
         <div style="flex:1;display:flex;flex-direction:column;overflow-y:auto">
            <div class="form-label">Analysis Results</div>
            <div id="api-econ-results" style="flex:1;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-4)">
-              <div style="color:var(--text-muted)">Results will appear here...</div>
+              <div class="empty-output">Results will appear here…</div>
            </div>
         </div>
       </div>
@@ -2096,7 +2114,7 @@
              <button class="btn btn-secondary" id="pl-btn-export" style="display:none;padding:4px 8px;font-size:0.8rem" onclick="plExportCSV()">Export CSV</button>
            </div>
            
-           <div id="pl-empty-state" style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:var(--sp-2);color:var(--text-muted)">
+           <div id="pl-empty-state" class="empty-output">
              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:48px;height:48px;opacity:0.3"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
              <div>Configure request and start load test to see results</div>
            </div>
@@ -2165,7 +2183,7 @@
            <div class="grid-2" style="gap:var(--sp-3)">
              <div class="form-group">
                <div class="form-label">HTTP Status</div>
-               <select class="input" id="ms-status">
+               <select class="select" id="ms-status">
                  <option value="200 OK">200 OK (Success)</option>
                  <option value="201 Created">201 Created</option>
                  <option value="204 No Content">204 No Content</option>
@@ -2207,7 +2225,7 @@
         <div style="flex:1;display:flex;flex-direction:column;overflow-y:auto">
            <div class="form-label">Profiler Output</div>
            <div id="wp-results" style="flex:1;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-4);display:flex;flex-direction:column">
-              <div style="color:var(--text-muted)">Analysis will appear here...</div>
+              <div class="empty-output">Analysis will appear here…</div>
            </div>
         </div>
       </div>
@@ -2296,7 +2314,7 @@
            <div style="display:flex; flex-direction:column; gap:var(--sp-3); width:100%; text-align:left; margin-bottom:var(--sp-4); background:var(--bg-elevated); padding:var(--sp-3); border-radius:var(--r-md); border:1px solid var(--border)">
              <div style="display:flex; flex-direction:column; gap:var(--sp-1);">
                <label style="font-size:0.85rem; color:var(--text-secondary);">Detected Mendix Projects:</label>
-               <select id="ds-detected-projects" class="input" style="width:100%;">
+               <select id="ds-detected-projects" class="select" style="width:100%;">
                  <option value="">Searching for running apps...</option>
                </select>
              </div>
@@ -2314,7 +2332,7 @@
              <h5 style="margin:0 0 var(--sp-1) 0; color:var(--info)">Troubleshooting</h5>
              <ol style="margin:0; padding-left:1.2rem; color:var(--text-secondary); line-height:1.6">
                <li>Make sure your Mendix application is running locally in Studio Pro.</li>
-               <li id="ds-troubleshoot-bridge">Ensure the local bridge is running in your terminal: <code>node mendix-observability-bridge.js</code>.</li>
+               <li id="ds-troubleshoot-bridge">Ensure the local bridge is running in your terminal: <code>node server/mendix-observability-bridge.js</code>.</li>
              </ol>
            </div>
         </div>
@@ -2521,7 +2539,7 @@
 EntityName -> OtherEntity : Association"></textarea>
            </div>
         </div>
-        <div style="overflow:hidden">
+        <div style="overflow:hidden;position:relative">
            <div style="display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;margin-bottom:var(--sp-1)">
              <div class="form-label" style="margin:0">Architecture Visualization</div>
              <div id="arch-view-toggle" class="btn-group" style="margin-left:var(--sp-2)">
@@ -2530,20 +2548,13 @@ EntityName -> OtherEntity : Association"></textarea>
                <button type="button" class="btn btn-secondary btn-xs" data-view="modules" onclick="window.archSetViewMode('modules')" title="Requires a model loaded from a live database">Modules</button>
              </div>
              <label style="font-size:0.72rem;color:var(--text-muted);display:inline-flex;align-items:center;gap:4px;white-space:nowrap">Attributes
-               <select id="arch-attr-mode" style="font-size:0.72rem;padding:1px 2px" onchange="window.archSetAttrMode(this.value)"
+               <select id="arch-attr-mode" class="select select-sm" style="width:auto" onchange="window.archSetAttrMode(this.value)"
                  title="Attribute rows are what makes a large diagram enormous — Auto hides them above 12 entities">
                  <option value="auto">Auto</option>
                  <option value="all">All</option>
                  <option value="none">None</option>
                </select>
              </label>
-             <div id="arch-zoom-controls" class="btn-group" style="margin-left:auto" title="Scroll to zoom, drag to pan">
-               <button type="button" class="btn btn-secondary btn-xs" onclick="window.archZoomBy(1/1.25)" title="Zoom out">&minus;</button>
-               <span id="arch-zoom-level" style="font-size:0.72rem;color:var(--text-muted);min-width:44px;text-align:center;align-self:center">100%</span>
-               <button type="button" class="btn btn-secondary btn-xs" onclick="window.archZoomBy(1.25)" title="Zoom in">+</button>
-               <button type="button" class="btn btn-secondary btn-xs" onclick="window.archZoomFit()" title="Scale the whole diagram to fit the panel">Fit</button>
-               <button type="button" class="btn btn-secondary btn-xs" onclick="window.archZoomReset()" title="Show the diagram at its natural size">1:1</button>
-             </div>
              <input type="text" id="arch-entity-search" placeholder="Find entity…" style="width:160px;font-size:0.78rem;padding:2px 6px" oninput="window.archSearchEntity()" onkeydown="if(event.key==='Enter')window.archSearchEntity()">
              <span id="arch-entity-search-status" style="font-size:0.72rem;color:var(--text-muted);white-space:nowrap"></span>
            </div>
@@ -2552,7 +2563,17 @@ EntityName -> OtherEntity : Association"></textarea>
            <!-- Scrolls at the diagram's natural size (mermaid's useMaxWidth is off, see mtLoadMermaid);
                 archRenderMermaid puts a zoom wrapper inside so drag-to-pan and wheel-zoom work. -->
            <div id="arch-output" style="flex:1;min-height:0;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-4);display:flex;flex-direction:column;overflow:auto">
-              <div style="color:var(--text-muted)">Diagram will appear here...</div>
+              <div class="empty-output">Diagram will appear here…</div>
+           </div>
+           <!-- Floats over the canvas rather than sitting in the header row, which
+                was carrying five separate control groups. This is also where every
+                other canvas tool puts zoom, so it is where the hand goes looking. -->
+           <div id="arch-zoom-controls" class="btn-group arch-zoom-float" title="Scroll to zoom, drag to pan">
+             <button type="button" class="btn btn-secondary btn-xs" onclick="window.archZoomBy(1/1.25)" title="Zoom out">&minus;</button>
+             <span id="arch-zoom-level" style="font-size:0.72rem;color:var(--text-muted);min-width:44px;text-align:center;align-self:center">100%</span>
+             <button type="button" class="btn btn-secondary btn-xs" onclick="window.archZoomBy(1.25)" title="Zoom in">+</button>
+             <button type="button" class="btn btn-secondary btn-xs" onclick="window.archZoomFit()" title="Scale the whole diagram to fit the panel">Fit</button>
+             <button type="button" class="btn btn-secondary btn-xs" onclick="window.archZoomReset()" title="Show the diagram at its natural size">1:1</button>
            </div>
         </div>
         </div>
@@ -2709,7 +2730,7 @@ EntityName -> OtherEntity : Association"></textarea>
           <div style="flex:1;display:flex;flex-direction:column;overflow-y:auto">
             <div class="form-label">Analysis Output</div>
             <div id="mi-results" style="flex:1;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-4);display:flex;flex-direction:column">
-              <div style="color:var(--text-muted)">Analysis will appear here...</div>
+              <div class="empty-output">Analysis will appear here…</div>
             </div>
           </div>
         </div>
@@ -2740,7 +2761,7 @@ EntityName -> OtherEntity : Association"></textarea>
           <div id="md-split" style="display:grid;grid-template-columns:1fr 1fr;flex:1;overflow:hidden">
             <div class="json-pane" id="md-editor-pane">
               <div class="json-pane-header"><h4>Markdown</h4>
-                <select class="input input-sm" style="width:auto" onchange="if(this.value){mdInsertSnippet(this.value);this.value='';}">
+                <select class="select select-sm" style="width:auto" onchange="if(this.value){mdInsertSnippet(this.value);this.value='';}">
                   <option value="">Insert Mendix snippet...</option>
                   <option value="entity">Entity description</option>
                   <option value="microflow">Microflow documentation</option>
@@ -3265,7 +3286,7 @@ EntityName -> OtherEntity : Association"></textarea>
             <div id="tm-otel-help-callout" style="display:none; margin-top:var(--sp-2); padding:var(--sp-3); background:var(--bg-elevated); border:1px solid var(--border); border-left:4px solid var(--accent); border-radius:var(--r-md)">
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--sp-2)">
                 <strong style="color:var(--accent); font-size:0.85rem; display:flex; align-items:center; gap:6px">
-                  <span>🚀</span> Mendix Studio Pro - OpenTelemetry Configuration
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg> Mendix Studio Pro - OpenTelemetry Configuration
                 </strong>
                 <span style="font-size:0.75rem; color:var(--text-muted)">Requires Mendix 11.12+ (or 10+ with custom provider)</span>
               </div>
@@ -3277,7 +3298,7 @@ EntityName -> OtherEntity : Association"></textarea>
                   <span style="color:var(--text-muted)">Service Name:</span> <strong id="tm-otel-help-service">MendixApp</strong>
                   <span style="color:var(--text-muted)">Enable Traces / Enable Logs:</span> <strong style="color:var(--success)">Yes / Yes</strong>
                 </div>
-                Note: The Agent natively supports both the default binary **Protobuf** format (`http/protobuf`) and **JSON** (`http/json`). No extra JVM parameters are needed! (Removing `-Dotel.exporter.otlp.protocol=http/json` is recommended as Mendix's JSON exporter can be unstable locally).
+                Note: The Agent natively supports both the default binary <strong>Protobuf</strong> format (<code style="color:var(--accent)">http/protobuf</code>) and <strong>JSON</strong> (<code style="color:var(--accent)">http/json</code>). No extra JVM parameters are needed! (Removing <code style="color:var(--accent)">-Dotel.exporter.otlp.protocol=http/json</code> is recommended as Mendix's JSON exporter can be unstable locally).
               </div>
             </div>
 
@@ -3285,7 +3306,7 @@ EntityName -> OtherEntity : Association"></textarea>
             <div id="tm-prometheus-help-callout" style="display:block; margin-top:var(--sp-2); padding:var(--sp-3); background:var(--bg-elevated); border:1px solid var(--border); border-left:4px solid var(--info); border-radius:var(--r-md)">
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--sp-2)">
                 <strong style="color:var(--info); font-size:0.85rem; display:flex; align-items:center; gap:6px">
-                  <span>📊</span> Mendix Studio Pro - Prometheus Metrics Configuration
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> Mendix Studio Pro - Prometheus Metrics Configuration
                 </strong>
                 <span style="font-size:0.75rem; color:var(--text-muted)">Requires Mendix 9.18+</span>
               </div>
@@ -3835,32 +3856,54 @@ EntityName -> OtherEntity : Association"></textarea>
 
         <!-- TAB CONTENT: MENDIX CONFIG GUIDE -->
         <div id="tm-tab-guide" style="display:flex;flex-direction:column;gap:var(--sp-3)">
-          <div class="card">
+          <!-- This tab is what the tool opens on while the agent is down, and it used
+               to open straight into ~800 words of reference. The two steps that
+               actually unblock the user come first now; the reference is still one
+               click away, and collapsed so it stops being the first thing read. -->
+          <div class="card" id="tm-quickstart">
+            <div class="card-body">
+              <h3 style="margin:0 0 var(--sp-2);font-size:1rem">Connect the local agent</h3>
+              <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:var(--sp-3)">The dashboards stay empty until the Local Observability Agent is running on this machine. Two steps:</p>
+              <ol style="font-size:0.85rem;margin:0;padding-left:20px;line-height:1.7">
+                <li>
+                  Start the agent &mdash; double-click <strong>Start-MxDevSwissTool.bat</strong>, or run:
+                  <div class="tm-cmd">
+                    <code>node server/mendix-observability-bridge.js</code>
+                    <button type="button" class="btn btn-secondary btn-xs" onclick="window.copyToClipboard('node server/mendix-observability-bridge.js')">Copy</button>
+                  </div>
+                </li>
+                <li>Click <strong>Connect Agent</strong> in the toolbar above.</li>
+              </ol>
+            </div>
+          </div>
+          <details id="tm-guide-details">
+            <summary style="font-size:0.85rem;font-weight:600;padding:var(--sp-2) 0">Full configuration reference &mdash; Prometheus metrics, OpenTelemetry, cloud endpoints</summary>
+          <div class="card" style="margin-top:var(--sp-2)">
             <div class="card-body">
               <h3 style="margin-top:0;color:var(--accent)">How to configure Mendix Telemetry &amp; Metrics</h3>
               
-              <h4 style="color:var(--info);margin-bottom:var(--sp-1)">💻 A. Setting up the Local Agent Mode (Recommended for Local Dev)</h4>
+              <h4 style="color:var(--info);margin-bottom:var(--sp-1)"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px;margin-right:6px"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>A. Setting up the Local Agent Mode (Recommended for Local Dev)</h4>
               <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:var(--sp-2)">The Local Observability Agent connects directly to PostgreSQL and watches your Mendix runtime logs. To use it:</p>
               <div style="background:var(--bg-elevated);padding:var(--sp-3);border-radius:var(--r-md);border:1px solid var(--border);margin-bottom:var(--sp-3)">
                 <ol style="font-size:0.8rem;color:var(--text);margin:0;padding-left:20px;line-height:1.4">
-                  <li>Find the file <code style="color:var(--accent)">mendix-observability-bridge.js</code> inside your project directory.</li>
+                  <li>Open a terminal in the project folder (the agent lives in <code style="color:var(--accent)">server/mendix-observability-bridge.js</code>).</li>
                   <li>Open your terminal and run the command:
-                    <pre style="margin:6px 0;padding:6px;background:rgba(0,0,0,0.3);color:#8ec07c;font-size:0.75rem;overflow-x:auto">node mendix-observability-bridge.js</pre>
+                    <pre style="margin:6px 0;padding:6px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text-primary);font-size:0.75rem;overflow-x:auto">node server/mendix-observability-bridge.js</pre>
                   </li>
                   <li>In the Swiss Tool telemetry dashboard toolbar, select <strong>Local Agent Mode</strong> and click <strong>Connect Agent</strong>.</li>
                   <li>It will auto-detect your PostgreSQL settings and tail the application logs! Live logs will stream directly to the <strong>Log Viewer</strong> tab of this toolkit.</li>
                 </ol>
               </div>
 
-              <h4 style="color:var(--info);margin-bottom:var(--sp-1)">🚀 OpenTelemetry (Mendix 11.12+)</h4>
-              <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:var(--sp-2)">The Local Observability Agent includes a built-in OpenTelemetry (OTLP) Collector that listens on port 4318 for Traces and Logs. It natively supports both the default binary **Protobuf** format (`http/protobuf`) and **JSON** (`http/json`).</p>
+              <h4 style="color:var(--info);margin-bottom:var(--sp-1)"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px;margin-right:6px"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>OpenTelemetry (Mendix 11.12+)</h4>
+              <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:var(--sp-2)">The Local Observability Agent includes a built-in OpenTelemetry (OTLP) Collector that listens on port 4318 for Traces and Logs. It natively supports both the default binary <strong>Protobuf</strong> format (<code style="color:var(--accent)">http/protobuf</code>) and <strong>JSON</strong> (<code style="color:var(--accent)">http/json</code>).</p>
               <div style="background:var(--bg-elevated);padding:var(--sp-3);border-radius:var(--r-md);border:1px solid var(--border);margin-bottom:var(--sp-3)">
                 <ol style="font-size:0.8rem;color:var(--text);margin:0;padding-left:20px;line-height:1.4">
                   <li>In Mendix Studio Pro, go to <strong>App Settings</strong> &rarr; <strong>Configurations</strong> &rarr; <strong>Edit</strong>.</li>
                   <li>In the <strong>OpenTelemetry</strong> tab, check <strong>Enable OpenTelemetry</strong>.</li>
                   <li>Set <strong>Endpoint</strong> to: <code style="color:var(--accent)">http://127.0.0.1:4318</code> (using IP resolves local DNS issues on Windows).</li>
                   <li>Set <strong>Enable Traces</strong> and <strong>Enable Logs</strong> to <strong>Yes</strong>.</li>
-                  <li><strong>Note:</strong> You do **not** need to add any Extra JVM parameters! (We recommend removing `-Dotel.exporter.otlp.protocol=http/json` if you added it earlier, as Mendix's JSON exporter can be unstable locally).</li>
+                  <li><strong>Note:</strong> You do <strong>not</strong> need to add any Extra JVM parameters! (We recommend removing <code style="color:var(--accent)">-Dotel.exporter.otlp.protocol=http/json</code> if you added it earlier, as Mendix's JSON exporter can be unstable locally).</li>
                   <li>Run your app and ensure the Local Agent is connected. Traces will appear live in the "OTLP Traces" tab!</li>
                 </ol>
               </div>
@@ -3895,6 +3938,7 @@ EntityName -> OtherEntity : Association"></textarea>
 
             </div>
           </div>
+          </details>
         </div>
       </div>
     </div>

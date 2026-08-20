@@ -23,7 +23,7 @@ async function msStart() {
     out.innerHTML = `<div style="color:var(--success)">Mock Server activated on <b>http://localhost:9999/mock</b><br><br>Configure your Mendix Call REST action to use this URL.</div>`;
   } catch (err) {
     msActive = false;
-    out.innerHTML = `<div style="color:var(--danger)">Error: Could not connect to local bridge.<br>Please run <code>node mendix-observability-bridge.js</code> in your terminal.</div>`;
+    out.innerHTML = `<div style="color:var(--danger)">Error: Could not connect to local bridge.<br>Please run <code>node server/mendix-observability-bridge.js</code> in your terminal.</div>`;
   }
 }
 

@@ -353,7 +353,7 @@ async function dsFetchProjectInsights() {
           issuesList.appendChild(div);
         });
       } else {
-        issuesList.innerHTML = '<span style="color:var(--success);font-size:0.85rem">No obvious issues found in Java code! 🎉</span>';
+        issuesList.innerHTML = '<span style="color:var(--success);font-size:0.85rem">No obvious issues found in Java code! <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></span>';
       }
     }
 

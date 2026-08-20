@@ -713,7 +713,7 @@ function plReadConfig() {
   const url = plEl('pl-url').value.trim();
   const method = plEl('pl-method').value;
   if (!url) {
-    plShowError('Enter a target URL.');
+    plShowError('Enter a target URL.', 'pl-url');
     return null;
   }
 
@@ -723,7 +723,7 @@ function plReadConfig() {
     try {
       headers = JSON.parse(headersStr);
     } catch (e) {
-      plShowError('Headers must be a valid JSON object.');
+      plShowError('Headers must be a valid JSON object.', 'pl-headers');
       return null;
     }
   }
@@ -757,16 +757,41 @@ function plReadConfig() {
   };
 }
 
-function plShowError(msg) {
+function plShowError(msg, fieldId) {
   const box = plEl('pl-error');
-  if (!box) return;
-  box.innerHTML = msg;
-  box.style.display = 'block';
+  if (box) {
+    box.innerHTML = msg;
+    box.style.display = 'block';
+  }
+  if (fieldId) plMarkInvalid(fieldId);
+}
+
+// The summary box alone left the user hunting: it renders at the foot of the
+// configuration column, which for a missing URL is ~350px below the field, and
+// for a bad Headers value points at a field inside a COLLAPSED <details> that is
+// not even on screen. So: open whatever section hides it, mark it, and put the
+// cursor in it. The mark clears as soon as the field is edited.
+function plMarkInvalid(fieldId) {
+  const el = plEl(fieldId);
+  if (!el) return;
+  let d = el.closest('details');
+  while (d) { d.open = true; d = d.parentElement && d.parentElement.closest('details'); }
+  el.classList.add('is-invalid');
+  el.addEventListener('input', function clear() {
+    el.classList.remove('is-invalid');
+    el.removeEventListener('input', clear);
+  });
+  try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { el.scrollIntoView(); }
+  el.focus();
 }
 
 function plClearError() {
   const box = plEl('pl-error');
   if (box) box.style.display = 'none';
+  ['pl-url', 'pl-headers', 'pl-body'].forEach(function (id) {
+    const el = plEl(id);
+    if (el) el.classList.remove('is-invalid');
+  });
 }
 
 // =========================================================================
