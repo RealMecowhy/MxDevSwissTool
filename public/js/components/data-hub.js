@@ -32,7 +32,10 @@
 
   var FORMAT_LABELS = {
     csv:  'Studio Pro CSV export',
-    live: 'Mendix Cloud live log'
+    live: 'Mendix Cloud live log',
+    'grafana-txt':  'Grafana export (TXT)',
+    'grafana-json': 'Grafana export (JSON)',
+    'grafana-csv':  'Grafana export (CSV)'
   };
 
   function esc(s) {

@@ -58,6 +58,18 @@ function logIsContinuation(line) {
     || /^\.\.\. \d+ more/.test(line.trim()); // truncated stack
 }
 
+// What the Data Hub bar tells the other tools this file is. The extension only ever
+// distinguished Studio Pro CSV from a live log; a Grafana export is recognized by
+// content, so it has to be asked about before the name is trusted.
+function logDetectSourceFormat(name, text) {
+  const parser = window.createMendixLogParser ? window.createMendixLogParser() : null;
+  if (parser) {
+    const fmt = parser.detectFormat(text);
+    if (fmt.indexOf('grafana-') === 0) return fmt;
+  }
+  return name.toLowerCase().endsWith('.csv') ? 'csv' : 'live';
+}
+
 // Reads a file as text, transparently gunzipping .gz archives (Mendix Cloud log downloads)
 async function logReadFileText(f) {
   if (f.name.toLowerCase().endsWith('.gz')) {
@@ -92,7 +104,7 @@ function logLoadFiles(files) {
             size: f.name.toLowerCase().endsWith('.gz') ? text.length : f.size,
             text: text,
             records: added,
-            format: f.name.toLowerCase().endsWith('.csv') ? 'csv' : 'live'
+            format: logDetectSourceFormat(f.name, text)
           };
         }
       } catch (err) {
@@ -123,11 +135,44 @@ function logHandleDrop(e) {
   });
   if (files.length) logLoadFiles(files);
 }
+// Grafana's three log exports (TXT / JSON / CSV) wrap the Mendix line in Grafana's own
+// timestamp columns. The shared parser knows how to unwrap them; this maps its records
+// onto viewer entries. Detection is by CONTENT, never by file name — Grafana's CSV
+// download carries a .csv name but Grafana's columns, so the Studio Pro branch below
+// would have read the whole log line as a LogNode and called it a success.
+function logParseGrafana(text, filename) {
+  const parser = window.createMendixLogParser ? window.createMendixLogParser() : null;
+  if (!parser) return null;
+  const fmt = parser.detectFormat(text);
+  if (fmt.indexOf('grafana-') !== 0) return null;
+  return parser.parse(text).records.map((r, i) => ({
+    // One export row is one record, so the record number is the only position there is;
+    // the export dropped the app's own line numbering long before we saw the file.
+    line: i + 1,
+    ts: r.timestamp,
+    level: r.level || 'INFO',
+    node: r.logNode || 'Runtime',
+    msg: r.message,
+    // The true raw line is Grafana's envelope, which is noise to anyone reading a log.
+    // Show the record rebuilt in the shape the rest of the app speaks instead.
+    raw: (r.timestamp ? r.timestamp + '  ' : '') + (r.level || 'INFO') + ' - ' + (r.logNode || 'Runtime') + ': ' + r.message,
+    file: filename,
+    stackLines: (r.message.match(/\n/g) || []).length
+  }));
+}
+
 function logParseContent(text, filename) {
   const entries = [];
   let prev = null, lineNum = 0;
 
-  if (filename && filename.toLowerCase().endsWith('.csv')) {
+  const grafanaEntries = logParseGrafana(text, filename);
+
+  if (grafanaEntries) {
+    // Pushed one by one, not spread: a spread of a few hundred thousand records is a
+    // few hundred thousand call arguments, which is where the engine's argument limit
+    // lives. Mendix logs reach that size.
+    for (const e of grafanaEntries) entries.push(e);
+  } else if (filename && filename.toLowerCase().endsWith('.csv')) {
     const rawLines = text.split(/\r?\n/);
     const csvRows = [];
     let currentLine = '';
@@ -291,6 +336,21 @@ function logParseContent(text, filename) {
       }
     }
   }
+  }
+
+  // An unrecognized format used to land as ONE entry with every other line folded into it
+  // as a stack frame — a 1581-line Grafana export shown as a single INFO row, reported as
+  // a clean parse. The silence was the real bug: a format we cannot read has to say so.
+  // Counted from the message, not from `stackLines`: the branch that glues an unmatched
+  // line onto the previous entry never touches that counter, so it reads 0 in exactly the
+  // case this guard exists for. The row's own "Show N frames" toggle counts the same way.
+  if (entries.length === 1) {
+    const folded = (entries[0].msg.match(/\n/g) || []).length;
+    if (folded >= 20) {
+      window.mtToast('Only 1 entry was recognized in "' + filename + '", with ' + folded +
+        ' lines folded into it. This usually means the file is an export from another tool ' +
+        '(Grafana, Kibana, a spreadsheet) rather than a raw Mendix log.', 'warning');
+    }
   }
 
   if (entries.length === 0) {

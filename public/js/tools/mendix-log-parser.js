@@ -32,6 +32,23 @@
     // detail line inside a Java stack trace legitimately starts with "ERROR:", and that one IS
     // a continuation of the record above it.
     var LOG_PAT_FOREIGN_JUL = /^(SEVERE|WARNING|INFO|CONFIG|FINE|FINER|FINEST):(.*)$/;
+    // Grafana exports are an ENVELOPE, not a log format: the Mendix line sits in one
+    // column and Grafana's own timestamp columns sit in front of it. One shape per
+    // download button (grafana/grafana, inspector/utils/download.ts + logs/utils.ts):
+    //   TXT  → <epoch ms> \t <ISO> \t <line>   — hard-coded in downloadLogsModelAsTxt,
+    //                                            optionally preceded by meta lines
+    //   JSON → [{ line, timestamp: <epoch ns>, date: <ISO>, fields: {…} }]
+    //   CSV  → a data frame; an ISO "Date" column is prepended, labels are dropped
+    // None of the three can be talked into emitting the native Mendix shape, so the
+    // envelope is stripped here and the body is parsed on its own.
+    var GRAFANA_TXT = /^(\d{13,})\t(\d{4}-\d{2}-\d{2}T[^\t]*)\t([\s\S]*)$/;
+    // The collector strips the Mendix timestamp prefix before shipping to Loki, so the
+    // body starts at the level and the time comes from the column: "WARNING - TaskQueue: …"
+    // or java.util.logging's "INFO: MENDIX-LOGGING-HEARTBEAT: …".
+    var GRAFANA_BODY_LEVEL = /^(TRACE|DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL|FATAL|SEVERE)\s*[-:]\s*(.*)$/i;
+    // A Mendix log node never contains whitespace. Without that guard an ordinary
+    // message like "Error: could not connect" would be read as a node named "Error".
+    var GRAFANA_BODY_NODE = /^([\w.$-]{1,60}):\s*(.*)$/;
     var CSV_HEADER = ['Type', 'TimeStamp', 'LogNode', 'Message'];
     var PROGRESS_EVERY = 512 * 1024; // report progress roughly every 512 KB of input
 
@@ -70,6 +87,45 @@
       return null;
     }
 
+    // Loki stores a stack trace as one log line per frame, so each frame arrives as its
+    // own export row. They belong to the record above, exactly like a continuation line
+    // in a raw live log.
+    function isStackLine(s) {
+      if (/^\s/.test(s)) return true;
+      s = s.trim();
+      return /^(at |Caused by:)/.test(s) || /^\.\.\. \d+ more/.test(s) ||
+             /^(java|javax|scala|com|org|sun|net)\./.test(s);
+    }
+
+    // One export row (envelope already stripped) → one record. `fallbackLevel` is the
+    // export's own severity column, used only when the body carries no level of its own.
+    function grafanaRecord(body, ts, fallbackLevel) {
+      // Some collectors ship the raw line untouched, prefix and all.
+      var m = body.match(LOG_PAT_CLOUD);
+      if (m) {
+        return { level: normLevel(m[2]), timestamp: m[1], logNode: m[3].trim(), message: m[4], cause: '' };
+      }
+      var level = normLevel(fallbackLevel || 'INFO') || 'INFO';
+      var node = 'Runtime';
+      var rest = body;
+      m = body.match(GRAFANA_BODY_LEVEL);
+      if (m) {
+        level = normLevel(m[1]);
+        rest = m[2];
+        // Only once a level is confirmed is the next token safe to read as a log node.
+        var n = rest.match(GRAFANA_BODY_NODE);
+        if (n) { node = n[1]; rest = n[2]; }
+      }
+      return { level: level, timestamp: ts, logNode: node, message: rest, cause: '' };
+    }
+
+    // Grafana's JSON rows carry epoch nanoseconds; `date` is preferred when present.
+    function nsToIso(ns) {
+      if (!ns) return '';
+      var ms = Number(String(ns).slice(0, -6));
+      return isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : '';
+    }
+
     // A row is the CSV header if its first four fields are exactly the column names.
     function isHeaderRow(fields) {
       for (var i = 0; i < 4; i++) {
@@ -78,8 +134,19 @@
       return true;
     }
 
-    // Peek at the first non-empty lines to tell the two formats apart.
+    // A Grafana CSV header names a body column and a time column; the order and the
+    // exact names depend on the datasource (Loki: Date,Time,Line,tsNs,id).
+    function isGrafanaCsvHeader(line) {
+      return /(^|,)"?(Line|body)"?(,|$)/.test(line) &&
+             /(^|,)"?(Date|Time|timestamp)"?(,|$)/i.test(line);
+    }
+
+    // Peek at the first non-empty lines to tell the formats apart.
     function detectFormat(text) {
+      var head = text.substring(0, 4096).replace(/^\uFEFF/, '').replace(/^\s+/, '');
+      if (head.charAt(0) === '[' && /"line"\s*:/.test(head) && /"(date|timestamp)"\s*:/.test(head)) {
+        return 'grafana-json';
+      }
       var start = 0;
       var seen = 0;
       while (start < text.length && seen < 50) {
@@ -91,18 +158,20 @@
         seen++;
         if (line.indexOf('Type,TimeStamp,LogNode,Message') === 0 ||
             line.indexOf('"Type","TimeStamp","LogNode","Message"') === 0) return 'csv';
+        if (seen === 1 && isGrafanaCsvHeader(line)) return 'grafana-csv';
+        if (GRAFANA_TXT.test(line)) return 'grafana-txt';
         if (LOG_PAT_CLOUD.test(line)) return 'live';
       }
       return 'csv';
     }
 
-    // Single-pass RFC4180 state machine. Emits { records, skipped }.
+    // Single-pass RFC4180 state machine. Calls onRow(fields, hasContent) for every row;
+    // what a row MEANS is the caller's business, because two exports share this scanner
+    // with different columns (Studio Pro's four, Grafana's named data-frame ones).
     // Line endings are normalized to \n so a quoted field spanning CRLF lines matches
     // the historical two-pass behaviour exactly.
-    function parseCsv(text, onProgress) {
+    function forEachCsvRow(text, onProgress, onRow) {
       if (text.indexOf('\r') !== -1) text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-      var records = [];
-      var skipped = 0;
       var fields = [];
       var field = '';
       var inQuotes = false;
@@ -114,21 +183,7 @@
       function endRow() {
         fields.push(field);
         field = '';
-        if (rowStarted) {
-          if (!isHeaderRow(fields)) {
-            if (fields.length < 4) {
-              if (rowHasContent) skipped++;
-            } else {
-              records.push({
-                level: normLevel(fields[0]),
-                timestamp: (fields[1] || '').trim(),
-                logNode: (fields[2] || '').trim(),
-                message: fields[3] || '',
-                cause: fields[4] || ''
-              });
-            }
-          }
-        }
+        if (rowStarted) onRow(fields, rowHasContent);
         fields = [];
         rowStarted = false;
         rowHasContent = false;
@@ -167,7 +222,70 @@
       }
       // Trailing row without a final newline
       if (rowStarted || field !== '' || fields.length) endRow();
+    }
 
+    // Studio Pro export: fixed column order, header row skipped.
+    function parseCsv(text, onProgress) {
+      var records = [];
+      var skipped = 0;
+      forEachCsvRow(text, onProgress, function (fields, hasContent) {
+        if (isHeaderRow(fields)) return;
+        if (fields.length < 4) {
+          if (hasContent) skipped++;
+          return;
+        }
+        records.push({
+          level: normLevel(fields[0]),
+          timestamp: (fields[1] || '').trim(),
+          logNode: (fields[2] || '').trim(),
+          message: fields[3] || '',
+          cause: fields[4] || ''
+        });
+      });
+      return { records: records, skipped: skipped };
+    }
+
+    // Grafana CSV: a data-frame dump whose column ORDER depends on the datasource, so the
+    // header names the columns and everything is read by name. Reading it positionally as
+    // a Studio Pro export put the whole log line in the LogNode column and a nanosecond
+    // count in the message — and reported success while doing it.
+    function parseGrafanaCsv(text, onProgress) {
+      var records = [];
+      var skipped = 0;
+      var current = null;
+      var iTime = -1, iBody = -1, iLevel = -1;
+      var haveHeader = false;
+
+      function pick(idx, names) {
+        for (var i = 0; i < names.length; i++) {
+          if (idx[names[i]] !== undefined) return idx[names[i]];
+        }
+        return -1;
+      }
+
+      forEachCsvRow(text, onProgress, function (fields, hasContent) {
+        if (!haveHeader) {
+          haveHeader = true;
+          var idx = {};
+          for (var i = 0; i < fields.length; i++) idx[fields[i].trim().toLowerCase()] = i;
+          iBody = pick(idx, ['line', 'body']);
+          iTime = pick(idx, ['date', 'time', 'timestamp']);
+          iLevel = pick(idx, ['severity', 'level', 'detected_level']);
+          return;
+        }
+        if (iBody < 0 || fields.length <= iBody) {
+          if (hasContent) skipped++;
+          return;
+        }
+        var body = fields[iBody] || '';
+        if (current && isStackLine(body)) {
+          current.message += '\n' + body.trim();
+          return;
+        }
+        var ts = iTime >= 0 ? (fields[iTime] || '').trim() : '';
+        current = grafanaRecord(body, ts, iLevel >= 0 ? (fields[iLevel] || '').trim() : '');
+        records.push(current);
+      });
       return { records: records, skipped: skipped };
     }
 
@@ -224,14 +342,90 @@
       return { records: records, skipped: skipped };
     }
 
+    // Grafana "Download → TXT": every row is `<epoch ms> \t <ISO> \t <line>`. A line that
+    // does NOT match is either the meta preamble Grafana writes above the first row, or a
+    // newline embedded in a single Loki entry — the first is dropped, the second belongs
+    // to the record above it.
+    function parseGrafanaTxt(text, onProgress) {
+      if (text.indexOf('\r') !== -1) text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      var records = [];
+      var skipped = 0;
+      var current = null;
+      var start = 0;
+      var len = text.length;
+      var nextProgress = PROGRESS_EVERY;
+
+      while (start <= len) {
+        var nl = text.indexOf('\n', start);
+        var end = nl === -1 ? len : nl;
+        var line = text.substring(start, end);
+        var isLast = nl === -1;
+        start = end + 1;
+
+        var m = line.match(GRAFANA_TXT);
+        if (m) {
+          var body = m[3];
+          if (current && isStackLine(body)) {
+            current.message += '\n' + body.trim();
+          } else {
+            current = grafanaRecord(body, m[2], '');
+            records.push(current);
+          }
+        } else if (line.trim()) {
+          if (current) current.message += '\n' + line;
+          else skipped++;
+        }
+
+        if (onProgress && end >= nextProgress) {
+          nextProgress += PROGRESS_EVERY;
+          onProgress(Math.round((end / len) * 100), 'Parsing log… ' + Math.round((end / len) * 100) + '%');
+        }
+        if (isLast) break;
+      }
+
+      return { records: records, skipped: skipped };
+    }
+
+    // Grafana "Download → JSON": one array of { line, timestamp (epoch ns), date, fields }.
+    function parseGrafanaJson(text) {
+      var rows;
+      try { rows = JSON.parse(text); } catch (e) { return { records: [], skipped: 1 }; }
+      if (!rows || typeof rows.length !== 'number') return { records: [], skipped: 1 };
+      var records = [];
+      var skipped = 0;
+      var current = null;
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i];
+        if (!r || typeof r.line !== 'string') { skipped++; continue; }
+        if (current && isStackLine(r.line)) {
+          current.message += '\n' + r.line.trim();
+          continue;
+        }
+        var f = r.fields || {};
+        current = grafanaRecord(r.line, r.date || nsToIso(r.timestamp),
+                                f.level || f.severity || f.detected_level || '');
+        records.push(current);
+      }
+      return { records: records, skipped: skipped };
+    }
+
     // text → { format, records, skipped }. onProgress(percent, phase) is optional.
     function parse(text, onProgress) {
       var format = detectFormat(text);
-      var res = format === 'csv' ? parseCsv(text, onProgress) : parseLive(text, onProgress);
+      var res;
+      if (format === 'grafana-txt') res = parseGrafanaTxt(text, onProgress);
+      else if (format === 'grafana-json') res = parseGrafanaJson(text);
+      else if (format === 'grafana-csv') res = parseGrafanaCsv(text, onProgress);
+      else if (format === 'csv') res = parseCsv(text, onProgress);
+      else res = parseLive(text, onProgress);
       return { format: format, records: res.records, skipped: res.skipped };
     }
 
-    return { detectFormat: detectFormat, parse: parse, parseCsv: parseCsv, parseLive: parseLive, foreignRecord: foreignRecord };
+    return {
+      detectFormat: detectFormat, parse: parse, parseCsv: parseCsv, parseLive: parseLive,
+      parseGrafanaTxt: parseGrafanaTxt, parseGrafanaJson: parseGrafanaJson,
+      parseGrafanaCsv: parseGrafanaCsv, foreignRecord: foreignRecord
+    };
   }
 
   // Attach to the ambient global — window on the main thread, the worker global inside

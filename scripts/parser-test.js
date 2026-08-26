@@ -183,6 +183,96 @@ eq('a PostgreSQL ERROR: detail line is not split off', pgDetail.records.length, 
 ok('…and stays on the record it belongs to',
   pgDetail.records[0].message.indexOf('relation "shipments$order"') !== -1);
 
+// ── Grafana exports ─────────────────────────────────────────────────────────
+// A colleague's Grafana export rendered as ONE entry with 1581 "stack frames": every
+// pattern in both parsers is anchored on a timestamp at the start of the line, and a
+// Grafana row starts with Grafana's own columns instead.
+//
+// The fixtures below are built from Grafana's own source, not from a guess:
+//   TXT  — inspector/utils/download.ts, downloadLogsModelAsTxt():
+//          `row.timeEpochMs + '\t' + dateTime(row.timeEpochMs).toISOString() + '\t' + entry`
+//          preceded by one line per meta item when the query reports any.
+//   JSON — logs/utils.ts, logRowsToReadableJson(): { line, timestamp (epoch ns), date, fields }
+//   CSV  — logs/utils.ts, DownloadFormat.CSV: the data frame with an ISO `Date` column
+//          prepended and the labels columns dropped (Loki emits Date,Time,Line,tsNs,id).
+console.log('\nGrafana exports');
+const gTxt =
+  'Total bytes processed: "1.2 GB"\n' +
+  '\n\n' +
+  '1787755857348\t2026-08-26T14:50:57.348Z\tINFO: MENDIX-LOGGING-HEARTBEAT: Heartbeat number 7\n' +
+  '1787755556653\t2026-08-26T14:45:56.653Z\tWARNING - TaskQueue: Found 2 duplicated scheduled events \'CleanUp\'\n' +
+  '1787755256937\t2026-08-26T14:40:56.937Z\tERROR - Connector: An error occurred while executing an action\n' +
+  '1787755256938\t2026-08-26T14:40:56.938Z\tcom.mendix.systemwideinterfaces.MendixRuntimeException: boom\n' +
+  '1787755256939\t2026-08-26T14:40:56.939Z\t\tat com.mendix.core.Core.execute(Core.java:12)\n' +
+  '1787755256940\t2026-08-26T14:40:56.940Z\tCaused by: java.io.EOFException';
+r = parser.parse(gTxt);
+eq('grafana-txt detected', r.format, 'grafana-txt');
+eq('one record per row, stack frames folded in', r.records.length, 3);
+eq('meta preamble counted as skipped', r.skipped, 1);
+eq('timestamp comes from the ISO column', r.records[0].timestamp, '2026-08-26T14:50:57.348Z');
+eq('java.util.logging body: level', r.records[0].level, 'INFO');
+eq('java.util.logging body: node', r.records[0].logNode, 'MENDIX-LOGGING-HEARTBEAT');
+eq('java.util.logging body: message', r.records[0].message, 'Heartbeat number 7');
+eq('Mendix body: level normalized', r.records[1].level, 'WARN');
+eq('Mendix body: node', r.records[1].logNode, 'TaskQueue');
+eq('Mendix body: message', r.records[1].message, 'Found 2 duplicated scheduled events \'CleanUp\'');
+ok('a stack trace split across rows lands on its own record',
+  r.records[2].message.indexOf('MendixRuntimeException') !== -1 &&
+  r.records[2].message.indexOf('at com.mendix.core.Core') !== -1 &&
+  r.records[2].message.indexOf('Caused by') !== -1, JSON.stringify(r.records[2].message));
+eq('…and does not become extra records', r.records[2].logNode, 'Connector');
+
+// An ordinary message with a colon in it must not be mistaken for a log node.
+r = parser.parse('1787755857348\t2026-08-26T14:50:57.348Z\tERROR - Core: Could not connect: timeout after 30s');
+eq('node stops at the first token', r.records[0].logNode, 'Core');
+eq('the rest of the colons stay in the message', r.records[0].message, 'Could not connect: timeout after 30s');
+r = parser.parse('1787755857348\t2026-08-26T14:50:57.348Z\tSomething broke: no level here');
+eq('a body with no level gets no invented node', r.records[0].logNode, 'Runtime');
+eq('…and keeps the whole text', r.records[0].message, 'Something broke: no level here');
+
+// Some collectors ship the raw line untouched; then the body is a complete Mendix line.
+r = parser.parse('1787755857348\t2026-08-26T14:50:57.348Z\t' +
+  '2026-08-26T14:50:57.348 [runtime-container/x]  WARNING - ConnectionBus_Queries: Query executed in 300 milliseconds: SELECT 1');
+eq('an unstripped Mendix prefix in the body still wins', r.records[0].logNode, 'ConnectionBus_Queries');
+ok('…and the SQL survives', r.records[0].message.indexOf('SELECT 1') !== -1);
+
+const gJson = JSON.stringify([
+  { line: 'WARNING - TaskQueue: Found 2 duplicated scheduled events', timestamp: '1787755556653000000',
+    date: '2026-08-26T14:45:56.653Z', fields: { app: 'myapp' } },
+  { line: 'ERROR - Connector: boom', timestamp: '1787755256937000000', fields: { detected_level: 'error' } }
+]);
+r = parser.parse(gJson);
+eq('grafana-json detected', r.format, 'grafana-json');
+eq('json rows become records', r.records.length, 2);
+eq('json uses the date field', r.records[0].timestamp, '2026-08-26T14:45:56.653Z');
+eq('json falls back to epoch nanoseconds', r.records[1].timestamp, '2026-08-26T14:40:56.937Z');
+eq('json node', r.records[1].logNode, 'Connector');
+
+// The regression this closes: read positionally as a Studio Pro export, the Loki CSV put
+// the entire log line in the LogNode column, the nanosecond count in Message, and the
+// labels JSON in Type — and reported three clean records while doing it.
+const gCsv =
+  '"Date","Time","Line","tsNs","id"\n' +
+  '"2026-08-26T14:50:57.348Z","2026-08-26 14:50:57.348","INFO: MENDIX-LOGGING-HEARTBEAT: Heartbeat number 7","1787755857348000000","17ab3c-1"\n' +
+  '"2026-08-26T14:45:56.653Z","2026-08-26 14:45:56.653","WARNING - TaskQueue: Found 2 duplicated, quoted ""events""","1787755556653000000","17ab3c-2"';
+r = parser.parse(gCsv);
+eq('grafana-csv detected', r.format, 'grafana-csv');
+eq('csv rows become records', r.records.length, 2);
+eq('columns are mapped by name, not position', r.records[1].logNode, 'TaskQueue');
+eq('…so the message is the message', r.records[1].message, 'Found 2 duplicated, quoted "events"');
+eq('…and the level is a level', r.records[1].level, 'WARN');
+eq('…and the time column is the timestamp', r.records[0].timestamp, '2026-08-26T14:50:57.348Z');
+// Dataplane column names (severity carries the level when the body does not).
+r = parser.parse('timestamp,body,severity\n2026-08-26T14:50:57.348Z,Application started,info');
+eq('dataplane columns detected', r.format, 'grafana-csv');
+eq('dataplane severity fills the level', r.records[0].level, 'INFO');
+eq('dataplane body is the message', r.records[0].message, 'Application started');
+
+// The Studio Pro export must keep winning its own header — it has a Message column, not a
+// Line/body one, so the Grafana header check cannot claim it.
+eq('Studio Pro CSV is still detected as csv',
+  parser.detectFormat('Type,TimeStamp,LogNode,Message\nINFO,07/11/2026 21:21:29,Core,hi'), 'csv');
+
 // ── Reference files (local only; skipped on a clean checkout) ────────────────
 console.log('\nReference files (local only)');
 function firstExisting(candidates) {

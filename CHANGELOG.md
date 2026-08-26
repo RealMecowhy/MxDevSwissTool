@@ -14,6 +14,40 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.53.0 — 2026-08-26
+
+**Grafana log exports.** A user reported that logs pulled through Grafana render
+as a single row. They do: every pattern in both parsers is anchored on a
+timestamp at the start of the line, and a Grafana row starts with Grafana's own
+columns instead. A 1581-line export therefore matched nothing, became one
+synthetic `Raw` INFO entry, and swallowed the other 1580 lines as stack
+frames — and reported that as a clean parse.
+
+- **All three Grafana export shapes are read**, and recognised by content rather
+  than by file name. The shapes are taken from Grafana's own source, not
+  guessed: **TXT** is `epoch ms ⇥ ISO ⇥ line`, hard-coded in
+  `downloadLogsModelAsTxt` and optionally preceded by meta lines; **JSON** is an
+  array of `{ line, timestamp, date, fields }`; **CSV** is a data frame with an
+  ISO `Date` column prepended. The Mendix line is unwrapped from the envelope and
+  its timestamp taken from the column, because the collector strips the Mendix
+  prefix before shipping to Loki.
+- **Grafana CSV is no longer read as a Studio Pro export.** The CSV branch was
+  chosen by the `.csv` extension alone and then assumed
+  `Type,TimeStamp,LogNode,Message` positionally. A Loki export put the labels
+  JSON in the level column, the entire log line in **Log Node**, and a nanosecond
+  count in **Message** — and reported three clean records while doing it. Columns
+  are now mapped by header name.
+- **Stack traces survive the round trip.** Loki stores one frame per log line, so
+  each frame arrives as its own export row; they are folded back onto the record
+  they belong to instead of becoming hundreds of separate INFO entries.
+- **An unreadable file now says so.** When a parse ends as one entry with 20+
+  lines folded into it, the viewer names that outcome instead of presenting it as
+  a success. The guard is format-agnostic — it catches the next unknown export
+  too, not just this one.
+- The RFC4180 scanner is now shared by both CSV mappings rather than duplicated.
+
+---
+
 ## v1.50.0 — 2026-08-20
 
 **Visual audit, wave 1.** An outside-in UI/UX pass — driven from the running
