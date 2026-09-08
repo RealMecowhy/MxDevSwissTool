@@ -1470,18 +1470,44 @@ const server = http.createServer((req, res) => {
   }
 
   if (url.pathname === '/prometheus') {
-    // Proxy Prometheus metrics to bypass CORS
-    const targetPort = url.searchParams.get('port') || '8090';
-    const promUrl = `http://127.0.0.1:${targetPort}/prometheus`;
-    const reqProxy = http.get(promUrl, (resp) => {
+    // Proxy a LOOPBACK Mendix metrics endpoint to bypass browser CORS. The host
+    // is fixed to 127.0.0.1 on purpose — only the port is a parameter, and it
+    // must be a real port number so it cannot smuggle userinfo/another host into
+    // the URL.
+    const rawPort = url.searchParams.get('port') || '8090';
+    const port = Number(rawPort);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      return sendError(req, res, `Invalid Prometheus port "${rawPort}" — expected an integer between 1 and 65535.`, 400);
+    }
+
+    const proxyReq = http.get({
+      host: '127.0.0.1',
+      port: port,
+      path: '/prometheus',
+      timeout: 5000
+    }, (resp) => {
       let data = '';
-      resp.on('data', (chunk) => { data += chunk; });
+      let bytes = 0;
+      resp.on('data', (chunk) => {
+        bytes += chunk.length;
+        if (bytes > 8 * 1024 * 1024) { // a Prometheus scrape is tens of KB, not MB
+          resp.destroy();
+          return sendError(req, res, 'The metrics endpoint returned more than 8 MB — that does not look like a Prometheus scrape.', 200);
+        }
+        data += chunk;
+      });
       resp.on('end', () => {
+        if (res.headersSent) return;
         res.writeHead(200, { 'Content-Type': 'text/plain', ...corsHeaders(req) });
         res.end(data);
       });
-    }).on("error", (err) => {
-      sendError(req, res, `Failed proxying Prometheus on port ${targetPort}: ${err.message}`, 200);
+    });
+    proxyReq.on('timeout', () => {
+      proxyReq.destroy();
+      if (!res.headersSent) sendError(req, res, `The metrics endpoint on port ${port} did not respond within 5 s.`, 200);
+    });
+    proxyReq.on('error', (err) => {
+      if (!res.headersSent) sendError(req, res, `Failed proxying Prometheus on port ${port}: ${err.message}`, 200);
     });
     return;
   }

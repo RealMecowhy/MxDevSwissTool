@@ -98,6 +98,17 @@ setTimeout(async () => {
     );
     if (secStatusNoJob.status !== 404) return fail('/model/security status for an unknown job must be 404', 'status=' + secStatusNoJob.status);
 
+    console.log('Checking /prometheus rejects a non-numeric port...');
+    const badPort = await request({ path: '/prometheus?port=80@evil.com', headers: { 'X-Bridge-Token': parsed.token } });
+    if (badPort.status !== 400) return fail('/prometheus must reject a non-numeric port', 'status=' + badPort.status + ' body=' + badPort.body);
+
+    console.log('Checking /prometheus accepts a valid port (upstream may be absent)...');
+    const okPort = await request({ path: '/prometheus?port=8090', headers: { 'X-Bridge-Token': parsed.token } });
+    // No Mendix app is running in the smoke test, so a clean connection-refused
+    // error (status 200, error:true) is the expected success signal — what must
+    // NOT happen is a hang or a 400.
+    if (okPort.status !== 200) return fail('/prometheus with a valid port should answer 200 (even if it is a proxy error)', 'status=' + okPort.status);
+
     console.log('Smoke test passed successfully.');
     server.kill();
     process.exit(0);
