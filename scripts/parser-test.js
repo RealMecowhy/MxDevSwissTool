@@ -1644,7 +1644,9 @@ EDX_LABELLED_TOOLS.forEach(function (id) {
 // assertions are the negative ones: the raw secret must NOT survive anywhere in
 // the output.
 console.log('\nLog & Text Anonymizer — secret masking');
-const anonSrc = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'tools', 'log-anonymizer.js'), 'utf8');
+// Normalize CRLF: a Windows checkout with core.autocrlf smudges this file, and
+// the marker search below matches a literal '\n  }\n'.
+const anonSrc = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'tools', 'log-anonymizer.js'), 'utf8').replace(/\r\n/g, '\n');
 const anonStart = anonSrc.indexOf('  function workerLogic() {');
 const anonEnd = anonSrc.indexOf('\n  }\n', anonSrc.indexOf('processNextChunk();', anonStart));
 ok('anon: workerLogic source located', anonStart !== -1 && anonEnd > anonStart);
