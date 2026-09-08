@@ -5428,6 +5428,21 @@ const mxt = require('../server/mx-tool.js');
     (function () { try { mxt.mxNormalizeSecurity({ entityAccess: [] }); return false; } catch (e) { return true; } })());
 })();
 
+// ── Update version comparison (plan 004, server/lib/version.js) ────────────
+const ver = require('../server/lib/version.js');
+(function () {
+  const c = ver.compareVersions;
+  ok('ver: 1.10.0 is newer than 1.9.0 (numeric, not lexical)', c('1.10.0', '1.9.0') > 0);
+  ok('ver: 1.9.0 is older than 1.10.0', c('1.9.0', '1.10.0') < 0);
+  ok('ver: equal versions compare 0', c('1.58.0', '1.58.0') === 0);
+  ok('ver: a leading v is ignored', c('v1.58.0', '1.58.0') === 0);
+  ok('ver: a leading V is ignored', c('V2.0.0', '1.9.9') > 0);
+  ok('ver: missing trailing parts count as zero', c('1.2', '1.2.0') === 0);
+  ok('ver: patch bump is detected', c('1.2.1', '1.2.0') > 0);
+  ok('ver: major dominates', c('2.0.0', '1.99.99') > 0);
+  ok('ver: a non-numeric part degrades to 0', c('1.x.3', '1.0.3') === 0);
+})();
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 runXlsxAsyncTests().then(runApiEconAsyncTests).then(runNginxAsyncTests).then(runAnonTests).then(function () {
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
