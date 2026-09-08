@@ -21,6 +21,7 @@ const livedb = require('./livedb');
 const modelDeployment = require('./model-deployment');
 const mxTool = require('./mx-tool');
 const perfSession = require('./perf-session');
+const logTail = require('./lib/log-tail');
 
 // 'pg' is optional: loaded on demand so the bridge starts without npm install.
 function loadPgClient() {
@@ -97,6 +98,8 @@ let logFilePath = '';
 let lastLogSize = 0;
 let logBuffer = []; // In-memory queue of recent log lines (max 1000)
 let logFileWatcher = null;
+let logPollPath = ''; // path currently registered with fs.watchFile (poll safety net)
+let logReiniting = false; // guard: a rotation burst must not stack re-inits
 
 // =========================================================================
 // OPENTELEMETRY RECEIVER (OTLP HTTP JSON)
@@ -624,6 +627,7 @@ function initializeLogWatcher() {
   if (logFileWatcher) {
     logFileWatcher.close();
     logFileWatcher = null;
+    try { fs.unwatchFile(logPollPath); } catch (e) {}
   }
 
   if (!logFilePath) {
@@ -676,6 +680,15 @@ function initializeLogWatcher() {
       }
     });
 
+    // fs.watch can go silent after a rotation, on network drives, or with
+    // replace-on-save editors. A low-frequency stat poll is the safety net —
+    // readNewLogLines() only acts when the size actually changed, so calling it
+    // from both sources is harmless.
+    fs.watchFile(logFilePath, { interval: 2000 }, (cur, prev) => {
+      if (cur.size !== prev.size || cur.mtimeMs !== prev.mtimeMs) readNewLogLines();
+    });
+    logPollPath = logFilePath;
+
     console.log(`[Bridge] Watching log file: ${logFilePath}`);
   } catch (e) {
     console.error(`[Bridge] Error setting up log watcher: ${e.message}`);
@@ -690,24 +703,38 @@ function readNewLogLines() {
     const newSize = stats.size;
 
     if (newSize < lastLogSize) {
-      // File truncated (e.g. log rotated or cleared)
+      // File truncated (e.g. log rotated or cleared). On Linux a rotation swaps
+      // the inode and the old fs.watch handle now watches a deleted file — re-arm.
       console.log('[Bridge] Log file rotated or truncated.');
       lastLogSize = 0;
+      if (!logReiniting) {
+        logReiniting = true;
+        try { initializeLogWatcher(); } finally { logReiniting = false; }
+      }
+      return;
     }
 
-    if (newSize > lastLogSize) {
-      const length = newSize - lastLogSize;
-      const buffer = Buffer.alloc(length);
-      const fd = fs.openSync(logFilePath, 'r');
-      
-      fs.readSync(fd, buffer, 0, length, lastLogSize);
-      fs.closeSync(fd);
+    const range = logTail.computeTailRead(lastLogSize, newSize);
+    if (!range) return;
 
-      lastLogSize = newSize;
+    if (range.skippedBytes > 0) {
+      console.warn('[Bridge] Log grew by ' + range.skippedBytes + ' bytes between reads; older lines in that gap were skipped in the live view.');
+    }
 
-      const newText = buffer.toString('utf8');
-      const newLines = newText.split(/\r?\n/).filter(Boolean);
-      
+    // Stream the delta instead of a synchronous full-buffer read so a multi-MB
+    // read does not block the event loop.
+    const stream = fs.createReadStream(logFilePath, {
+      start: range.start,
+      end: range.start + range.length
+    });
+
+    let data = '';
+    stream.on('data', chunk => data += chunk);
+    stream.on('error', e => {
+      console.error(`[Bridge] Error reading new log lines: ${e.message}`);
+    });
+    stream.on('end', () => {
+      const newLines = data.split(/\r?\n/).filter(Boolean);
       const ts = Date.now();
       newLines.forEach(line => {
         logBuffer.push({ timestamp: ts, text: line });
@@ -717,7 +744,11 @@ function readNewLogLines() {
       if (logBuffer.length > 1000) {
         logBuffer = logBuffer.slice(-1000);
       }
-    }
+
+      // Advance the cursor only after a successful read — a mid-read error must
+      // not skip past unread bytes.
+      lastLogSize = newSize;
+    });
   } catch (e) {
     console.error(`[Bridge] Error reading new log lines: ${e.message}`);
   }
