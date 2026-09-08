@@ -34,7 +34,7 @@ function matchAll(text, re) {
 // Tools whose help is resolved from the active tab, not the tool id — these need no
 // direct TOOLS_HELP entry (their tabs' data-help-key values are checked instead).
 // Keep in sync with the special-cased branches in showActiveToolHelp().
-const TAB_RESOLVED = new Set(['log-viewer', 'query-intelligence', 'thread-dump']);
+const TAB_RESOLVED = new Set(['log-viewer', 'query-intelligence', 'thread-dump', 'dev-studio']);
 
 // Top-level TOOLS_HELP keys are quoted and indented exactly two spaces; nested
 // fields (title:, description:, …) are unquoted, so this can't false-match them.

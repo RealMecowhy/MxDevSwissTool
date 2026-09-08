@@ -905,6 +905,12 @@ Customer [1] -- [*] Order : places</pre>
   },
   'dev-studio': {
     title: 'Mendix Developer Studio Connector',
+    description: 'Local inspector for a Mendix project running on your machine, in two tabs: <strong>Dashboard</strong> (project and database configuration, live metrics, roles, scheduled events, deployment model) and <strong>Security Matrix</strong> (every entity and document access rule, per role, exported by <code>mx.exe</code>).',
+    howToGet: 'Run your project locally in Mendix Studio Pro and start the local bridge. See the Dashboard tab help for details.',
+    howToUse: 'Connect to a project, then switch between the Dashboard and Security Matrix tabs.'
+  },
+  'dev-studio-dashboard': {
+    title: 'Developer Studio — Dashboard',
     description: 'Local inspector for a Mendix project running on your machine. Via the Observability Bridge it reads the project configuration and presents a dashboard: database settings and live metrics, user roles, request handlers, scheduled events, constants, client bundle size, Java code quality hints, and the deployment model &mdash; the record of which page and which widget issues each query.',
     howToGet: `
       <ul>
@@ -919,6 +925,33 @@ Customer [1] -- [*] Order : places</pre>
         <li>Click <strong>Connect to Application</strong>.</li>
         <li>The dashboard loads: application &amp; database configuration, live PostgreSQL metrics, security roles, request handlers, scheduled events, and application constants.</li>
         <li><strong>Deployment Model:</strong> Mendix writes <code>deployment/model/</code> on every local run or build, and it records which page and which widget issues each retrieve. The card counts what was found; the index itself goes to the query tools, so a table name in a slow query can be named as the screens behind it. If the card says no deployment model was found, run or build the app once in Studio Pro &mdash; that is all it takes. Nothing else in the dashboard depends on it.</li>
+      </ol>
+    `
+  },
+  'dev-studio-security': {
+    title: 'Developer Studio — Security Matrix',
+    description: 'Every entity and document access rule in the project, per user role, with its XPath constraint and how many members each rule can read or write. It is produced by running <code>mx.exe export-security-overview</code> against the project file &mdash; the same model data Studio Pro shows in its own Security overview, in a table you can filter, review and export. This is the one view neither the live database nor the deployment model can give.',
+    howToGet: `
+      <ul>
+        <li>Needs a project built in <strong>Mendix 10 or newer</strong> and a <strong>Studio Pro 11 or newer</strong> installation on this machine (the exporter did not exist before Mendix 11, and an 11.x binary reads 10.x and 11.x projects). Mendix 9 projects use the <strong>Deployment Model</strong> card on the Dashboard tab instead &mdash; the exporter cannot read them.</li>
+        <li>The bridge must be running. No PostgreSQL and no <code>pg</code> module are needed &mdash; this reads the project file, not the database.</li>
+      </ul>
+    `,
+    howToUse: `
+      <ol>
+        <li>Click <strong>Generate security matrix</strong>. The export runs on the bridge as a background job that takes <strong>roughly a minute</strong> &mdash; it scales with the number of modules, not the project size, and spends most of that time loading the model before it reports progress. You can leave the tab; the run continues.</li>
+        <li>It reflects the <strong>last saved</strong> state of the project. Unsaved edits open in Studio Pro are not in the file yet and will not appear &mdash; save first if you just changed a rule. Studio Pro can stay open; the export does not need it closed.</li>
+        <li>The result is cached against the project file's timestamp, so re-opening the matrix for an unchanged project is instant. Touch the project (save a change) and the next run recomputes.</li>
+        <li><strong>Entity access / Document access</strong> toggles the two tables. Filter by role, by module, or by typing part of an entity or document name.</li>
+        <li>The three cards at the top are review shortcuts, each computed from the export:
+          <ul>
+            <li><strong>Broad write access</strong> &mdash; a non-administrator role that can create or delete rows with <em>no</em> XPath constraint. Worth a look: it means that role can create or remove any row of that entity.</li>
+            <li><strong>Anonymous entity access</strong> &mdash; any rule granted to an anonymous (guest) role. On a public-facing app some of these are intended; the point is to see the whole list at once.</li>
+            <li><strong>Anonymous pages &amp; microflows</strong> &mdash; documents an anonymous role can reach.</li>
+          </ul>
+          Clicking a card filters the table to just those rows.</li>
+        <li><strong>CSV</strong> and <strong>HTML report</strong> export what the filters currently show, through the same exporter the rest of the tool uses. The matrix is a map of your system &mdash; entity, role and endpoint names &mdash; so it stays local until you export it, and nothing is sent anywhere automatically.</li>
+        <li>Entities that have <em>no</em> access rule at all are not in this export &mdash; <code>mx.exe</code> lists rules, not entities. Finding those needs the full domain model and is not part of this view yet.</li>
       </ol>
     `
   },
@@ -1243,6 +1276,11 @@ function showActiveToolHelp() {
   if (toolId === 'thread-dump') {
     const activeTab = document.querySelector('#panel-thread-dump .tabs .tab.active');
     toolId = (activeTab && activeTab.dataset.helpKey) || 'thread-dump';
+  }
+
+  if (toolId === 'dev-studio') {
+    const activeTab = document.querySelector('#ds-tabs .tab.active');
+    toolId = (activeTab && activeTab.dataset.helpKey) || 'dev-studio';
   }
 
   const helpData = TOOLS_HELP[toolId];

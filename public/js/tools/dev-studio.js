@@ -436,6 +436,9 @@ function dsInitState() {
     clearTimeout(dsPollTimer);
     dsPollTimer = null;
   }
+  dsSecStopTimers();
+  dsSecJobId = null;
+  dsSecData = null;
 }
 
 function dsDisconnect() {
@@ -472,18 +475,383 @@ async function dsPollData() {
 
 function dsShowDashboard() {
   document.getElementById('ds-offline-view').style.display = 'none';
-  document.getElementById('ds-dashboard-view').style.display = 'flex';
+  document.getElementById('ds-tabs').style.display = 'flex';
+  dsSetTab('dashboard', document.querySelector('#ds-tabs .tab'));
   dsSetReconnecting(false);
 }
 
 function dsShowOfflineView() {
   document.getElementById('ds-offline-view').style.display = 'flex';
+  document.getElementById('ds-tabs').style.display = 'none';
   document.getElementById('ds-dashboard-view').style.display = 'none';
+  document.getElementById('ds-security-view').style.display = 'none';
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TABS  —  Dashboard | Security Matrix  (wave 28)
+// ═══════════════════════════════════════════════════════════════════════════
+
+function dsSetTab(tabId, el) {
+  document.querySelectorAll('#ds-tabs .tab').forEach(function (t) {
+    t.classList.remove('active');
+    t.setAttribute('aria-selected', 'false');
+  });
+  if (el) { el.classList.add('active'); el.setAttribute('aria-selected', 'true'); }
+  document.getElementById('ds-dashboard-view').style.display = tabId === 'dashboard' ? 'flex' : 'none';
+  document.getElementById('ds-security-view').style.display = tabId === 'security' ? 'flex' : 'none';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SECURITY MATRIX  (wave 28)
+// ═══════════════════════════════════════════════════════════════════════════
+// The export is a 55–90 s background job on the Bridge. This drives it: POST to
+// start, poll GET until done, then render the normalized matrix into a virtual
+// list. Everything mx.exe-related lives in server/mx-tool.js; this file only
+// talks to /model/security.
+
+const DS_SEC_POLL_MS = 1500;
+
+let dsSecJobId = null;
+let dsSecPollTimer = null;
+let dsSecClockTimer = null;
+let dsSecStartedAt = 0;
+let dsSecData = null;      // the last completed result payload
+let dsSecView = 'entities';
+let dsSecVList = null;
+
+function dsSecEl(id) { return document.getElementById(id); }
+
+function dsSecStopTimers() {
+  if (dsSecPollTimer) { clearTimeout(dsSecPollTimer); dsSecPollTimer = null; }
+  if (dsSecClockTimer) { clearInterval(dsSecClockTimer); dsSecClockTimer = null; }
+}
+
+function dsSecShow(which) {
+  // style.display, not the [hidden] attribute — the app's .notice / .card rules
+  // set display and would win over [hidden].
+  dsSecEl('ds-sec-intro').style.display = which === 'intro' ? 'block' : 'none';
+  dsSecEl('ds-sec-progress').style.display = which === 'progress' ? 'block' : 'none';
+  dsSecEl('ds-sec-error').style.display = which === 'error' ? 'block' : 'none';
+  dsSecEl('ds-sec-result').style.display = which === 'result' ? 'flex' : 'none';
+}
+
+window.dsSecGenerate = async function () {
+  if (!dsProjectData || !dsProjectData.projectRoot) {
+    window.mtToast('Connect to a project first.', 'warning');
+    return;
+  }
+  dsSecEl('ds-sec-generate-btn').disabled = true;
+  dsSecShow('progress');
+  dsSecEl('ds-sec-progress-phase').textContent = 'Starting…';
+  dsSecEl('ds-sec-progress-bar').style.width = '2%';
+  try {
+    const res = await fetch('http://localhost:9999/model/security', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectRoot: dsProjectData.projectRoot })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok || !data.job) {
+      throw new Error((data && (data.message || data.reason)) || 'Could not start the security export.');
+    }
+    dsSecJobId = data.job.jobId;
+    dsSecStartedAt = data.job.startedAt || Date.now();
+    dsSecClockTimer = setInterval(dsSecTick, 1000);
+    dsSecTick();
+    dsSecPoll();
+  } catch (e) {
+    dsSecFail(e.message);
+  }
+};
+
+function dsSecTick() {
+  const s = Math.max(0, Math.round((Date.now() - dsSecStartedAt) / 1000));
+  dsSecEl('ds-sec-progress-note').textContent = 'Elapsed ' + s + 's — this usually takes 40–90 seconds';
+}
+
+async function dsSecPoll() {
+  if (!dsSecJobId) return;
+  try {
+    const res = await fetch('http://localhost:9999/model/security?jobId=' + encodeURIComponent(dsSecJobId));
+    if (res.status === 404) { dsSecFail('The export job is no longer available — start it again.'); return; }
+    const data = await res.json();
+    const job = data && data.job;
+    if (!job) { dsSecFail('The Bridge returned no job status.'); return; }
+
+    dsSecEl('ds-sec-progress-bar').style.width = Math.max(2, job.percent || 0) + '%';
+    if (job.phase) dsSecEl('ds-sec-progress-phase').textContent = job.phase;
+
+    if (job.state === 'done') {
+      dsSecStopTimers();
+      dsSecData = job.result;
+      dsSecData._durationMs = job.durationMs;
+      dsSecEl('ds-sec-generate-btn').disabled = false;
+      dsSecRender();
+      return;
+    }
+    if (job.state === 'error') { dsSecFail(job.error || 'The export failed.'); return; }
+    dsSecPollTimer = setTimeout(dsSecPoll, DS_SEC_POLL_MS);
+  } catch (e) {
+    dsSecFail('Bridge unreachable — ' + e.message);
+  }
+}
+
+function dsSecFail(msg) {
+  dsSecStopTimers();
+  dsSecJobId = null;
+  dsSecEl('ds-sec-generate-btn').disabled = false;
+  dsSecEl('ds-sec-error').textContent = msg;
+  dsSecShow('error');
+}
+
+window.dsSecCancel = async function () {
+  const id = dsSecJobId;
+  dsSecStopTimers();
+  dsSecJobId = null;
+  dsSecEl('ds-sec-generate-btn').disabled = false;
+  dsSecShow('intro');
+  if (id) {
+    try {
+      await fetch('http://localhost:9999/model/security/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: id })
+      });
+    } catch (e) { /* best effort */ }
+  }
+};
+
+// ── Rendering ──────────────────────────────────────────────────────────────
+
+function dsSecRender() {
+  const d = dsSecData;
+  if (!d) return;
+  dsSecShow('result');
+
+  dsSecEl('ds-sec-c-entity').textContent = d.counts.entityRules + ' entity rules';
+  dsSecEl('ds-sec-c-doc').textContent = d.counts.documentRules + ' document rules';
+  dsSecEl('ds-sec-c-roles').textContent = d.counts.userRoles + ' roles';
+  const took = d.meta.cached ? 'from cache' : Math.round((d._durationMs || 0) / 1000) + 's';
+  dsSecEl('ds-sec-meta').textContent =
+    'mx ' + d.meta.binaryVersion + ' · project ' + d.meta.projectVersion + ' · ' + took +
+    ' · reflects the last saved state';
+
+  // Filter dropdowns.
+  const roleSel = dsSecEl('ds-sec-f-role');
+  const modSel = dsSecEl('ds-sec-f-module');
+  roleSel.innerHTML = '<option value="">All roles</option>';
+  d.roles.slice().sort(function (a, b) { return a.name.localeCompare(b.name); }).forEach(function (r) {
+    const o = document.createElement('option');
+    o.value = r.name;
+    o.textContent = r.name + (r.admin ? '  (admin)' : '') + (r.anon ? '  (anonymous)' : '');
+    roleSel.appendChild(o);
+  });
+  const mods = {};
+  d.entityRules.forEach(function (r) { mods[r.module] = 1; });
+  d.documentRules.forEach(function (r) { mods[r.module] = 1; });
+  modSel.innerHTML = '<option value="">All modules</option>';
+  Object.keys(mods).sort().forEach(function (m) {
+    const o = document.createElement('option');
+    o.value = m; o.textContent = m;
+    modSel.appendChild(o);
+  });
+
+  dsSecRenderHighlights();
+  dsSecApplyFilter();
+}
+
+function dsSecHighlightCard(kind, count, label, sub) {
+  const div = document.createElement('button');
+  div.type = 'button';
+  div.className = 'card';
+  div.style.cssText = 'padding:var(--sp-3); text-align:left; cursor:pointer; border-left:3px solid ' +
+    (count ? 'var(--warning)' : 'var(--success)') + '; background:var(--bg-elevated)';
+  div.onclick = function () { dsSecFocusHighlight(kind); };
+  div.innerHTML =
+    '<div style="font-size:1.3rem; font-weight:700; color:var(--text-primary)">' + count + '</div>' +
+    '<div style="font-size:0.82rem; color:var(--text-primary); margin-top:2px">' + escHtml(label) + '</div>' +
+    '<div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px">' + escHtml(sub) + '</div>';
+  return div;
+}
+
+function dsSecRenderHighlights() {
+  const h = dsSecData.highlights;
+  const box = dsSecEl('ds-sec-highlights');
+  box.innerHTML = '';
+  box.appendChild(dsSecHighlightCard('broadWrite', h.broadWrite.length,
+    'Broad write access',
+    'Non-admin roles that can create or delete with no XPath filter'));
+  box.appendChild(dsSecHighlightCard('anonEntity', h.anonEntity.length,
+    'Anonymous entity access',
+    'Entity rules granted to an anonymous (guest) role'));
+  box.appendChild(dsSecHighlightCard('anonDocument', h.anonDocument.length,
+    'Anonymous pages & microflows',
+    'Documents an anonymous role can reach'));
+}
+
+function dsSecFocusHighlight(kind) {
+  if (kind === 'anonDocument') {
+    dsSecSetView('documents', dsSecEl('ds-sec-view-documents'));
+  } else {
+    dsSecSetView('entities', dsSecEl('ds-sec-view-entities'));
+  }
+  dsSecEl('ds-sec-f-role').value = '';
+  dsSecEl('ds-sec-f-module').value = '';
+  dsSecEl('ds-sec-f-text').value = '';
+  dsSecEl('ds-sec-f-flagged').checked = true;
+  dsSecApplyFilter();
+}
+
+function dsSecSetView(v, el) {
+  dsSecView = v;
+  ['ds-sec-view-entities', 'ds-sec-view-documents'].forEach(function (id) {
+    dsSecEl(id).classList.remove('active');
+  });
+  if (el) el.classList.add('active');
+  dsSecApplyFilter();
+}
+
+function dsSecFlaggedSet() {
+  const h = dsSecData.highlights;
+  if (dsSecView === 'documents') return new Set(h.anonDocument);
+  return new Set(h.broadWrite.concat(h.anonEntity));
+}
+
+function dsSecApplyFilter() {
+  if (!dsSecData) return;
+  const role = dsSecEl('ds-sec-f-role').value;
+  const mod = dsSecEl('ds-sec-f-module').value;
+  const text = dsSecEl('ds-sec-f-text').value.trim().toLowerCase();
+  const flaggedOnly = dsSecEl('ds-sec-f-flagged').checked;
+  const flagged = flaggedOnly ? dsSecFlaggedSet() : null;
+
+  const source = dsSecView === 'documents' ? dsSecData.documentRules : dsSecData.entityRules;
+  const rows = [];
+  source.forEach(function (r, i) {
+    if (flagged && !flagged.has(i)) return;
+    if (mod && r.module !== mod) return;
+    if (role) {
+      if (dsSecView === 'documents') { if (r.roles.indexOf(role) === -1) return; }
+      else if (r.role !== role) return;
+    }
+    if (text) {
+      const hay = dsSecView === 'documents'
+        ? (r.module + '.' + r.name + ' ' + r.type).toLowerCase()
+        : (r.qname + ' ' + r.role + ' ' + r.xpath).toLowerCase();
+      if (hay.indexOf(text) === -1) return;
+    }
+    rows.push({ r: r, i: i });
+  });
+
+  dsSecEl('ds-sec-count').textContent =
+    rows.length + ' of ' + source.length + (dsSecView === 'documents' ? ' documents' : ' rules') +
+    (flaggedOnly ? ' · flagged only' : '');
+
+  dsSecPaintList(rows);
+}
+
+function dsSecRowEl(entry) {
+  const r = entry.r;
+  const flagged = dsSecFlaggedSet().has(entry.i);
+  const el = document.createElement('div');
+  el.style.cssText = 'display:flex; align-items:center; gap:var(--sp-3); padding:0 var(--sp-3); ' +
+    'font-size:0.78rem; border-bottom:1px solid var(--border-subtle); border-left:3px solid ' +
+    (flagged ? 'var(--warning)' : 'transparent') + '; white-space:nowrap; overflow:hidden';
+
+  if (dsSecView === 'documents') {
+    const anon = (r.anonRoles || []).length > 0;
+    el.innerHTML =
+      '<span class="badge badge-secondary" style="flex:0 0 auto">' + escHtml(r.type) + '</span>' +
+      '<span style="flex:0 0 260px; overflow:hidden; text-overflow:ellipsis; color:var(--text-primary)">' +
+        escHtml(r.module) + '.' + escHtml(r.name) + '</span>' +
+      '<span style="flex:1; overflow:hidden; text-overflow:ellipsis; color:' +
+        (anon ? 'var(--danger)' : 'var(--text-secondary)') + '">' +
+        (r.roles.length ? escHtml(r.roles.join(', ')) : '— no role can reach this —') + '</span>';
+    return el;
+  }
+
+  const pill = function (on, txt) {
+    return '<span style="flex:0 0 auto; padding:1px 6px; border-radius:4px; font-size:0.68rem; background:' +
+      (on ? 'color-mix(in srgb, var(--warning) 25%, transparent)' : 'var(--bg-surface)') +
+      '; color:' + (on ? 'var(--text-primary)' : 'var(--text-muted)') + '">' + txt + '</span>';
+  };
+  el.innerHTML =
+    '<span class="badge ' + (r.admin ? 'badge-secondary' : 'badge-primary') +
+      '" style="flex:0 0 130px; overflow:hidden; text-overflow:ellipsis">' + escHtml(r.role) + '</span>' +
+    '<span style="flex:0 0 240px; overflow:hidden; text-overflow:ellipsis; color:var(--text-primary)">' +
+      escHtml(r.qname) + '</span>' +
+    '<span style="flex:1; overflow:hidden; text-overflow:ellipsis; font-family:var(--font-mono); color:var(--text-muted)">' +
+      (r.xpath ? escHtml(r.xpath)
+        : '<span style="font-family:var(--font-sans, inherit); color:' +
+          (flagged ? 'var(--warning)' : 'var(--text-muted)') + '">no XPath constraint</span>') + '</span>' +
+    pill(r.create, 'create') + pill(r.del, 'delete') +
+    '<span style="flex:0 0 auto; color:var(--text-muted)">' + r.read + 'R / ' + r.write + 'W</span>';
+  return el;
+}
+
+function dsSecPaintList(rows) {
+  const container = dsSecEl('ds-sec-list');
+  if (!dsSecVList) {
+    dsSecVList = window.createVirtualList({
+      container: container,
+      renderRow: function (entry) { return dsSecRowEl(entry); }
+    });
+  }
+  dsSecVList.setItems(rows);
+  if (!rows.length) {
+    container.innerHTML = '<div style="padding:var(--sp-4); color:var(--text-muted); font-size:0.82rem">' +
+      'Nothing matches these filters.</div>';
+  }
+}
+
+// ── Export ─────────────────────────────────────────────────────────────────
+
+window.dsSecExport = function (fmt) {
+  if (!dsSecData) return;
+  const isDoc = dsSecView === 'documents';
+  const header = isDoc
+    ? ['Type', 'Module', 'Document', 'Roles', 'Anonymous roles']
+    : ['Role', 'Admin', 'Module', 'Entity', 'XPath', 'Create', 'Delete', 'Readable members', 'Writable members'];
+  const src = isDoc ? dsSecData.documentRules : dsSecData.entityRules;
+  const flagged = dsSecEl('ds-sec-f-flagged').checked ? dsSecFlaggedSet() : null;
+  const role = dsSecEl('ds-sec-f-role').value;
+  const mod = dsSecEl('ds-sec-f-module').value;
+  const rows = [];
+  src.forEach(function (r, i) {
+    if (flagged && !flagged.has(i)) return;
+    if (mod && r.module !== mod) return;
+    if (role && (isDoc ? r.roles.indexOf(role) === -1 : r.role !== role)) return;
+    rows.push(isDoc
+      ? [r.type, r.module, r.name, r.roles.join('; '), (r.anonRoles || []).join('; ')]
+      : [r.role, r.admin ? 'yes' : 'no', r.module, r.entity, r.xpath, r.create ? 'yes' : 'no',
+         r.del ? 'yes' : 'no', r.read, r.write]);
+  });
+  const base = 'security-matrix-' + (isDoc ? 'documents' : 'entities');
+  if (fmt === 'csv') {
+    window.mtExport.downloadCsv(base + '.csv', header, rows);
+  } else {
+    window.mtExport.downloadHtml(base + '.html', {
+      title: 'Mendix Security Matrix — ' + (isDoc ? 'Document access' : 'Entity access'),
+      subtitle: dsProjectData && dsProjectData.projectRoot ? dsProjectData.projectRoot : '',
+      meta: [
+        { label: 'mx.exe', value: dsSecData.meta.binaryVersion },
+        { label: 'Project', value: dsSecData.meta.projectVersion },
+        { label: 'Rows', value: rows.length }
+      ],
+      note: 'Exported from the last saved state of the project. Contains entity, role and endpoint ' +
+        'names — treat as a map of the system.',
+      columns: header,
+      rows: rows
+    });
+  }
+};
 
 // --- AUTO-GENERATED ESM EXPORTS ---
 window.dsDisconnect = dsDisconnect;
 window.dsPollData = dsPollData;
+window.dsSetTab = dsSetTab;
+window.dsSecSetView = dsSecSetView;
+window.dsSecApplyFilter = dsSecApplyFilter;
 
 // Exposed for scripts/parser-test.js (pure function, no DOM).
 window.dsBackoffDelay = dsBackoffDelay;
@@ -493,6 +861,8 @@ export function cleanup() {
     clearTimeout(dsPollTimer);
     dsPollTimer = null;
   }
+  dsSecStopTimers();
+  if (dsSecVList) { dsSecVList.destroy(); dsSecVList = null; }
 }
 
 export function init() {

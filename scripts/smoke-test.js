@@ -77,6 +77,27 @@ setTimeout(async () => {
     );
     if (cfg.status !== 401) return fail('/mock-config must reject an unauthenticated caller', 'status=' + cfg.status);
 
+    // Security matrix (wave 28): a write-shaped route that spawns mx.exe — it
+    // must stay behind the token, and reject a bad projectRoot before doing
+    // any work.
+    console.log('Checking /model/security requires a token...');
+    const secNoToken = await request(
+      { path: '/model/security', method: 'POST', headers: { 'Content-Type': 'application/json' } },
+      JSON.stringify({ projectRoot: 'C:\\nope' })
+    );
+    if (secNoToken.status !== 401) return fail('/model/security must reject an unauthenticated caller', 'status=' + secNoToken.status);
+
+    const secBadPath = await request(
+      { path: '/model/security', method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Bridge-Token': parsed.token } },
+      JSON.stringify({ projectRoot: 'not-absolute' })
+    );
+    if (secBadPath.status !== 400) return fail('/model/security must reject a non-absolute projectRoot', 'status=' + secBadPath.status + ' body=' + secBadPath.body);
+
+    const secStatusNoJob = await request(
+      { path: '/model/security?jobId=nope', headers: { 'X-Bridge-Token': parsed.token } }
+    );
+    if (secStatusNoJob.status !== 404) return fail('/model/security status for an unknown job must be 404', 'status=' + secStatusNoJob.status);
+
     console.log('Smoke test passed successfully.');
     server.kill();
     process.exit(0);

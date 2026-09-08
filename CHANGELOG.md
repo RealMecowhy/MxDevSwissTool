@@ -14,6 +14,47 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.57.0 — 2026-09-08
+
+**Security Matrix in Developer Studio.** A second tab next to the Dashboard.
+It runs `mx.exe export-security-overview` against the project file and shows
+every entity and document access rule, per user role, with its XPath
+constraint and how many members each rule can read or write — the one view
+neither the live database nor the deployment model can give.
+
+- **A background job, not a click.** The export took 25–90 s in testing and the
+  time tracks module count, not project size (a 34 MB project ran faster than a
+  550 KB one). It runs on the bridge; the tab polls it and you can leave.
+  Progress is mostly a clock: `mx` spends most of the run loading the model in
+  silence, then prints every module in about two seconds.
+- **The exit code is ignored.** `mx export-security-overview` returns exit 1 on
+  every successful run (measured 3/3). Success is decided by validating the
+  JSON — the three arrays it always carries — so a run cut short is reported as
+  an error, never a false pass.
+- **Result cached** against the `.mpr` file's timestamp and size, in the temp
+  directory — never next to your project. Re-opening the matrix for an unchanged
+  project is instant; save a change and the next run recomputes.
+- **Three review shortcuts, each from the export:** non-admin roles that can
+  create or delete with no XPath filter, and every entity rule or document
+  reachable by an anonymous role. Clicking a card filters the table.
+- **Scope.** Needs a Mendix 10+ project and a Studio Pro 11+ install on the
+  machine — the exporter did not exist before Mendix 11 and an 11.x binary
+  refuses a 9.x project. A Mendix 9 project gets a clear message pointing at the
+  deployment model instead, before anything is spawned. Entities with *no*
+  access rule are not in this export (`mx` lists rules, not entities) — finding
+  those needs the full domain model and is not in this view yet.
+- Export the filtered table to CSV or a self-contained HTML report through the
+  shared exporter. Nothing leaves the machine automatically — the matrix is a
+  map of the system.
+- All `mx.exe` knowledge is in one new file, `server/mx-tool.js`; 37 new tests
+  cover version parsing, binary selection, JSON validation and normalisation
+  without spawning anything.
+
+**Correction to the plan, forced by measurement:** `_ProductVersion` inside a
+recent `.mpr` is a three-part string (`11.12.2`), not the four-part install
+version the plan assumed; `mx` writes progress to stderr, not stdout; and the
+per-module lines do not stream — they all arrive at the end.
+
 ## v1.56.1 — 2026-09-08
 
 **Developer Studio listed every scheduled event as `undefined undefined`.** The

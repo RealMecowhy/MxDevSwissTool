@@ -19,6 +19,7 @@ const { exec } = require('child_process');
 const crypto = require('crypto');
 const livedb = require('./livedb');
 const modelDeployment = require('./model-deployment');
+const mxTool = require('./mx-tool');
 const perfSession = require('./perf-session');
 
 // 'pg' is optional: loaded on demand so the bridge starts without npm install.
@@ -1266,6 +1267,60 @@ const server = http.createServer((req, res) => {
           })
           .then(r => sendJson(req, res, r))
           .catch(e => sendError(req, res, `Deployment model error: ${e.message}`, 400));
+      });
+      return;
+    }
+    return sendError(req, res, 'Method Not Allowed', 405);
+  }
+
+  // === SECURITY MATRIX (Wave 28) — mx.exe export-security-overview ===
+  // A 55–90 s background job, never a request/response call. POST starts it and
+  // returns a jobId; GET ?jobId= polls phase/percent and, when done, the whole
+  // normalized matrix. All mx.exe knowledge is in server/mx-tool.js; the binary
+  // path never comes from the request. `projectRoot` is validated exactly as
+  // /model/deployment validates its own (absolute path to an existing dir) —
+  // the .mpr is found and checked inside mx-tool.js.
+  if (url.pathname === '/model/security') {
+    if (req.method === 'GET') {
+      const job = mxTool.mxSecurityJobStatus(url.searchParams.get('jobId') || null);
+      if (!job) return sendError(req, res, 'No such security export job', 404);
+      return sendJson(req, res, { ok: true, job });
+    }
+    if (req.method === 'POST') {
+      readBody(req, res, 1 * 1024 * 1024, (rawBody) => {
+        let projectRoot;
+        try {
+          const body = JSON.parse(rawBody.toString('utf8'));
+          if (!body.projectRoot || typeof body.projectRoot !== 'string') {
+            throw new Error('Missing projectRoot');
+          }
+          if (!path.isAbsolute(body.projectRoot)) {
+            throw new Error('projectRoot must be an absolute path');
+          }
+          projectRoot = path.resolve(body.projectRoot);
+        } catch (e) {
+          return sendError(req, res, `Invalid request: ${e.message}`, 400);
+        }
+        fsp.stat(projectRoot)
+          .catch(() => { throw new Error(`No such directory: ${projectRoot}`); })
+          .then(st => {
+            if (!st.isDirectory()) throw new Error('projectRoot is not a directory');
+            return mxTool.mxStartSecurityJob(projectRoot);
+          })
+          .then(r => sendJson(req, res, { ok: true, started: r.started, reason: r.reason || null, job: r.job }))
+          .catch(e => sendError(req, res, `Security export error: ${e.message}`, 400));
+      });
+      return;
+    }
+    return sendError(req, res, 'Method Not Allowed', 405);
+  }
+
+  if (url.pathname === '/model/security/cancel') {
+    if (req.method === 'POST') {
+      readBody(req, res, 64 * 1024, (rawBody) => {
+        let jobId = null;
+        try { jobId = (JSON.parse(rawBody.toString('utf8')) || {}).jobId || null; } catch (e) {}
+        return sendJson(req, res, { ok: true, cancelled: mxTool.mxCancelSecurityJob(jobId) });
       });
       return;
     }

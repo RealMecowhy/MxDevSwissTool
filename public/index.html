@@ -103,7 +103,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.56.1</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.57.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -289,7 +289,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.56.1</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.57.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -2338,9 +2338,15 @@
            </div>
         </div>
 
+        <!-- TABS (shown once connected) — Dashboard | Security Matrix (wave 28) -->
+        <div id="ds-tabs" class="tabs" style="display:none; margin:0 calc(-1 * var(--sp-4)) var(--sp-4); flex:0 0 auto">
+          <button type="button" class="tab active" data-help-key="dev-studio-dashboard" aria-selected="true" onclick="dsSetTab('dashboard',this)">Dashboard</button>
+          <button type="button" class="tab" data-help-key="dev-studio-security" aria-selected="false" onclick="dsSetTab('security',this)">Security Matrix</button>
+        </div>
+
         <!-- DASHBOARD VIEW -->
         <div id="ds-dashboard-view" style="display:none; flex-direction:column; gap:var(--sp-4); width:100%">
-          
+
           <!-- TOP STATUS BAR -->
           <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:var(--sp-3); background:var(--bg-elevated); padding:var(--sp-3); border-radius:var(--r-md); border:1px solid var(--border)">
             <div style="display:flex; align-items:center; gap:var(--sp-3)">
@@ -2489,6 +2495,83 @@
           </div>
 
         </div>
+        <!-- /ds-dashboard-view -->
+
+        <!-- SECURITY MATRIX VIEW (wave 28) -->
+        <div id="ds-security-view" style="display:none; flex-direction:column; gap:var(--sp-4); width:100%">
+
+          <!-- INTRO / GENERATE -->
+          <div id="ds-sec-intro" class="card" style="padding:var(--sp-4)">
+            <h4 style="margin:0 0 var(--sp-2) 0; color:var(--text-primary)">Security Matrix</h4>
+            <p style="color:var(--text-secondary); font-size:0.86rem; line-height:1.6; margin:0 0 var(--sp-3)">
+              Every entity and document access rule in the project, per user role, with its XPath
+              constraint and member rights &mdash; exported by <code>mx.exe</code> straight from the
+              model. This is the one view neither the live database nor the deployment model can give.
+            </p>
+            <ul style="color:var(--text-muted); font-size:0.8rem; line-height:1.7; margin:0 0 var(--sp-3); padding-left:1.1rem">
+              <li>Needs a project built in <strong>Mendix 10 or newer</strong> and a Studio Pro 11+
+                  installation on this machine. Mendix 9 projects use the Deployment Model tab instead.</li>
+              <li>The export takes <strong>roughly a minute</strong> (it scales with module count, not project size). It runs in the background &mdash; you can leave this tab.</li>
+              <li>It reflects the <strong>last saved</strong> state of the project. Unsaved changes in Studio Pro are not included.</li>
+              <li>Nothing is written near your project; the result stays local until you export it.</li>
+            </ul>
+            <button class="btn btn-primary" id="ds-sec-generate-btn" onclick="dsSecGenerate()">Generate security matrix</button>
+          </div>
+
+          <!-- PROGRESS -->
+          <div id="ds-sec-progress" class="card" style="padding:var(--sp-4); display:none">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--sp-2)">
+              <strong id="ds-sec-progress-phase" style="color:var(--text-primary); font-size:0.9rem">Starting&hellip;</strong>
+              <button class="btn btn-secondary btn-sm" onclick="dsSecCancel()">Cancel</button>
+            </div>
+            <div style="height:8px; background:var(--bg-elevated); border-radius:999px; overflow:hidden">
+              <div id="ds-sec-progress-bar" style="height:100%; width:2%; background:var(--primary); transition:width var(--t-base)"></div>
+            </div>
+            <div id="ds-sec-progress-note" style="color:var(--text-muted); font-size:0.76rem; margin-top:var(--sp-2)">Elapsed 0s</div>
+          </div>
+
+          <!-- ERROR -->
+          <div id="ds-sec-error" class="notice notice-warning" style="font-size:0.85rem; display:none"></div>
+
+          <!-- RESULT -->
+          <div id="ds-sec-result" style="display:none; flex-direction:column; gap:var(--sp-4)">
+
+            <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center">
+              <span class="badge badge-secondary" id="ds-sec-c-entity">0 entity rules</span>
+              <span class="badge badge-secondary" id="ds-sec-c-doc">0 document rules</span>
+              <span class="badge badge-secondary" id="ds-sec-c-roles">0 roles</span>
+              <span id="ds-sec-meta" style="color:var(--text-muted); font-size:0.76rem; margin-left:auto"></span>
+            </div>
+
+            <!-- HIGHLIGHTS -->
+            <div id="ds-sec-highlights" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:var(--sp-3)"></div>
+
+            <!-- CONTROLS -->
+            <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center">
+              <div class="btn-group">
+                <button type="button" class="btn btn-secondary btn-xs active" id="ds-sec-view-entities" onclick="dsSecSetView('entities',this)">Entity access</button>
+                <button type="button" class="btn btn-secondary btn-xs" id="ds-sec-view-documents" onclick="dsSecSetView('documents',this)">Document access</button>
+              </div>
+              <select class="select" id="ds-sec-f-role" style="font-size:0.8rem" onchange="dsSecApplyFilter()"><option value="">All roles</option></select>
+              <select class="select" id="ds-sec-f-module" style="font-size:0.8rem" onchange="dsSecApplyFilter()"><option value="">All modules</option></select>
+              <input class="input" id="ds-sec-f-text" placeholder="Filter by entity / document&hellip;" style="font-size:0.8rem; flex:1; min-width:160px" oninput="dsSecApplyFilter()">
+              <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-secondary); white-space:nowrap">
+                <input type="checkbox" id="ds-sec-f-flagged" onchange="dsSecApplyFilter()"> Flagged only
+              </label>
+              <span style="margin-left:auto; display:flex; gap:var(--sp-2)">
+                <button class="btn btn-secondary btn-sm" onclick="dsSecExport('csv')">CSV</button>
+                <button class="btn btn-secondary btn-sm" onclick="dsSecExport('html')">HTML report</button>
+              </span>
+            </div>
+
+            <div id="ds-sec-count" style="color:var(--text-muted); font-size:0.78rem"></div>
+
+            <!-- MATRIX (virtualised) -->
+            <div id="ds-sec-list" style="border:1px solid var(--border); border-radius:var(--r-md); height:460px; overflow-y:auto; background:var(--bg-elevated)"></div>
+          </div>
+
+        </div>
+        <!-- /ds-security-view -->
 
       </div>
     </div>

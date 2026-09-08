@@ -5294,6 +5294,134 @@ const mdep = require('../server/model-deployment.js');
   eq('mdep: a null row list is survivable', mdep.mdBuildIndex(null).counts.entities, 0);
 })();
 
+// ── MX Tool Runner (wave 28, server/mx-tool.js) ────────────────────────────
+// Pure layer only: version parsing, binary selection, the progress counter and
+// JSON validation. No `mx.exe` is spawned here — the impure half is verified by
+// the owner against real installations at the wave's STOP checkpoint.
+const mxt = require('../server/mx-tool.js');
+
+(function () {
+  // Two real version shapes, both measured 07.09.2026: a four-part install
+  // directory and a three-part `_MetaData._ProductVersion` from a recent .mpr.
+  eq('mxt: four-part install version parses',
+    JSON.stringify(mxt.mxParseVersion('10.24.0.61922')),
+    JSON.stringify({ full: '10.24.0.61922', major: 10, minor: 24, patch: 0, build: 61922 }));
+  eq('mxt: three-part product version parses',
+    JSON.stringify(mxt.mxParseVersion('11.12.2')),
+    JSON.stringify({ full: '11.12.2', major: 11, minor: 12, patch: 2, build: 0 }));
+  eq('mxt: a non-version string is null', mxt.mxParseVersion('main'), null);
+  eq('mxt: a null is null', mxt.mxParseVersion(null), null);
+
+  ok('mxt: newer major sorts after older', mxt.mxCompareVersions('11.0.0', '10.24.0.99999') === 1);
+  ok('mxt: missing parts count as zero', mxt.mxCompareVersions('11.12', '11.12.0.0') === 0);
+  ok('mxt: an unparsable version sorts lowest', mxt.mxCompareVersions('x', '1.0') === -1);
+
+  const inst = [
+    { mxPath: 'a\\9.24\\mx.exe', version: '9.24.23.37735', parsed: mxt.mxParseVersion('9.24.23.37735') },
+    { mxPath: 'a\\10.24\\mx.exe', version: '10.24.14.90436', parsed: mxt.mxParseVersion('10.24.14.90436') },
+    { mxPath: 'a\\11.12\\mx.exe', version: '11.12.2', parsed: mxt.mxParseVersion('11.12.2') }
+  ];
+  // export-security-overview: needs an 11+ binary; measured 11.12 reads 10.x.
+  eq('mxt: an 11 project picks the 11 binary',
+    mxt.mxPickBinary(inst, '11.12.0', 'export-security-overview').version, '11.12.2');
+  eq('mxt: a 10 project also picks the 11 binary (measured: 11.12 reads 10.24)',
+    mxt.mxPickBinary(inst, '10.24.14.90436', 'export-security-overview').version, '11.12.2');
+  ok('mxt: a 9 project is refused before anything is spawned',
+    /Mendix 10 or newer/.test(mxt.mxPickBinary(inst, '9.24.23.37735', 'export-security-overview').error || ''));
+  ok('mxt: no 11+ binary is a clear message, not a crash',
+    /needs a Mendix 11/.test(mxt.mxPickBinary(
+      [inst[0], inst[1]], '10.24.0.1', 'export-security-overview').error || ''));
+  ok('mxt: no installations at all is handled',
+    /No Mendix Studio Pro/.test(mxt.mxPickBinary([], '11.0.0', 'export-security-overview').error || ''));
+  // show-version works with any binary — used to read a version we could not
+  // get from the .mpr directly.
+  eq('mxt: show-version picks the newest binary',
+    mxt.mxPickBinary(inst, null, 'show-version').version, '11.12.2');
+
+  // The progress counter reads the module name off a stdout line; there is no
+  // percentage in the output, so the caller counts distinct names.
+  eq('mxt: a module line yields the module name',
+    mxt.mxProgressModule("Exporting entity access for module 'Administration'..."), 'Administration');
+  eq('mxt: a line without a module is null',
+    mxt.mxProgressModule('Starting security export'), null);
+  eq('mxt: a non-string is null', mxt.mxProgressModule(42), null);
+
+  // Success is decided by validating the JSON — the exit code is 1 even on a
+  // fully successful run (measured 3/3).
+  const goodDoc = { entityAccess: [], documentAccess: [], userRoles: [] };
+  ok('mxt: a document with the three arrays validates',
+    mxt.mxValidateSecurityJson(goodDoc).ok === true);
+  ok('mxt: a string is parsed then validated',
+    mxt.mxValidateSecurityJson(JSON.stringify(goodDoc)).ok === true);
+  ok('mxt: truncated JSON is a reason, not a pass',
+    mxt.mxValidateSecurityJson('{"entityAccess":[').ok === false);
+  ok('mxt: a missing array is a reason, not a pass',
+    /userRoles/.test(mxt.mxValidateSecurityJson({ entityAccess: [], documentAccess: [] }).reason || ''));
+  ok('mxt: a JSON array (not object) is rejected',
+    mxt.mxValidateSecurityJson('[]').ok === false);
+
+  // Normalisation + highlights against the measured shape (Mendix 11.12
+  // export, 08.09.2026). Fixture names are invented — nothing from a real app.
+  const sample = {
+    entityAccess: [
+      { userRole: { name: 'Admin', isAnonymousRole: false, isAdministratorRole: true },
+        module: 'Sales', entity: 'Order', XPath: '', canCreate: true, canDelete: true,
+        members: [{ name: 'Total', kind: 'Attribute', type: 'Decimal', access: 'ReadWrite' },
+                  { name: 'Ref', kind: 'Attribute', type: 'String', access: 'ReadOnly' }] },
+      { userRole: { name: 'Clerk', isAnonymousRole: false, isAdministratorRole: false },
+        module: 'Sales', entity: 'Order', XPath: '', canCreate: true, canDelete: false,
+        members: [{ name: 'Total', kind: 'Attribute', type: 'Decimal', access: 'ReadOnly' }] },
+      { userRole: { name: 'Clerk', isAnonymousRole: false, isAdministratorRole: false },
+        module: 'Sales', entity: 'Invoice', XPath: "[System.owner='[%CurrentUser%]']",
+        canCreate: false, canDelete: true, members: [] },
+      { userRole: { name: 'Guest', isAnonymousRole: true, isAdministratorRole: false },
+        module: 'Web', entity: 'Signup', XPath: '', canCreate: true, canDelete: false, members: [] }
+    ],
+    documentAccess: [
+      { module: 'Sales', document: 'Order_Overview', documentType: 'Page',
+        userRoles: [{ name: 'Admin', isAnonymousRole: false, isAdministratorRole: true },
+                    { name: 'Clerk', isAnonymousRole: false, isAdministratorRole: false }] },
+      { module: 'Web', document: 'PublicLanding', documentType: 'Page',
+        userRoles: [{ name: 'Guest', isAnonymousRole: true, isAdministratorRole: false }] },
+      { module: 'Sales', document: 'Unused_MF', documentType: 'Microflow', userRoles: [] }
+    ],
+    userRoles: [
+      { userRole: 'Admin', isAnonymousRole: false, isAdministratorRole: true, moduleRoles: [{ module: 'Sales', moduleRole: 'Administrator' }] },
+      { userRole: 'Clerk', isAnonymousRole: false, isAdministratorRole: false, moduleRoles: [] },
+      { userRole: 'Guest', isAnonymousRole: true, isAdministratorRole: false, moduleRoles: [] }
+    ]
+  };
+  const norm = mxt.mxNormalizeSecurity(sample);
+  eq('mxt: normalize counts entity rules', norm.counts.entityRules, 4);
+  eq('mxt: normalize counts document rules', norm.counts.documentRules, 3);
+  eq('mxt: normalize counts distinct entities (Order appears twice)', norm.counts.entities, 3);
+  eq('mxt: normalize keeps the qualified name', norm.entityRules[0].qname, 'Sales.Order');
+  eq('mxt: normalize counts writable members', norm.entityRules[0].write, 1);
+  eq('mxt: normalize trims an empty XPath to falsey', norm.entityRules[0].xpath, '');
+  eq('mxt: normalize keeps a real XPath', norm.entityRules[2].xpath, "[System.owner='[%CurrentUser%]']");
+  eq('mxt: role admin flag carried through', norm.roles.find(r => r.name === 'Admin').admin, true);
+  eq('mxt: role anon flag carried through', norm.roles.find(r => r.name === 'Guest').anon, true);
+
+  // Highlights: broad write = non-admin, no XPath, create OR delete.
+  //   Clerk/Order (create, no xpath) -> yes
+  //   Clerk/Invoice (delete but HAS xpath) -> no
+  //   Guest/Signup (create, no xpath, non-admin) -> yes
+  //   Admin/Order -> no (admin)
+  eq('mxt: broadWrite finds exactly the unconstrained non-admin writes',
+    norm.highlights.broadWrite.length, 2);
+  ok('mxt: broadWrite points at Clerk/Order',
+    norm.highlights.broadWrite.some(i => norm.entityRules[i].role === 'Clerk' && norm.entityRules[i].entity === 'Order'));
+  ok('mxt: broadWrite excludes the XPath-constrained delete',
+    !norm.highlights.broadWrite.some(i => norm.entityRules[i].entity === 'Invoice'));
+  eq('mxt: anonEntity finds the guest rule', norm.highlights.anonEntity.length, 1);
+  eq('mxt: anonDocument finds the guest page', norm.highlights.anonDocument.length, 1);
+  eq('mxt: a document nobody can reach is not flagged anonymous',
+    norm.documentRules[2].roles.length, 0);
+
+  ok('mxt: a doc missing an array still throws in normalize',
+    (function () { try { mxt.mxNormalizeSecurity({ entityAccess: [] }); return false; } catch (e) { return true; } })());
+})();
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 runXlsxAsyncTests().then(runApiEconAsyncTests).then(runNginxAsyncTests).then(runAnonTests).then(function () {
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
