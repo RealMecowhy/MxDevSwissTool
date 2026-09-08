@@ -2092,6 +2092,48 @@ eq('errdec/model: matching is case-insensitive',
 eq('errdec/model: most specific table first',
   edxMap('violation on eshop$orderline', EDX_TBL)[0].entity, 'eShop.OrderLine');
 
+// Two sources now name tables: the live database (every persistable entity) and
+// the deployment model (every entity the client queries, no connection needed).
+// Merged, because either alone leaves gaps — and the database wins a clash,
+// since it reads the schema that exists rather than the name Mendix would use.
+(function () {
+  const edxTableMap = global.edxTableMap;
+  const savedOps = global.window._mxOpsIndex;
+  const savedLive = global.window._mxTableMap;
+
+  global.window._mxOpsIndex = null; global.window._mxTableMap = null;
+  eq('errdec/model: neither source loaded → no map', edxTableMap(), null);
+
+  global.window._mxOpsIndex = { byTable: { 'sales$order': 'Sales.Order' } };
+  eq('errdec/model: the deployment model alone provides a map',
+    edxTableMap()['sales$order'], 'Sales.Order');
+
+  global.window._mxTableMap = { 'sales$invoice': 'Sales.Invoice' };
+  eq('errdec/model: both sources merge', Object.keys(edxTableMap()).length, 2);
+
+  global.window._mxTableMap = { 'sales$order': 'Billing.Order' };
+  eq('errdec/model: the live database wins a clash',
+    edxTableMap()['sales$order'], 'Billing.Order');
+
+  global.window._mxOpsIndex = savedOps; global.window._mxTableMap = savedLive;
+})();
+
+// The decoded message is carried on the result so the table section can search
+// it. Before this, it searched `matchedText` — the matched signature clipped to
+// 240 chars, which for the unique-constraint rule is `ERROR: duplicate key
+// value` and never contains a table name. The section could therefore almost
+// never appear, model loaded or not.
+(function () {
+  const decoded = global.edxDecode(
+    'ERROR: duplicate key value violates unique constraint on "eshop$order"');
+  ok('errdec: the decoded message is carried on the result',
+    typeof decoded.input.text === 'string' && /eshop\$order/.test(decoded.input.text));
+  ok('errdec: a table in the message is out of reach of matchedText alone',
+    decoded.matches.length > 0 && edxMap(decoded.matches[0].matchedText, EDX_TBL).length === 0);
+  eq('errdec: ...but is found in the message',
+    edxMap(decoded.input.text, EDX_TBL)[0].entity, 'eShop.Order');
+})();
+
 // ── Live DB — Domain Model from database (Wave 6 R3, server/livedb.js) ──────
 // Two facts decide whether the generated diagram is right or merely plausible:
 // where the FK column lives (parent's table, NOT association.table_name — they
@@ -5096,6 +5138,114 @@ console.log('\nSettings backup');
   ok('import: an unowned key never reaches storage', !store.has('evil-key'));
 
   delete global.localStorage;
+})();
+
+// ── Deployment model (wave 26, server/model-deployment.js) ──────────────────
+// Two file shapes carry the same information depending on the Mendix version:
+// Mendix 10/11 puts retrieves in `operations.json` under `constants`, Mendix 9
+// puts them in `queries.json` with lower-cased field names. Both must produce
+// identical normalized rows, or every consumer downstream sees a different
+// model depending on which Mendix the user happens to run.
+//
+// Fixtures are hand-written in the shapes measured on real projects. Nothing is
+// copied out of a real application: the values there are entity, page and
+// customer names.
+const mdep = require('../server/model-deployment.js');
+
+(function () {
+  eq('mdep: XPath with a constraint yields the entity',
+    mdep.mdEntityFromXPath("//Sales.Order[Sales.Order_Customer='[%CurrentObject%]']"), 'Sales.Order');
+  eq('mdep: XPath without a constraint yields the entity',
+    mdep.mdEntityFromXPath('//System.User'), 'System.User');
+  eq('mdep: leading whitespace is tolerated',
+    mdep.mdEntityFromXPath('  //Sales.Order'), 'Sales.Order');
+  // Measured 07.09.2026: 1385/1385 XPaths in a 10.24 app and 510/510 in a 9.24
+  // app start with `//`. A value that does not is not an XPath we understand,
+  // and half an answer would be worse than none.
+  eq('mdep: a path without // is not guessed at', mdep.mdEntityFromXPath('Sales.Order'), null);
+  eq('mdep: an unqualified name is not an entity', mdep.mdEntityFromXPath('//Order'), null);
+  eq('mdep: a non-string is not an entity', mdep.mdEntityFromXPath(null), null);
+
+  // EntityPath is either a lone entity or alternating association/entity
+  // segments — measured segment counts are 1, 2, 4 and 6, never odd above one.
+  // The last segment is the entity actually retrieved.
+  eq('mdep: a lone EntityPath segment is the entity',
+    mdep.mdEntityFromPath('Sales.Order'), 'Sales.Order');
+  eq('mdep: association/entity resolves to the entity',
+    mdep.mdEntityFromPath('Sales.Order_Customer/Sales.Customer'), 'Sales.Customer');
+  eq('mdep: a four-segment path resolves to its last entity',
+    mdep.mdEntityFromPath('A.B_C/A.C/A.C_D/E.D'), 'E.D');
+  eq('mdep: an empty EntityPath is not an entity', mdep.mdEntityFromPath(''), null);
+
+  eq('mdep: table name follows the module$entity convention',
+    mdep.mdTableForEntity('Sales.Order'), 'sales$order');
+  eq('mdep: table name is lower-cased whole',
+    mdep.mdTableForEntity('MDM_Matrix.MatrixData'), 'mdm_matrix$matrixdata');
+  eq('mdep: only the module separator becomes $',
+    mdep.mdTableForEntity('A.B'), 'a$b');
+  eq('mdep: a bare name has no table', mdep.mdTableForEntity('Order'), null);
+
+  // Mendix 10/11 shape.
+  const opsRows = mdep.mdNormalizeOperations({
+    operations: [
+      { operationType: 'retrieve', constants: {
+        XPath: '//Sales.Order[Status=\'Open\']', PageName: 'Sales.Overview', WidgetName: 'Sales.Overview.list1' } },
+      { operationType: 'retrieve', constants: {
+        EntityPath: 'Sales.Order_Customer/Sales.Customer', PageName: 'Sales.Detail', WidgetName: 'Sales.Detail.dv1' } },
+      { operationType: 'callMicroflow', constants: { MicroflowName: 'Sales.ACT_Ship' } },
+      { operationType: 'create', constants: { ObjectType: 'Sales.Order' } },
+      { operationType: 'rollback', constants: {} }
+    ]
+  });
+  eq('mdep: every operation becomes a row', opsRows.length, 5);
+  eq('mdep: a retrieve keeps its page', opsRows[0].page, 'Sales.Overview');
+  eq('mdep: a retrieve keeps its entity', opsRows[0].entity, 'Sales.Order');
+  eq('mdep: an EntityPath retrieve resolves the entity', opsRows[1].entity, 'Sales.Customer');
+  // Worth asserting rather than assuming: `callMicroflow` carries no PageName
+  // in any Mendix version measured, so this file cannot answer "which screen
+  // calls this microflow" — only "this microflow is callable from the client".
+  eq('mdep: callMicroflow has a microflow but no page', opsRows[2].microflow, 'Sales.ACT_Ship');
+  eq('mdep: callMicroflow really has no page', opsRows[2].page, null);
+  eq('mdep: create resolves its ObjectType', opsRows[3].entity, 'Sales.Order');
+  eq('mdep: an operation with nothing to resolve still counts', opsRows[4].entity, null);
+
+  // Mendix 9 shape — same information, different file and casing.
+  const qRows = mdep.mdNormalizeOperations({
+    queries: [
+      { xPath: '//Sales.Order[Status=\'Open\']', pageName: 'Sales.Overview', widgetName: 'Sales.Overview.list1', microflow: null },
+      { entityPath: 'Sales.Order_Customer/Sales.Customer', pageName: 'Sales.Detail', widgetName: 'Sales.Detail.dv1', microflow: null },
+      { xPath: null, entityPath: null, microflow: 'Sales.DS_Orders', pageName: 'Sales.Overview', widgetName: 'Sales.Overview.list2' }
+    ]
+  });
+  eq('mdep: Mendix 9 queries produce the same entity', qRows[0].entity, 'Sales.Order');
+  eq('mdep: Mendix 9 queries produce the same page', qRows[0].page, 'Sales.Overview');
+  eq('mdep: Mendix 9 EntityPath resolves identically', qRows[1].entity, 'Sales.Customer');
+  eq('mdep: a Mendix 9 microflow source is a retrieveByMicroflow', qRows[2].kind, 'retrieveByMicroflow');
+
+  // The point of the normalizer: both shapes must be indistinguishable
+  // downstream for the same application content.
+  ok('mdep: both Mendix shapes normalize to the same entity+page',
+    opsRows[0].entity === qRows[0].entity && opsRows[0].page === qRows[0].page &&
+    opsRows[1].entity === qRows[1].entity);
+
+  const idx = mdep.mdBuildIndex(opsRows.concat(qRows));
+  eq('mdep: entities are indexed once each', idx.counts.entities, 2);
+  eq('mdep: pages are counted distinctly', idx.counts.pages, 2);
+  eq('mdep: byEntity collects every touch', idx.byEntity['Sales.Order'].length, 3);
+  // byTable maps to the entity NAME, not to the rows — holding the rows twice
+  // doubled the payload the browser downloads (1554 KB → 886 KB on a real app).
+  eq('mdep: byTable maps a table to its entity name', idx.byTable['sales$order'], 'Sales.Order');
+  eq('mdep: byMicroflow indexes client-callable microflows',
+    idx.byMicroflow['Sales.ACT_Ship'].length, 1);
+
+  // Missing files are ordinary: which ones exist depends on the Mendix version,
+  // and a project never run locally has none. Nothing here may throw.
+  eq('mdep: no input yields no rows', mdep.mdNormalizeOperations({}).length, 0);
+  eq('mdep: undefined input yields no rows', mdep.mdNormalizeOperations().length, 0);
+  eq('mdep: a non-array operations value is ignored',
+    mdep.mdNormalizeOperations({ operations: 'nope' }).length, 0);
+  eq('mdep: an empty index still reports counts', mdep.mdBuildIndex([]).counts.operations, 0);
+  eq('mdep: a null row list is survivable', mdep.mdBuildIndex(null).counts.entities, 0);
 })();
 
 // ── Summary ─────────────────────────────────────────────────────────────────

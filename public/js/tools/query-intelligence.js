@@ -388,8 +388,12 @@ function visualizeSqlExplain() {
     let line = lines[i];
     let l = escHtml(line);
 
-    // Detect Table for context
-    let scanMatch = line.match(/Seq Scan on ([a-zA-Z0-9_]+)/i) || line.match(/Index Scan.*on ([a-zA-Z0-9_]+)/i);
+    // Detect Table for context. `$` belongs in the character class: Mendix names
+    // every table `module$entity`, so without it this captured `mdm_matrix` out
+    // of `mdm_matrix$matrixdata` — a name no lookup can resolve and no developer
+    // can search for. PostgreSQL also lower-cases and quotes nothing here, so the
+    // capture is the physical table name as the catalog holds it.
+    let scanMatch = line.match(/Seq Scan on "?([a-zA-Z0-9_$]+)"?/i) || line.match(/Index Scan.*on "?([a-zA-Z0-9_$]+)"?/i);
     if (scanMatch) currentScanTable = scanMatch[1];
 
     // Actual row count this node returned (needed for the Rows Removed % below).
@@ -449,12 +453,18 @@ function visualizeSqlExplain() {
         let cols = filterMatch[1].match(/([a-zA-Z0-9_]+)/g);
         if (cols && cols.length > 0) {
           // "Find the entity corresponding to table eshop$orderline" is work the
-          // tool can do for the reader whenever a domain model has been loaded.
-          const entity = window.mxEntityForTable ? window.mxEntityForTable(currentScanTable) : null;
+          // tool can do for the reader. Two independent sources answer it: a
+          // domain model loaded from a live database, or the deployment model,
+          // which needs no connection at all — so the sentence stops being an
+          // instruction to go looking far more often than it used to.
+          const opsHit = window.mxOpsForTable ? window.mxOpsForTable(currentScanTable) : null;
+          const entity = (window.mxEntityForTable ? window.mxEntityForTable(currentScanTable) : null) ||
+            (opsHit && opsHit.entity);
           const target = entity
             ? `open entity <strong>${entity}</strong> (table <code>${currentScanTable}</code>)`
             : `find the entity corresponding to table <code>${currentScanTable}</code>`;
-          suggestions.push(`Observed filtering on column <code>${cols[0]}</code> associated with table <strong>${currentScanTable}</strong> during a <em>Seq Scan</em>. <br><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px;margin-right:6px"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg><strong style="color:var(--primary)">Open Domain Model in Mendix Studio Pro</strong>, ${target}, and add an Index for attribute <code>${cols[0]}</code>.`);
+          const screens = window.mxOpsAttributionHtml ? window.mxOpsAttributionHtml(currentScanTable) : '';
+          suggestions.push(`Observed filtering on column <code>${cols[0]}</code> associated with table <strong>${currentScanTable}</strong> during a <em>Seq Scan</em>. <br><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px;margin-right:6px"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg><strong style="color:var(--primary)">Open Domain Model in Mendix Studio Pro</strong>, ${target}, and add an Index for attribute <code>${cols[0]}</code>.${screens}`);
         }
       }
     }

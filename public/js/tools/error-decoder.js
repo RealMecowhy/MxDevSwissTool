@@ -1571,7 +1571,15 @@
       input: {
         empty: trimmed.length === 0,
         lineCount: trimmed ? trimmed.split(/\r?\n/).length : 0,
-        hasStackTrace: edxHasStackTrace(text)
+        hasStackTrace: edxHasStackTrace(text),
+        // The decoded message itself, kept BY REFERENCE (no copy — the textarea
+        // already holds it). "Tables in this message" used to search only
+        // `matchedText`, which is the matched signature clipped to 240 chars:
+        // for the unique-constraint rule that is `ERROR: duplicate key value`,
+        // which never contains a table name, so the section almost never
+        // appeared even with a model loaded. The message is what the label says
+        // it looks at.
+        text: text
       },
       matches: matches
     };
@@ -1729,18 +1737,34 @@ function edxMapTables(text, tableMap) {
   return found;
 }
 
-function edxCardHtml(match) {
+// Two independent sources name the same thing. The live database gives every
+// persistable entity; the deployment model gives every entity the client
+// actually queries, and needs no connection. Merged rather than either/or —
+// with the database authoritative where both know a table, since it reads the
+// schema that exists rather than the names Mendix would use for it.
+function edxTableMap() {
+  if (typeof window === 'undefined') return null;
+  const ops = window._mxOpsIndex && window._mxOpsIndex.byTable;
+  const live = window._mxTableMap;
+  if (!ops && !live) return null;
+  return Object.assign({}, ops || {}, live || {});
+}
+
+function edxCardHtml(match, messageText, withScreens) {
   const causes = (match.causes || []).map(function (c) { return '<li>' + c + '</li>'; }).join('');
   const checks = (match.checks || []).map(edxCheckHtml).join('');
-  const tables = (typeof window !== 'undefined')
-    ? edxMapTables(match.matchedText, window._mxTableMap)
-    : [];
+  const tables = edxMapTables(messageText || match.matchedText, edxTableMap());
+  // Screens for the most specific table, on the first card only. The tables come
+  // from the whole message, so repeating the same block under every card of a
+  // multi-match paste would be the same list three times.
+  const screens = (withScreens && tables.length && typeof window !== 'undefined' && window.mxOpsAttributionHtml)
+    ? window.mxOpsAttributionHtml(tables[0].table) : '';
   const tableSection = tables.length
     ? '<div class="edx-section"><div class="edx-section-label">Tables in this message</div><ul class="edx-list">'
       + tables.map(function (t) {
         return '<li><code>' + edxEsc(t.table) + '</code> &rarr; <strong>' + edxEsc(t.entity) + '</strong></li>';
       }).join('')
-      + '</ul></div>'
+      + '</ul>' + screens + '</div>'
     : '';
   return '<div class="edx-card">'
     + '<div class="edx-card-head">'
@@ -1796,7 +1820,9 @@ function edxRender(result) {
     + '<strong>' + result.matches.length + '</strong> matched pattern' + (many ? 's' : '')
     + (many ? ' — shown most specific first. A wrapped exception\'s deepest match is usually its root cause; read the cards together.' : '') + '</div>';
 
-  const cards = result.matches.map(edxCardHtml).join('');
+  const cards = result.matches.map(function (m, i) {
+    return edxCardHtml(m, result.input.text, i === 0);
+  }).join('');
   const disclaimer = '<div class="edx-disclaimer">This decoder explains error mechanisms and lists causes to check — it does not prescribe fixes. Always confirm the matched pattern fits your actual message before acting on it.</div>';
   out.innerHTML = context + cards + disclaimer;
 }
@@ -1860,6 +1886,7 @@ window.edxClear = function () {
 // ERROR record's full message (headline + stack) straight into the decoder.
 // Exposed for unit tests and for any tool that wants the same translation.
 window.edxMapTables = edxMapTables;
+window.edxTableMap = edxTableMap;
 
 window.edxDecodeText = function (text, context) {
   const input = document.getElementById('edx-input');

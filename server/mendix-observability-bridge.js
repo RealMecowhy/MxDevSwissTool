@@ -18,6 +18,7 @@ const path = require('path');
 const { exec } = require('child_process');
 const crypto = require('crypto');
 const livedb = require('./livedb');
+const modelDeployment = require('./model-deployment');
 const perfSession = require('./perf-session');
 
 // 'pg' is optional: loaded on demand so the bridge starts without npm install.
@@ -1228,6 +1229,48 @@ const server = http.createServer((req, res) => {
     return sendError(req, res, 'Method Not Allowed', 405);
   }
 
+
+  // Reads `deployment/model/` — the model Mendix writes on every local run —
+  // and returns the operation index built from it. Read-only, no process
+  // spawned, no Studio Pro required; see server/model-deployment.js for why
+  // this is the path rather than `mx.exe dump-mpr`.
+  //
+  // `projectRoot` is validated the same way /detect-project and
+  // /project-insights already validate theirs: it has to be an absolute path
+  // to a directory that exists. Both of those routes accept a caller-supplied
+  // root too (the UI's "manual path" field depends on it), so a stricter
+  // allowlist here alone would break that flow without narrowing the threat
+  // model — the Bridge is loopback-bound and token-gated for all three.
+  if (url.pathname === '/model/deployment') {
+    if (req.method === 'POST') {
+      readBody(req, res, 1 * 1024 * 1024, (rawBody) => {
+        let projectRoot;
+        try {
+          const body = JSON.parse(rawBody.toString('utf8'));
+          if (!body.projectRoot || typeof body.projectRoot !== 'string') {
+            throw new Error('Missing projectRoot');
+          }
+          if (!path.isAbsolute(body.projectRoot)) {
+            throw new Error('projectRoot must be an absolute path');
+          }
+          projectRoot = path.resolve(body.projectRoot);
+        } catch (e) {
+          return sendError(req, res, `Invalid request: ${e.message}`, 400);
+        }
+
+        fsp.stat(projectRoot)
+          .catch(() => { throw new Error(`No such directory: ${projectRoot}`); })
+          .then(st => {
+            if (!st.isDirectory()) throw new Error('projectRoot is not a directory');
+            return modelDeployment.mdReadDeploymentModel(projectRoot);
+          })
+          .then(r => sendJson(req, res, r))
+          .catch(e => sendError(req, res, `Deployment model error: ${e.message}`, 400));
+      });
+      return;
+    }
+    return sendError(req, res, 'Method Not Allowed', 405);
+  }
 
   if (url.pathname === '/postgres') {
       if (req.method === 'POST') {

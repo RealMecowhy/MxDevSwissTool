@@ -14,6 +14,86 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.55.0 — 2026-09-07
+
+**The screens behind a slow query.** v1.54.0 read the deployment model; this
+release spends it. Four tools that could name a *table* can now name the
+**pages and widgets that query it** — with no database connection, at any log
+level, on every Mendix version from 9 up.
+
+- **Log Query Extractor → Source XPath/OQL** lists the screens that query the
+  same entity. This matters most where that pane was empty: XPath is only
+  logged at TRACE, so on an ordinary production log "No source available" was
+  the entire answer, while `deployment/model/` knows the screens regardless.
+- **Query Intelligence → Explain** names the entity behind a scanned table and
+  the screens that query it, instead of telling you to go find them.
+- **Index Advisor** adds the same list to *Sequential scans* and *Never
+  scanned* findings — the catalog says a table is scanned, the deployment model
+  says which pages do the scanning. Deliberately not on the structural findings
+  (duplicate / redundant / invalid index): those are about the catalog's shape.
+- **Error Decoder** merges both table→entity sources (live database and
+  deployment model) and names the screens behind the table in the message.
+
+**Two defects this wave exposed, both older than it:**
+
+- **Query Intelligence read every Mendix table name wrong.** The scan-table
+  regex was `[a-zA-Z0-9_]+`, and every Mendix table is `module$entity` — so it
+  captured `mdm_matrix` out of `mdm_matrix$matrixdata`. The suggestion named a
+  table that does not exist, and the entity translation added in v1.44.0 could
+  never resolve anything. Fixed, with a regression test on the `$`.
+- **"Tables in this message" almost never appeared** in the Error Decoder. It
+  searched `matchedText` — the matched signature clipped to 240 characters,
+  which for the unique-constraint rule is `ERROR: duplicate key value` and
+  carries no table name. It now searches the decoded message, which is what the
+  label says it does. The message is carried by reference, not copied.
+
+Verified on a real 11.12 application: a Postgres error naming
+`mdm_matrix$matrixdata` now resolves to `MDM_Matrix.MatrixData` and lists the
+five screens that query it, across all four tools. 15 browser assertions and 3
+unit tests, including the degradation contract — with no model loaded every one
+of these tools renders exactly what it rendered in v1.53.0.
+
+## v1.54.0 — 2026-09-07
+
+**The model Mendix already wrote to disk.** A proposal came in to read the
+application model through `mx.exe` (Studio Pro's own CLI). Measuring it first
+changed the answer: `mx` 9.24 has neither `dump-mpr` nor
+`export-security-overview`, `mx` 10.24 has only the first, an 11.x binary
+refuses a 9.x `.mpr` outright, a full `dump-mpr` was **62 MB of JSON in 75 s**
+from a 412 KB project, and `export-security-overview` **returns exit code 1 on
+success** (3 of 3 projects). Meanwhile `deployment/model/` — which Mendix writes
+on every local run, which the Bridge already has the path to, and which exists
+for every Mendix version — carries the one thing neither the database nor the
+log can say: **which page and which widget issues a given query.**
+
+- **New Bridge route `POST /model/deployment`** and `server/model-deployment.js`,
+  which normalises the two shapes Mendix uses for the same information: Mendix
+  10/11 keeps retrieves in `operations.json` under `constants` (`XPath` /
+  `EntityPath`, `PageName`, `WidgetName`), Mendix 9 keeps them in `queries.json`
+  under lower-cased names. Both produce identical rows, so a tool downstream
+  cannot tell which Mendix the user runs. Measured on five real applications
+  (Mendix 9.24 through 11.12): **entity resolution 100% on all 3364 XPaths and
+  4073 entity paths**, index built in 12 ms for the largest.
+- **Developer Studio shows what was found** — operations, entities, pages,
+  microflows, and which file they came from. A project that has never been run
+  locally gets one line saying to run it once, not an empty card.
+- **`window._mxOpsIndex` published for the query tools**, reached through
+  `mxOpsForTable` / `mxPagesForEntity`. Same progressive-enrichment contract as
+  the existing table→entity map: with no index loaded they return `null` and
+  every caller renders exactly what it renders today. Unlike the table map, this
+  one needs no database connection at all.
+- `byTable` maps a table to its entity *name* rather than to the rows: holding
+  the same rows under two keys serialised every operation twice and cost 668 KB
+  of payload on a real application.
+- 37 unit tests in `parser-test.js` covering both Mendix shapes, the
+  degradation paths, and the cases that must not be guessed at — an XPath
+  without leading `//`, an unqualified name, a missing file.
+
+**Not built, and why** (measured, in `_local_assets/MxDevSwissTool-Plan-Warstwa-Modelu-2026-09.md`):
+the domain-model diagram from `dump-mpr` (Arch Canvas already does it better),
+`mx check`, `mx diff`, and `analyze-mpr` — whose output Mendix's own
+documentation says not to build tools on.
+
 ## v1.53.0 — 2026-08-26
 
 **Grafana log exports.** A user reported that logs pulled through Grafana render

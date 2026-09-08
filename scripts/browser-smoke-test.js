@@ -316,6 +316,107 @@ async function run() {
     ok('...and carries the log row it came from',
       await page.evaluate(() => getComputedStyle(document.getElementById('edx-context')).display !== 'none'));
 
+    // Deployment-model attribution (wave 27). The index normally arrives from the
+    // Bridge, which is not running here, so it is injected directly — what is
+    // under test is the four consumers and the degradation contract, not the
+    // fetch. The fixture's table is the one the synthetic log already queries.
+    console.log('\nDeployment-model attribution');
+    currentTool = 'log-query-extractor';
+    const OPS_FIXTURE = {
+      byEntity: {
+        'Sales.Order': [
+          { kind: 'retrieve', entity: 'Sales.Order', page: 'Sales.Overview', widget: 'Sales.Overview.list1' },
+          { kind: 'retrieve', entity: 'Sales.Order', page: 'Sales.Overview', widget: 'Sales.Overview.search1' },
+          { kind: 'retrieve', entity: 'Sales.Order', page: 'Sales.Detail', widget: 'Sales.Detail.dv1' },
+          { kind: 'callMicroflow', entity: 'Sales.Order', microflow: 'Sales.ACT_Ship', page: null, widget: null }
+        ]
+      },
+      byTable: { 'sales$order': 'Sales.Order' },
+      byMicroflow: { 'Sales.ACT_Ship': [{ kind: 'callMicroflow', microflow: 'Sales.ACT_Ship' }] },
+      counts: { operations: 4, entities: 1, microflows: 1, pages: 2 }
+    };
+
+    const attribution = await page.evaluate(idx => {
+      window._mxOpsIndex = idx;
+      const html = window.mxOpsAttributionHtml('sales$order');
+      const quoted = window.mxOpsAttributionHtml('public."sales$order"');
+      const byEntity = window.mxOpsAttributionHtml('Sales.Order');
+      const unknown = window.mxOpsAttributionHtml('nope$nope');
+      window._mxOpsIndex = null;
+      const degraded = window.mxOpsAttributionHtml('sales$order');
+      window._mxOpsIndex = idx;
+      return { html: html, quoted: quoted, byEntity: byEntity, unknown: unknown, degraded: degraded };
+    }, OPS_FIXTURE);
+
+    ok('attribution names the entity behind the table', /Sales\.Order/.test(attribution.html));
+    ok('...and every screen that queries it',
+      /Sales\.Overview/.test(attribution.html) && /Sales\.Detail/.test(attribution.html));
+    ok('...with the page prefix stripped from widget names',
+      /list1, search1/.test(attribution.html), attribution.html);
+    ok('...and says how many operations have no screen at all',
+      /1 operation\(s\) recorded without a screen/.test(attribution.html));
+    ok('a quoted, schema-qualified table resolves the same way',
+      attribution.quoted === attribution.html);
+    ok('an entity name works as well as a table name', attribution.byEntity === attribution.html);
+    eq('an unknown table renders nothing', attribution.unknown, '');
+    // The whole contract of this enrichment: with no model loaded every consumer
+    // renders exactly what it rendered before wave 27.
+    eq('with no index loaded it renders nothing', attribution.degraded, '');
+
+    await page.evaluate(t => { window.navigate('log-query-extractor', null); window.lqeLoadText(t); }, LOG);
+    await page.waitForFunction(() => document.querySelectorAll('#lqe-query-list .lqe-list-item').length > 0, { timeout: 20000 });
+    await page.evaluate(() => document.querySelector('#lqe-query-list .lqe-list-item').click());
+    await sleep(400);
+    ok('the Query Extractor names the screens behind the selected query',
+      await page.evaluate(() => /Sales\.Overview/.test(document.getElementById('lqe-source-attribution').innerHTML)));
+    await page.evaluate(() => {
+      window._mxOpsIndex = null;
+      document.querySelector('#lqe-query-list .lqe-list-item').click();
+    });
+    await sleep(400);
+    eq('...and drops back to the pane it had before when the index goes away',
+      await page.evaluate(() => document.getElementById('lqe-source-attribution').innerHTML), '');
+
+    // Query Intelligence → Explain. The table name is the regression guard: the
+    // scan-table regex excluded `$`, so it captured `sales` out of `sales$order`
+    // for every Mendix table there has ever been, and no lookup could resolve it.
+    currentTool = 'query-intelligence';
+    const qiSuggestion = await page.evaluate(async idx => {
+      window._mxOpsIndex = idx;
+      window.navigate('query-intelligence', null);
+      document.getElementById('sql-explain-input').value =
+        'Seq Scan on sales$order  (cost=0.00..1250.00 rows=12 width=64) (actual time=0.021..18.442 rows=9 loops=1)\n' +
+        '  Filter: (status = \'Open\'::text)';
+      window.visualizeSqlExplain();
+      await new Promise(r => setTimeout(r, 300));
+      return document.getElementById('sql-explain-result').innerText;
+    }, OPS_FIXTURE);
+    ok('the scan table keeps the $ that every Mendix table name contains',
+      /sales\$order/.test(qiSuggestion), qiSuggestion.slice(0, 200));
+    ok('...so the suggestion names the entity instead of telling you to go find it',
+      /open entity/i.test(qiSuggestion) && /Sales\.Order/.test(qiSuggestion));
+    ok('...and lists the screens that query it',
+      /Screens that query/.test(qiSuggestion) && /Sales\.Overview/.test(qiSuggestion));
+
+    // Error Decoder. The tables are searched in the decoded message, not in the
+    // matched signature — `ERROR: duplicate key value` never carries a table.
+    currentTool = 'error-decoder';
+    const edxText = await page.evaluate(async idx => {
+      window._mxOpsIndex = idx;
+      window.navigate('error-decoder', null);
+      document.getElementById('edx-input').value =
+        'ERROR: duplicate key value violates unique constraint on "sales$order"';
+      window.edxAnalyze();
+      await new Promise(r => setTimeout(r, 300));
+      return document.getElementById('edx-results').innerText;
+    }, OPS_FIXTURE);
+    ok('the decoder finds the table in the message, not just in the signature',
+      /sales\$order/.test(edxText) && /Sales\.Order/.test(edxText), edxText.slice(0, 200));
+    ok('...and names the screens behind it',
+      /Screens that query/.test(edxText) && /Sales\.Overview/.test(edxText));
+
+    await page.evaluate(() => { window._mxOpsIndex = null; });
+
     // Foreign log lines: a bundled library (opensaml, the AWS SDK, Xerces) logging
     // through its own framework straight to stdout. The Log Viewer has its own parser,
     // so the shared parser's unit tests cannot see this branch — and it is the branch

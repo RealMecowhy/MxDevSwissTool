@@ -111,7 +111,18 @@ function ixaFindingCard(f) {
       ${evidence ? `<div style="margin-top:var(--sp-2)"><div style="font-size:0.68rem;text-transform:uppercase;color:var(--text-muted);margin-bottom:2px">Evidence</div><ul style="margin:0;padding-left:1.1rem">${evidence}</ul></div>` : ''}
       ${verify ? `<div style="margin-top:var(--sp-2)"><div style="font-size:0.68rem;text-transform:uppercase;color:var(--text-muted);margin-bottom:2px">How to check</div><ul style="margin:0;padding-left:1.1rem">${verify}</ul></div>` : ''}
       ${candidate}
+      ${ixaAttribution(f)}
     </div>`;
+}
+
+// "This table is scanned sequentially" and "this index is never used" both end
+// in the same question: who queries it? With a deployment model loaded the
+// answer is a list of screens. Deliberately NOT shown on the structural
+// findings (duplicate / redundant / invalid index) — those are about the
+// catalog's shape, and eight page names under each would be noise.
+function ixaAttribution(f) {
+  if (f.kind !== 'seq-scan-heavy' && f.kind !== 'unused-index') return '';
+  return window.mxOpsAttributionHtml ? window.mxOpsAttributionHtml(f.table) : '';
 }
 
 // pg_stat_statements is optional; its absence degrades the report instead of

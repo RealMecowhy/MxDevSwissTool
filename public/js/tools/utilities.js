@@ -96,6 +96,106 @@ function mxEntityForTable(table) {
   return mxTableIdx[key] || null;
 }
 
+// ── Deployment model → which pages touch an entity ───────────────────────────
+// Mendix writes `deployment/model/` on every local run, and it records which
+// page and which widget issues each retrieve. When Developer Studio has loaded
+// that index it publishes it on window._mxOpsIndex, and the SQL-facing tools
+// can answer a question none of them could answer before: not just "which
+// entity is this table", but "which screens actually query it".
+//
+// Same progressive-enrichment contract as mxEntityForTable above: with no
+// index loaded these return null and every caller renders exactly what it
+// rendered before. Unlike the table map, this one needs no database at all.
+function mxOpsForEntity(entity) {
+  const idx = window._mxOpsIndex;
+  if (!idx || !idx.byEntity || !entity) return null;
+  return idx.byEntity[entity] || null;
+}
+
+// Callers hold a table name (`sales$order`), not an entity. `byTable` resolves
+// the name; the rows still live under the entity, so this is a two-step lookup
+// on purpose — holding the rows under both keys doubled the payload.
+function mxOpsForTable(table) {
+  const idx = window._mxOpsIndex;
+  if (!idx || !idx.byTable || !table) return null;
+  const key = String(table).replace(/^public\./i, '').replace(/"/g, '').trim().toLowerCase();
+  const entity = idx.byTable[key];
+  return entity ? { entity: entity, rows: idx.byEntity[entity] || [] } : null;
+}
+
+// Distinct page names touching an entity, which is what a finding wants to show
+// ("queried from 4 screens") rather than one line per widget.
+function mxPagesForEntity(entity) {
+  const rows = mxOpsForEntity(entity);
+  if (!rows) return null;
+  const pages = [];
+  rows.forEach(function (r) { if (r.page && pages.indexOf(r.page) === -1) pages.push(r.page); });
+  return pages;
+}
+
+// One page per line with the widgets on it, rather than one line per operation:
+// a list view and its search box are two operations on the same screen, and the
+// screen is what the developer opens.
+function mxOpsAttribution(tableOrEntity) {
+  const hit = mxOpsForTable(tableOrEntity) ||
+    (mxOpsForEntity(tableOrEntity) ? { entity: tableOrEntity, rows: mxOpsForEntity(tableOrEntity) } : null);
+  if (!hit || !hit.rows.length) return null;
+
+  const byPage = {};
+  let offPage = 0;
+  hit.rows.forEach(function (r) {
+    // A microflow-sourced operation with no page is real (Mendix records the
+    // microflow without the screen), and hiding it would make the counts lie.
+    if (!r.page) { offPage++; return; }
+    if (!byPage[r.page]) byPage[r.page] = [];
+    const w = r.widget || '';
+    if (w && byPage[r.page].indexOf(w) === -1) byPage[r.page].push(w);
+  });
+
+  const pages = Object.keys(byPage).sort().map(function (p) {
+    return { page: p, widgets: byPage[p] };
+  });
+  return { entity: hit.entity, pages: pages, operations: hit.rows.length, withoutPage: offPage };
+}
+
+// Shared block so the four SQL-facing tools say this the same way. Renders
+// nothing at all when no deployment model is loaded — the caller keeps whatever
+// it rendered before, which is the whole contract of this enrichment.
+function mxOpsAttributionHtml(tableOrEntity, limit) {
+  const a = mxOpsAttribution(tableOrEntity);
+  if (!a || !a.pages.length) return '';
+  const max = limit || 8;
+  const shown = a.pages.slice(0, max);
+  const rest = a.pages.length - shown.length;
+
+  const rows = shown.map(function (p) {
+    // The widget name repeats the page name as its own prefix
+    // (`Sales.Overview.list1`), which would be noise on every line.
+    const widgets = p.widgets
+      .map(function (w) { return w.indexOf(p.page + '.') === 0 ? w.slice(p.page.length + 1) : w; })
+      .filter(Boolean);
+    const tail = widgets.length
+      ? ' <span style="color:var(--text-muted)">· ' + escHtml(widgets.join(', ')) + '</span>'
+      : '';
+    return '<div style="padding:2px 0"><span style="font-family:var(--font-mono)">' +
+      escHtml(p.page) + '</span>' + tail + '</div>';
+  }).join('');
+
+  const more = rest > 0
+    ? '<div style="padding:2px 0;color:var(--text-muted)">+' + rest + ' more</div>'
+    : '';
+  const offPage = a.withoutPage
+    ? '<div style="padding:2px 0;color:var(--text-muted)">' + a.withoutPage +
+      ' operation(s) recorded without a screen (microflow sources)</div>'
+    : '';
+
+  return '<div style="margin-top:var(--sp-2);padding:var(--sp-2) var(--sp-3);' +
+    'background:var(--bg-elevated);border-left:3px solid var(--info);border-radius:var(--r-sm);font-size:0.8rem">' +
+    '<div style="color:var(--text-muted);margin-bottom:4px">Screens that query <strong style="color:var(--text-primary)">' +
+    escHtml(a.entity) + '</strong> <span style="color:var(--text-muted)">(' + a.pages.length +
+    ' page(s), from the deployment model)</span></div>' + rows + more + offPage + '</div>';
+}
+
 function handleTextFileDrop(e, inputId, callbackName) {
   e.preventDefault();
   e.currentTarget.classList.remove('drag-over');
@@ -144,6 +244,11 @@ document.addEventListener('keydown', e => {
 window.escHtml = escHtml;
 window.escRegex = escRegex;
 window.mxEntityForTable = mxEntityForTable;
+window.mxOpsForEntity = mxOpsForEntity;
+window.mxOpsForTable = mxOpsForTable;
+window.mxPagesForEntity = mxPagesForEntity;
+window.mxOpsAttribution = mxOpsAttribution;
+window.mxOpsAttributionHtml = mxOpsAttributionHtml;
 window.mtLoadVendor = mtLoadVendor;
 window.mtLoadMermaid = mtLoadMermaid;
 window.mtMermaidApplyTheme = mtMermaidApplyTheme;

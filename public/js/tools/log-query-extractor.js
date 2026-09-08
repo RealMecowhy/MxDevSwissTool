@@ -826,14 +826,20 @@ window.lqeCompareSelected = function () {
 // (e.g. "SELECT customers$order"). Falls back to just the operation when the
 // statement doesn't match a plain single-table shape (subselects, no FROM, etc.)
 // rather than guessing — an unlabeled row is honest, a wrong label isn't.
-function lqeSmartLabel(q) {
+// The single-table shape the label and the attribution both need. Null when the
+// statement isn't one (subselects, no FROM) rather than a guess.
+function lqeTableOf(q) {
   const sql = q.sql || '';
   let m = null;
   if (q.type === 'UPDATE') m = sql.match(/^UPDATE\s+"?([A-Za-z0-9_.$]+)"?/i);
   else if (q.type === 'INSERT') m = sql.match(/^INSERT\s+INTO\s+"?([A-Za-z0-9_.$]+)"?/i);
   else m = sql.match(/\bFROM\s+"?([A-Za-z0-9_.$]+)"?/i); // SELECT and DELETE both use FROM
-  if (!m) return q.type;
-  const table = m[1].replace(/^public\./i, '');
+  return m ? m[1].replace(/^public\./i, '') : null;
+}
+
+function lqeSmartLabel(q) {
+  const table = lqeTableOf(q);
+  if (!table) return q.type;
   // With a domain model loaded, say `SELECT eShop.Order` instead of
   // `SELECT eshop$order` — same label, in the names the developer works in.
   const entity = window.mxEntityForTable ? window.mxEntityForTable(table) : null;
@@ -1028,7 +1034,20 @@ function selectQuery(q) {
   } else {
     sourceEl.textContent = 'No source available (XPath/OQL) for this query.';
   }
-  
+
+  // Which screens issue this query, from the deployment model Developer Studio
+  // loaded. This matters most exactly where the pane above is empty: the log
+  // only carries XPath at TRACE level, so on an ordinary production log "no
+  // source available" was the whole answer — while `deployment/model/` knows
+  // the screens regardless of log level. Renders nothing when no model is
+  // loaded, which is the same pane as before.
+  const attrEl = document.getElementById('lqe-source-attribution');
+  if (attrEl) {
+    const table = lqeTableOf(q);
+    attrEl.innerHTML = (table && window.mxOpsAttributionHtml)
+      ? window.mxOpsAttributionHtml(table) : '';
+  }
+
   const tbody = document.getElementById('lqe-params-body');
   tbody.innerHTML = '';
   if (q.params && q.params.length > 0) {

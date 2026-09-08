@@ -251,6 +251,58 @@ function dsRenderDetectedProject() {
   }
 
   dsFetchProjectInsights();
+  dsFetchDeploymentModel();
+}
+
+// ── Deployment model ────────────────────────────────────────────────────────
+// Reads the index the Bridge builds from `deployment/model/` and publishes it
+// on window._mxOpsIndex, where the SQL-facing tools pick it up through
+// mxOpsForTable/mxPagesForEntity. Everything downstream degrades to exactly
+// what it renders today when this never runs, so a failure here is quiet by
+// design — but the CARD is not: it says what is missing and what to do, rather
+// than showing an empty box.
+async function dsFetchDeploymentModel() {
+  const box = document.getElementById('ds-model-body');
+  if (!dsProjectData || !dsProjectData.projectRoot || !box) return;
+  const esc = window.escHtml;
+  try {
+    const res = await fetch('http://localhost:9999/model/deployment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectRoot: dsProjectData.projectRoot })
+    });
+    const data = await res.json();
+
+    if (!data || data.error || !data.ok) {
+      window._mxOpsIndex = null;
+      const reason = (data && (data.reason || data.message)) || 'Could not read the deployment model.';
+      box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">${esc(reason)}</div>`;
+      return;
+    }
+
+    window._mxOpsIndex = data.index;
+    const c = data.index.counts;
+    // Which file the retrieves came from is worth showing: Mendix 9 keeps them
+    // in queries.json and Mendix 10+ in operations.json, so a user comparing
+    // two apps sees why the numbers are shaped differently.
+    const source = data.source.queries
+      ? `operations.json + queries.json (${data.source.operations} + ${data.source.queries})`
+      : `operations.json (${data.source.operations})`;
+    box.innerHTML = `
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:var(--sp-2) var(--sp-4)">
+        <div><span style="color:var(--text-muted)">Operations:</span> <strong style="color:var(--text-primary)">${c.operations}</strong></div>
+        <div><span style="color:var(--text-muted)">Entities:</span> <strong style="color:var(--text-primary)">${c.entities}</strong></div>
+        <div><span style="color:var(--text-muted)">Pages:</span> <strong style="color:var(--text-primary)">${c.pages}</strong></div>
+        <div><span style="color:var(--text-muted)">Microflows:</span> <strong style="color:var(--text-primary)">${c.microflows}</strong></div>
+      </div>
+      <div style="margin-top:var(--sp-3); color:var(--text-muted); font-size:0.78rem">
+        Read from <span style="font-family:var(--font-mono)">${esc(source)}</span>.
+        Query tools can now name the screens behind a table.
+      </div>`;
+  } catch (e) {
+    window._mxOpsIndex = null;
+    box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">Bridge unreachable — the deployment model could not be read.</div>`;
+  }
 }
 
 async function dsFetchDbDetails() {

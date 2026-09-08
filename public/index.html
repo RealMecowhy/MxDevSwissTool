@@ -103,7 +103,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.53.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.55.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -289,7 +289,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.53.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.55.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -592,6 +592,7 @@
                   <button class="btn btn-ghost btn-sm" onclick="window.lqeCopyContent('lqe-source-content', this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy</button>
                 </div>
                 <pre id="lqe-source-content" style="background:var(--bg-elevated); padding:var(--sp-3); border-radius:var(--r-md); border:1px solid var(--border); font-size:0.85rem; color:var(--text); margin:0; white-space:pre-wrap; word-break:break-all; flex:1; overflow:auto;">No source available (XPath/OQL) for this query.</pre>
+                <div id="lqe-source-attribution"></div>
               </div>
 
               <!-- PARAMS TAB -->
@@ -2443,6 +2444,14 @@
                 <h4 style="margin:0 0 var(--sp-3) 0; color:var(--text-primary); border-bottom:1px solid var(--border); padding-bottom:var(--sp-2)">Scheduled Events</h4>
                 <div id="ds-events-list" style="display:flex; flex-direction:column; gap:var(--sp-2); font-size:0.85rem">
                   <!-- Scheduled events list -->
+                </div>
+              </div>
+
+              <!-- Deployment Model (wave 26) -->
+              <div class="card" style="padding:var(--sp-4)">
+                <h4 style="margin:0 0 var(--sp-3) 0; color:var(--text-primary); border-bottom:1px solid var(--border); padding-bottom:var(--sp-2)">Deployment Model</h4>
+                <div id="ds-model-body" style="font-size:0.85rem">
+                  <span style="color:var(--text-muted)"><span class="spinner-sm"></span>Loading...</span>
                 </div>
               </div>
 

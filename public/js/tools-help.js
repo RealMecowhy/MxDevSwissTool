@@ -178,7 +178,7 @@ const TOOLS_HELP = {
         <li>Select a query from the list to see its details neatly grouped on the right:
           <ul>
             <li><strong>Runnable SQL:</strong> The final SQL statement with all <code>?</code> parameters substituted, laid out by the same formatter as the <strong>SQL Formatter</strong> tool &mdash; the same clause breaks, indentation, colours and bracket matching on hover, and it follows the indent and keyword-case settings you pick there.</li>
-            <li><strong>Source XPath/OQL:</strong> The original Mendix queries that generated the SQL, including intermediate OQL translation.</li>
+            <li><strong>Source XPath/OQL:</strong> The original Mendix queries that generated the SQL, including intermediate OQL translation. If Developer Studio has loaded a <strong>deployment model</strong>, this tab also names the <strong>screens that query the same entity</strong> &mdash; page and widget. That works at any log level, which matters because the XPath above it is only logged at TRACE: on an ordinary production log this is often the only answer to &ldquo;where does this query come from&rdquo;.</li>
             <li><strong>Parameters:</strong> A table listing the raw values bound to the SQL query.</li>
             <li><strong>Result Data:</strong> The raw output rows returned by the database.</li>
             <li><strong>Query Plan:</strong> The PostgreSQL execution plan in JSON format. Click <strong>Visualize Plan</strong> to open it in the Query Intelligence Explain visualizer with index suggestions &mdash; a floating <strong>&larr; Back</strong> pill returns you straight to the extractor.</li>
@@ -306,6 +306,7 @@ const TOOLS_HELP = {
         <li>Each recognized signature produces a card. Cards are ordered <strong>most specific first</strong>; when several match (a wrapped exception), the deepest/root match sits at the top — read them together.</li>
         <li>Every card shows the <strong>exact pattern it matched</strong> so you can confirm it fits your message before trusting the explanation.</li>
         <li>Work down the card: <strong>What happened technically</strong> is the certain part; <strong>Typical causes</strong> are hypotheses to weigh; <strong>How to check which</strong> is a checklist — use the inline links to jump to the tool that answers each check (e.g. the Log Query Extractor to see the SQL that ran).</li>
+        <li><strong>Tables in this message:</strong> a PostgreSQL error names tables (<code>eshop$order</code>), not entities. When a model has been loaded — from a live database in Domain Model &amp; Architecture, or from the <strong>deployment model</strong> in Developer Studio — the card translates them, and names the <strong>screens that query that entity</strong>. The deployment model needs no database connection, only an app that has been run locally once.</li>
         <li>If nothing matches, that is an honest result: the decoder does not invent a cause. Try pasting more of the stack trace, or inspect the message in the Log Viewer.</li>
       </ol>
     `,
@@ -802,6 +803,7 @@ const TOOLS_HELP = {
             <li><strong style="color:var(--success)">Index Scan (Green):</strong> Optimal. The database uses an index to locate rows.</li>
           </ul>
         </li>
+        <li>Read the <strong>Optimization Suggestions</strong> below the tree. A scanned table is named as the entity it belongs to whenever a model is loaded &mdash; from a live database, or from the <strong>deployment model</strong> in Developer Studio, which needs no connection. With the deployment model the suggestion also lists the <strong>screens that query that entity</strong>, so &ldquo;add an index&rdquo; comes with the pages whose behaviour would change.</li>
       </ol>
     `
   },
@@ -835,6 +837,7 @@ const TOOLS_HELP = {
         <li>Findings marked <strong>structural</strong> (duplicate / redundant / invalid indexes) come from the catalog shape alone and hold on any database, warm counters or not.</li>
         <li>Treat a <strong>Candidate statement</strong> as a draft to review, not an instruction. For Mendix-managed tables the card says so explicitly: indexes declared on an entity are recreated on every deploy, so a <code>DROP INDEX</code> in SQL is undone by the next release — the real change belongs in the domain model in Studio Pro.</li>
         <li>For a <em>Sequential scans</em> finding, follow it into Log Query Extractor: find the queries against that table and use <strong>Run EXPLAIN live</strong> — a Seq Scan node with a Filter names the column that wants an index.</li>
+        <li><em>Sequential scans</em> and <em>Never scanned</em> findings also list the <strong>screens that query the entity</strong>, when Developer Studio has loaded a deployment model. That is the other half of the question: the catalog says a table is scanned, the deployment model says which pages do the scanning.</li>
         <li>Export the findings as CSV, or copy them as Markdown for a ticket.</li>
       </ol>
       <p><strong>pg_stat_statements</strong> adds per-query history when installed. It is absent on most Mendix Cloud databases; the report degrades to catalog-based findings and explains how to enable it.</p>
@@ -901,7 +904,7 @@ Customer [1] -- [*] Order : places</pre>
   },
   'dev-studio': {
     title: 'Mendix Developer Studio Connector',
-    description: 'Local inspector for a Mendix project running on your machine. Via the Observability Bridge it reads the project configuration and presents a dashboard: database settings and live metrics, user roles, request handlers, scheduled events, constants, client bundle size, and Java code quality hints.',
+    description: 'Local inspector for a Mendix project running on your machine. Via the Observability Bridge it reads the project configuration and presents a dashboard: database settings and live metrics, user roles, request handlers, scheduled events, constants, client bundle size, Java code quality hints, and the deployment model &mdash; the record of which page and which widget issues each query.',
     howToGet: `
       <ul>
         <li>Run your project locally in Mendix Studio Pro.</li>
@@ -914,6 +917,7 @@ Customer [1] -- [*] Order : places</pre>
         <li>The tool automatically detects running Mendix projects &mdash; pick one from the <strong>Detected Mendix Projects</strong> list, or type the project root path manually (e.g., <code>C:\\Mendix_Projects\\MyApp</code>).</li>
         <li>Click <strong>Connect to Application</strong>.</li>
         <li>The dashboard loads: application &amp; database configuration, live PostgreSQL metrics, security roles, request handlers, scheduled events, and application constants.</li>
+        <li><strong>Deployment Model:</strong> Mendix writes <code>deployment/model/</code> on every local run or build, and it records which page and which widget issues each retrieve. The card counts what was found; the index itself goes to the query tools, so a table name in a slow query can be named as the screens behind it. If the card says no deployment model was found, run or build the app once in Studio Pro &mdash; that is all it takes. Nothing else in the dashboard depends on it.</li>
       </ol>
     `
   },
