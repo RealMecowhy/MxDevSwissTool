@@ -5397,6 +5397,12 @@ const mxt = require('../server/mx-tool.js');
   eq('mxt: normalize counts distinct entities (Order appears twice)', norm.counts.entities, 3);
   eq('mxt: normalize keeps the qualified name', norm.entityRules[0].qname, 'Sales.Order');
   eq('mxt: normalize counts writable members', norm.entityRules[0].write, 1);
+  // Drill-down: members kept as [name, kindChar, type, accessChar] tuples.
+  eq('mxt: member tuples carry name/kind/type/access',
+    JSON.stringify(norm.entityRules[0].m),
+    JSON.stringify([['Total', 'a', 'Decimal', 'w'], ['Ref', 'a', 'String', 'r']]));
+  eq('mxt: a rule with no members has an empty tuple list', norm.entityRules[2].m.length, 0);
+  eq('mxt: read count equals the tuple count', norm.entityRules[0].read, norm.entityRules[0].m.length);
   eq('mxt: normalize trims an empty XPath to falsey', norm.entityRules[0].xpath, '');
   eq('mxt: normalize keeps a real XPath', norm.entityRules[2].xpath, "[System.owner='[%CurrentUser%]']");
   eq('mxt: role admin flag carried through', norm.roles.find(r => r.name === 'Admin').admin, true);

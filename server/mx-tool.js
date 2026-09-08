@@ -256,20 +256,25 @@ function mxValidateSecurityJson(input) {
 //   userRoles[]      { userRole (name string), isAnonymousRole,
 //                      isAdministratorRole, moduleRoles: [{ module, moduleRole }] }
 //
-// The normalized form drops per-attribute detail (kept only as read/write
-// counts) — the matrix is about rules, not attributes — and keeps everything a
-// filter or a highlight needs. Short keys because a big app's export is ~6 MB
-// and this whole structure crosses to the browser.
+// The normalized form keeps read/write COUNTS on every rule for the matrix and
+// the highlights, plus the per-member list itself (`m`) as compact tuples for
+// the drill-down: `[name, kindChar, type, accessChar]` where kindChar is
+// 'a'ttribute | 's' association and accessChar is 'w'rite | 'r'ead. Tuples
+// rather than objects because this whole structure crosses to the browser and a
+// big app's export carries tens of thousands of members.
 
-function mxCountMembers(members) {
-  let read = 0, write = 0;
+function mxMemberTuples(members) {
   const list = Array.isArray(members) ? members : [];
+  const out = [];
+  let read = 0, write = 0;
   for (const m of list) {
     if (!m) continue;
     read++;
-    if (m.access === 'ReadWrite') write++;
+    const w = m.access === 'ReadWrite';
+    if (w) write++;
+    out.push([m.name || '', m.kind === 'Association' ? 's' : 'a', m.type || '', w ? 'w' : 'r']);
   }
-  return { read: read, write: write };
+  return { read: read, write: write, tuples: out };
 }
 
 function mxNormalizeSecurity(doc) {
@@ -287,7 +292,7 @@ function mxNormalizeSecurity(doc) {
 
   const entityRules = d.entityAccess.map(r => {
     const ur = r.userRole || {};
-    const mc = mxCountMembers(r.members);
+    const mc = mxMemberTuples(r.members);
     const xpath = (r.XPath || '').trim();
     return {
       role: ur.name || '(unknown)',
@@ -300,7 +305,8 @@ function mxNormalizeSecurity(doc) {
       create: !!r.canCreate,
       del: !!r.canDelete,
       read: mc.read,
-      write: mc.write
+      write: mc.write,
+      m: mc.tuples
     };
   });
 

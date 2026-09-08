@@ -518,6 +518,7 @@ let dsSecStartedAt = 0;
 let dsSecData = null;      // the last completed result payload
 let dsSecView = 'entities';
 let dsSecVList = null;
+let dsSecMemberIdx = -1;   // entityRules index currently drilled into, or -1
 
 function dsSecEl(id) { return document.getElementById(id); }
 
@@ -627,6 +628,7 @@ function dsSecRender() {
   const d = dsSecData;
   if (!d) return;
   dsSecShow('result');
+  dsSecCloseMembers();
 
   dsSecEl('ds-sec-c-entity').textContent = d.counts.entityRules + ' entity rules';
   dsSecEl('ds-sec-c-doc').textContent = d.counts.documentRules + ' document rules';
@@ -708,6 +710,7 @@ function dsSecSetView(v, el) {
     dsSecEl(id).classList.remove('active');
   });
   if (el) el.classList.add('active');
+  if (v === 'documents') dsSecCloseMembers();
   dsSecApplyFilter();
 }
 
@@ -743,11 +746,69 @@ function dsSecApplyFilter() {
     rows.push({ r: r, i: i });
   });
 
-  dsSecEl('ds-sec-count').textContent =
+  dsSecEl('ds-sec-count-text').textContent =
     rows.length + ' of ' + source.length + (dsSecView === 'documents' ? ' documents' : ' rules') +
     (flaggedOnly ? ' · flagged only' : '');
+  dsSecEl('ds-sec-count-hint').style.display = dsSecView === 'documents' ? 'none' : '';
 
   dsSecPaintList(rows);
+  // A drill-down open on a row now filtered out would be stale — close it.
+  if (dsSecMemberIdx !== -1 && !rows.some(function (e) { return e.i === dsSecMemberIdx; })) {
+    dsSecCloseMembers();
+  }
+}
+
+// ── Member drill-down ──────────────────────────────────────────────────────
+
+function dsSecShowMembers(idx) {
+  if (!dsSecData || !dsSecData.entityRules[idx]) return;
+  dsSecMemberIdx = idx;
+  const r = dsSecData.entityRules[idx];
+  dsSecEl('ds-sec-detail-head').innerHTML =
+    '<span class="badge ' + (r.admin ? 'badge-secondary' : 'badge-primary') + '">' + escHtml(r.role) + '</span> ' +
+    '<strong style="color:var(--text-primary)">' + escHtml(r.qname) + '</strong><br>' +
+    '<span style="color:var(--text-muted)">' +
+      (r.xpath ? 'XPath: <span style="font-family:var(--font-mono)">' + escHtml(r.xpath) + '</span>' : 'no XPath constraint') +
+      ' · ' + (r.create ? 'can create' : 'no create') + ' · ' + (r.del ? 'can delete' : 'no delete') +
+      ' · ' + r.read + ' readable, ' + r.write + ' writable</span>';
+  dsSecEl('ds-sec-detail').style.display = 'block';
+  dsSecRenderMembers();
+  dsSecEl('ds-sec-detail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function dsSecRenderMembers() {
+  if (dsSecMemberIdx === -1) return;
+  const r = dsSecData.entityRules[dsSecMemberIdx];
+  const wOnly = dsSecEl('ds-sec-detail-wonly').checked;
+  // writable first, then by name — the writable ones are the point of the drill-down.
+  const rows = (r.m || []).slice()
+    .filter(function (t) { return !wOnly || t[3] === 'w'; })
+    .sort(function (a, b) {
+      if ((a[3] === 'w') !== (b[3] === 'w')) return a[3] === 'w' ? -1 : 1;
+      return a[0].localeCompare(b[0]);
+    });
+  const tb = dsSecEl('ds-sec-detail-tbody');
+  if (!rows.length) {
+    tb.innerHTML = '<tr><td colspan="4" style="padding:var(--sp-3); color:var(--text-muted); text-align:center">' +
+      (wOnly ? 'No writable members in this rule.' : 'This rule grants no member access.') + '</td></tr>';
+    return;
+  }
+  tb.innerHTML = rows.map(function (t) {
+    const write = t[3] === 'w';
+    return '<tr style="border-bottom:1px solid var(--border-subtle)">' +
+      '<td style="padding:var(--sp-2) var(--sp-3); color:var(--text-primary)">' + escHtml(t[0]) + '</td>' +
+      '<td style="padding:var(--sp-2) var(--sp-3); color:var(--text-muted)">' + (t[1] === 's' ? 'Association' : 'Attribute') + '</td>' +
+      '<td style="padding:var(--sp-2) var(--sp-3); color:var(--text-muted)">' + escHtml(t[2]) + '</td>' +
+      '<td style="padding:var(--sp-2) var(--sp-3)"><span style="padding:1px 6px; border-radius:4px; font-size:0.7rem; background:' +
+        (write ? 'color-mix(in srgb, var(--warning) 25%, transparent)' : 'var(--bg-surface)') +
+        '; color:' + (write ? 'var(--text-primary)' : 'var(--text-muted)') + '">' +
+        (write ? 'Read / Write' : 'Read only') + '</span></td></tr>';
+  }).join('');
+}
+
+function dsSecCloseMembers() {
+  dsSecMemberIdx = -1;
+  dsSecEl('ds-sec-detail').style.display = 'none';
 }
 
 function dsSecRowEl(entry) {
@@ -770,6 +831,9 @@ function dsSecRowEl(entry) {
     return el;
   }
 
+  el.style.cursor = 'pointer';
+  el.onclick = function () { dsSecShowMembers(entry.i); };
+  if (entry.i === dsSecMemberIdx) el.style.background = 'color-mix(in srgb, var(--primary) 12%, transparent)';
   const pill = function (on, txt) {
     return '<span style="flex:0 0 auto; padding:1px 6px; border-radius:4px; font-size:0.68rem; background:' +
       (on ? 'color-mix(in srgb, var(--warning) 25%, transparent)' : 'var(--bg-surface)') +
@@ -785,7 +849,7 @@ function dsSecRowEl(entry) {
         : '<span style="font-family:var(--font-sans, inherit); color:' +
           (flagged ? 'var(--warning)' : 'var(--text-muted)') + '">no XPath constraint</span>') + '</span>' +
     pill(r.create, 'create') + pill(r.del, 'delete') +
-    '<span style="flex:0 0 auto; color:var(--text-muted)">' + r.read + 'R / ' + r.write + 'W</span>';
+    '<span style="flex:0 0 auto; color:var(--text-muted)">' + r.read + 'R / ' + r.write + 'W ›</span>';
   return el;
 }
 
@@ -852,6 +916,8 @@ window.dsPollData = dsPollData;
 window.dsSetTab = dsSetTab;
 window.dsSecSetView = dsSecSetView;
 window.dsSecApplyFilter = dsSecApplyFilter;
+window.dsSecCloseMembers = dsSecCloseMembers;
+window.dsSecRenderMembers = dsSecRenderMembers;
 
 // Exposed for scripts/parser-test.js (pure function, no DOM).
 window.dsBackoffDelay = dsBackoffDelay;

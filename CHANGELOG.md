@@ -14,6 +14,28 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.58.0 — 2026-09-08
+
+**Security Matrix — attribute drill-down.** Clicking an entity-access row opens
+the member list for that rule: every attribute and association it covers, its
+type, and whether the role can read it or read and write it. A *Writable
+members only* toggle narrows it to what matters when you are looking for
+over-broad access.
+
+- The export already carries this per attribute; the matrix now keeps it, as
+  compact `[name, kind, type, access]` tuples so the payload for a big app
+  stays reasonable (Calculator's went from 155 KB to 320 KB).
+- Writable members sort first. The drill-down closes itself when you filter its
+  row out of the table or switch to the document view.
+
+**Fixed: multi-line `.notice` boxes rendered as scattered, unreadable words.**
+`.notice` was `display: flex` unconditionally — which turns every text run, every
+`<strong>` and every `<code>` into a separate flex item and makes `<br>` do
+nothing. Any notice with more than one line (the "How to get a Thread Dump"
+help, the SQL Explain analysis, several others) came out as words sprayed across
+the box. The flex row is now scoped to notices that actually have a leading icon
+(`:has(> svg)`); every other notice is ordinary flowing prose again.
+
 ## v1.57.0 — 2026-09-08
 
 **Security Matrix in Developer Studio.** A second tab next to the Dashboard.

@@ -103,7 +103,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.57.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.58.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -289,7 +289,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.57.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.58.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -2564,10 +2564,37 @@
               </span>
             </div>
 
-            <div id="ds-sec-count" style="color:var(--text-muted); font-size:0.78rem"></div>
+            <div id="ds-sec-count" style="color:var(--text-muted); font-size:0.78rem">
+              <span id="ds-sec-count-text"></span>
+              <span id="ds-sec-count-hint" style="color:var(--text-muted)"> &mdash; click an entity row for its attributes</span>
+            </div>
 
             <!-- MATRIX (virtualised) -->
             <div id="ds-sec-list" style="border:1px solid var(--border); border-radius:var(--r-md); height:460px; overflow-y:auto; background:var(--bg-elevated)"></div>
+
+            <!-- MEMBER DRILL-DOWN -->
+            <div id="ds-sec-detail" class="card" style="padding:var(--sp-4); display:none">
+              <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:var(--sp-3); margin-bottom:var(--sp-3)">
+                <div id="ds-sec-detail-head" style="font-size:0.85rem; line-height:1.6"></div>
+                <button class="btn btn-secondary btn-sm" onclick="dsSecCloseMembers()">Close</button>
+              </div>
+              <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-secondary); margin-bottom:var(--sp-2)">
+                <input type="checkbox" id="ds-sec-detail-wonly" onchange="dsSecRenderMembers()"> Writable members only
+              </label>
+              <div style="overflow-x:auto; width:100%">
+                <table class="table" style="width:100%; border-collapse:collapse; margin:0; font-size:0.8rem">
+                  <thead>
+                    <tr style="text-align:left; background:var(--bg-elevated); border-bottom:1px solid var(--border)">
+                      <th style="padding:var(--sp-2) var(--sp-3); font-size:0.72rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em">Member</th>
+                      <th style="padding:var(--sp-2) var(--sp-3); font-size:0.72rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em">Kind</th>
+                      <th style="padding:var(--sp-2) var(--sp-3); font-size:0.72rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em">Type</th>
+                      <th style="padding:var(--sp-2) var(--sp-3); font-size:0.72rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em">Access</th>
+                    </tr>
+                  </thead>
+                  <tbody id="ds-sec-detail-tbody"></tbody>
+                </table>
+              </div>
+            </div>
           </div>
 
         </div>

@@ -942,15 +942,22 @@ details[open] > summary::before {
 .notice {
   padding: var(--sp-3) var(--sp-4);
   border-radius: var(--r-md);
-  gap: var(--sp-2);
-  align-items: flex-start;
   font-size: 0.8rem;
   /* A notice is prose. Declared rather than inherited so it stays readable when
      it is rendered inside a monospace container — the JSON/XML output panes set
      --font-mono on the tree they share with the parse-error notice. */
   font-family: var(--font-sans);
   line-height: 1.5;
+  /* Prose by default: a notice with <br>, <code>, <strong> or a list must flow
+     as text. `display: flex` turns every text run and inline tag into its own
+     flex item — <br> stops working and the words scatter. The flex row is only
+     for the icon + text variant, so it is scoped to notices that have an icon. */
+  display: block;
+}
+.notice:has(> svg) {
   display: flex;
+  gap: var(--sp-2);
+  align-items: flex-start;
 }
 .notice svg {
   flex-shrink: 0;

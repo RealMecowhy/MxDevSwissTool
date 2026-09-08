@@ -943,6 +943,7 @@ Customer [1] -- [*] Order : places</pre>
         <li>It reflects the <strong>last saved</strong> state of the project. Unsaved edits open in Studio Pro are not in the file yet and will not appear &mdash; save first if you just changed a rule. Studio Pro can stay open; the export does not need it closed.</li>
         <li>The result is cached against the project file's timestamp, so re-opening the matrix for an unchanged project is instant. Touch the project (save a change) and the next run recomputes.</li>
         <li><strong>Entity access / Document access</strong> toggles the two tables. Filter by role, by module, or by typing part of an entity or document name.</li>
+        <li><strong>Click an entity row</strong> to see the members that rule covers &mdash; every attribute and association, its type, and whether the role can read it or read and write it. <em>Writable members only</em> narrows the list to what a role can change.</li>
         <li>The three cards at the top are review shortcuts, each computed from the export:
           <ul>
             <li><strong>Broad write access</strong> &mdash; a non-administrator role that can create or delete rows with <em>no</em> XPath constraint. Worth a look: it means that role can create or remove any row of that entity.</li>
