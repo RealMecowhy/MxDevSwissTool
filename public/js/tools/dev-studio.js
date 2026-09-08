@@ -202,13 +202,26 @@ function dsRenderDetectedProject() {
     eventsList.innerHTML = '';
     const events = meta.ScheduledEvents || [];
     if (events.length > 0) {
+      // `Interval` and `Unit` were rendered here for a long time and are not in
+      // this file — surveyed across 13 local applications and 84 scheduled
+      // events, Mendix 9 through 11, the only keys ever present are `Name` and
+      // `Description`. Every event therefore read "undefined undefined". The
+      // schedule itself lives in the model, not in the deployment metadata, so
+      // the honest card shows what is here and says where the rest is.
       events.forEach(e => {
         const item = document.createElement('div');
         item.style.display = 'flex';
-        item.style.justifyContent = 'space-between';
-        item.innerHTML = `<span style="color:var(--text-muted)">${escHtml(e.Name)}:</span> <span>${e.Interval} ${escHtml(e.Unit)}</span>`;
+        item.style.flexDirection = 'column';
+        const desc = e.Description
+          ? `<span style="color:var(--text-muted);font-size:0.78rem">${escHtml(e.Description)}</span>`
+          : '';
+        item.innerHTML = `<span style="font-family:var(--font-mono);font-size:0.8rem">${escHtml(e.Name || '(unnamed)')}</span>${desc}`;
         eventsList.appendChild(item);
       });
+      const note = document.createElement('div');
+      note.style.cssText = 'margin-top:var(--sp-2);padding-top:var(--sp-2);border-top:1px dashed var(--border);color:var(--text-muted);font-size:0.75rem';
+      note.textContent = 'Interval and start time are not part of the deployment metadata — open the event in Studio Pro for its schedule.';
+      eventsList.appendChild(note);
     } else {
       eventsList.innerHTML = '<div style="color:var(--text-muted);font-size:0.85rem">No scheduled events defined.</div>';
     }

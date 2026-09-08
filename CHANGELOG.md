@@ -14,6 +14,23 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.56.1 — 2026-09-08
+
+**Developer Studio listed every scheduled event as `undefined undefined`.** The
+card rendered `Interval` and `Unit` from `deployment/model/metadata.json`, and
+neither field is in that file. Surveyed across the 13 local applications that
+have one — Mendix 9.24 through 11.12, 84 scheduled events — the only keys ever
+present are `Name` and `Description`. So this was not an edge case: every event
+in every application read `undefined undefined`, and had since the card
+shipped.
+
+- The card now shows the event name and, for the events that carry one, its
+  description (24 of those 84 do).
+- A closing line says where the missing half is: interval and start time live in
+  the model, not in the deployment metadata, so they come from Studio Pro. Better
+  than dropping the column and leaving the reader to wonder whether the schedule
+  was supposed to be there.
+
 ## v1.56.0 — 2026-09-08
 
 **The Index Advisor stops giving advice nobody can follow.** Verifying v1.55.0
