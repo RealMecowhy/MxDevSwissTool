@@ -2075,6 +2075,52 @@ eq('advisor: no pg_stat_statements degrades rather than fails',
   livedb.buildIndexAdvice({ indexes: [], tables: [] }).statements.available, false);
 eq('advisor: empty input is not an error', livedb.buildIndexAdvice({}).findings.length, 0);
 
+// ── Mendix platform tables are not advice (wave 27.5) ───────────────────────
+// The System module is read-only in Studio Pro: an index on System.User cannot
+// be added, and the association that generated one cannot be removed. So the
+// advisor used to print a DROP INDEX nobody may run beside a "change it on the
+// entity in Studio Pro" that is not possible. Measured on a real 11.12
+// database: 14 of 14 findings were of that kind — the whole report.
+ok('advisor: system$ is a platform table', livedb.isPlatformTable('public.system$user'));
+ok('advisor: mendixsystem$ is a platform table', livedb.isPlatformTable('public.mendixsystem$entity'));
+ok('advisor: an unqualified platform name is recognised too', livedb.isPlatformTable('system$userrole'));
+ok('advisor: an application table is not one', !livedb.isPlatformTable('public.sales$order'));
+// The prefix has to be the module, not a substring: a module actually named
+// `MySystem` or `SystemHealth` is the user's own and stays in the report.
+ok('advisor: a module whose name merely ends in "system" is not platform',
+  !livedb.isPlatformTable('public.mysystem$order'));
+ok('advisor: a module named SystemHealth is not platform',
+  !livedb.isPlatformTable('public.systemhealth$check'));
+ok('advisor: an empty table name is not platform', !livedb.isPlatformTable(''));
+
+(function () {
+  // Two indexes, both never scanned: one on a platform table, one on the
+  // application's own. Only the second may reach the user.
+  const mkIndex = function (schema, table, name) {
+    return {
+      schema: schema, table: table, name: name, indexdef: 'CREATE INDEX ' + name,
+      idxScan: 0, indexBytes: 64 * 1024, tableBytes: 128 * 1024,
+      isPrimary: false, isUnique: false, isValid: true, keyColumns: ['a']
+    };
+  };
+  const advice = livedb.buildIndexAdvice({
+    indexes: [
+      mkIndex('public', 'system$userrole', 'idx_system$userrole_name_asc'),
+      mkIndex('public', 'sales$order', 'idx_sales$order_status')
+    ],
+    tables: [],
+    totalIdxScan: 500, totalSeqScan: 100,
+    statsSince: '2026-01-01T00:00:00Z', nowMs: Date.parse('2026-09-08T00:00:00Z')
+  });
+  eq('advisor: the platform finding is dropped', advice.findings.length, 1);
+  eq('advisor: ...and the application one survives', advice.findings[0].table, 'public.sales$order');
+  // The count is what keeps "no findings" from meaning two different things.
+  eq('advisor: ...but the count is still reported', advice.summary.platformFindingCount, 1);
+  eq('advisor: the headline count follows what is shown', advice.summary.findingCount, 1);
+  // Reclaimable storage must describe what the user can actually reclaim.
+  eq('advisor: reclaimable storage excludes the dropped finding', advice.summary.reclaimableBytes, 64 * 1024);
+})();
+
 // -- table→entity translation in the Error Decoder (fed by the live model) --
 // PostgreSQL names tables, developers think in entities. Only active once a
 // model has been loaded; with no map the section stays absent (data principle).

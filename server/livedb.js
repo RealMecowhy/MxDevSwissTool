@@ -294,6 +294,30 @@ function mendixIndexNote(ix) {
   return 'This table is Mendix-managed. Change indexes on the entity in Studio Pro — direct SQL is overwritten on the next deploy.';
 }
 
+// Mendix's own tables: the System module's entities (`system$…`) and the
+// runtime's metadata tables (`mendixsystem$…`).
+//
+// A finding here is not "low priority" — it is one that nobody can act on. The
+// System module is READ-ONLY in Studio Pro: you cannot add an index to
+// System.User, and you cannot remove the association that generated one. The
+// note this advisor used to print ("change indexes on the entity in Studio Pro")
+// was therefore not merely unhelpful, it was wrong, and the DROP INDEX beside it
+// would be undone by the next deploy anyway.
+//
+// This is not a rare corner. Measured on a real 11.12 database: 14 of 14
+// findings were of exactly this kind — the entire report was advice that could
+// not be followed.
+//
+// They are dropped rather than demoted or collapsed (owner's decision). The
+// COUNT survives into the summary, because the alternative is that "no index
+// problems found" means both "your schema is clean" and "we found fourteen you
+// may not touch" — the same ambiguity the statistics-confidence banner exists to
+// prevent.
+function isPlatformTable(table) {
+  const bare = String(table == null ? '' : table).replace(/^[^.]+\./, '');
+  return /^(system|mendixsystem)\$/i.test(bare);
+}
+
 // Structural pass: duplicate (identical key columns) and redundant (key columns
 // are a leading prefix of another index on the same table) indexes.
 function findRedundantIndexes(indexes, opts) {
@@ -463,6 +487,12 @@ function buildIndexAdvice(input, opts) {
     });
   }
 
+  // Mendix's own tables leave the report here — see isPlatformTable. Counted
+  // before the drop so the summary can still say how many there were, and
+  // before truncation so the count is the real one rather than what fitted.
+  const platformFindingCount = findings.filter(function (f) { return isPlatformTable(f.table); }).length;
+  findings = findings.filter(function (f) { return !isPlatformTable(f.table); });
+
   // Highest severity first, then biggest win — the top of the list is where the
   // reclaimable storage is.
   // Note the explicit hasOwnProperty check: `rank[sev] || 3` would map the
@@ -491,6 +521,8 @@ function buildIndexAdvice(input, opts) {
       tableCount: tables.length,
       findingCount: findings.length,
       structuralCount: findings.filter(function (f) { return f.structural; }).length,
+      // Not shown as findings; reported so silence stays unambiguous.
+      platformFindingCount: platformFindingCount,
       reclaimableBytes: wasted,
       reclaimableLabel: fmtBytes(wasted)
     },
@@ -1067,7 +1099,7 @@ async function runDistinctValues(Client, dbConfig, opts) {
 
 module.exports = {
   isReadOnlySelect, stripSqlComments, normalizeParamPlaceholders, runPing, runExplain,
-  assessStatsWindow, findRedundantIndexes, buildIndexAdvice, runIndexAdvisor,
+  assessStatsWindow, findRedundantIndexes, buildIndexAdvice, runIndexAdvisor, isPlatformTable,
   buildDomainModel, domainModelToArchJson, mxTypeName, runDomainModel,
   runSeedSchema, runDistinctValues, isSafeTableName,
   IDX_DEFAULTS, MX_ATTR_TYPES

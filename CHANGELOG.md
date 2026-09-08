@@ -14,6 +14,34 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.56.0 — 2026-09-08
+
+**The Index Advisor stops giving advice nobody can follow.** Verifying v1.55.0
+against a real PostgreSQL 18.4 database turned up something worse than the thing
+being verified: **14 of 14 findings were on Mendix's own tables**, and every one
+of them ended in a `DROP INDEX` beside a note saying to change the index on the
+entity in Studio Pro instead. Neither is possible. The System module is
+read-only there — you cannot add an index to `System.User`, you cannot remove
+the association that generated one — and a `DROP INDEX` in SQL is undone by the
+next deploy. The entire report was instructions that could not be carried out.
+
+- **Findings on `system$…` and `mendixsystem$…` are dropped server-side**, in
+  `buildIndexAdvice`, so they never reach the browser: not in the list, not in
+  the CSV/Markdown export, not counted in *Findings*, not counted in
+  *Reclaimable*. There is no toggle — there is nothing behind it worth opening.
+- **The count survives.** One line states how many were left out and why.
+  Without it, "No index problems found" would mean both "your schema is clean"
+  and "we found fourteen you may not touch" — the same ambiguity the
+  statistics-confidence banner exists to prevent. The empty state now has three
+  distinct readings: nothing wrong, cannot tell yet, and **no index problems on
+  tables you can change**.
+- Your own modules and Marketplace modules are untouched. The prefix is matched
+  as a module name, so an application module called `MySystem` or `SystemHealth`
+  stays in the report — asserted in tests.
+
+Measured on the same database after the change: 14 findings → 0 shown, 14
+reported as excluded, no `DROP INDEX` anywhere in the report.
+
 ## v1.55.0 — 2026-09-07
 
 **The screens behind a slow query.** v1.54.0 read the deployment model; this

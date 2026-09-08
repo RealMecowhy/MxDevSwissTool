@@ -74,6 +74,21 @@ function ixaTableLabel(table) {
     : `<span style="${style}">${esc(table)}</span>`;
 }
 
+// Findings on Mendix's own tables are dropped by the server, because the System
+// module is read-only in Studio Pro and no one can act on them. The count stays,
+// so that "no index problems found" cannot silently mean two different things —
+// the same reason the statistics banner above exists. One line, no toggle: there
+// is nothing behind it worth opening.
+function ixaPlatformNote(count) {
+  if (!count) return '';
+  return `<div style="border-left:3px solid var(--text-muted);background:var(--bg-sunken);padding:var(--sp-2) var(--sp-3);border-radius:var(--r-sm);margin-bottom:var(--sp-3);font-size:0.78rem;color:var(--text-secondary);line-height:1.5">
+      <strong style="color:var(--text-primary)">${count}</strong> finding${count === 1 ? '' : 's'} on Mendix platform tables
+      (<code>system$…</code>, <code>mendixsystem$…</code>) ${count === 1 ? 'is' : 'are'} not shown.
+      The System module is read-only in Studio Pro, so neither the index nor the association behind it can be changed —
+      and a <code>DROP INDEX</code> in SQL is undone by the next deploy.
+    </div>`;
+}
+
 function ixaFindingCard(f) {
   const [color, bg, label] = SEVERITY[f.severity] || SEVERITY.info;
   const evidence = (f.evidence || []).map(e =>
@@ -172,15 +187,25 @@ function ixaRender(data) {
     ['Reclaimable', s.reclaimableLabel]
   ].map(([k, v]) => `<span style="font-size:0.74rem;color:var(--text-secondary)"><strong style="color:var(--text-primary)">${esc(v)}</strong> ${esc(k)}</span>`).join('');
 
+  const platform = s.platformFindingCount || 0;
+
   let body;
   if (!data.findings || !data.findings.length) {
-    // Data principle: distinguish "nothing wrong" from "cannot tell".
+    // Data principle: distinguish "nothing wrong" from "cannot tell" — and now
+    // from "everything we found was on tables nobody can change". Three states,
+    // three sentences; collapsing any two of them would be a comforting lie.
     const cold = data.stats && data.stats.confidence === 'none';
+    const heading = cold
+      ? 'No structural problems found — usage findings withheld'
+      : (platform ? 'No index problems on tables you can change' : 'No index problems found');
+    const detail = cold
+      ? 'The catalog shows no duplicate, redundant or invalid indexes. Usage-based findings need a database that has actually served traffic — run this against production, or against a dev database after exercising the app.'
+      : (platform
+        ? 'Every finding on this database was on a Mendix platform table, and none of them is actionable — see the note above.'
+        : 'No duplicate, redundant, invalid or unscanned indexes, and no table dominated by sequential scans, in ' + esc(s.indexCount) + ' indexes across ' + esc(s.tableCount) + ' tables.');
     body = `<div style="border:1px dashed var(--border);border-radius:var(--r-md);padding:var(--sp-4);text-align:center">
-        <div style="font-weight:600;margin-bottom:6px">${cold ? 'No structural problems found — usage findings withheld' : 'No index problems found'}</div>
-        <div style="font-size:0.8rem;color:var(--text-secondary);line-height:1.55;max-width:60ch;margin:0 auto">${cold
-          ? 'The catalog shows no duplicate, redundant or invalid indexes. Usage-based findings need a database that has actually served traffic — run this against production, or against a dev database after exercising the app.'
-          : 'No duplicate, redundant, invalid or unscanned indexes, and no table dominated by sequential scans, in ' + esc(s.indexCount) + ' indexes across ' + esc(s.tableCount) + ' tables.'}</div>
+        <div style="font-weight:600;margin-bottom:6px">${heading}</div>
+        <div style="font-size:0.8rem;color:var(--text-secondary);line-height:1.55;max-width:60ch;margin:0 auto">${detail}</div>
       </div>`;
   } else {
     body = data.findings.map(ixaFindingCard).join('') +
@@ -193,6 +218,7 @@ function ixaRender(data) {
       ${data.server ? `<span style="margin-left:auto;font-size:0.72rem;color:var(--text-muted);font-family:var(--font-mono)">${esc(data.server)}</span>` : ''}
     </div>
     ${data.stats ? ixaStatsBanner(data.stats) : ''}
+    ${ixaPlatformNote(platform)}
     ${ixaStatementsPanel(data.statements)}
     ${body}`;
 }
