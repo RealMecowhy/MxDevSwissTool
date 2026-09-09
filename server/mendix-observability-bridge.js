@@ -17,6 +17,7 @@ const fsp = require('fs').promises;
 const path = require('path');
 const { exec } = require('child_process');
 const crypto = require('crypto');
+const updateVerify = require('./lib/update-verify');
 const livedb = require('./livedb');
 const modelDeployment = require('./model-deployment');
 const mxTool = require('./mx-tool');
@@ -155,6 +156,7 @@ async function checkForUpdate() {
     .sort((a, b) => compareVersions(b.tag_name, a.tag_name));
   const latest = newer[0] || null;
   const zipAsset = latest ? (latest.assets || []).find(a => a.name && a.name.endsWith('.zip')) : null;
+  const sigAsset = latest ? (latest.assets || []).find(a => a.name && /\.zip\.sig$/i.test(a.name)) : null;
   const data = {
     currentVersion: CURRENT_VERSION,
     latestVersion: latest ? latest.tag_name.replace(/^v/i, '') : CURRENT_VERSION,
@@ -166,6 +168,7 @@ async function checkForUpdate() {
       body: r.body || ''
     })),
     zipUrl: zipAsset ? zipAsset.browser_download_url : null,
+    sigUrl: sigAsset ? sigAsset.browser_download_url : null,
     zipName: zipAsset ? zipAsset.name : null,
     zipSize: zipAsset ? zipAsset.size : 0,
     releasePageUrl: latest ? latest.html_url : `https://github.com/${UPDATE_REPO}/releases`
@@ -201,6 +204,27 @@ async function findLauncherWindowPid() {
   return null;
 }
 
+// After extraction, confirm every extracted path stays inside destDir. Neither
+// bsdtar nor Expand-Archive refuses a '..' entry or a symlink on their own, so a
+// crafted ZIP could otherwise write over files outside the update folder.
+async function assertExtractedInside(destDir) {
+  const root = path.resolve(destDir);
+  const walk = async (dir) => {
+    const entries = await fsp.readdir(dir, { withFileTypes: true });
+    for (const e of entries) {
+      const full = path.resolve(dir, e.name);
+      if (e.isSymbolicLink()) {
+        throw new Error('Update package contains a symlink (' + e.name + ') — aborted.');
+      }
+      if (!full.startsWith(root + path.sep) && full !== root) {
+        throw new Error('Update package tried to write outside its folder (' + full + '). Aborted.');
+      }
+      if (e.isDirectory()) await walk(full);
+    }
+  };
+  await walk(root);
+}
+
 async function extractZip(zipPath, destDir) {
   // Windows 10+ ships bsdtar, which understands ZIP; PowerShell is the fallback.
   try {
@@ -208,6 +232,7 @@ async function extractZip(zipPath, destDir) {
   } catch (e) {
     await execAsync(`powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Force -LiteralPath '${zipPath}' -DestinationPath '${destDir}'"`);
   }
+  await assertExtractedInside(destDir);
 }
 
 async function applyUpdate() {
@@ -230,6 +255,29 @@ async function applyUpdate() {
   if (!resp.ok) throw new Error(`ZIP download failed: HTTP ${resp.status}`);
   const zipPath = path.join(UPDATE_DIR, 'update.zip');
   fs.writeFileSync(zipPath, Buffer.from(await resp.arrayBuffer()));
+
+  // Verify the signature BEFORE extraction — a re-signing TLS proxy or a
+  // compromised release asset cannot forge an Ed25519 signature over the key
+  // whose public half is baked into this build. Soft until the first signed
+  // release exists (verified:false, ok:true).
+  let sigB64 = null;
+  if (info.sigUrl) {
+    try {
+      const sr = await fetch(info.sigUrl, { headers: { 'User-Agent': 'MxDevSwissTool-UpdateChecker' }, signal: AbortSignal.timeout(30000) });
+      if (sr.ok) sigB64 = (await sr.text()).trim();
+    } catch (e) { /* treated as "no signature" below */ }
+  }
+  const zipBytes = fs.readFileSync(zipPath);
+  const verdict = updateVerify.verifyReleasePackage(zipBytes, sigB64);
+  if (!verdict.ok) {
+    fs.rmSync(UPDATE_DIR, { recursive: true, force: true });
+    throw new Error(verdict.reason);
+  }
+  if (verdict.verified) {
+    console.log('[Bridge Update] Package signature verified.');
+  } else {
+    console.log(`[Bridge Update] WARNING: package NOT signature-verified (${verdict.reason}) — proceeding.`);
+  }
 
   console.log('[Bridge Update] Extracting package...');
   await extractZip(zipPath, pkgDir);

@@ -5461,6 +5461,49 @@ const lt = require('../server/lib/log-tail.js');
   eq('lt: garbage sizes -> null', lt.computeTailRead('x', null), null);
 })();
 
+// ── Self-update package verification (plan 001, server/lib/update-verify.js) ──
+const uv = require('../server/lib/update-verify.js');
+(function () {
+  ok('uv: a plain relative path is safe', uv.isSafeZipEntryName('server/x.js') === true);
+  ok('uv: a parent-dir segment is rejected', uv.isSafeZipEntryName('../evil') === false);
+  ok('uv: a backslash parent-dir segment is rejected', uv.isSafeZipEntryName('a\\..\\evil') === false);
+  ok('uv: an absolute path is rejected', uv.isSafeZipEntryName('/etc/passwd') === false);
+  ok('uv: a drive-letter path is rejected', uv.isSafeZipEntryName('C:\\x') === false);
+  ok('uv: empty is rejected', uv.isSafeZipEntryName('') === false);
+
+  const crypto = require('crypto');
+
+  // The public key baked into the shipped build must be a real Ed25519 key —
+  // a mangled paste would make every signed update fail with "malformed key".
+  ok('uv: the bundled RELEASE_PUBLIC_KEY_PEM is a valid Ed25519 key', (function () {
+    if (!uv.RELEASE_PUBLIC_KEY_PEM) return true; // not configured yet — allowed
+    try {
+      const k = crypto.createPublicKey(uv.RELEASE_PUBLIC_KEY_PEM);
+      return k.asymmetricKeyType === 'ed25519';
+    } catch (e) { return false; }
+  })());
+
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
+  const pub = publicKey.export({ type: 'spki', format: 'pem' });
+  const pkg = Buffer.from('pretend-zip-bytes');
+  const goodSig = crypto.sign(null, pkg, privateKey).toString('base64');
+
+  eq('uv: no key configured -> proceed unverified',
+    uv.verifyReleasePackage(pkg, goodSig, '').verified, false);
+  ok('uv: no key configured is still ok:true',
+    uv.verifyReleasePackage(pkg, goodSig, '').ok === true);
+  eq('uv: key set, no signature -> proceed unverified',
+    uv.verifyReleasePackage(pkg, '', pub).verified, false);
+  ok('uv: a valid signature verifies',
+    uv.verifyReleasePackage(pkg, goodSig, pub).verified === true);
+  ok('uv: a signature over different bytes is refused',
+    uv.verifyReleasePackage(Buffer.from('tampered'), goodSig, pub).ok === false);
+  ok('uv: a wrong-length signature is refused',
+    uv.verifyReleasePackage(pkg, Buffer.from('short').toString('base64'), pub).ok === false);
+  ok('uv: a malformed public key is refused',
+    uv.verifyReleasePackage(pkg, goodSig, 'not a pem').ok === false);
+})();
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 runXlsxAsyncTests().then(runApiEconAsyncTests).then(runNginxAsyncTests).then(runAnonTests).then(function () {
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
