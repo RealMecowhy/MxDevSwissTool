@@ -2342,6 +2342,7 @@
         <div id="ds-tabs" class="tabs" style="display:none; margin:0 calc(-1 * var(--sp-4)) var(--sp-4); flex:0 0 auto">
           <button type="button" class="tab active" data-help-key="dev-studio-dashboard" aria-selected="true" onclick="dsSetTab('dashboard',this)">Dashboard</button>
           <button type="button" class="tab" data-help-key="dev-studio-security" aria-selected="false" onclick="dsSetTab('security',this)">Security Matrix</button>
+          <button type="button" class="tab" data-help-key="dev-studio-integrations" aria-selected="false" onclick="dsSetTab('integrations',this)">Integrations</button>
         </div>
 
         <!-- DASHBOARD VIEW -->
@@ -2612,6 +2613,29 @@
 
         </div>
         <!-- /ds-security-view -->
+
+        <!-- INTEGRATIONS VIEW (plan 014) -->
+        <div id="ds-integrations-view" style="display:none; flex-direction:column; gap:var(--sp-4); width:100%">
+          <div class="card" style="padding:var(--sp-4)">
+            <h4 style="margin:0 0 var(--sp-2) 0; color:var(--text-primary)">Integrations</h4>
+            <p style="color:var(--text-secondary); font-size:0.86rem; line-height:1.6; margin:0 0 var(--sp-3)">
+              What this app exposes and what it calls out to &mdash; published REST and OData services with
+              their per-operation microflows, consumed REST clients, and Business Event channels &mdash; read
+              straight from the <code>.mpr</code>, with nothing running. A published service with
+              <strong>no allowed roles and no authentication microflow</strong> answers anonymous callers;
+              those are flagged.
+            </p>
+            <div style="display:flex; gap:var(--sp-2)">
+              <input type="text" id="ds-integrations-path" placeholder="Path to a .mpr file or project folder"
+                style="flex:1; min-width:0; font-family:var(--font-mono); font-size:0.78rem; padding:var(--sp-2); background:var(--bg-base); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-primary)">
+              <button class="btn btn-secondary" style="font-size:0.8rem; white-space:nowrap" onclick="dsFetchIntegrations()">Read</button>
+            </div>
+          </div>
+          <div id="ds-integrations-body" style="font-size:0.85rem">
+            <span style="color:var(--text-muted)">Point it at a <code>.mpr</code> file or the project folder and press Read.</span>
+          </div>
+        </div>
+        <!-- /ds-integrations-view -->
 
       </div>
     </div>

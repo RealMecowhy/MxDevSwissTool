@@ -21,6 +21,7 @@ const updateVerify = require('./lib/update-verify');
 const livedb = require('./livedb');
 const modelDeployment = require('./model-deployment');
 const mprReader = require('./mpr-reader');
+const modelIntegrations = require('./model-integrations');
 const mxTool = require('./mx-tool');
 const perfSession = require('./perf-session');
 const { compareVersions } = require('./lib/version');
@@ -1406,6 +1407,57 @@ const server = http.createServer((req, res) => {
           })
           .then(r => sendJson(req, res, r))
           .catch(e => sendError(req, res, `MPR read error: ${e.message}`, 400));
+      });
+      return;
+    }
+    return sendError(req, res, 'Method Not Allowed', 405);
+  }
+
+  // What the app exposes and what it calls out to, read from the model (Plan
+  // 014). Published REST + OData services with their per-operation microflows
+  // and authentication, consumed REST clients, Business Event channels — an
+  // audit-surface inventory with no app running. Same offline .mpr reader and
+  // the same path validation as /model/mpr; the db is opened read-only and
+  // closed in a finally.
+  if (url.pathname === '/model/integrations') {
+    if (req.method === 'POST') {
+      readBody(req, res, 1 * 1024 * 1024, (rawBody) => {
+        let mprPath;
+        try {
+          const body = JSON.parse(rawBody.toString('utf8'));
+          const raw = body.mprPath || body.projectRoot;
+          if (!raw || typeof raw !== 'string') throw new Error('Missing mprPath or projectRoot');
+          if (!path.isAbsolute(raw)) throw new Error('path must be absolute');
+          mprPath = path.resolve(raw);
+        } catch (e) {
+          return sendError(req, res, `Invalid request: ${e.message}`, 400);
+        }
+
+        fsp.stat(mprPath)
+          .catch(() => { throw new Error(`No such path: ${mprPath}`); })
+          .then(async (st) => {
+            if (st.isDirectory()) {
+              const entries = await fsp.readdir(mprPath);
+              const mprs = entries.filter(f => f.toLowerCase().endsWith('.mpr'));
+              if (mprs.length !== 1) {
+                throw new Error(`Expected exactly one .mpr in ${mprPath}, found ${mprs.length}`);
+              }
+              mprPath = path.join(mprPath, mprs[0]);
+            }
+            const ctx = await mprReader.mprOpen(mprPath);
+            try {
+              const units = await mprReader.mprListUnits(ctx);
+              const collected = modelIntegrations.miCollect(units);
+              return Object.assign(
+                { ok: true, projectName: path.basename(mprPath).replace(/\.mpr$/i, '') },
+                collected
+              );
+            } finally {
+              try { ctx.db.close(); } catch (_) { /* already closed */ }
+            }
+          })
+          .then(r => sendJson(req, res, r))
+          .catch(e => sendError(req, res, `Integrations read error: ${e.message}`, 400));
       });
       return;
     }

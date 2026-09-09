@@ -270,6 +270,10 @@ function dsRenderDetectedProject() {
   if (mprInput && !mprInput.value && dsProjectData && dsProjectData.projectRoot) {
     mprInput.value = dsProjectData.projectRoot;
   }
+  const intInput = document.getElementById('ds-integrations-path');
+  if (intInput && !intInput.value && dsProjectData && dsProjectData.projectRoot) {
+    intInput.value = dsProjectData.projectRoot;
+  }
 }
 
 // ── Deployment model ────────────────────────────────────────────────────────
@@ -382,6 +386,128 @@ async function dsFetchMprModel() {
   } catch (e) {
     box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">Bridge unreachable — the .mpr could not be read.</div>`;
   }
+}
+
+// ── Integrations (plan 014) ───────────────────────────────────────────────
+// The audit-surface inventory: published REST / OData services, consumed REST
+// clients and Business Event channels, read from the .mpr with no app running.
+// The authentication on a published service is the point — an empty role list
+// and no auth microflow means it answers anonymous callers, so those are
+// flagged. Degrades to its own notice line, like the .mpr card.
+async function dsFetchIntegrations() {
+  const box = document.getElementById('ds-integrations-body');
+  const input = document.getElementById('ds-integrations-path');
+  if (!box || !input) return;
+  const esc = window.escHtml;
+  const raw = (input.value || '').trim();
+  if (!raw) {
+    box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">Enter a path to a .mpr file or the project folder.</div>`;
+    return;
+  }
+  box.innerHTML = `<span style="color:var(--text-muted)"><span class="spinner-sm"></span>Reading ${esc(raw)}...</span>`;
+  try {
+    const res = await fetch('http://localhost:9999/model/integrations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mprPath: raw, projectRoot: raw })
+    });
+    const data = await res.json();
+    if (!data || data.error || !data.ok) {
+      const reason = (data && (data.reason || data.message)) || 'Could not read the .mpr.';
+      box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">${esc(reason)}</div>`;
+      return;
+    }
+    box.innerHTML = dsIntRender(data);
+  } catch (e) {
+    box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">Bridge unreachable — the integrations inventory could not be read.</div>`;
+  }
+}
+
+function dsIntRender(data) {
+  const esc = window.escHtml;
+  const warnBadge = `<span class="badge" style="background:var(--warning); color:#000">unauthenticated</span>`;
+  const pill = (t) => `<span class="badge badge-secondary">${esc(t)}</span>`;
+  const roleP = (roles, types) => (roles || []).map(pill).join('') + (types || []).map(pill).join('');
+
+  const section = (title, count, inner) => count === 0 ? '' : `
+    <div style="margin-bottom:var(--sp-4)">
+      <h5 style="margin:0 0 var(--sp-2); color:var(--text-primary); font-size:0.9rem">${esc(title)} <span style="color:var(--text-muted); font-weight:400">(${count})</span></h5>
+      ${inner}
+    </div>`;
+
+  const restHtml = (data.publishedRest || []).map((s) => {
+    const ops = (s.resources || []).reduce((acc, r) => acc.concat((r.operations || []).map((o) =>
+      `<div style="font-family:var(--font-mono); font-size:0.74rem; color:var(--text-secondary)">${esc((o.httpMethod || '?').toUpperCase())} ${esc(r.name || '')}${o.path ? '/' + esc(o.path) : ''} &rarr; ${esc(o.microflow || '—')}</div>`
+    )), []).join('');
+    return `<div style="padding:var(--sp-2) 0; border-bottom:1px solid var(--border-subtle)">
+      <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap">
+        <strong style="color:var(--text-primary)">${esc(s.name || '(unnamed)')}</strong>
+        <span style="font-family:var(--font-mono); font-size:0.74rem; color:var(--text-muted)">/${esc(s.path || '')}${s.version ? ' · v' + esc(s.version) : ''}</span>
+        ${s.authenticated ? '' : warnBadge}
+        ${roleP(s.allowedRoles, s.authenticationTypes)}
+        ${s.authenticationMicroflow ? pill('auth: ' + s.authenticationMicroflow) : ''}
+      </div>
+      <div style="margin-top:3px">${ops}</div>
+    </div>`;
+  }).join('');
+
+  const odataHtml = (data.publishedOData || []).map((s) => {
+    const sets = (s.entitySets || []).map((e) =>
+      `<div style="font-family:var(--font-mono); font-size:0.74rem; color:var(--text-secondary)">${esc(e.name || '')}${e.entity ? ' &larr; ' + esc(e.entity) : ''}</div>`
+    ).join('');
+    return `<div style="padding:var(--sp-2) 0; border-bottom:1px solid var(--border-subtle)">
+      <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap">
+        <strong style="color:var(--text-primary)">${esc(s.name || '(unnamed)')}</strong>
+        <span style="font-family:var(--font-mono); font-size:0.74rem; color:var(--text-muted)">/${esc(s.path || '')}${s.odataVersion ? ' · ' + esc(s.odataVersion) : ''}</span>
+        ${s.authenticated ? '' : warnBadge}
+        ${roleP(s.allowedRoles, s.authenticationTypes)}
+        ${s.authenticationMicroflow ? pill('auth: ' + s.authenticationMicroflow) : ''}
+      </div>
+      <div style="margin-top:3px">${sets}</div>
+    </div>`;
+  }).join('');
+
+  const consumedHtml = (data.consumedRest || []).map((s) => {
+    const ops = (s.operations || []).map((o) =>
+      `<div style="font-family:var(--font-mono); font-size:0.74rem; color:var(--text-secondary)">${esc((o.httpMethod || '?').toUpperCase())} ${esc(o.location || '')}${o.name ? ' — ' + esc(o.name) : ''}</div>`
+    ).join('');
+    return `<div style="padding:var(--sp-2) 0; border-bottom:1px solid var(--border-subtle)">
+      <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap">
+        <strong style="color:var(--text-primary)">${esc(s.name || '(unnamed)')}</strong>
+        <span style="font-family:var(--font-mono); font-size:0.74rem; color:var(--text-muted)">${esc(s.baseUrl || '—')}</span>
+        ${s.baseUrlIsReference ? pill('base URL is a Constant') : ''}
+        ${s.authenticationScheme ? pill(s.authenticationScheme) : ''}
+      </div>
+      <div style="margin-top:3px">${ops}</div>
+    </div>`;
+  }).join('');
+
+  const beHtml = (data.businessEvents || []).map((s) => {
+    const ch = (s.channels || []).map((c) => pill(c.name || '(channel)')).join('');
+    const msg = (s.messages || []).map((m) => pill(m.name || '(message)')).join('');
+    return `<div style="padding:var(--sp-2) 0; border-bottom:1px solid var(--border-subtle)">
+      <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap">
+        <strong style="color:var(--text-primary)">${esc(s.name || '(unnamed)')}</strong>
+        ${s.eventNamePrefix ? `<span style="font-family:var(--font-mono); font-size:0.74rem; color:var(--text-muted)">${esc(s.eventNamePrefix)}</span>` : ''}
+      </div>
+      <div style="margin-top:3px; display:flex; gap:4px; flex-wrap:wrap">${ch}${msg}</div>
+    </div>`;
+  }).join('');
+
+  const total = (data.publishedRest || []).length + (data.publishedOData || []).length +
+    (data.consumedRest || []).length + (data.businessEvents || []).length;
+  if (total === 0) {
+    return `<div class="notice" style="font-size:0.82rem">No published or consumed integrations are defined in <span style="font-family:var(--font-mono)">${esc(data.projectName || '')}.mpr</span>. SOAP and legacy web services are not covered by this view.</div>`;
+  }
+
+  const anon = (data.publishedRest || []).concat(data.publishedOData || []).filter((s) => !s.authenticated).length;
+  return `
+    ${anon ? `<div class="notice notice-warning" style="font-size:0.82rem; margin-bottom:var(--sp-3)">${anon} published service${anon === 1 ? '' : 's'} reachable without sign-in (no allowed roles, no authentication microflow).</div>` : ''}
+    ${section('Published REST', (data.publishedRest || []).length, restHtml)}
+    ${section('Published OData', (data.publishedOData || []).length, odataHtml)}
+    ${section('Consumed REST', (data.consumedRest || []).length, consumedHtml)}
+    ${section('Business Events', (data.businessEvents || []).length, beHtml)}
+    <div style="color:var(--text-muted); font-size:0.76rem">Read from the last saved <span style="font-family:var(--font-mono)">${esc(data.projectName || '')}.mpr</span> — consumed base URLs backed by a Constant show the reference, not the resolved value.</div>`;
 }
 
 async function dsFetchDbDetails() {
@@ -551,6 +677,7 @@ function dsShowOfflineView() {
   document.getElementById('ds-tabs').style.display = 'none';
   document.getElementById('ds-dashboard-view').style.display = 'none';
   document.getElementById('ds-security-view').style.display = 'none';
+  document.getElementById('ds-integrations-view').style.display = 'none';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -565,6 +692,7 @@ function dsSetTab(tabId, el) {
   if (el) { el.classList.add('active'); el.setAttribute('aria-selected', 'true'); }
   document.getElementById('ds-dashboard-view').style.display = tabId === 'dashboard' ? 'flex' : 'none';
   document.getElementById('ds-security-view').style.display = tabId === 'security' ? 'flex' : 'none';
+  document.getElementById('ds-integrations-view').style.display = tabId === 'integrations' ? 'flex' : 'none';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -985,6 +1113,7 @@ window.dsSecApplyFilter = dsSecApplyFilter;
 window.dsSecCloseMembers = dsSecCloseMembers;
 window.dsSecRenderMembers = dsSecRenderMembers;
 window.dsFetchMprModel = dsFetchMprModel;
+window.dsFetchIntegrations = dsFetchIntegrations;
 
 // Exposed for scripts/parser-test.js (pure function, no DOM).
 window.dsBackoffDelay = dsBackoffDelay;
