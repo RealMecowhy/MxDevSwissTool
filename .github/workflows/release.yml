@@ -38,6 +38,24 @@ jobs:
         working-directory: release_package
         run: zip -r ../MxDevSwissTool-Release-${{ github.ref_name }}.zip ./*
 
+      - name: Sign the release package
+        env:
+          SIGNING_KEY: ${{ secrets.MXDEV_RELEASE_PRIVATE_KEY }}
+        run: |
+          if [ -z "$SIGNING_KEY" ]; then
+            echo "::warning::MXDEV_RELEASE_PRIVATE_KEY is not set — publishing an UNSIGNED release."
+            exit 0
+          fi
+          printf '%s' "$SIGNING_KEY" > /tmp/release_key.pem
+          node -e '
+            const fs=require("fs"),crypto=require("crypto");
+            const zip="MxDevSwissTool-Release-${{ github.ref_name }}.zip";
+            const key=crypto.createPrivateKey(fs.readFileSync("/tmp/release_key.pem"));
+            const sig=crypto.sign(null, fs.readFileSync(zip), key);
+            fs.writeFileSync(zip+".sig", sig.toString("base64"));
+          '
+          rm -f /tmp/release_key.pem
+
       - name: Publish GitHub Release
         # v1 declared node20 and was being force-run on node24 by the runner.
         # Every input used below still exists in v3, and `token` keeps defaulting
@@ -45,7 +63,9 @@ jobs:
         # what authorises the publish — no secret needs adding.
         uses: softprops/action-gh-release@v3
         with:
-          files: MxDevSwissTool-Release-${{ github.ref_name }}.zip
+          files: |
+            MxDevSwissTool-Release-${{ github.ref_name }}.zip
+            MxDevSwissTool-Release-${{ github.ref_name }}.zip.sig
           name: Release ${{ github.ref_name }}
           draft: false
           prerelease: false
