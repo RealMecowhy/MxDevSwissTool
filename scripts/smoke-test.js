@@ -129,6 +129,27 @@ setTimeout(async () => {
     );
     if (mprMissing.status !== 400) return fail('/model/mpr must reject a path that does not exist', 'status=' + mprMissing.status + ' body=' + mprMissing.body);
 
+    // The three model-analysis routes built on the .mpr reader (dead-code, i18n,
+    // integrations) share /model/mpr's validation — same token gate, 405 on GET,
+    // 400 on a non-absolute path.
+    for (const route of ['/model/dead-code', '/model/i18n', '/model/integrations']) {
+      console.log('Checking ' + route + ' requires a token and validates its path...');
+      const noTok = await request(
+        { path: route, method: 'POST', headers: { 'Content-Type': 'application/json' } },
+        JSON.stringify({ mprPath: 'C:\\nope\\App.mpr' })
+      );
+      if (noTok.status !== 401) return fail(route + ' must reject an unauthenticated caller', 'status=' + noTok.status);
+
+      const getReq = await request({ path: route, headers: { 'X-Bridge-Token': parsed.token } });
+      if (getReq.status !== 405) return fail(route + ' must answer 405 to GET', 'status=' + getReq.status);
+
+      const relative = await request(
+        { path: route, method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Bridge-Token': parsed.token } },
+        JSON.stringify({ mprPath: 'relative/App.mpr' })
+      );
+      if (relative.status !== 400) return fail(route + ' must reject a non-absolute path', 'status=' + relative.status + ' body=' + relative.body);
+    }
+
     console.log('Checking /prometheus rejects a non-numeric port...');
     const badPort = await request({ path: '/prometheus?port=80@evil.com', headers: { 'X-Bridge-Token': parsed.token } });
     if (badPort.status !== 400) return fail('/prometheus must reject a non-numeric port', 'status=' + badPort.status + ' body=' + badPort.body);
