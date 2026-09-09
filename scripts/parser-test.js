@@ -5445,6 +5445,22 @@ const ver = require('../server/lib/version.js');
   ok('ver: a non-numeric part degrades to 0', c('1.x.3', '1.0.3') === 0);
 })();
 
+// ── Log tail range (plan 002, server/lib/log-tail.js) ──────────────────────
+const lt = require('../server/lib/log-tail.js');
+(function () {
+  eq('lt: nothing new -> null', lt.computeTailRead(500, 500), null);
+  eq('lt: shrunk file -> null (caller handles truncation separately)', lt.computeTailRead(500, 100), null);
+  const small = lt.computeTailRead(100, 700);
+  eq('lt: a small growth is read whole (start)', small.start, 100);
+  eq('lt: a small growth is read whole (length)', small.length, 600);
+  eq('lt: a small growth skips nothing', small.skippedBytes, 0);
+  const big = lt.computeTailRead(0, 10 * 1024 * 1024, 2 * 1024 * 1024);
+  eq('lt: an oversized growth is capped to maxBytes', big.length, 2 * 1024 * 1024);
+  eq('lt: an oversized growth reads the tail', big.start, 10 * 1024 * 1024 - 2 * 1024 * 1024);
+  eq('lt: an oversized growth reports the skipped middle', big.skippedBytes, 8 * 1024 * 1024);
+  eq('lt: garbage sizes -> null', lt.computeTailRead('x', null), null);
+})();
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 runXlsxAsyncTests().then(runApiEconAsyncTests).then(runNginxAsyncTests).then(runAnonTests).then(function () {
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
