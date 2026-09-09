@@ -2342,6 +2342,7 @@
         <div id="ds-tabs" class="tabs" style="display:none; margin:0 calc(-1 * var(--sp-4)) var(--sp-4); flex:0 0 auto">
           <button type="button" class="tab active" data-help-key="dev-studio-dashboard" aria-selected="true" onclick="dsSetTab('dashboard',this)">Dashboard</button>
           <button type="button" class="tab" data-help-key="dev-studio-security" aria-selected="false" onclick="dsSetTab('security',this)">Security Matrix</button>
+          <button type="button" class="tab" data-help-key="dev-studio-deadcode" aria-selected="false" onclick="dsSetTab('deadcode',this)">Dead Code</button>
         </div>
 
         <!-- DASHBOARD VIEW -->
@@ -2612,6 +2613,33 @@
 
         </div>
         <!-- /ds-security-view -->
+
+        <!-- DEAD CODE VIEW (plan 007) -->
+        <div id="ds-deadcode-view" style="display:none; flex-direction:column; gap:var(--sp-4); width:100%">
+
+          <div class="card" style="padding:var(--sp-4)">
+            <h4 style="margin:0 0 var(--sp-2) 0; color:var(--text-primary)">Dead Code</h4>
+            <p style="color:var(--text-secondary); font-size:0.86rem; line-height:1.6; margin:0 0 var(--sp-3)">
+              The microflows, nanoflows, pages, snippets and entities that nothing in the model
+              references &mdash; read straight from the <code>.mpr</code>, no database and no local
+              run. Studio Pro has no &ldquo;find unused&rdquo;; this fills that gap.
+            </p>
+            <ul style="color:var(--text-muted); font-size:0.8rem; line-height:1.7; margin:0 0 var(--sp-3); padding-left:1.1rem">
+              <li>The finding is <strong>conservative</strong>: the reference check over-collects on purpose, so a false &ldquo;alive&rdquo; is possible but a false &ldquo;dead&rdquo; is not. Review each hit before deleting.</li>
+              <li>It reflects the <strong>last saved</strong> state of the project &mdash; unsaved edits in Studio Pro are invisible.</li>
+              <li>Enumerations and constants are listed separately because their inbound edges are not fully tracked.</li>
+            </ul>
+            <div style="display:flex; gap:var(--sp-2)">
+              <input type="text" id="ds-deadcode-path" placeholder="Path to a .mpr file or project folder"
+                style="flex:1; min-width:0; font-family:var(--font-mono); font-size:0.78rem; padding:var(--sp-2); background:var(--bg-base); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-primary)">
+              <button class="btn btn-secondary" style="font-size:0.8rem; white-space:nowrap" onclick="dsFetchDeadCode()">Analyse</button>
+            </div>
+          </div>
+
+          <div id="ds-deadcode-body" style="font-size:0.85rem"></div>
+
+        </div>
+        <!-- /ds-deadcode-view -->
 
       </div>
     </div>

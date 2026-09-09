@@ -14,6 +14,30 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## Unreleased — plan 007
+
+**Developer Studio finds dead code — model elements that nothing references.**
+Studio Pro has no "find unused", so dead microflows, pages, snippets and
+entities accumulate for years. The new **Dead Code** tab reads the `.mpr`
+directly (the same offline SQLite + BSON reader as the Project File card),
+builds a reference graph from every unit, and lists the elements with no live
+inbound edge — grouped by kind, with the reason for each. An element is kept
+alive by a call, a scheduled event, a data source, a widget action, the
+project's after-startup / before-shutdown / health-check setting, a menu item,
+or the home/login page; an entity is kept alive by any retrieve, create,
+association or generalization edge. A microflow named `ACT_`, `SCH_`, `WS_`,
+`REST_` or `OData_` is still listed but tagged as a likely entry point.
+
+The finding is **conservative on purpose**: the reference check collects every
+qualified-name string that appears anywhere in a unit and resolves to a real
+element, so it over-collects slightly (a string literal that looks like a
+name) — a false "alive" is safe, a false "dead" is not. It reflects the
+**last saved** state of the project. Enumerations and constants are listed
+separately because their inbound edges are not fully tracked yet.
+
+New Bridge route `POST /model/dead-code` ({ mprPath | projectRoot }),
+validated and token-gated exactly as `/model/mpr`.
+
 ## v1.60.0 — 2026-09-09
 
 **Developer Studio reads a `.mpr` project file directly, offline.** Until now the

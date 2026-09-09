@@ -21,6 +21,7 @@ const updateVerify = require('./lib/update-verify');
 const livedb = require('./livedb');
 const modelDeployment = require('./model-deployment');
 const mprReader = require('./mpr-reader');
+const modelGraph = require('./model-graph');
 const mxTool = require('./mx-tool');
 const perfSession = require('./perf-session');
 const { compareVersions } = require('./lib/version');
@@ -1406,6 +1407,58 @@ const server = http.createServer((req, res) => {
           })
           .then(r => sendJson(req, res, r))
           .catch(e => sendError(req, res, `MPR read error: ${e.message}`, 400));
+      });
+      return;
+    }
+    return sendError(req, res, 'Method Not Allowed', 405);
+  }
+
+  // "Dead code" — the model elements that nothing references (Plan 007). Built
+  // on the same offline .mpr reader as /model/mpr: open the SQLite database
+  // read-only, decode every unit's BSON, walk it for qualified-name strings that
+  // resolve to a real element, and report the microflows, nanoflows, pages,
+  // snippets and entities with no live inbound edge. The reference heuristic is
+  // deliberately loose — a false "alive" is safe, a false "dead" is not — and it
+  // reflects the LAST SAVED state of the project. Enumerations and constants are
+  // returned separately (`uncertain`) because their inbound edges are not fully
+  // tracked. Accepts { mprPath } or { projectRoot }, validated exactly as
+  // /model/mpr does.
+  if (url.pathname === '/model/dead-code') {
+    if (req.method === 'POST') {
+      readBody(req, res, 1 * 1024 * 1024, (rawBody) => {
+        let mprPath;
+        try {
+          const body = JSON.parse(rawBody.toString('utf8'));
+          const raw = body.mprPath || body.projectRoot;
+          if (!raw || typeof raw !== 'string') throw new Error('Missing mprPath or projectRoot');
+          if (!path.isAbsolute(raw)) throw new Error('path must be absolute');
+          mprPath = path.resolve(raw);
+        } catch (e) {
+          return sendError(req, res, `Invalid request: ${e.message}`, 400);
+        }
+
+        fsp.stat(mprPath)
+          .catch(() => { throw new Error(`No such path: ${mprPath}`); })
+          .then(async (st) => {
+            if (st.isDirectory()) {
+              const entries = await fsp.readdir(mprPath);
+              const mprs = entries.filter(f => f.toLowerCase().endsWith('.mpr'));
+              if (mprs.length !== 1) {
+                throw new Error(`Expected exactly one .mpr in ${mprPath}, found ${mprs.length}`);
+              }
+              mprPath = path.join(mprPath, mprs[0]);
+            }
+            const ctx = await mprReader.mprOpen(mprPath);
+            try {
+              const units = await mprReader.mprListUnits(ctx);
+              const analysis = modelGraph.mgAnalyzeUnits(units);
+              return { ok: true, dead: analysis.dead, uncertain: analysis.uncertain, counts: analysis.counts };
+            } finally {
+              try { ctx.db.close(); } catch (_) {}
+            }
+          })
+          .then(r => sendJson(req, res, r))
+          .catch(e => sendError(req, res, `Dead-code analysis error: ${e.message}`, 400));
       });
       return;
     }

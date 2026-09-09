@@ -5424,6 +5424,178 @@ const mpr = require('../server/mpr-reader.js');
     mpr.mprShapeDomainModel({ Entities: [3, { Name: 'Loose' }] }, null).entities[0].qualifiedName, 'Loose');
 })();
 
+// ── Model graph / dead code (plan 007, server/model-graph.js) ──────────────
+// A loose "what references what" pass over decoded unit BSON. Fixtures are
+// hand-built { id, type, name, moduleName, doc } units with small decoded-BSON
+// docs in the shapes measured on real projects (2026-09-09) — a page widget
+// action is Forms$FormAction, a microflow call is Microflows$MicroflowCallAction,
+// an entity super-type is MaybeGeneralization.$Type DomainModels$Generalization.
+const mg = require('../server/model-graph.js');
+
+(function () {
+  // The string walker: every QN-shaped string, however deeply nested.
+  const found = [];
+  mg.mgStringsIn({ a: ['Mod.A', { b: 'Mod.B', c: [{ d: 'Mod.Ent.Attr' }] }], e: 'nota-name', f: 5 }, found);
+  ok('mg: the string walker reaches nested arrays and objects',
+    found.indexOf('Mod.A') !== -1 && found.indexOf('Mod.B') !== -1 && found.indexOf('Mod.Ent.Attr') !== -1);
+  ok('mg: the string walker skips non-QN strings', found.indexOf('nota-name') === -1);
+
+  // Two-unit fixture: Module.A calls Module.B → one 'call' edge.
+  const callUnits = [
+    { id: 'a', type: 'Microflows$Microflow', name: 'A', moduleName: 'Module', doc: {
+      $Type: 'Microflows$Microflow',
+      ObjectCollection: { Objects: [2, {
+        $Type: 'Microflows$ActionActivity',
+        Action: { $Type: 'Microflows$MicroflowCallAction', MicroflowCall: { Microflow: 'Module.B' } }
+      }] }
+    } },
+    { id: 'b', type: 'Microflows$Microflow', name: 'B', moduleName: 'Module', doc: { $Type: 'Microflows$Microflow' } }
+  ];
+  const callRes = mg.mgExtractRefs(callUnits);
+  eq('mg: a microflow call yields exactly one edge', callRes.refs.length, 1);
+  eq('mg: the call edge is from A', callRes.refs[0].from, 'Module.A');
+  eq('mg: the call edge is to B', callRes.refs[0].to, 'Module.B');
+  eq('mg: the call edge kind is "call"', callRes.refs[0].kind, 'call');
+  ok('mg: B with a call edge is not dead',
+    mg.mgFindDeadAssets(mg.mgCollectElements(callUnits), callRes.refs).dead
+      .every(d => d.qualifiedName !== 'Module.B'));
+  ok('mg: A with no inbound edge is dead',
+    mg.mgFindDeadAssets(mg.mgCollectElements(callUnits), callRes.refs).dead
+      .some(d => d.qualifiedName === 'Module.A' && d.reason === 'no inbound reference'));
+
+  // retrieve edge — a RetrieveAction names an entity by qualified name.
+  const retrUnits = [
+    { id: 'm', type: 'Microflows$Microflow', name: 'Reader', moduleName: 'Sales', doc: {
+      $Type: 'Microflows$Microflow',
+      ObjectCollection: { Objects: [2, {
+        $Type: 'Microflows$ActionActivity',
+        Action: { $Type: 'Microflows$RetrieveAction',
+          RetrieveSource: { $Type: 'Microflows$DatabaseRetrieveSource', Entity: 'Sales.Order' } }
+      }] }
+    } },
+    { id: 'dm', type: 'DomainModels$DomainModel', name: null, moduleName: 'Sales', doc: {
+      $Type: 'DomainModels$DomainModel',
+      Entities: [2, { $Type: 'DomainModels$Entity', Name: 'Order',
+        MaybeGeneralization: { $Type: 'DomainModels$NoGeneralization', Persistable: true } }]
+    } }
+  ];
+  const retrRes = mg.mgExtractRefs(retrUnits);
+  ok('mg: a RetrieveAction produces a retrieve edge to the entity',
+    retrRes.refs.some(r => r.to === 'Sales.Order' && r.kind === 'retrieve'));
+  ok('mg: an entity with one retrieve edge is not dead',
+    mg.mgFindDeadAssets(mg.mgCollectElements(retrUnits), retrRes.refs).dead
+      .every(d => d.qualifiedName !== 'Sales.Order'));
+
+  // generalize edge — an entity's MaybeGeneralization names its super-type.
+  const genUnits = [
+    { id: 'dm', type: 'DomainModels$DomainModel', name: null, moduleName: 'HR', doc: {
+      $Type: 'DomainModels$DomainModel',
+      Entities: [3,
+        { $Type: 'DomainModels$Entity', Name: 'Person',
+          MaybeGeneralization: { $Type: 'DomainModels$NoGeneralization', Persistable: true } },
+        { $Type: 'DomainModels$Entity', Name: 'Employee',
+          MaybeGeneralization: { $Type: 'DomainModels$Generalization', Generalization: 'HR.Person' } }
+      ]
+    } }
+  ];
+  const genRes = mg.mgExtractRefs(genUnits);
+  ok('mg: a MaybeGeneralization produces a generalize edge',
+    genRes.refs.some(r => r.from === 'HR.Employee' && r.to === 'HR.Person' && r.kind === 'generalize'));
+  ok('mg: the generalized-over entity is not dead',
+    mg.mgFindDeadAssets(mg.mgCollectElements(genUnits), genRes.refs).dead
+      .every(d => d.qualifiedName !== 'HR.Person'));
+  ok('mg: the leaf entity with no inbound edge is dead',
+    mg.mgFindDeadAssets(mg.mgCollectElements(genUnits), genRes.refs).dead
+      .some(d => d.qualifiedName === 'HR.Employee'));
+
+  // show_page edge — a ShowPageAction names a page.
+  const pageUnits = [
+    { id: 'mf', type: 'Microflows$Microflow', name: 'Open', moduleName: 'UI', doc: {
+      $Type: 'Microflows$Microflow',
+      ObjectCollection: { Objects: [2, {
+        $Type: 'Microflows$ActionActivity',
+        Action: { $Type: 'Microflows$ShowPageAction',
+          PageSettings: { $Type: 'Forms$FormSettings', FormReference: 'UI.HomePage' } }
+      }] }
+    } },
+    { id: 'p1', type: 'Forms$Page', name: 'HomePage', moduleName: 'UI', doc: { $Type: 'Forms$Page' } },
+    { id: 'p2', type: 'Forms$Page', name: 'Orphan', moduleName: 'UI', doc: { $Type: 'Forms$Page' } }
+  ];
+  const pageRes = mg.mgExtractRefs(pageUnits);
+  ok('mg: a ShowPageAction produces a show_page edge',
+    pageRes.refs.some(r => r.to === 'UI.HomePage' && r.kind === 'show_page'));
+  const pageDead = mg.mgFindDeadAssets(mg.mgCollectElements(pageUnits), pageRes.refs).dead;
+  ok('mg: a page opened by a ShowPageAction is not dead',
+    pageDead.every(d => d.qualifiedName !== 'UI.HomePage'));
+  ok('mg: a page with no inbound edge is dead',
+    pageDead.some(d => d.qualifiedName === 'UI.Orphan'));
+
+  // A page reachable only from a navigation menu item stays alive.
+  const navUnits = [
+    { id: 'nav', type: 'Navigation$NavigationDocument', name: null, moduleName: null, doc: {
+      $Type: 'Navigation$NavigationDocument',
+      Profiles: [2, { $Type: 'Navigation$NavigationProfile',
+        Menu: { $Type: 'Menus$MenuItemCollection', Items: [2, {
+          $Type: 'Menus$MenuItem',
+          Action: { $Type: 'Forms$FormAction', FormSettings: { $Type: 'Forms$FormSettings', Form: 'UI.MenuOnly' } }
+        }] } }
+      ]
+    } },
+    { id: 'p', type: 'Forms$Page', name: 'MenuOnly', moduleName: 'UI', doc: { $Type: 'Forms$Page' } }
+  ];
+  const navRes = mg.mgExtractRefs(navUnits);
+  ok('mg: the navigation document references the page',
+    navRes.refs.some(r => r.to === 'UI.MenuOnly'));
+  ok('mg: a page reachable only from navigation is not dead',
+    mg.mgFindDeadAssets(mg.mgCollectElements(navUnits), navRes.refs).dead
+      .every(d => d.qualifiedName !== 'UI.MenuOnly'));
+
+  // A scheduled event keeps its microflow alive; a zero-edge microflow does not;
+  // an ACT_-prefixed zero-edge microflow is listed with the prefix reason.
+  const schedUnits = [
+    { id: 'se', type: 'ScheduledEvents$ScheduledEvent', name: 'SE_Nightly', moduleName: 'Jobs', doc: {
+      $Type: 'ScheduledEvents$ScheduledEvent', Microflow: 'Jobs.RunNightly'
+    } },
+    { id: 'mf1', type: 'Microflows$Microflow', name: 'RunNightly', moduleName: 'Jobs', doc: { $Type: 'Microflows$Microflow' } },
+    { id: 'mf2', type: 'Microflows$Microflow', name: 'Forgotten', moduleName: 'Jobs', doc: { $Type: 'Microflows$Microflow' } },
+    { id: 'mf3', type: 'Microflows$Microflow', name: 'ACT_Manual', moduleName: 'Jobs', doc: { $Type: 'Microflows$Microflow' } }
+  ];
+  const schedRes = mg.mgExtractRefs(schedUnits);
+  ok('mg: a scheduled event produces a schedule edge',
+    schedRes.refs.some(r => r.to === 'Jobs.RunNightly' && r.kind === 'schedule'));
+  const schedDead = mg.mgFindDeadAssets(mg.mgCollectElements(schedUnits), schedRes.refs).dead;
+  ok('mg: a microflow reached by a schedule edge is not dead',
+    schedDead.every(d => d.qualifiedName !== 'Jobs.RunNightly'));
+  ok('mg: a microflow with zero edges is dead',
+    schedDead.some(d => d.qualifiedName === 'Jobs.Forgotten' && d.reason === 'no inbound reference'));
+  ok('mg: an ACT_-prefixed zero-edge microflow is listed with the prefix reason',
+    schedDead.some(d => d.qualifiedName === 'Jobs.ACT_Manual' && d.reason === 'prefix suggests entry point'));
+
+  // Enumerations and constants are never in `dead` — they go to `uncertain`.
+  const enumUnits = [
+    { id: 'en', type: 'Enumerations$Enumeration', name: 'Colour', moduleName: 'Look', doc: { $Type: 'Enumerations$Enumeration' } },
+    { id: 'co', type: 'Constants$Constant', name: 'ApiKey', moduleName: 'Look', doc: { $Type: 'Constants$Constant' } }
+  ];
+  const enumRes = mg.mgExtractRefs(enumUnits);
+  const enumClass = mg.mgFindDeadAssets(mg.mgCollectElements(enumUnits), enumRes.refs);
+  ok('mg: an unreferenced enumeration is uncertain, not dead',
+    enumClass.dead.length === 0 &&
+    enumClass.uncertain.some(u => u.qualifiedName === 'Look.Colour' && u.objectType === 'ENUMERATION'));
+  ok('mg: the uncertain caveat is on constants too',
+    enumClass.uncertain.some(u => u.qualifiedName === 'Look.ApiKey' &&
+      /verify before deleting/.test(u.reason)));
+
+  // mgResolveModuleNames walks ContainerID up through folders to the module.
+  const raw = [
+    { id: 'mod', containerId: null, containmentName: null, type: 'Projects$ModuleImpl', name: 'Sales', doc: {} },
+    { id: 'fold', containerId: 'mod', containmentName: 'Folders', type: 'Projects$Folder', name: 'Private', doc: {} },
+    { id: 'mf', containerId: 'fold', containmentName: 'Documents', type: 'Microflows$Microflow', name: 'X', doc: {} }
+  ];
+  const resolved = mg.mgResolveModuleNames(raw);
+  eq('mg: a microflow nested in a folder resolves to its module',
+    resolved.find(u => u.id === 'mf').moduleName, 'Sales');
+})();
+
 // ── MX Tool Runner (wave 28, server/mx-tool.js) ────────────────────────────
 // Pure layer only: version parsing, binary selection, the progress counter and
 // JSON validation. No `mx.exe` is spawned here — the impure half is verified by
