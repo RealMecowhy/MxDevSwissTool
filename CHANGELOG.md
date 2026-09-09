@@ -14,7 +14,31 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
-## Unreleased — plan 007
+## v1.60.0 — 2026-09-09
+
+**Developer Studio reads a `.mpr` project file directly, offline — and three new
+views build on it.** Until now the tool could describe a Mendix model only when
+the app had been run locally (`deployment/model/`), had a reachable database
+(`mendixsystem$*`), or opened in Studio Pro (`mx.exe`). A project handed over by
+a client and never run on this machine was a blind spot. A `.mpr` is a SQLite
+database whose model units are standard BSON, so a new **Project File (.mpr)**
+card on the Dashboard reads it with nothing running — SQLite (built into Node)
+plus the `bson` package — on Mendix 8–11, format v1 (units inline) and v2
+(`mprcontents/*.mxunit`). It reports the format and Mendix version,
+module/entity/microflow/page counts, and the project security settings: level,
+guest access, strict mode, whether an admin password is stored in the model, a
+weak-password-policy flag, and any role that manages all roles. Entity-level
+READ/WRITE is derived from member access the way Mendix itself derives it (there
+is no stored flag); stored passwords surface only as "is set" booleans, never as
+values. The reader opens the database read-only and never touches `_Transaction`
+(Studio Pro's external-change marker), so Studio Pro can stay open. It reflects
+the **last saved** state. New Bridge route `POST /model/mpr`. Verified: 541/541
+units of a Mendix 11.12 v2 app and 4196/4196 of a Mendix 9.24 v1 app (a 175 MB
+single-file `.mpr`) decode without a single failure.
+
+On top of that reader, Developer Studio gains three offline analysis tabs:
+
+### Dead Code — model elements that nothing references
 
 **Developer Studio finds dead code — model elements that nothing references.**
 Studio Pro has no "find unused", so dead microflows, pages, snippets and
@@ -37,9 +61,9 @@ separately because their inbound edges are not fully tracked yet.
 
 New Bridge route `POST /model/dead-code` ({ mprPath | projectRoot }),
 validated and token-gated exactly as `/model/mpr`.
-## Unreleased — plan 010
+### Translations — translation completeness per language
 
-**Developer Studio — a Translations tab: translation completeness for the whole
+**A Translations tab: translation completeness for the whole
 project.** Before a multi-language release, "which texts are not translated into
 language X" has no answer in Studio Pro short of clicking through every document.
 The new tab reads every translatable caption and label straight from the `.mpr`
@@ -56,9 +80,9 @@ reports gaps, it does not edit translations or export `.xlf`. New Bridge route
 Web Order Entry (17 languages, v1, 175 MB), and a single-language Mendix 11.12 app
 (one language, empty missing list).
 
-## Unreleased — plan 014
+### Integrations — the audit surface, read from the model
 
-**Developer Studio gains an "Integrations" tab — the audit-surface inventory,
+**An "Integrations" tab — the audit-surface inventory,
 read from the model.** "What does this app expose, and what does it call out
 to?" was answerable today only by replaying production logs. The model already
 holds it: the new tab reads the `.mpr` directly (no app running) and lists the
@@ -74,28 +98,6 @@ as `/model/mpr`. SOAP and legacy web services are out of scope; contract
 validation is inventory-only. Verified on a real Mendix 9.24 project: 6
 published REST services / 8 operations and 1 OData service, 3 REST services
 correctly flagged as reachable without sign-in.
-
-## v1.60.0 — 2026-09-09
-
-**Developer Studio reads a `.mpr` project file directly, offline.** Until now the
-tool could describe a Mendix model only when the app had been run locally
-(`deployment/model/`), had a reachable database (`mendixsystem$*`), or opened in
-Studio Pro (`mx.exe`). A project handed over by a client and never run on this
-machine was a blind spot. A `.mpr` is a SQLite database whose model units are
-standard BSON, so the new **Project File (.mpr)** card on the Dashboard reads it
-with nothing running — SQLite (built into Node) plus the `bson` package — on
-Mendix 8–11, format v1 (units inline) and v2 (`mprcontents/*.mxunit`). It reports
-the format and Mendix version, module/entity/microflow/page counts, and the
-project security settings: level, guest access, strict mode, whether an admin
-password is stored in the model, a weak-password-policy flag, and any role that
-manages all roles. Entity-level READ/WRITE is derived from member access the way
-Mendix itself derives it (there is no stored flag); stored passwords surface only
-as "is set" booleans, never as values. The reader opens the database read-only
-and never touches `_Transaction` (Studio Pro's external-change marker), so Studio
-Pro can stay open. It reflects the **last saved** state. New Bridge route
-`POST /model/mpr`. Verified: 541/541 units of a Mendix 11.12 v2 app and 4196/4196
-of a Mendix 9.24 v1 app (a 175 MB single-file `.mpr`) decode without a single
-failure.
 
 ## v1.59.0 — 2026-09-09
 
