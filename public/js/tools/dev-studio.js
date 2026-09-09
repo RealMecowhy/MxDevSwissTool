@@ -265,6 +265,11 @@ function dsRenderDetectedProject() {
 
   dsFetchProjectInsights();
   dsFetchDeploymentModel();
+
+  const mprInput = document.getElementById('ds-mpr-path');
+  if (mprInput && !mprInput.value && dsProjectData && dsProjectData.projectRoot) {
+    mprInput.value = dsProjectData.projectRoot;
+  }
 }
 
 // ── Deployment model ────────────────────────────────────────────────────────
@@ -315,6 +320,67 @@ async function dsFetchDeploymentModel() {
   } catch (e) {
     window._mxOpsIndex = null;
     box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">Bridge unreachable — the deployment model could not be read.</div>`;
+  }
+}
+
+// ── Project file (.mpr) — the offline reader (plan 006) ─────────────────────
+// A fourth model source: the .mpr is a SQLite database whose units are BSON, so
+// this needs neither a database nor a local run. It reflects the LAST SAVED
+// state of the project; properties left at their Mendix default are not shown
+// because Mendix does not store them. A failure here is quiet by design — this
+// card degrades to its own instruction line, nothing else depends on it.
+async function dsFetchMprModel() {
+  const box = document.getElementById('ds-mpr-body');
+  const input = document.getElementById('ds-mpr-path');
+  if (!box || !input) return;
+  const esc = window.escHtml;
+  const raw = (input.value || '').trim();
+  if (!raw) {
+    box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">Enter a path to a .mpr file or the project folder.</div>`;
+    return;
+  }
+  box.innerHTML = `<span style="color:var(--text-muted)"><span class="spinner-sm"></span>Reading ${esc(raw)}...</span>`;
+  try {
+    const res = await fetch('http://localhost:9999/model/mpr', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mprPath: raw, projectRoot: raw })
+    });
+    const data = await res.json();
+    if (!data || data.error || !data.ok) {
+      const reason = (data && (data.reason || data.message)) || 'Could not read the .mpr.';
+      box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">${esc(reason)}</div>`;
+      return;
+    }
+    const c = data.counts || {};
+    const s = data.security;
+    const flags = [];
+    if (s) {
+      if (s.securityLevel) flags.push(`Security: <strong style="color:var(--text-primary)">${esc(s.securityLevel)}</strong>`);
+      flags.push(`Guest access: <strong style="color:var(--text-primary)">${s.enableGuestAccess ? 'on' : 'off'}</strong>`);
+      flags.push(`Strict mode: <strong style="color:var(--text-primary)">${s.strictMode ? 'on' : 'off'}</strong>`);
+      if (s.adminPasswordSet) flags.push(`<span style="color:var(--warning)">Admin password is set in the model</span>`);
+      if (s.passwordPolicy && typeof s.passwordPolicy.minimumLength === 'number' && s.passwordPolicy.minimumLength < 8) {
+        flags.push(`<span style="color:var(--warning)">Weak password policy (min length ${s.passwordPolicy.minimumLength})</span>`);
+      }
+      const godRoles = (s.userRoles || []).filter(r => r.manageAllRoles).map(r => r.name);
+      if (godRoles.length) flags.push(`Roles that manage all roles: <strong style="color:var(--text-primary)">${esc(godRoles.join(', '))}</strong>`);
+    }
+    box.innerHTML = `
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:var(--sp-2) var(--sp-4)">
+        <div><span style="color:var(--text-muted)">Format:</span> <strong style="color:var(--text-primary)">v${data.formatVersion}</strong></div>
+        <div><span style="color:var(--text-muted)">Mendix:</span> <strong style="color:var(--text-primary)">${esc(data.productVersion || '—')}</strong></div>
+        <div><span style="color:var(--text-muted)">Modules:</span> <strong style="color:var(--text-primary)">${c.modules || 0}</strong></div>
+        <div><span style="color:var(--text-muted)">Entities:</span> <strong style="color:var(--text-primary)">${c.entities || 0}</strong></div>
+        <div><span style="color:var(--text-muted)">Microflows:</span> <strong style="color:var(--text-primary)">${c.microflows || 0}</strong></div>
+        <div><span style="color:var(--text-muted)">Pages:</span> <strong style="color:var(--text-primary)">${c.pages || 0}</strong></div>
+      </div>
+      ${flags.length ? `<div style="margin-top:var(--sp-3); display:flex; flex-direction:column; gap:2px; font-size:0.8rem">${flags.map(f => `<div>${f}</div>`).join('')}</div>` : ''}
+      <div style="margin-top:var(--sp-3); color:var(--text-muted); font-size:0.78rem">
+        Read straight from <span style="font-family:var(--font-mono)">${esc(data.projectName)}.mpr</span> — last saved state, no database or local run needed.
+      </div>`;
+  } catch (e) {
+    box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">Bridge unreachable — the .mpr could not be read.</div>`;
   }
 }
 
@@ -918,6 +984,7 @@ window.dsSecSetView = dsSecSetView;
 window.dsSecApplyFilter = dsSecApplyFilter;
 window.dsSecCloseMembers = dsSecCloseMembers;
 window.dsSecRenderMembers = dsSecRenderMembers;
+window.dsFetchMprModel = dsFetchMprModel;
 
 // Exposed for scripts/parser-test.js (pure function, no DOM).
 window.dsBackoffDelay = dsBackoffDelay;

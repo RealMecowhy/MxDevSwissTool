@@ -2461,6 +2461,19 @@
                 </div>
               </div>
 
+              <!-- Project File (.mpr) — offline reader (plan 006) -->
+              <div class="card" style="padding:var(--sp-4)">
+                <h4 style="margin:0 0 var(--sp-3) 0; color:var(--text-primary); border-bottom:1px solid var(--border); padding-bottom:var(--sp-2)">Project File (.mpr)</h4>
+                <div style="display:flex; gap:var(--sp-2); margin-bottom:var(--sp-3)">
+                  <input type="text" id="ds-mpr-path" placeholder="Path to a .mpr file or project folder"
+                    style="flex:1; min-width:0; font-family:var(--font-mono); font-size:0.78rem; padding:var(--sp-2); background:var(--bg-base); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-primary)">
+                  <button class="btn btn-secondary" style="font-size:0.8rem; white-space:nowrap" onclick="dsFetchMprModel()">Read</button>
+                </div>
+                <div id="ds-mpr-body" style="font-size:0.85rem">
+                  <span style="color:var(--text-muted)">Reads the model straight from the <code>.mpr</code> &mdash; no database, no local run, Mendix 8&ndash;11.</span>
+                </div>
+              </div>
+
               <!-- Java Code Quality -->
               <div class="card" style="padding:var(--sp-4)">
                 <h4 style="margin:0 0 var(--sp-3) 0; color:var(--text-primary); border-bottom:1px solid var(--border); padding-bottom:var(--sp-2)">Java Code Quality</h4>
