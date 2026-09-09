@@ -11,6 +11,12 @@ CLAUDE.md
 *.zip
 .bridge-token
 
+# /improve advisor artifacts — implementation plans and the skills lockfile.
+# Kept locally as a working record, never shipped in the repo.
+/plans/
+/advisor-plans/
+skills-lock.json
+
 # Dev-only scripts and fixtures. Kept locally, never shipped to end users:
 # the repo is what people download, so it holds only what is needed to run the app.
 scripts/analyze.js

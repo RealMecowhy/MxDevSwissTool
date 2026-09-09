@@ -14,6 +14,43 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.58.1 — 2026-09-09
+
+Reliability and hardening pass on the local bridge — no feature changes.
+
+**Live log tailing no longer stalls or stutters.** The bridge reads the growing
+runtime log in three ways now that keep the Log Viewer honest under load:
+
+- The incremental read is **bounded and off the event loop.** It used to
+  `Buffer.alloc` and synchronously read the entire delta since the last check —
+  and after a log rotation that delta is the whole new file. A large or
+  fast-growing log could freeze live streaming, load-test polling and OTEL
+  ingest together, or push the bridge to an out-of-memory exit. It now streams
+  at most the last 2 MB and says so when it skipped older lines in a burst.
+- **A poll backs up `fs.watch`.** `fs.watch` goes silent after a rotation, on
+  network drives, and with some editors — and the Log Viewer would just stop
+  updating with no error. A 2-second stat poll and a watcher re-arm on rotation
+  keep the tail alive.
+- **No more duplicated lines.** With the read now asynchronous, two triggers
+  landing close together could read the same bytes twice. A single in-flight
+  guard makes each stretch of log arrive exactly once.
+
+**The `/prometheus` proxy only proxies a loopback port now.** The `port` query
+parameter went straight into the target URL unchecked, so a value like
+`80@host` could point the bridge at another host and hand its response back.
+The host is fixed to `127.0.0.1`, the port must be a real port number, and the
+request has a 5-second timeout and an 8 MB cap so a hung target no longer leaks
+a socket.
+
+**Offline view.** The "waiting for a local Mendix app" screen centres its radar
+rings correctly and uses the standard monitor glyph.
+
+**For contributors:** a fresh `git clone` on Windows (`core.autocrlf=true`)
+smudged `.js` files to CRLF, which broke `npm test` on the anonymizer suite.
+`.gitattributes` now pins LF on checkout and the one line-ending-sensitive test
+was made tolerant. The bridge's release-version comparison moved into a small
+tested module (`server/lib/version.js`).
+
 ## v1.58.0 — 2026-09-08
 
 **Security Matrix — attribute drill-down.** Clicking an entity-access row opens
