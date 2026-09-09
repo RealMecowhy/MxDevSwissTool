@@ -957,6 +957,26 @@ Customer [1] -- [*] Order : places</pre>
       </ol>
     `
   },
+  'dev-studio-i18n': {
+    title: 'Developer Studio — Translations',
+    description: 'Translation completeness for a multi-language project: every enabled language with a translated-vs-total bar, the list of texts with no translation in a given language, and a heuristic list of texts that exist only in the default language. Read straight from the <code>.mpr</code> &mdash; no database, no local run &mdash; and entirely read-only: this view reports gaps, it does not edit translations or export <code>.xlf</code>.',
+    howToGet: `
+      <ul>
+        <li>The bridge must be running. No PostgreSQL and no <code>pg</code> module are needed &mdash; this reads the project file.</li>
+        <li>Works on Mendix 8&ndash;11, format v1 and v2. It reflects the <strong>last saved</strong> state of the project; unsaved edits in Studio Pro are not in the file yet.</li>
+      </ul>
+    `,
+    howToUse: `
+      <ol>
+        <li>Point the field at a <code>.mpr</code> file or the project folder and press <strong>Analyze</strong>. If you are connected to a project on the Dashboard tab, the path is filled in for you.</li>
+        <li><strong>Per-language bars</strong> show translated ÷ total, where "total" counts the texts that have a value in the default language (there is nothing to translate for a key the default language leaves blank).</li>
+        <li><strong>Missing translations</strong> &mdash; a language that is enabled in the project but has no text, or an empty text, for a key the default language does have. Grouped by language; expand a language to see the document, the location within it, and the default-language text. This is the list you would hand a translator.</li>
+        <li><strong>Hardcoded / single-language texts</strong> &mdash; a caption that exists only in the default language while the project has more than one. This is a <em>heuristic</em>: it catches captions typed as plain text and never opened for translation, but it also lists texts that are intentionally the same in every language (a product name) and some platform-supplied texts. Treat it as a review list, not a defect list.</li>
+        <li>The System module's texts are platform-supplied and are excluded from "missing" &mdash; you cannot translate them from your project anyway.</li>
+        <li>Long lists are capped for transport; the heading says when you are seeing the first N of a larger total. The per-language counts are always exact.</li>
+      </ol>
+    `
+  },
   'perf-lab': {
     title: 'REST Load Tester',
     description: 'Load-tests a selected endpoint (REST API, SOAP, HTML page) and reports how it behaves under concurrency: response-time percentiles, throughput, status breakdown. Runs either a fixed batch or an open-ended test whose thread count you retune while it is running.',
