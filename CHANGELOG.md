@@ -14,6 +14,25 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## Unreleased — plan 014
+
+**Developer Studio gains an "Integrations" tab — the audit-surface inventory,
+read from the model.** "What does this app expose, and what does it call out
+to?" was answerable today only by replaying production logs. The model already
+holds it: the new tab reads the `.mpr` directly (no app running) and lists the
+**published REST** services with their resources and per-operation microflows,
+the **published OData** services with their entity sets, any **consumed REST**
+clients, and **Business Event** channels. The **authentication** is the point —
+a published service with no allowed roles and no authentication microflow
+answers anonymous callers, and every such service is flagged. Consumed base
+URLs backed by a Constant are shown as the reference, never the resolved
+per-environment value. New Bridge route `POST /model/integrations`
+(`{ mprPath }` or `{ projectRoot }`), behind the same token and path validation
+as `/model/mpr`. SOAP and legacy web services are out of scope; contract
+validation is inventory-only. Verified on a real Mendix 9.24 project: 6
+published REST services / 8 operations and 1 OData service, 3 REST services
+correctly flagged as reachable without sign-in.
+
 ## v1.60.0 — 2026-09-09
 
 **Developer Studio reads a `.mpr` project file directly, offline.** Until now the
