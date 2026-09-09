@@ -14,6 +14,26 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.59.0 — 2026-09-09
+
+**Automatic updates are signature-checked now.** The in-app updater used to
+download the release ZIP, unpack it and copy it over the running install with
+nothing verifying the bytes — which matters most in exactly the locked-down,
+proxy-heavy environments this tool is built for: a TLS-terminating corporate
+proxy, or a compromised release asset, could serve a malicious package and the
+bridge would install it on the next start.
+
+- Every release ZIP is now signed with an **Ed25519** key whose public half
+  ships inside the tool. Before *Update now* replaces anything, the bridge
+  fetches the detached `.zip.sig`, verifies it against that key, and **aborts on
+  a mismatch** — a re-signing proxy cannot forge it. The signing key's private
+  half lives only as a GitHub Actions secret.
+- Extraction now also **rejects path-traversal entries and symlinks** in the
+  package, so a crafted archive can't write outside the update folder.
+- The *Download ZIP* manual fallback is unchanged. A release published without a
+  signature still installs with a logged warning, so nothing breaks in the
+  transition.
+
 ## v1.58.1 — 2026-09-09
 
 Reliability and hardening pass on the local bridge — no feature changes.
