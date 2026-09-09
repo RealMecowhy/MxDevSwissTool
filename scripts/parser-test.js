@@ -5296,6 +5296,134 @@ const mdep = require('../server/model-deployment.js');
   eq('mdep: a null row list is survivable', mdep.mdBuildIndex(null).counts.entities, 0);
 })();
 
+// ── MPR reader (plan 006, server/mpr-reader.js) ────────────────────────────
+// A .mpr is a SQLite database; its model units are standard BSON. The pure
+// layer below the "Reading from disk" divider is what these tests cover: the
+// UUID byte order, the array version marker, absent-means-default, the storage
+// field aliases, and the two shaping functions.
+//
+// Fixtures are hand-built in the shapes measured on real projects (Mendix_11_12
+// v2 and Web Order Entry v1, 2026-09-09). Nothing is copied out of a real app.
+const mpr = require('../server/mpr-reader.js');
+
+(function () {
+  // UUID <-> blob is the Microsoft GUID byte-swap: first three groups reversed,
+  // last two as-is. The one measured example (a real .mxunit filename).
+  eq('mpr: blob -> display uuid swaps the first three groups',
+    mpr.blobToUuid(Buffer.from('6773bdfe14f28149815ebac2deecc02d', 'hex')),
+    'febd7367-f214-4981-815e-bac2deecc02d');
+  eq('mpr: uuid -> blob round-trips',
+    mpr.uuidToBlob('febd7367-f214-4981-815e-bac2deecc02d').toString('hex'),
+    '6773bdfe14f28149815ebac2deecc02d');
+  eq('mpr: a non-16-byte blob is not a uuid', mpr.blobToUuid(Buffer.from('00', 'hex')), null);
+  eq('mpr: a malformed uuid is not a blob', mpr.uuidToBlob('not-a-uuid'), null);
+
+  // Model arrays carry an int32 version marker at index 0 — real values from 1.
+  ok('mpr: mprArray drops the marker',
+    JSON.stringify(mpr.mprArray([3, 'a', 'b'])) === JSON.stringify(['a', 'b']));
+  ok('mpr: mprArray on a non-array is empty', mpr.mprArray(null).length === 0);
+
+  // Absent boolean = the Mendix default, not false — Studio Pro omits defaults.
+  eq('mpr: absent bool takes the Mendix default', mpr.mprBool({}, 'StrictMode', true), true);
+  eq('mpr: present bool wins', mpr.mprBool({ StrictMode: false }, 'StrictMode', true), false);
+  eq('mpr: a non-boolean value falls back to the default',
+    mpr.mprBool({ StrictMode: 'yes' }, 'StrictMode', false), false);
+
+  // Field alias: an attribute's Type is stored as NewType.
+  eq('mpr: reads the NewType alias for Type',
+    mpr.mprField({ NewType: { $Type: 'DomainModels$StringAttributeType' } }, 'Type').$Type,
+    'DomainModels$StringAttributeType');
+  eq('mpr: a direct key still wins over its alias',
+    mpr.mprField({ Type: 'direct', NewType: 'aliased' }, 'Type'), 'direct');
+
+  // Security shaping — a set AdminPassword is FLAGGED, never echoed.
+  const sec = mpr.mprShapeSecurity({
+    $Type: 'Security$ProjectSecurity',
+    SecurityLevel: 'CheckEverything',
+    AdminPassword: 'hunter2',
+    AdminUserName: 'MxAdmin',
+    EnableGuestAccess: false,
+    PasswordPolicySettings: { MinimumLength: 6, RequireDigit: false },
+    UserRoles: [2, {
+      $Type: 'Security$UserRole', Name: 'Root', ManageAllRoles: true,
+      ModuleRoles: [1, 'MyModule.Administrator', 'System.Administrator']
+    }],
+    DemoUsers: [2, {
+      $Type: 'Security$DemoUserImpl', UserName: 'demo_administrator', Password: 'x',
+      UserRoles: [1, 'Administrator']
+    }]
+  });
+  eq('mpr: security level passes through', sec.securityLevel, 'CheckEverything');
+  eq('mpr: a set admin password is flagged', sec.adminPasswordSet, true);
+  ok('mpr: the admin password value never appears in the shaped output',
+    JSON.stringify(sec).indexOf('hunter2') === -1);
+  eq('mpr: admin user name surfaces', sec.adminUserName, 'MxAdmin');
+  eq('mpr: user role module roles drop the marker', sec.userRoles[0].moduleRoles.length, 2);
+  eq('mpr: manageAllRoles surfaces', sec.userRoles[0].manageAllRoles, true);
+  eq('mpr: weak password-policy length surfaces', sec.passwordPolicy.minimumLength, 6);
+  eq('mpr: an absent password-policy flag is its default (false)',
+    sec.passwordPolicy.requireMixedCase, false);
+  eq('mpr: a demo user password is flagged, not leaked', sec.demoUsers[0].hasPassword, true);
+  ok('mpr: the demo user password value never appears',
+    JSON.stringify(sec).indexOf('"x"') === -1 || JSON.stringify(sec.demoUsers).indexOf(':"x"') === -1);
+  eq('mpr: an absent Security unit shapes to null-safe defaults',
+    mpr.mprShapeSecurity(null).securityLevel, null);
+
+  // Domain-model shaping — entity-level READ is DERIVED from member access
+  // (Mendix stores no entity-level flag).
+  const dm = mpr.mprShapeDomainModel({
+    $Type: 'DomainModels$DomainModel',
+    Entities: [3,
+      {
+        $Type: 'DomainModels$Entity', Name: 'Order',
+        MaybeGeneralization: { $Type: 'DomainModels$NoGeneralization', Persistable: true },
+        Attributes: [2, {
+          $Type: 'DomainModels$Attribute', Name: 'Total',
+          NewType: { $Type: 'DomainModels$DecimalAttributeType' }
+        }],
+        AccessRules: [1, {
+          $Type: 'DomainModels$AccessRule', AllowedModuleRoles: [1, 'MyModule.User'],
+          XPathConstraint: '', AllowCreate: false, AllowDelete: false,
+          DefaultMemberAccessRights: 'ReadOnly', MemberAccesses: [1]
+        }]
+      },
+      {
+        $Type: 'DomainModels$Entity', Name: 'Account',
+        MaybeGeneralization: { $Type: 'DomainModels$Generalization', Generalization: 'System.User' },
+        Attributes: [2],
+        AccessRules: [1, {
+          $Type: 'DomainModels$AccessRule', AllowedModuleRoles: [1, 'MyModule.Admin'],
+          XPathConstraint: "[System.User_X = '[%CurrentUser%]']",
+          DefaultMemberAccessRights: 'None',
+          MemberAccesses: [3, { $Type: 'DomainModels$MemberAccess', Attribute: 'MyModule.Account.Name', AccessRights: 'ReadWrite' }]
+        }]
+      }
+    ],
+    Associations: [3, { $Type: 'DomainModels$Association', Name: 'Order_Customer', Owner: 'Default' }]
+  }, 'MyModule');
+  eq('mpr: entity qualified name is module.entity', dm.entities[0].qualifiedName, 'MyModule.Order');
+  eq('mpr: a NoGeneralization entity reports persistable', dm.entities[0].persistable, true);
+  eq('mpr: a NoGeneralization entity has no generalization', dm.entities[0].generalization, null);
+  eq('mpr: attribute type is read through the NewType alias',
+    dm.entities[0].attributes[0].type, 'DomainModels$DecimalAttributeType');
+  eq('mpr: an empty XPath means the rule is unconstrained',
+    dm.entities[0].accessRules[0].constrained, false);
+  eq('mpr: default ReadOnly with no members grants entity READ',
+    dm.entities[0].accessRules[0].read, true);
+  eq('mpr: default ReadOnly does not grant entity WRITE',
+    dm.entities[0].accessRules[0].write, false);
+  eq('mpr: a specialised entity inherits persistable (unknown here)',
+    dm.entities[1].persistable, null);
+  eq('mpr: the generalization target surfaces', dm.entities[1].generalization, 'System.User');
+  eq('mpr: a constrained rule is flagged', dm.entities[1].accessRules[0].constrained, true);
+  eq('mpr: a ReadWrite member grants entity WRITE', dm.entities[1].accessRules[0].write, true);
+  eq('mpr: accessRuleCount matches', dm.entities[0].accessRuleCount, 1);
+  eq('mpr: associations drop the marker and keep the name',
+    dm.associations[0].name, 'Order_Customer');
+  eq('mpr: an unqualified domain model still yields entity names',
+    mpr.mprShapeDomainModel({ Entities: [3, { Name: 'Loose' }] }, null).entities[0].qualifiedName, 'Loose');
+})();
+
 // ── MX Tool Runner (wave 28, server/mx-tool.js) ────────────────────────────
 // Pure layer only: version parsing, binary selection, the progress counter and
 // JSON validation. No `mx.exe` is spawned here — the impure half is verified by
