@@ -20,6 +20,7 @@ const crypto = require('crypto');
 const updateVerify = require('./lib/update-verify');
 const livedb = require('./livedb');
 const modelDeployment = require('./model-deployment');
+const mprReader = require('./mpr-reader');
 const mxTool = require('./mx-tool');
 const perfSession = require('./perf-session');
 const { compareVersions } = require('./lib/version');
@@ -1361,6 +1362,50 @@ const server = http.createServer((req, res) => {
           })
           .then(r => sendJson(req, res, r))
           .catch(e => sendError(req, res, `Deployment model error: ${e.message}`, 400));
+      });
+      return;
+    }
+    return sendError(req, res, 'Method Not Allowed', 405);
+  }
+
+  // Reads a Mendix .mpr project file directly — SQLite + BSON, fully offline,
+  // no database, no Studio Pro, no local run (Plan 006). The fourth model
+  // source alongside /model/deployment, live DB, and /model/security. It
+  // reflects the LAST SAVED state of the project.
+  //
+  // Accepts { mprPath } (absolute path to a .mpr) or { projectRoot } (absolute
+  // dir; the single .mpr inside it is used). Validated the same way
+  // /model/deployment validates projectRoot: absolute path, must exist. The
+  // reader opens SQLite read-only and never writes a unit.
+  if (url.pathname === '/model/mpr') {
+    if (req.method === 'POST') {
+      readBody(req, res, 1 * 1024 * 1024, (rawBody) => {
+        let mprPath;
+        try {
+          const body = JSON.parse(rawBody.toString('utf8'));
+          const raw = body.mprPath || body.projectRoot;
+          if (!raw || typeof raw !== 'string') throw new Error('Missing mprPath or projectRoot');
+          if (!path.isAbsolute(raw)) throw new Error('path must be absolute');
+          mprPath = path.resolve(raw);
+        } catch (e) {
+          return sendError(req, res, `Invalid request: ${e.message}`, 400);
+        }
+
+        fsp.stat(mprPath)
+          .catch(() => { throw new Error(`No such path: ${mprPath}`); })
+          .then(async (st) => {
+            if (st.isDirectory()) {
+              const entries = await fsp.readdir(mprPath);
+              const mprs = entries.filter(f => f.toLowerCase().endsWith('.mpr'));
+              if (mprs.length !== 1) {
+                throw new Error(`Expected exactly one .mpr in ${mprPath}, found ${mprs.length}`);
+              }
+              mprPath = path.join(mprPath, mprs[0]);
+            }
+            return mprReader.mprReadProject(mprPath);
+          })
+          .then(r => sendJson(req, res, r))
+          .catch(e => sendError(req, res, `MPR read error: ${e.message}`, 400));
       });
       return;
     }
