@@ -412,6 +412,7 @@ module.exports = {
   mprShapeDomainModel,
   mprShapeSecurity,
   mprOpen,
+  mprUnitBytes,
   mprListUnits,
   mprReadProject,
   MAX_UNIT_BYTES
