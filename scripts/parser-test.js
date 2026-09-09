@@ -5424,6 +5424,105 @@ const mpr = require('../server/mpr-reader.js');
     mpr.mprShapeDomainModel({ Entities: [3, { Name: 'Loose' }] }, null).entities[0].qualifiedName, 'Loose');
 })();
 
+// ── Model integrations (plan 014, server/model-integrations.js) ─────────────
+// Pure shaping over mprListUnits() output: published REST / OData services,
+// consumed REST clients, Business Event channels, and the authentication that
+// makes a published service reachable (or not) without sign-in.
+//
+// Fixtures are hand-built in the shapes measured on Web Order Entry.mpr
+// (Mendix 9.24, 2026-09-09): published REST carries AllowedRoles, published
+// OData carries AllowedModuleRoles, and model arrays lead with an int32 marker.
+const mint = require('../server/model-integrations.js');
+
+(function () {
+  // Published OData — AllowedModuleRoles with a real role => authenticated.
+  const odAuth = mint.miShapePublishedOData({
+    $Type: 'Rest$PublishedOdataServiceImpl', Name: 'MDM', Path: 'mdm/v1',
+    ODataVersion: 'OData4', ServiceName: 'MDM', Version: '1.0.0',
+    AllowedModuleRoles: [1, 'MyModule.ApiUser'],
+    AuthenticationTypes: [1, 'Basic'],
+    Resources: [2, {
+      $Type: 'Rest$PublishedRestResourceImpl', ExposedName: 'BusinessUnit',
+      Path: 'BusinessUnits', DataEntity: { Entity: 'MyModule.BusinessUnit' }
+    }]
+  });
+  eq('mint: OData with an allowed module role is authenticated', odAuth.authenticated, true);
+  eq('mint: OData allowed roles drop the array marker', odAuth.allowedRoles.length, 1);
+  eq('mint: OData allowed role name surfaces', odAuth.allowedRoles[0], 'MyModule.ApiUser');
+  eq('mint: OData entity set exposes its backing entity', odAuth.entitySets[0].entity, 'MyModule.BusinessUnit');
+  eq('mint: OData version surfaces', odAuth.odataVersion, 'OData4');
+
+  // Same service, marker-only role list => reachable unauthenticated.
+  const odOpen = mint.miShapePublishedOData({
+    $Type: 'Rest$PublishedOdataServiceImpl', Name: 'Open', Path: 'open/v1',
+    AllowedModuleRoles: [1], AuthenticationTypes: [1]
+  });
+  eq('mint: OData with a marker-only role list is not authenticated', odOpen.authenticated, false);
+  eq('mint: OData with no roles has an empty allowedRoles', odOpen.allowedRoles.length, 0);
+
+  // Published REST — two resources, each operation keeps its microflow name.
+  const rest = mint.miShapePublishedRest({
+    $Type: 'Rest$PublishedRestService', Name: 'HeartBeat', Path: 'rest/HeartBeat',
+    Version: '1.0.0', ServiceName: 'HeartBeat',
+    AllowedRoles: [1, 'HeartBeat.HeartBeat'],
+    AuthenticationTypes: [1, 'Basic'],
+    Resources: [3,
+      { $Type: 'Rest$PublishedRestServiceResource', Name: 'check', Operations: [2,
+        { $Type: 'Rest$PublishedRestServiceOperation', HttpMethod: 'Post', Path: '', Microflow: 'HeartBeat.HeartBeat' }
+      ] },
+      { $Type: 'Rest$PublishedRestServiceResource', Name: 'volume', Operations: [2,
+        { $Type: 'Rest$PublishedRestServiceOperation', HttpMethod: 'Get', Path: '', Microflow: 'HeartBeat.GenerateVolumeReportNow_REST' }
+      ] }
+    ]
+  });
+  eq('mint: published REST lists every resource', rest.resources.length, 2);
+  eq('mint: published REST resource names survive', rest.resources[1].name, 'volume');
+  eq('mint: published REST operation keeps its microflow', rest.resources[0].operations[0].microflow, 'HeartBeat.HeartBeat');
+  eq('mint: published REST operationCount sums the resources', rest.operationCount, 2);
+  eq('mint: published REST with an allowed role is authenticated', rest.authenticated, true);
+  eq('mint: published REST reads AllowedRoles, not AllowedModuleRoles', rest.allowedRoles[0], 'HeartBeat.HeartBeat');
+
+  const restOpen = mint.miShapePublishedRest({
+    $Type: 'Rest$PublishedRestService', Name: 'WSHI_print', Path: 'document/',
+    AllowedRoles: [1], AuthenticationTypes: [1],
+    Resources: [2, { $Type: 'Rest$PublishedRestServiceResource', Name: 'get', Operations: [2,
+      { $Type: 'Rest$PublishedRestServiceOperation', HttpMethod: 'Get', Microflow: 'WebServiceIntegration.WSI_print' }
+    ] }]
+  });
+  eq('mint: published REST with no roles and no auth microflow is unauthenticated', restOpen.authenticated, false);
+
+  // Consumed REST — a BaseUrl backed by a Constant is kept as the reference.
+  const consumed = mint.miShapeConsumedRest({
+    $Type: 'Rest$ConsumedRestService', Name: 'PricingApi',
+    BaseUrl: 'MyModule.PricingApiBaseUrl', AuthenticationScheme: 'CustomHttpHeader',
+    Operations: [2, { $Type: 'Rest$ConsumedRestOperation', Name: 'getQuote', HttpMethod: 'GET', Location: '/quote' }]
+  });
+  eq('mint: consumed REST base URL is preserved verbatim', consumed.baseUrl, 'MyModule.PricingApiBaseUrl');
+  eq('mint: consumed REST base URL is recognised as a Constant reference', consumed.baseUrlIsReference, true);
+  ok('mint: a real consumed base URL is not flagged as a reference',
+    mint.miShapeConsumedRest({ BaseUrl: 'https://api.example.com/v2' }).baseUrlIsReference === false);
+  eq('mint: consumed REST operation surfaces', consumed.operations[0].name, 'getQuote');
+  eq('mint: consumed REST auth scheme surfaces', consumed.authenticationScheme, 'CustomHttpHeader');
+
+  // miCollect — dispatch on $Type, each in its own bucket, unknowns ignored.
+  const collected = mint.miCollect([
+    { type: 'Rest$PublishedRestService', doc: { $Type: 'Rest$PublishedRestService', Name: 'R1' } },
+    { type: 'Rest$PublishedOdataServiceImpl', doc: { $Type: 'Rest$PublishedOdataServiceImpl', Name: 'O1' } },
+    { type: 'Rest$ConsumedRestService', doc: { $Type: 'Rest$ConsumedRestService', Name: 'C1' } },
+    { type: 'BusinessEvents$BusinessEventService', doc: { $Type: 'BusinessEvents$BusinessEventService', Name: 'B1', Channels: [2, { Name: 'orders' }] } },
+    { type: 'Microflows$Microflow', doc: { $Type: 'Microflows$Microflow', Name: 'NotAnIntegration' } },
+    { type: 'Rest$PublishedRestService', doc: null }
+  ]);
+  eq('mint: miCollect buckets the published REST service', collected.publishedRest.length, 1);
+  eq('mint: miCollect buckets the published OData service', collected.publishedOData.length, 1);
+  eq('mint: miCollect buckets the consumed REST client', collected.consumedRest.length, 1);
+  eq('mint: miCollect buckets the business event service', collected.businessEvents.length, 1);
+  eq('mint: miCollect keeps the business event channel', collected.businessEvents[0].channels[0].name, 'orders');
+  eq('mint: miCollect ignores a non-integration unit', collected.publishedRest[0].name, 'R1');
+  ok('mint: miCollect tolerates a non-array argument',
+    JSON.stringify(mint.miCollect(null)) === JSON.stringify({ publishedRest: [], publishedOData: [], consumedRest: [], businessEvents: [] }));
+})();
+
 // ── MX Tool Runner (wave 28, server/mx-tool.js) ────────────────────────────
 // Pure layer only: version parsing, binary selection, the progress counter and
 // JSON validation. No `mx.exe` is spawned here — the impure half is verified by
