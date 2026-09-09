@@ -905,9 +905,9 @@ Customer [1] -- [*] Order : places</pre>
   },
   'dev-studio': {
     title: 'Mendix Developer Studio Connector',
-    description: 'Local inspector for a Mendix project running on your machine, in three tabs: <strong>Dashboard</strong> (project and database configuration, live metrics, roles, scheduled events, deployment model), <strong>Security Matrix</strong> (every entity and document access rule, per role, exported by <code>mx.exe</code>) and <strong>Dead Code</strong> (model elements nothing references, read straight from the <code>.mpr</code>).',
+    description: 'Local inspector for a Mendix project running on your machine: <strong>Dashboard</strong> (project and database configuration, live metrics, roles, scheduled events, deployment model, and an offline <code>.mpr</code> reader), <strong>Security Matrix</strong> (every entity and document access rule, per role, exported by <code>mx.exe</code>), <strong>Dead Code</strong> (model elements nothing references), <strong>Translations</strong> (translation completeness per language) and <strong>Integrations</strong> (published and consumed REST/OData services and Business Events, with their authentication) &mdash; the last three read straight from the <code>.mpr</code>, offline.',
     howToGet: 'Run your project locally in Mendix Studio Pro and start the local bridge. See the Dashboard tab help for details.',
-    howToUse: 'Connect to a project, then switch between the Dashboard, Security Matrix and Dead Code tabs.'
+    howToUse: 'Connect to a project, then switch between the Dashboard, Security Matrix, Dead Code, Translations and Integrations tabs.'
   },
   'dev-studio-dashboard': {
     title: 'Developer Studio — Dashboard',
@@ -994,6 +994,25 @@ Customer [1] -- [*] Order : places</pre>
         <li><strong>Hardcoded / single-language texts</strong> &mdash; a caption that exists only in the default language while the project has more than one. This is a <em>heuristic</em>: it catches captions typed as plain text and never opened for translation, but it also lists texts that are intentionally the same in every language (a product name) and some platform-supplied texts. Treat it as a review list, not a defect list.</li>
         <li>The System module's texts are platform-supplied and are excluded from "missing" &mdash; you cannot translate them from your project anyway.</li>
         <li>Long lists are capped for transport; the heading says when you are seeing the first N of a larger total. The per-language counts are always exact.</li>
+      </ol>
+    `
+  },
+  'dev-studio-integrations': {
+    title: 'Developer Studio — Integrations',
+    description: 'A model-side inventory of what the app exposes and what it calls out to &mdash; published REST and OData services with their resources, entity sets and per-operation microflows, consumed REST clients, and Business Event channels &mdash; read straight from the <code>.mpr</code> with <strong>no app running</strong>. The authentication on a published service is the point: a service with no allowed roles and no authentication microflow answers anonymous callers.',
+    howToGet: `
+      <ul>
+        <li>The bridge must be running. No database, no local run and no Studio Pro are needed &mdash; this reads the project file, the same way the Dashboard's <strong>Project File (.mpr)</strong> card does, on Mendix 8&ndash;11.</li>
+        <li>Point the field at a <code>.mpr</code> file or the project folder and press <strong>Read</strong>. If you connected to a running project the path is filled in for you.</li>
+      </ul>
+    `,
+    howToUse: `
+      <ol>
+        <li>Four sections load: <strong>Published REST</strong>, <strong>Published OData</strong>, <strong>Consumed REST</strong> and <strong>Business Events</strong>. A section with nothing in it is hidden; SOAP and legacy web services are not covered by this view.</li>
+        <li>Each published service shows its base path, version, allowed module roles and authentication types, and every operation with the microflow behind it.</li>
+        <li><strong><code>authenticated: false</code></strong> &mdash; shown as an <em>unauthenticated</em> badge and a warning line &mdash; means the service has no allowed roles and no authentication microflow, so it is reachable <strong>without sign-in</strong>. On a public-facing app some of these are intended; the point is to see the whole list at once. (A role that maps only to the anonymous user role also counts as unauthenticated; distinguishing that needs the security model and is a follow-up.)</li>
+        <li>A <strong>consumed REST</strong> base URL that is backed by a Constant is shown as the <em>reference</em> (<code>MyModule.MyConstant</code>), never the resolved value &mdash; resolving it would leak a per-environment endpoint that is not part of the model.</li>
+        <li>It reflects the <strong>last saved</strong> state of the project. Unsaved edits open in Studio Pro are not in the file yet.</li>
       </ol>
     `
   },
