@@ -14,6 +14,28 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.60.0 — 2026-09-09
+
+**Developer Studio reads a `.mpr` project file directly, offline.** Until now the
+tool could describe a Mendix model only when the app had been run locally
+(`deployment/model/`), had a reachable database (`mendixsystem$*`), or opened in
+Studio Pro (`mx.exe`). A project handed over by a client and never run on this
+machine was a blind spot. A `.mpr` is a SQLite database whose model units are
+standard BSON, so the new **Project File (.mpr)** card on the Dashboard reads it
+with nothing running — SQLite (built into Node) plus the `bson` package — on
+Mendix 8–11, format v1 (units inline) and v2 (`mprcontents/*.mxunit`). It reports
+the format and Mendix version, module/entity/microflow/page counts, and the
+project security settings: level, guest access, strict mode, whether an admin
+password is stored in the model, a weak-password-policy flag, and any role that
+manages all roles. Entity-level READ/WRITE is derived from member access the way
+Mendix itself derives it (there is no stored flag); stored passwords surface only
+as "is set" booleans, never as values. The reader opens the database read-only
+and never touches `_Transaction` (Studio Pro's external-change marker), so Studio
+Pro can stay open. It reflects the **last saved** state. New Bridge route
+`POST /model/mpr`. Verified: 541/541 units of a Mendix 11.12 v2 app and 4196/4196
+of a Mendix 9.24 v1 app (a 175 MB single-file `.mpr`) decode without a single
+failure.
+
 ## v1.59.0 — 2026-09-09
 
 **Automatic updates are signature-checked now.** The in-app updater used to
