@@ -270,6 +270,10 @@ function dsRenderDetectedProject() {
   if (mprInput && !mprInput.value && dsProjectData && dsProjectData.projectRoot) {
     mprInput.value = dsProjectData.projectRoot;
   }
+  const i18nInput = document.getElementById('ds-i18n-path');
+  if (i18nInput && !i18nInput.value && dsProjectData && dsProjectData.projectRoot) {
+    i18nInput.value = dsProjectData.projectRoot;
+  }
 }
 
 // ── Deployment model ────────────────────────────────────────────────────────
@@ -462,6 +466,118 @@ async function dsFetchDeadCode() {
   }
 }
 
+// ── Translation completeness (i18n tab, plan 010) ──────────────────────────
+// Walks the .mpr for every translatable caption/label (`Texts$Text`) and scores
+// it against the project's enabled languages. "Missing" = a language enabled in
+// the project with no text for a key the default language has. "Hardcoded" is a
+// heuristic — a single-language text while the project is multi-language — and
+// can include intentionally-untranslated platform texts. Read-only: this view
+// never edits a translation. Offline, on the plan-006 reader.
+async function dsFetchI18n() {
+  const box = document.getElementById('ds-i18n-body');
+  const input = document.getElementById('ds-i18n-path');
+  if (!box || !input) return;
+  const esc = window.escHtml;
+  const raw = (input.value || '').trim();
+  if (!raw) {
+    box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">Enter a path to a .mpr file or the project folder.</div>`;
+    return;
+  }
+  box.innerHTML = `<span style="color:var(--text-muted)"><span class="spinner-sm"></span>Reading ${esc(raw)}...</span>`;
+  try {
+    const res = await fetch('http://localhost:9999/model/i18n', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mprPath: raw, projectRoot: raw })
+    });
+    const data = await res.json();
+    if (!data || data.error || !data.ok) {
+      const reason = (data && (data.reason || data.message)) || 'Could not read the .mpr.';
+      box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">${esc(reason)}</div>`;
+      return;
+    }
+    dsRenderI18n(data);
+  } catch (e) {
+    box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">Bridge unreachable — the .mpr could not be read.</div>`;
+  }
+}
+
+function dsRenderI18n(data) {
+  const box = document.getElementById('ds-i18n-body');
+  const esc = window.escHtml;
+  const langs = Object.keys(data.byLanguage || {});
+
+  if (!langs.length) {
+    box.innerHTML = `
+      <div class="notice notice-info" style="font-size:0.82rem">
+        <strong>${esc(data.projectName)}</strong> is a single-language project
+        (<span style="font-family:var(--font-mono)">${esc(data.defaultLang || '—')}</span>),
+        so there is nothing to translate. ${data.textCount} translatable texts found.
+      </div>`;
+    return;
+  }
+
+  const bars = langs.map(function (l) {
+    const s = data.byLanguage[l];
+    const pct = s.total ? Math.round((s.translated / s.total) * 100) : 100;
+    const colour = pct >= 95 ? 'var(--success)' : (pct >= 60 ? 'var(--info)' : 'var(--warning)');
+    return `
+      <div style="display:grid; grid-template-columns:70px 1fr 120px; gap:var(--sp-2); align-items:center; font-size:0.8rem">
+        <span style="font-family:var(--font-mono)">${esc(l)}</span>
+        <span style="background:var(--bg-base); border-radius:var(--radius-sm); overflow:hidden; height:14px">
+          <span style="display:block; height:100%; width:${pct}%; background:${colour}"></span>
+        </span>
+        <span style="color:var(--text-muted); text-align:right">${pct}% &middot; ${s.missing} missing</span>
+      </div>`;
+  }).join('');
+
+  const missingByLang = {};
+  (data.missing || []).forEach(function (m) {
+    (missingByLang[m.language] = missingByLang[m.language] || []).push(m);
+  });
+  const missingGroups = Object.keys(missingByLang).map(function (l) {
+    const rows = missingByLang[l].map(function (m) {
+      return `<tr style="border-top:1px solid var(--border-subtle)">
+        <td style="padding:2px var(--sp-2); color:var(--text-secondary)">${esc(m.unitName || '—')}</td>
+        <td style="padding:2px var(--sp-2); font-family:var(--font-mono); color:var(--text-muted); font-size:0.72rem">${esc(m.location)}</td>
+        <td style="padding:2px var(--sp-2)">${esc(m.defaultText)}</td>
+      </tr>`;
+    }).join('');
+    return `<details style="margin-top:var(--sp-2)">
+      <summary style="cursor:pointer; font-size:0.82rem"><span style="font-family:var(--font-mono)">${esc(l)}</span> — ${data.byLanguage[l].missing} missing${missingByLang[l].length < data.byLanguage[l].missing ? ` (showing ${missingByLang[l].length})` : ''}</summary>
+      <div style="overflow-x:auto"><table style="width:100%; border-collapse:collapse; font-size:0.78rem; margin-top:4px">
+        <thead><tr style="color:var(--text-muted); text-align:left"><th style="padding:2px var(--sp-2)">Document</th><th style="padding:2px var(--sp-2)">Location</th><th style="padding:2px var(--sp-2)">Default text</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </details>`;
+  }).join('');
+
+  const hc = data.hardcoded || [];
+  const hcRows = hc.map(function (h) {
+    return `<tr style="border-top:1px solid var(--border-subtle)">
+      <td style="padding:2px var(--sp-2); color:var(--text-secondary)">${esc(h.unitName || '—')}</td>
+      <td style="padding:2px var(--sp-2); font-family:var(--font-mono); color:var(--text-muted); font-size:0.72rem">${esc(h.location)}</td>
+      <td style="padding:2px var(--sp-2)">${esc(h.text)}</td>
+    </tr>`;
+  }).join('');
+
+  box.innerHTML = `
+    <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:var(--sp-3)">
+      <strong style="color:var(--text-primary)">${esc(data.projectName)}</strong> &middot; ${langs.length + 1} languages
+      (default <span style="font-family:var(--font-mono)">${esc(data.defaultLang)}</span>) &middot;
+      ${data.textCount} translatable texts &middot; ${data.missingTotal} missing translations
+    </div>
+    <div style="display:flex; flex-direction:column; gap:4px">${bars}</div>
+    <h5 style="margin:var(--sp-4) 0 0; color:var(--text-primary)">Missing translations${data.missingTruncated ? ` <span style="color:var(--text-muted); font-weight:400; font-size:0.78rem">(first ${data.missing.length} of ${data.missingTotal})</span>` : ''}</h5>
+    ${missingGroups || '<div style="font-size:0.82rem; color:var(--text-muted)">None — every enabled language is complete.</div>'}
+    <h5 style="margin:var(--sp-4) 0 var(--sp-1); color:var(--text-primary)">Hardcoded / single-language texts
+      <span style="color:var(--text-muted); font-weight:400; font-size:0.78rem">— heuristic: present only in the default language${data.hardcodedTruncated ? `, first ${hc.length} of ${data.hardcodedTotal}` : ''}</span></h5>
+    <div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:var(--sp-2)">May include platform texts that are intentionally not translated.</div>
+    ${hc.length ? `<div style="overflow-x:auto"><table style="width:100%; border-collapse:collapse; font-size:0.78rem">
+      <thead><tr style="color:var(--text-muted); text-align:left"><th style="padding:2px var(--sp-2)">Document</th><th style="padding:2px var(--sp-2)">Location</th><th style="padding:2px var(--sp-2)">Text</th></tr></thead>
+      <tbody>${hcRows}</tbody></table></div>` : '<div style="font-size:0.82rem; color:var(--text-muted)">None.</div>'}`;
+}
+
 async function dsFetchDbDetails() {
   if (!dsProjectData || !dsProjectData.success) return;
   const config = dsProjectData.config || {};
@@ -630,6 +746,7 @@ function dsShowOfflineView() {
   document.getElementById('ds-dashboard-view').style.display = 'none';
   document.getElementById('ds-security-view').style.display = 'none';
   document.getElementById('ds-deadcode-view').style.display = 'none';
+  document.getElementById('ds-i18n-view').style.display = 'none';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -645,6 +762,7 @@ function dsSetTab(tabId, el) {
   document.getElementById('ds-dashboard-view').style.display = tabId === 'dashboard' ? 'flex' : 'none';
   document.getElementById('ds-security-view').style.display = tabId === 'security' ? 'flex' : 'none';
   document.getElementById('ds-deadcode-view').style.display = tabId === 'deadcode' ? 'flex' : 'none';
+  document.getElementById('ds-i18n-view').style.display = tabId === 'i18n' ? 'flex' : 'none';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1066,6 +1184,7 @@ window.dsSecCloseMembers = dsSecCloseMembers;
 window.dsSecRenderMembers = dsSecRenderMembers;
 window.dsFetchMprModel = dsFetchMprModel;
 window.dsFetchDeadCode = dsFetchDeadCode;
+window.dsFetchI18n = dsFetchI18n;
 
 // Exposed for scripts/parser-test.js (pure function, no DOM).
 window.dsBackoffDelay = dsBackoffDelay;

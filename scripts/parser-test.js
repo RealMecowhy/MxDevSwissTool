@@ -5596,6 +5596,112 @@ const mg = require('../server/model-graph.js');
     resolved.find(u => u.id === 'mf').moduleName, 'Sales');
 })();
 
+// ── Model i18n (plan 010, server/model-i18n.js) ───────────────────────────
+// Translation completeness: collect every `Texts$Text` from decoded units, then
+// score it against the project's enabled languages. Pure layer only — fixtures
+// are hand-built decoded units in the shape measured on Calculator v2 /
+// Web Order Entry v1 (2026-09-09): Items = [3, { LanguageCode, Text }, ...].
+const mi = require('../server/model-i18n.js');
+
+(function () {
+  // fromItems drops the index-0 version marker and keys by language code.
+  const fi = mi.miFromItems([3,
+    { $Type: 'Texts$Translation', LanguageCode: 'en_US', Text: 'Order' },
+    { $Type: 'Texts$Translation', LanguageCode: 'nl_NL', Text: 'Bestelling' }
+  ]);
+  eq('i18n: fromItems drops the marker and keeps en_US', fi.en_US, 'Order');
+  eq('i18n: fromItems keeps nl_NL', fi.nl_NL, 'Bestelling');
+  ok('i18n: fromItems has exactly the two languages', Object.keys(fi).length === 2);
+
+  // A Texts$Text nested two levels deep inside an array-of-objects is still found.
+  const nestedUnit = {
+    name: 'HomePage', type: 'Forms$Page',
+    doc: {
+      $Type: 'Forms$Page', Name: 'HomePage',
+      Widgets: [3, {
+        $Type: 'Forms$DataView',
+        Children: [3, {
+          $Type: 'Forms$Button',
+          Caption: {
+            $Type: 'Texts$Text',
+            Items: [3, { LanguageCode: 'en_US', Text: 'Save' }, { LanguageCode: 'nl_NL', Text: 'Opslaan' }]
+          }
+        }]
+      }]
+    }
+  };
+  const nestedTexts = mi.miCollectTexts([nestedUnit]);
+  eq('i18n: a Texts$Text nested two levels deep is collected', nestedTexts.length, 1);
+  eq('i18n: the nested text carries both languages', Object.keys(nestedTexts[0].byLanguage).length, 2);
+  ok('i18n: the location path names the enclosing fields',
+    nestedTexts[0].location.indexOf('Caption') !== -1);
+
+  // System-module texts are platform-supplied — never counted as "missing".
+  const sysExcluded = mi.miCollectTexts([
+    { name: 'SystemTexts', type: 'Texts$SystemTextCollection', doc: {
+      $Type: 'Texts$SystemTextCollection',
+      Texts: [3, { $Type: 'Texts$Text', Items: [3, { LanguageCode: 'en_US', Text: 'Blocked' }] }]
+    } },
+    { name: 'AppText', type: 'Forms$Page', module: 'System', doc: {
+      $Type: 'Forms$Page',
+      Title: { $Type: 'Texts$Text', Items: [3, { LanguageCode: 'en_US', Text: 'Also blocked' }] }
+    } }
+  ]);
+  eq('i18n: System-module and SystemTextCollection texts are excluded', sysExcluded.length, 0);
+
+  // miLanguages reads Settings$LanguageSettings (DefaultLanguageCode + Languages).
+  const langUnit = {
+    name: null, type: 'Settings$ProjectSettings',
+    doc: { $Type: 'Settings$ProjectSettings', Settings: [2, { $Type: 'Settings$LanguageSettings',
+      DefaultLanguageCode: 'en_US',
+      Languages: [3, { $Type: 'Texts$Language', Code: 'en_US' }, { $Type: 'Texts$Language', Code: 'nl_NL' }]
+    }] }
+  };
+  const langInfo = mi.miLanguages([langUnit]);
+  eq('i18n: default language is read from the settings unit', langInfo.defaultLang, 'en_US');
+  eq('i18n: both enabled languages are listed', langInfo.languages.join(','), 'en_US,nl_NL');
+  eq('i18n: no settings unit yields an empty language list',
+    mi.miLanguages([{ type: 'Forms$Page', doc: {} }]).languages.length, 0);
+
+  // ── miGaps ──────────────────────────────────────────────────────────────
+  // Case 1: translated in both project languages -> no gap.
+  const both = [{ location: 'a', unitName: 'U', byLanguage: { en_US: 'Order', nl_NL: 'Bestelling' } }];
+  const g1 = mi.miGaps(both, ['en_US', 'nl_NL'], 'en_US');
+  eq('i18n: a fully translated text produces no missing entry', g1.missing.length, 0);
+  eq('i18n: a fully translated text produces no hardcoded entry', g1.hardcoded.length, 0);
+  eq('i18n: byLanguage counts the translated text', g1.byLanguage.nl_NL.translated, 1);
+
+  // Case 2: translated in the default only, project has en_US + nl_NL.
+  const defOnly = [{ location: 'btn/Caption', unitName: 'HomePage', byLanguage: { en_US: 'Save' } }];
+  const g2 = mi.miGaps(defOnly, ['en_US', 'nl_NL'], 'en_US');
+  eq('i18n: a default-only text is one missing entry for nl_NL', g2.missing.length, 1);
+  eq('i18n: the missing entry names the language', g2.missing[0].language, 'nl_NL');
+  eq('i18n: the missing entry carries the default text', g2.missing[0].defaultText, 'Save');
+  eq('i18n: a default-only text is one hardcoded entry', g2.hardcoded.length, 1);
+  eq('i18n: the hardcoded entry carries the text', g2.hardcoded[0].text, 'Save');
+
+  // Case 3: byLanguage counts — 3 texts, 2 translated into nl_NL.
+  const three = [
+    { location: 'a', unitName: 'U', byLanguage: { en_US: 'A', nl_NL: 'A-nl' } },
+    { location: 'b', unitName: 'U', byLanguage: { en_US: 'B', nl_NL: 'B-nl' } },
+    { location: 'c', unitName: 'U', byLanguage: { en_US: 'C' } }
+  ];
+  const g3 = mi.miGaps(three, ['en_US', 'nl_NL'], 'en_US');
+  eq('i18n: byLanguage total counts every text with a default', g3.byLanguage.nl_NL.total, 3);
+  eq('i18n: byLanguage translated counts the done ones', g3.byLanguage.nl_NL.translated, 2);
+  eq('i18n: byLanguage missing is the remainder', g3.byLanguage.nl_NL.missing, 1);
+
+  // A single-language project has no non-default languages and no gaps.
+  const g4 = mi.miGaps(defOnly, ['en_US'], 'en_US');
+  eq('i18n: a single-language project has an empty byLanguage', Object.keys(g4.byLanguage).length, 0);
+  eq('i18n: a single-language project has no missing entries', g4.missing.length, 0);
+  eq('i18n: a single-language project has no hardcoded entries', g4.hardcoded.length, 0);
+
+  // An empty / whitespace default text is not measurable — skip it.
+  const emptyDef = [{ location: 'x', unitName: 'U', byLanguage: { en_US: '   ', nl_NL: '' } }];
+  eq('i18n: a text with no default is not counted', mi.miGaps(emptyDef, ['en_US', 'nl_NL'], 'en_US').missing.length, 0);
+})();
+
 // ── MX Tool Runner (wave 28, server/mx-tool.js) ────────────────────────────
 // Pure layer only: version parsing, binary selection, the progress counter and
 // JSON validation. No `mx.exe` is spawned here — the impure half is verified by

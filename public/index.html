@@ -2343,6 +2343,7 @@
           <button type="button" class="tab active" data-help-key="dev-studio-dashboard" aria-selected="true" onclick="dsSetTab('dashboard',this)">Dashboard</button>
           <button type="button" class="tab" data-help-key="dev-studio-security" aria-selected="false" onclick="dsSetTab('security',this)">Security Matrix</button>
           <button type="button" class="tab" data-help-key="dev-studio-deadcode" aria-selected="false" onclick="dsSetTab('deadcode',this)">Dead Code</button>
+          <button type="button" class="tab" data-help-key="dev-studio-i18n" aria-selected="false" onclick="dsSetTab('i18n',this)">Translations</button>
         </div>
 
         <!-- DASHBOARD VIEW -->
@@ -2640,6 +2641,29 @@
 
         </div>
         <!-- /ds-deadcode-view -->
+
+        <!-- TRANSLATIONS VIEW (plan 010) -->
+        <div id="ds-i18n-view" style="display:none; flex-direction:column; gap:var(--sp-4); width:100%">
+          <div class="card" style="padding:var(--sp-4)">
+            <h4 style="margin:0 0 var(--sp-2) 0; color:var(--text-primary)">Translation completeness</h4>
+            <p style="color:var(--text-secondary); font-size:0.86rem; line-height:1.6; margin:0 0 var(--sp-3)">
+              Reads every translatable caption and label straight from the <code>.mpr</code> and scores it against
+              the project's enabled languages &mdash; which texts have no translation in a language, and which are
+              single-language while the project is multi-language. Read-only, offline, last saved state.
+              <strong>Missing</strong> = a language enabled in the project with no text for a key the default language has.
+              <strong>Hardcoded</strong> is a heuristic and may include platform texts that are intentionally not translated.
+            </p>
+            <div style="display:flex; gap:var(--sp-2); margin-bottom:var(--sp-3)">
+              <input type="text" id="ds-i18n-path" placeholder="Path to a .mpr file or project folder"
+                style="flex:1; min-width:0; font-family:var(--font-mono); font-size:0.78rem; padding:var(--sp-2); background:var(--bg-base); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-primary)">
+              <button class="btn btn-primary" style="font-size:0.8rem; white-space:nowrap" onclick="dsFetchI18n()">Analyze</button>
+            </div>
+            <div id="ds-i18n-body" style="font-size:0.85rem">
+              <span style="color:var(--text-muted)">Point it at a project and press <strong>Analyze</strong>.</span>
+            </div>
+          </div>
+        </div>
+        <!-- /ds-i18n-view -->
 
       </div>
     </div>

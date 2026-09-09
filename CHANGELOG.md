@@ -37,6 +37,24 @@ separately because their inbound edges are not fully tracked yet.
 
 New Bridge route `POST /model/dead-code` ({ mprPath | projectRoot }),
 validated and token-gated exactly as `/model/mpr`.
+## Unreleased — plan 010
+
+**Developer Studio — a Translations tab: translation completeness for the whole
+project.** Before a multi-language release, "which texts are not translated into
+language X" has no answer in Studio Pro short of clicking through every document.
+The new tab reads every translatable caption and label straight from the `.mpr`
+(a `Texts$Text` node in unit BSON, on the offline plan-006 reader — no database,
+no local run) and scores each against the project's enabled languages, read from
+the model's own language settings. It shows a translated-vs-total bar per
+language, the list of texts a given language is missing (grouped by language,
+with the document, the location inside it, and the default-language text — the
+list you would hand a translator), and a heuristic list of texts that exist only
+in the default language while the project is multi-language. System-module texts
+are platform-supplied and are excluded from "missing". The view is read-only — it
+reports gaps, it does not edit translations or export `.xlf`. New Bridge route
+`POST /model/i18n`. Verified against real projects: Calculator (17 languages, v2),
+Web Order Entry (17 languages, v1, 175 MB), and a single-language Mendix 11.12 app
+(one language, empty missing list).
 
 ## v1.60.0 — 2026-09-09
 
