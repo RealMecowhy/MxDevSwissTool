@@ -21,6 +21,7 @@ const livedb = require('./livedb');
 const modelDeployment = require('./model-deployment');
 const mxTool = require('./mx-tool');
 const perfSession = require('./perf-session');
+const { compareVersions } = require('./lib/version');
 
 // 'pg' is optional: loaded on demand so the bridge starts without npm install.
 function loadPgClient() {
@@ -132,15 +133,6 @@ let updateInProgress = false;
 setTimeout(() => {
   try { fs.rmSync(UPDATE_DIR, { recursive: true, force: true }); } catch (e) {}
 }, 10000);
-
-function compareVersions(a, b) {
-  const pa = String(a).replace(/^v/i, '').split('.').map(n => parseInt(n, 10) || 0);
-  const pb = String(b).replace(/^v/i, '').split('.').map(n => parseInt(n, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0);
-  }
-  return 0;
-}
 
 async function checkForUpdate() {
   if (updateCheckCache.data && Date.now() - updateCheckCache.at < 60 * 60 * 1000) {
