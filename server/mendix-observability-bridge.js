@@ -100,6 +100,8 @@ let logBuffer = []; // In-memory queue of recent log lines (max 1000)
 let logFileWatcher = null;
 let logPollPath = ''; // path currently registered with fs.watchFile (poll safety net)
 let logReiniting = false; // guard: a rotation burst must not stack re-inits
+let logReadInFlight = false; // guard: only one async delta read at a time
+let logReadAgain = false;    // a trigger fired mid-read — re-check once on completion
 
 // =========================================================================
 // OPENTELEMETRY RECEIVER (OTLP HTTP JSON)
@@ -717,6 +719,14 @@ function readNewLogLines() {
     const range = logTail.computeTailRead(lastLogSize, newSize);
     if (!range) return;
 
+    // Only one async delta read may be in flight. computeTailRead() derives its
+    // byte range from lastLogSize, which is not advanced until a stream's 'end'
+    // callback runs — so a second trigger (fs.watch fires 2+ times per append on
+    // Windows, plus the fs.watchFile poll) landing mid-read would re-read the
+    // exact same bytes and double every line into logBuffer. Defer instead.
+    if (logReadInFlight) { logReadAgain = true; return; }
+    logReadInFlight = true;
+
     if (range.skippedBytes > 0) {
       console.warn('[Bridge] Log grew by ' + range.skippedBytes + ' bytes between reads; older lines in that gap were skipped in the live view.');
     }
@@ -725,13 +735,25 @@ function readNewLogLines() {
     // read does not block the event loop.
     const stream = fs.createReadStream(logFilePath, {
       start: range.start,
-      end: range.start + range.length
+      end: range.start + range.length - 1
     });
+
+    const finishRead = () => {
+      logReadInFlight = false;
+      if (logReadAgain) {
+        // The file kept growing while we were reading — pick up the rest now
+        // rather than waiting for the next 2 s poll.
+        logReadAgain = false;
+        readNewLogLines();
+      }
+    };
 
     let data = '';
     stream.on('data', chunk => data += chunk);
     stream.on('error', e => {
       console.error(`[Bridge] Error reading new log lines: ${e.message}`);
+      // Do NOT advance lastLogSize — a mid-read error must not skip unread bytes.
+      finishRead();
     });
     stream.on('end', () => {
       const newLines = data.split(/\r?\n/).filter(Boolean);
@@ -748,6 +770,7 @@ function readNewLogLines() {
       // Advance the cursor only after a successful read — a mid-read error must
       // not skip past unread bytes.
       lastLogSize = newSize;
+      finishRead();
     });
   } catch (e) {
     console.error(`[Bridge] Error reading new log lines: ${e.message}`);
