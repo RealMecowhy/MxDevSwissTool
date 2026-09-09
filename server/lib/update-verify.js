@@ -6,7 +6,10 @@ const crypto = require('crypto');
 // Actions secret (see scripts/gen-release-key.js). An empty string means "no
 // signed release has been published yet" — verifyReleasePackage() then returns
 // { ok: true, verified: false } so the updater still works for existing users.
-const RELEASE_PUBLIC_KEY_PEM = '';
+const RELEASE_PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAHgpWd1LU7HXO6LSAZiZ0fIwkRUXCKGoAuHB+ItNkQ5A=
+-----END PUBLIC KEY-----
+`;
 
 // Reject a ZIP entry name that would escape the extraction dir: absolute paths,
 // drive letters, or any '..' path segment (either slash). true = safe.

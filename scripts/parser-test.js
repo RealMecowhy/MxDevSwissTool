@@ -5439,6 +5439,17 @@ const uv = require('../server/lib/update-verify.js');
   ok('uv: empty is rejected', uv.isSafeZipEntryName('') === false);
 
   const crypto = require('crypto');
+
+  // The public key baked into the shipped build must be a real Ed25519 key —
+  // a mangled paste would make every signed update fail with "malformed key".
+  ok('uv: the bundled RELEASE_PUBLIC_KEY_PEM is a valid Ed25519 key', (function () {
+    if (!uv.RELEASE_PUBLIC_KEY_PEM) return true; // not configured yet — allowed
+    try {
+      const k = crypto.createPublicKey(uv.RELEASE_PUBLIC_KEY_PEM);
+      return k.asymmetricKeyType === 'ed25519';
+    } catch (e) { return false; }
+  })());
+
   const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
   const pub = publicKey.export({ type: 'spki', format: 'pem' });
   const pkg = Buffer.from('pretend-zip-bytes');

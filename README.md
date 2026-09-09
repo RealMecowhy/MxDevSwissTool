@@ -152,6 +152,8 @@ Shortly after startup the tool checks [GitHub Releases](https://github.com/RealM
 
 You can also snooze the reminder for a day or skip a version entirely.
 
+**Automatic updates are signature-checked.** Every release ZIP is signed with an Ed25519 key whose public half ships inside the tool. Before *Update now* replaces anything, the bridge verifies the download against that key and aborts on a mismatch — so a tampered package (for example from a TLS-intercepting corporate proxy) cannot be installed automatically. The *Download ZIP* fallback is unaffected.
+
 The full history is in [CHANGELOG.md](CHANGELOG.md) — including the 21 versions that shipped as commits and were never published as releases, which the Releases page cannot show you.
 
 **Your local data is safe either way:** favorites, presets and theme live in your browser's storage (not in the tool folder), and the update never touches the `runtime/` folder with portable Node.js. Because that storage belongs to the browser profile, clearing site data or moving to another machine still loses it — use **Backup Settings** in the sidebar footer to carry it across.
