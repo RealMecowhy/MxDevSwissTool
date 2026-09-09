@@ -1,3 +1,10 @@
+# Everything else: normalize to LF in the repo and on checkout, so a Windows
+# clone (core.autocrlf=true) matches the committed blobs. Without this, a fresh
+# checkout smudges .js files to CRLF and scripts/parser-test.js fails to locate
+# the anonymizer worker body (see plans/005). Binary files are auto-detected and
+# left alone.
+* text=auto eol=lf
+
 # Git hooks are executed by sh — they must stay LF even on Windows checkouts,
 # otherwise a trailing \r breaks the shebang / commands.
 scripts/hooks/* text eol=lf
