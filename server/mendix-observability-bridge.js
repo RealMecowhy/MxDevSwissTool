@@ -21,6 +21,7 @@ const updateVerify = require('./lib/update-verify');
 const livedb = require('./livedb');
 const modelDeployment = require('./model-deployment');
 const mprReader = require('./mpr-reader');
+const modelI18n = require('./model-i18n');
 const mxTool = require('./mx-tool');
 const perfSession = require('./perf-session');
 const { compareVersions } = require('./lib/version');
@@ -1406,6 +1407,120 @@ const server = http.createServer((req, res) => {
           })
           .then(r => sendJson(req, res, r))
           .catch(e => sendError(req, res, `MPR read error: ${e.message}`, 400));
+      });
+      return;
+    }
+    return sendError(req, res, 'Method Not Allowed', 405);
+  }
+
+  // Translation completeness (Plan 010). Walks the .mpr for `Texts$Text` nodes
+  // and scores each against the project's enabled languages: which texts have no
+  // translation in language X, and which are single-language while the project is
+  // multi-language ("hardcoded" — a heuristic). Read-only, offline, built on the
+  // plan-006 reader. All the model logic is pure in server/model-i18n.js.
+  //
+  // Accepts { mprPath } or { projectRoot }, validated exactly like /model/mpr.
+  if (url.pathname === '/model/i18n') {
+    if (req.method === 'POST') {
+      readBody(req, res, 1 * 1024 * 1024, (rawBody) => {
+        let mprPath;
+        try {
+          const body = JSON.parse(rawBody.toString('utf8'));
+          const raw = body.mprPath || body.projectRoot;
+          if (!raw || typeof raw !== 'string') throw new Error('Missing mprPath or projectRoot');
+          if (!path.isAbsolute(raw)) throw new Error('path must be absolute');
+          mprPath = path.resolve(raw);
+        } catch (e) {
+          return sendError(req, res, `Invalid request: ${e.message}`, 400);
+        }
+
+        const LIST_CAP = 2000;
+
+        const readI18n = async function (p) {
+          const ctx = await mprReader.mprOpen(p);
+          try {
+            const units = await mprReader.mprListUnits(ctx);
+            const byId = {};
+            for (const u of units) byId[u.id] = u;
+            const moduleName = {};
+            for (const u of units) {
+              if (u.type === 'Projects$ModuleImpl' && u.name) moduleName[u.id] = u.name;
+            }
+            const resolveModule = function (unit) {
+              let cur = unit;
+              for (let hop = 0; hop < 20 && cur; hop++) {
+                if (cur.containerId && moduleName[cur.containerId]) return moduleName[cur.containerId];
+                cur = cur.containerId ? byId[cur.containerId] : null;
+              }
+              return null;
+            };
+            const tagged = units.map(u => ({ name: u.name, type: u.type, module: resolveModule(u), doc: u.doc }));
+
+            let { languages, defaultLang } = modelI18n.miLanguages(units);
+
+            // Fallback: deployment/model/metadata.json carries a language list
+            // once the app has been run. Only used when the model has none.
+            if (!languages.length) {
+              try {
+                const metaPath = path.join(path.dirname(p), 'deployment', 'model', 'metadata.json');
+                const meta = JSON.parse(await fsp.readFile(metaPath, 'utf8'));
+                if (Array.isArray(meta.Languages)) {
+                  languages = meta.Languages.filter(l => typeof l === 'string');
+                  defaultLang = defaultLang || languages[0] || null;
+                }
+              } catch (e) { /* no metadata.json — handled below */ }
+            }
+
+            if (!languages.length) {
+              return {
+                ok: false,
+                reason: 'Could not find the project language settings in the .mpr, and no ' +
+                  'deployment/model/metadata.json is present. Open the project once in Studio Pro ' +
+                  'or run it locally so a language list exists.'
+              };
+            }
+
+            const texts = modelI18n.miCollectTexts(tagged);
+            const gaps = modelI18n.miGaps(texts, languages, defaultLang);
+            let missingTotal = 0, hardcodedTotal = gaps.hardcoded.length;
+            for (const l of Object.keys(gaps.byLanguage)) missingTotal += gaps.byLanguage[l].missing;
+
+            return {
+              ok: true,
+              projectName: path.basename(p).replace(/\.mpr$/i, ''),
+              formatVersion: ctx.v2 ? 2 : 1,
+              productVersion: ctx.productVersion,
+              languages: languages,
+              defaultLang: defaultLang,
+              textCount: texts.length,
+              byLanguage: gaps.byLanguage,
+              missing: gaps.missing.slice(0, LIST_CAP),
+              missingTotal: missingTotal,
+              missingTruncated: gaps.missing.length > LIST_CAP,
+              hardcoded: gaps.hardcoded.slice(0, LIST_CAP),
+              hardcodedTotal: hardcodedTotal,
+              hardcodedTruncated: gaps.hardcoded.length > LIST_CAP
+            };
+          } finally {
+            try { ctx.db.close(); } catch (e) { /* already closed */ }
+          }
+        };
+
+        fsp.stat(mprPath)
+          .catch(() => { throw new Error(`No such path: ${mprPath}`); })
+          .then(async (st) => {
+            if (st.isDirectory()) {
+              const entries = await fsp.readdir(mprPath);
+              const mprs = entries.filter(f => f.toLowerCase().endsWith('.mpr'));
+              if (mprs.length !== 1) {
+                throw new Error(`Expected exactly one .mpr in ${mprPath}, found ${mprs.length}`);
+              }
+              mprPath = path.join(mprPath, mprs[0]);
+            }
+            return readI18n(mprPath);
+          })
+          .then(r => sendJson(req, res, r))
+          .catch(e => sendError(req, res, `i18n read error: ${e.message}`, 400));
       });
       return;
     }
