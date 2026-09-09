@@ -384,6 +384,84 @@ async function dsFetchMprModel() {
   }
 }
 
+// ── Dead code — model elements nothing references (plan 007) ────────────────
+// Built on the same offline .mpr reader: the Bridge walks every unit's BSON for
+// qualified-name strings that resolve to a real element and reports the ones
+// with no live inbound edge. The finding is conservative by design — a false
+// "alive" is safe, a false "dead" is not — so this view leads with that caveat
+// and never offers a delete action.
+const DS_DEAD_GROUPS = [
+  ['MICROFLOW', 'Microflows'],
+  ['NANOFLOW', 'Nanoflows'],
+  ['PAGE', 'Pages'],
+  ['SNIPPET', 'Snippets'],
+  ['ENTITY', 'Entities']
+];
+
+async function dsFetchDeadCode() {
+  const box = document.getElementById('ds-deadcode-body');
+  const input = document.getElementById('ds-deadcode-path');
+  if (!box || !input) return;
+  const esc = window.escHtml;
+  const raw = (input.value || '').trim();
+  if (!raw) {
+    box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">Enter a path to a .mpr file or the project folder.</div>`;
+    return;
+  }
+  box.innerHTML = `<span style="color:var(--text-muted)"><span class="spinner-sm"></span>Analysing ${esc(raw)}...</span>`;
+  try {
+    const res = await fetch('http://localhost:9999/model/dead-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mprPath: raw, projectRoot: raw })
+    });
+    const data = await res.json();
+    if (!data || data.error || !data.ok) {
+      const reason = (data && (data.reason || data.message)) || 'Could not analyse the .mpr.';
+      box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">${esc(reason)}</div>`;
+      return;
+    }
+    const dead = data.dead || [];
+    const uncertain = data.uncertain || [];
+    const counts = data.counts || {};
+    const byGroup = {};
+    for (const d of dead) (byGroup[d.objectType] = byGroup[d.objectType] || []).push(d);
+
+    const groupHtml = DS_DEAD_GROUPS.map(([type, label]) => {
+      const items = byGroup[type] || [];
+      if (!items.length) return '';
+      const rows = items.map(d =>
+        `<div style="display:flex; justify-content:space-between; gap:var(--sp-3); padding:2px 0">
+           <span style="font-family:var(--font-mono); font-size:0.78rem; color:var(--text-primary)">${esc(d.qualifiedName)}</span>
+           <span style="color:var(--text-muted); font-size:0.75rem; white-space:nowrap">${esc(d.reason)}</span>
+         </div>`).join('');
+      return `<div class="card" style="padding:var(--sp-3) var(--sp-4)">
+        <div style="font-weight:600; color:var(--text-primary); margin-bottom:var(--sp-2)">${label} <span style="color:var(--text-muted); font-weight:400">(${items.length})</span></div>
+        ${rows}
+      </div>`;
+    }).join('');
+
+    const uncertainHtml = uncertain.length ? `
+      <div class="card" style="padding:var(--sp-3) var(--sp-4)">
+        <div style="font-weight:600; color:var(--text-primary); margin-bottom:var(--sp-1)">Enumerations &amp; constants <span style="color:var(--text-muted); font-weight:400">(${uncertain.length})</span></div>
+        <div style="color:var(--text-muted); font-size:0.78rem; margin-bottom:var(--sp-2)">Inbound edges for these types are not fully captured &mdash; verify before deleting.</div>
+        ${uncertain.map(u => `<div style="font-family:var(--font-mono); font-size:0.78rem; color:var(--text-secondary); padding:1px 0">${esc(u.qualifiedName)}</div>`).join('')}
+      </div>` : '';
+
+    box.innerHTML = `
+      <div style="display:flex; flex-direction:column; gap:var(--sp-3)">
+        <div style="color:var(--text-muted); font-size:0.8rem">
+          ${counts.elements || 0} referenceable elements, ${counts.refs || 0} references &mdash;
+          <strong style="color:var(--text-primary)">${dead.length}</strong> with no live inbound edge.
+        </div>
+        ${dead.length ? groupHtml : `<div class="notice" style="font-size:0.8rem">Nothing unreferenced was found.</div>`}
+        ${uncertainHtml}
+      </div>`;
+  } catch (e) {
+    box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">Bridge unreachable — the dead-code analysis could not run.</div>`;
+  }
+}
+
 async function dsFetchDbDetails() {
   if (!dsProjectData || !dsProjectData.success) return;
   const config = dsProjectData.config || {};
@@ -551,6 +629,7 @@ function dsShowOfflineView() {
   document.getElementById('ds-tabs').style.display = 'none';
   document.getElementById('ds-dashboard-view').style.display = 'none';
   document.getElementById('ds-security-view').style.display = 'none';
+  document.getElementById('ds-deadcode-view').style.display = 'none';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -565,6 +644,7 @@ function dsSetTab(tabId, el) {
   if (el) { el.classList.add('active'); el.setAttribute('aria-selected', 'true'); }
   document.getElementById('ds-dashboard-view').style.display = tabId === 'dashboard' ? 'flex' : 'none';
   document.getElementById('ds-security-view').style.display = tabId === 'security' ? 'flex' : 'none';
+  document.getElementById('ds-deadcode-view').style.display = tabId === 'deadcode' ? 'flex' : 'none';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -985,6 +1065,7 @@ window.dsSecApplyFilter = dsSecApplyFilter;
 window.dsSecCloseMembers = dsSecCloseMembers;
 window.dsSecRenderMembers = dsSecRenderMembers;
 window.dsFetchMprModel = dsFetchMprModel;
+window.dsFetchDeadCode = dsFetchDeadCode;
 
 // Exposed for scripts/parser-test.js (pure function, no DOM).
 window.dsBackoffDelay = dsBackoffDelay;

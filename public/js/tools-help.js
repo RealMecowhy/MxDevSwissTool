@@ -905,9 +905,9 @@ Customer [1] -- [*] Order : places</pre>
   },
   'dev-studio': {
     title: 'Mendix Developer Studio Connector',
-    description: 'Local inspector for a Mendix project running on your machine, in two tabs: <strong>Dashboard</strong> (project and database configuration, live metrics, roles, scheduled events, deployment model) and <strong>Security Matrix</strong> (every entity and document access rule, per role, exported by <code>mx.exe</code>).',
+    description: 'Local inspector for a Mendix project running on your machine, in three tabs: <strong>Dashboard</strong> (project and database configuration, live metrics, roles, scheduled events, deployment model), <strong>Security Matrix</strong> (every entity and document access rule, per role, exported by <code>mx.exe</code>) and <strong>Dead Code</strong> (model elements nothing references, read straight from the <code>.mpr</code>).',
     howToGet: 'Run your project locally in Mendix Studio Pro and start the local bridge. See the Dashboard tab help for details.',
-    howToUse: 'Connect to a project, then switch between the Dashboard and Security Matrix tabs.'
+    howToUse: 'Connect to a project, then switch between the Dashboard, Security Matrix and Dead Code tabs.'
   },
   'dev-studio-dashboard': {
     title: 'Developer Studio — Dashboard',
@@ -954,6 +954,26 @@ Customer [1] -- [*] Order : places</pre>
           Clicking a card filters the table to just those rows.</li>
         <li><strong>CSV</strong> and <strong>HTML report</strong> export what the filters currently show, through the same exporter the rest of the tool uses. The matrix is a map of your system &mdash; entity, role and endpoint names &mdash; so it stays local until you export it, and nothing is sent anywhere automatically.</li>
         <li>Entities that have <em>no</em> access rule at all are not in this export &mdash; <code>mx.exe</code> lists rules, not entities. Finding those needs the full domain model and is not part of this view yet.</li>
+      </ol>
+    `
+  },
+  'dev-studio-deadcode': {
+    title: 'Developer Studio — Dead Code',
+    description: 'The microflows, nanoflows, pages, snippets and entities that nothing in the model references &mdash; the &ldquo;find unused&rdquo; Studio Pro does not have. It reads the <code>.mpr</code> directly (SQLite + BSON), so it needs no database and no local run.',
+    howToGet: `
+      <ul>
+        <li>The bridge must be running. No PostgreSQL, no <code>pg</code> module and no Studio Pro are needed &mdash; this reads the project file, not the database.</li>
+        <li>Works on Mendix 8&ndash;11, both <code>.mpr</code> storage formats.</li>
+      </ul>
+    `,
+    howToUse: `
+      <ol>
+        <li>Point it at a <code>.mpr</code> file or the project folder and press <strong>Analyse</strong>. It builds a reference graph from every unit and lists the elements with no live inbound edge, grouped by kind with a count.</li>
+        <li><strong>The finding is conservative on purpose.</strong> The reference check collects every qualified name (<code>Module.Element</code>) that appears anywhere in a unit and resolves to a real element &mdash; it over-collects slightly (a string literal that looks like a name), so a genuinely unused element can occasionally show as referenced, but a used element is never reported as dead. A <em>false &ldquo;alive&rdquo;</em> is safe; a <em>false &ldquo;dead&rdquo;</em> is not. Review every hit before deleting anything.</li>
+        <li>An element is not flagged if it is an entry point: a microflow reached by a scheduled event, a data source, a widget action or the project settings (after-startup / before-shutdown / health-check); a page reached by a menu item, the home or login page, or a widget action; an entity with any inbound reference. A microflow whose name starts <code>ACT_</code>, <code>SCH_</code>, <code>WS_</code>, <code>REST_</code> or <code>OData_</code> is still listed but tagged &ldquo;prefix suggests entry point&rdquo; &mdash; those names usually mark a flow called from outside the model.</li>
+        <li>It reflects the <strong>last saved</strong> state of the project &mdash; unsaved edits in Studio Pro are not in the file yet.</li>
+        <li><strong>Enumerations and constants are listed separately</strong> because the ways they are referenced are not fully tracked yet &mdash; treat that list as &ldquo;worth checking&rdquo;, not &ldquo;confirmed unused&rdquo;.</li>
+        <li>Cross-module inheritance is recorded but not chased: an entity generalising one in another module keeps the parent alive, but a longer chain across modules is not resolved.</li>
       </ol>
     `
   },
