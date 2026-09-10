@@ -1632,6 +1632,59 @@ const server = http.createServer((req, res) => {
     return sendError(req, res, 'Method Not Allowed', 405);
   }
 
+  // The module dependency graph, made actionable (Plan 008). The same reference
+  // walk as /model/dead-code, collapsed to modules: which modules form a
+  // dependency cycle (deploy and version together), the topological layer of
+  // each (foundational vs leaf), modules with no reference edge either way, and
+  // cross-module generalizations — the hard blocker for splitting two modules.
+  // This is the behavioural reference graph, not the domain-model association
+  // diagram in Domain Model & Architecture. Offline, same path validation as
+  // /model/mpr, db opened read-only and closed in a finally.
+  if (url.pathname === '/model/modules') {
+    if (req.method === 'POST') {
+      readBody(req, res, 1 * 1024 * 1024, (rawBody) => {
+        let mprPath;
+        try {
+          const body = JSON.parse(rawBody.toString('utf8'));
+          const raw = body.mprPath || body.projectRoot;
+          if (!raw || typeof raw !== 'string') throw new Error('Missing mprPath or projectRoot');
+          if (!path.isAbsolute(raw)) throw new Error('path must be absolute');
+          mprPath = path.resolve(raw);
+        } catch (e) {
+          return sendError(req, res, `Invalid request: ${e.message}`, 400);
+        }
+
+        fsp.stat(mprPath)
+          .catch(() => { throw new Error(`No such path: ${mprPath}`); })
+          .then(async (st) => {
+            if (st.isDirectory()) {
+              const entries = await fsp.readdir(mprPath);
+              const mprs = entries.filter(f => f.toLowerCase().endsWith('.mpr'));
+              if (mprs.length !== 1) {
+                throw new Error(`Expected exactly one .mpr in ${mprPath}, found ${mprs.length}`);
+              }
+              mprPath = path.join(mprPath, mprs[0]);
+            }
+            const ctx = await mprReader.mprOpen(mprPath);
+            try {
+              const units = await mprReader.mprListUnits(ctx);
+              const analysis = modelGraph.mgAnalyzeModules(units);
+              return Object.assign(
+                { ok: true, projectName: path.basename(mprPath).replace(/\.mpr$/i, '') },
+                analysis
+              );
+            } finally {
+              try { ctx.db.close(); } catch (_) { /* already closed */ }
+            }
+          })
+          .then(r => sendJson(req, res, r))
+          .catch(e => sendError(req, res, `Module analysis error: ${e.message}`, 400));
+      });
+      return;
+    }
+    return sendError(req, res, 'Method Not Allowed', 405);
+  }
+
   // === SECURITY MATRIX (Wave 28) — mx.exe export-security-overview ===
   // A 55–90 s background job, never a request/response call. POST starts it and
   // returns a jobId; GET ?jobId= polls phase/percent and, when done, the whole

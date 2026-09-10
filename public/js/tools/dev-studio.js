@@ -282,6 +282,10 @@ function dsRenderDetectedProject() {
   if (intInput && !intInput.value && dsProjectData && dsProjectData.projectRoot) {
     intInput.value = dsProjectData.projectRoot;
   }
+  const modInput = document.getElementById('ds-modules-path');
+  if (modInput && !modInput.value && dsProjectData && dsProjectData.projectRoot) {
+    modInput.value = dsProjectData.projectRoot;
+  }
 }
 
 // ── Deployment model ────────────────────────────────────────────────────────
@@ -708,6 +712,132 @@ function dsIntRender(data) {
     <div style="color:var(--text-muted); font-size:0.76rem">Read from the last saved <span style="font-family:var(--font-mono)">${esc(data.projectName || '')}.mpr</span> — consumed base URLs backed by a Constant show the reference, not the resolved value.</div>`;
 }
 
+// ── Modules (plan 008) ────────────────────────────────────────────────────
+// The reference graph (same walk as Dead Code), collapsed to modules and made
+// actionable: dependency cycles (modules that deploy together), topological
+// layers (foundational vs leaf), orphan modules, and cross-module inheritance —
+// the hard blocker for a split. Behavioural, not the association diagram in
+// Domain Model & Architecture. Offline, on the plan-006 reader.
+async function dsFetchModules() {
+  const box = document.getElementById('ds-modules-body');
+  const input = document.getElementById('ds-modules-path');
+  if (!box || !input) return;
+  const esc = window.escHtml;
+  const raw = (input.value || '').trim();
+  if (!raw) {
+    box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">Enter a path to a .mpr file or the project folder.</div>`;
+    return;
+  }
+  box.innerHTML = `<span style="color:var(--text-muted)"><span class="spinner-sm"></span>Analysing ${esc(raw)}...</span>`;
+  try {
+    const res = await fetch('http://localhost:9999/model/modules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mprPath: raw, projectRoot: raw })
+    });
+    const data = await res.json();
+    if (!data || data.error || !data.ok) {
+      const reason = (data && (data.reason || data.message)) || 'Could not analyse the .mpr.';
+      box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">${esc(reason)}</div>`;
+      return;
+    }
+    box.innerHTML = dsModRender(data);
+  } catch (e) {
+    box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">Bridge unreachable — the module analysis could not run.</div>`;
+  }
+}
+
+function dsModRender(data) {
+  const esc = window.escHtml;
+  const c = data.counts || {};
+  const card = (title, count, inner) => `<div class="card" style="padding:var(--sp-3) var(--sp-4)">
+      <div style="font-weight:600; color:var(--text-primary); margin-bottom:var(--sp-2)">${esc(title)}${count == null ? '' : ` <span style="color:var(--text-muted); font-weight:400">(${count})</span>`}</div>
+      ${inner}
+    </div>`;
+
+  // Cycles — worth stating even when there are none. A big SCC reads as a comma
+  // list (a 30-way "A ↔ B ↔ C ↔ …" is unreadable); a small one keeps the ↔.
+  const cycles = data.cycles || [];
+  const cycleLine = (g) => {
+    const names = g.slice().sort().map(esc);
+    return g.length <= 4
+      ? `<div style="font-family:var(--font-mono); font-size:0.78rem; color:var(--text-primary); padding:2px 0">${names.join(' &harr; ')}</div>`
+      : `<div style="padding:2px 0"><span style="color:var(--text-primary)">${g.length} modules form one cycle:</span>
+           <span style="font-family:var(--font-mono); font-size:0.76rem; color:var(--text-secondary)">${names.join(', ')}</span></div>`;
+  };
+  const cyclesInner = cycles.length
+    ? cycles.map(cycleLine).join('') +
+      `<div style="color:var(--text-muted); font-size:0.75rem; margin-top:var(--sp-2)">Modules in a cycle deploy and version together — none can be extracted without the others.</div>`
+    : `<div style="color:var(--text-muted); font-size:0.8rem">No dependency cycles — every module stands alone in the reference graph.</div>`;
+
+  // Inheritance blockers — only when present.
+  const blockers = data.blockers || [];
+  const blockersHtml = blockers.length ? card('Inheritance blockers', blockers.length,
+    blockers.map(b =>
+      `<div style="font-size:0.78rem; padding:2px 0">
+         <span style="font-family:var(--font-mono); color:var(--text-primary)">${esc(b.from)}</span>
+         <span style="color:var(--text-muted)"> extends </span>
+         <span style="font-family:var(--font-mono); color:var(--text-primary)">${esc(b.to)}</span>
+         <span style="color:var(--text-muted)"> — ${esc(b.fromModule)} and ${esc(b.toModule)} cannot be split without a data migration.</span>
+       </div>`).join('')) : '';
+
+  // Layers — group modules by layer number.
+  const layers = data.layers || {};
+  const byLayer = {};
+  Object.keys(layers).forEach(m => { (byLayer[layers[m]] = byLayer[layers[m]] || []).push(m); });
+  const layerNums = Object.keys(byLayer).map(Number).sort((a, b) => a - b);
+  const maxLayer = layerNums.length ? layerNums[layerNums.length - 1] : 0;
+  const layersInner = layerNums.map(n => {
+    const label = n === 0 ? 'Foundational' : (n === maxLayer ? 'Leaf' : `Layer ${n}`);
+    return `<div style="padding:2px 0; font-size:0.8rem">
+      <span style="color:var(--text-muted); display:inline-block; min-width:92px">${label}</span>
+      <span style="font-family:var(--font-mono); color:var(--text-primary)">${byLayer[n].sort().map(esc).join(', ')}</span>
+    </div>`;
+  }).join('');
+  const layersHtml = layerNums.length ? card('Layers', null,
+    layersInner + `<div style="color:var(--text-muted); font-size:0.75rem; margin-top:var(--sp-2)">Layer 0 references nothing outside itself; each step up depends on the layer below.</div>`) : '';
+
+  // Orphans — only when present.
+  const orphans = data.orphans || [];
+  const orphansHtml = orphans.length ? card('Orphan modules', orphans.length,
+    `<div style="font-family:var(--font-mono); font-size:0.78rem; color:var(--text-primary)">${orphans.map(esc).join(', ')}</div>
+     <div style="color:var(--text-muted); font-size:0.75rem; margin-top:var(--sp-2)">No reference edge either way. They may still be wired by a domain-model association or a widget this graph does not cover.</div>`) : '';
+
+  // Cohesion — least cohesive first.
+  const cohesion = data.cohesion || [];
+  const cohesionHtml = cohesion.length ? card('Cohesion', null,
+    `<div style="color:var(--text-muted); font-size:0.75rem; margin-bottom:var(--sp-2)">Share of a module's references that stay inside it — low means entangled with other modules.</div>
+     <table style="width:100%; font-size:0.78rem; border-collapse:collapse">
+       <thead><tr style="color:var(--text-muted); text-align:left">
+         <th style="padding:2px var(--sp-3) 2px 0; font-weight:400">Module</th>
+         <th style="padding:2px var(--sp-3) 2px 0; font-weight:400; text-align:right">Internal</th>
+         <th style="padding:2px var(--sp-3) 2px 0; font-weight:400; text-align:right">External</th>
+         <th style="padding:2px 0; font-weight:400; text-align:right">Cohesion</th>
+       </tr></thead>
+       <tbody>${cohesion.map(r => `<tr>
+         <td style="padding:2px var(--sp-3) 2px 0; font-family:var(--font-mono); color:var(--text-primary)">${esc(r.module)}</td>
+         <td style="padding:2px var(--sp-3) 2px 0; text-align:right; color:var(--text-secondary)">${r.intra}</td>
+         <td style="padding:2px var(--sp-3) 2px 0; text-align:right; color:var(--text-secondary)">${r.inter}</td>
+         <td style="padding:2px 0; text-align:right; color:var(--text-primary)">${r.cohesionPct == null ? '—' : r.cohesionPct + '%'}</td>
+       </tr>`).join('')}</tbody>
+     </table>`) : '';
+
+  return `
+    <div style="display:flex; flex-direction:column; gap:var(--sp-3)">
+      <div style="color:var(--text-muted); font-size:0.8rem">
+        ${c.modules || 0} modules, ${c.edges || 0} cross-module reference edges &mdash;
+        <strong style="color:var(--text-primary)">${c.cycles || 0}</strong> cycle${(c.cycles || 0) === 1 ? '' : 's'},
+        <strong style="color:var(--text-primary)">${c.blockers || 0}</strong> inheritance blocker${(c.blockers || 0) === 1 ? '' : 's'}.
+      </div>
+      ${card('Dependency cycles', cycles.length || null, cyclesInner)}
+      ${blockersHtml}
+      ${layersHtml}
+      ${orphansHtml}
+      ${cohesionHtml}
+      <div style="color:var(--text-muted); font-size:0.76rem">Read from the last saved <span style="font-family:var(--font-mono)">${esc(data.projectName || '')}.mpr</span> — the behavioural reference graph, not the association diagram.</div>
+    </div>`;
+}
+
 async function dsFetchDbDetails() {
   if (!dsProjectData || !dsProjectData.success) return;
   const config = dsProjectData.config || {};
@@ -878,6 +1008,7 @@ function dsShowOfflineView() {
   document.getElementById('ds-deadcode-view').style.display = 'none';
   document.getElementById('ds-i18n-view').style.display = 'none';
   document.getElementById('ds-integrations-view').style.display = 'none';
+  document.getElementById('ds-modules-view').style.display = 'none';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -895,6 +1026,7 @@ function dsSetTab(tabId, el) {
   document.getElementById('ds-deadcode-view').style.display = tabId === 'deadcode' ? 'flex' : 'none';
   document.getElementById('ds-i18n-view').style.display = tabId === 'i18n' ? 'flex' : 'none';
   document.getElementById('ds-integrations-view').style.display = tabId === 'integrations' ? 'flex' : 'none';
+  document.getElementById('ds-modules-view').style.display = tabId === 'modules' ? 'flex' : 'none';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1318,6 +1450,7 @@ window.dsFetchMprModel = dsFetchMprModel;
 window.dsFetchDeadCode = dsFetchDeadCode;
 window.dsFetchI18n = dsFetchI18n;
 window.dsFetchIntegrations = dsFetchIntegrations;
+window.dsFetchModules = dsFetchModules;
 
 // Exposed for scripts/parser-test.js (pure function, no DOM).
 window.dsBackoffDelay = dsBackoffDelay;

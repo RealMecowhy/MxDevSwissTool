@@ -5596,6 +5596,113 @@ const mg = require('../server/model-graph.js');
     resolved.find(u => u.id === 'mf').moduleName, 'Sales');
 })();
 
+// ── Model modules (plan 008, server/model-graph.js) ───────────────────────
+// The reference walk (mgExtractRefs), collapsed to a directed module graph:
+// dependency cycles (Tarjan SCC), topological layers, orphan modules,
+// cross-module inheritance blockers, per-module cohesion.
+(function () {
+  // mgModuleOf
+  eq('mg: mgModuleOf splits on the first dot', mg.mgModuleOf('Sales.Order'), 'Sales');
+  eq('mg: mgModuleOf leaves a dotless string alone', mg.mgModuleOf('System'), 'System');
+
+  // mgModuleGraph — two element-level refs A.*->B.* collapse to one edge with
+  // both kinds; an intra-module ref makes no edge; a module known only from
+  // `elements` still appears as a node.
+  const mgElems = [
+    { qualifiedName: 'A.One' }, { qualifiedName: 'A.Two' },
+    { qualifiedName: 'B.Thing' }, { qualifiedName: 'C.Lonely' }
+  ];
+  const mgRefs = [
+    { from: 'A.One', to: 'B.Thing', kind: 'call' },
+    { from: 'A.Two', to: 'B.Thing', kind: 'retrieve' },
+    { from: 'A.One', to: 'A.Two', kind: 'call' }
+  ];
+  const graph = mg.mgModuleGraph(mgElems, mgRefs);
+  ok('mg: mgModuleGraph keeps a module with no edge as a node', graph.nodes.indexOf('C') !== -1);
+  eq('mg: mgModuleGraph collapses cross-module refs to one directed edge', graph.edges.length, 1);
+  eq('mg: the collapsed edge is A -> B', graph.edges[0].from + '->' + graph.edges[0].to, 'A->B');
+  eq('mg: the collapsed edge counts both refs', graph.edges[0].count, 2);
+  ok('mg: the collapsed edge carries both kinds',
+    graph.edges[0].kinds.indexOf('call') !== -1 && graph.edges[0].kinds.indexOf('retrieve') !== -1);
+
+  // mgTarjanSCC
+  const cyc3 = mg.mgTarjanSCC(['A', 'B', 'C'], [{ from: 'A', to: 'B' }, { from: 'B', to: 'C' }, { from: 'C', to: 'A' }]);
+  eq('mg: a 3-module cycle is one SCC', cyc3.length, 1);
+  eq('mg: the SCC has all three modules', cyc3[0].slice().sort().join(''), 'ABC');
+  eq('mg: a DAG has no SCC',
+    mg.mgTarjanSCC(['A', 'B', 'C'], [{ from: 'A', to: 'B' }, { from: 'B', to: 'C' }]).length, 0);
+  const selfScc = mg.mgTarjanSCC(['A'], [{ from: 'A', to: 'A' }]);
+  ok('mg: a self-edge is a one-module cycle', selfScc.length === 1 && selfScc[0][0] === 'A');
+
+  // mgTopoLayers — A depends on B depends on C -> C is foundational (0)
+  const layers = mg.mgTopoLayers(['A', 'B', 'C'], [{ from: 'A', to: 'B' }, { from: 'B', to: 'C' }]);
+  eq('mg: the leaf module is layer 2', layers.A, 2);
+  eq('mg: the middle module is layer 1', layers.B, 1);
+  eq('mg: the foundational module is layer 0', layers.C, 0);
+  const cycLayers = mg.mgTopoLayers(['X', 'Y'], [{ from: 'X', to: 'Y' }, { from: 'Y', to: 'X' }]);
+  eq('mg: two modules in a cycle share a layer', cycLayers.X, cycLayers.Y);
+
+  // mgOrphanModules
+  const orphans = mg.mgOrphanModules(['A', 'B', 'Solo'], [{ from: 'A', to: 'B' }]);
+  ok('mg: a module with no edge is an orphan', orphans.indexOf('Solo') !== -1);
+  ok('mg: a module with an edge is not an orphan', orphans.indexOf('A') === -1);
+
+  // mgBlockers — generalize across a boundary only
+  const blockers = mg.mgBlockers([
+    { from: 'HR.Employee', to: 'Core.Person', kind: 'generalize' },
+    { from: 'HR.Manager', to: 'HR.Employee', kind: 'generalize' },
+    { from: 'Sales.Order', to: 'Core.Person', kind: 'retrieve' }
+  ]);
+  eq('mg: exactly one cross-module generalization is a blocker', blockers.length, 1);
+  eq('mg: the blocker names both modules',
+    blockers[0].fromModule + '->' + blockers[0].toModule, 'HR->Core');
+
+  // mgCohesion — 3 intra + 1 inter for module A -> 75%
+  const cohesion = mg.mgCohesion([
+    { from: 'A.a', to: 'A.b', kind: 'call' },
+    { from: 'A.a', to: 'A.c', kind: 'call' },
+    { from: 'A.b', to: 'A.c', kind: 'call' },
+    { from: 'A.a', to: 'B.x', kind: 'call' }
+  ]);
+  const aCoh = cohesion.find(c => c.module === 'A');
+  eq('mg: module A cohesion is 75%', aCoh.cohesionPct, 75);
+  eq('mg: module A has 3 intra edges', aCoh.intra, 3);
+  eq('mg: module A has 1 inter edge', aCoh.inter, 1);
+
+  // mgAnalyzeModules — raw units in, full report out. Fixture: a microflow in
+  // Ordering calls one in Billing, and a Billing entity generalizes an Ordering
+  // entity -> a 2-module cycle AND a blocker.
+  const rawUnits = [
+    { id: 'mOrd', containerId: null, type: 'Projects$ModuleImpl', name: 'Ordering', doc: {} },
+    { id: 'mBil', containerId: null, type: 'Projects$ModuleImpl', name: 'Billing', doc: {} },
+    { id: 'mf1', containerId: 'mOrd', type: 'Microflows$Microflow', name: 'Checkout', doc: {
+      $Type: 'Microflows$Microflow',
+      ObjectCollection: { Objects: [2, {
+        $Type: 'Microflows$ActionActivity',
+        Action: { $Type: 'Microflows$MicroflowCallAction', MicroflowCall: { Microflow: 'Billing.Charge' } }
+      }] }
+    } },
+    { id: 'mf2', containerId: 'mBil', type: 'Microflows$Microflow', name: 'Charge', doc: { $Type: 'Microflows$Microflow' } },
+    { id: 'dmO', containerId: 'mOrd', type: 'DomainModels$DomainModel', name: null, doc: {
+      $Type: 'DomainModels$DomainModel',
+      Entities: [2, { $Type: 'DomainModels$Entity', Name: 'Order',
+        MaybeGeneralization: { $Type: 'DomainModels$NoGeneralization', Persistable: true } }]
+    } },
+    { id: 'dmB', containerId: 'mBil', type: 'DomainModels$DomainModel', name: null, doc: {
+      $Type: 'DomainModels$DomainModel',
+      Entities: [2, { $Type: 'DomainModels$Entity', Name: 'Invoice',
+        MaybeGeneralization: { $Type: 'DomainModels$Generalization', Generalization: 'Ordering.Order' } }]
+    } }
+  ];
+  const report = mg.mgAnalyzeModules(rawUnits);
+  ok('mg: mgAnalyzeModules sees both modules', report.modules.indexOf('Ordering') !== -1 && report.modules.indexOf('Billing') !== -1);
+  eq('mg: Ordering<->Billing is detected as one cycle', report.cycles.length, 1);
+  eq('mg: the cross-module generalization is a blocker', report.blockers.length, 1);
+  eq('mg: the blocker is Billing.Invoice -> Ordering.Order',
+    report.blockers[0].from + ' -> ' + report.blockers[0].to, 'Billing.Invoice -> Ordering.Order');
+  ok('mg: counts echo the findings', report.counts.cycles === 1 && report.counts.blockers === 1);
+})();
+
 // ── Model i18n (plan 010, server/model-i18n.js) ───────────────────────────
 // Translation completeness: collect every `Texts$Text` from decoded units, then
 // score it against the project's enabled languages. Pure layer only — fixtures

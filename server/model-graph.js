@@ -298,6 +298,280 @@ function mgAnalyzeUnits(rawUnits) {
   };
 }
 
+// =========================================================================
+// MODULE DEPENDENCY GRAPH — cycles, layers, orphans, blockers (Plan 008)
+// =========================================================================
+// The same reference walk that finds dead code (mgExtractRefs) also answers
+// "can these modules be separated?". Collapse every element-level edge
+// `ModuleA.X -> ModuleB.Y` to its module and you have a DIRECTED module
+// dependency graph — one that reflects real behaviour (a microflow call, a
+// retrieve, a page open, a generalization), not just domain-model associations.
+// An edge `X -> Y` means X references something in Y, i.e. X depends on Y.
+//
+// This is intentionally NOT the association graph the Domain Model &
+// Architecture "Modules" diagram draws — that one is undirected and needs a
+// live database. This one is offline, directed, and carries the edge kinds.
+//
+// Pure functions only. The one-shot mgAnalyzeModules takes raw mprListUnits
+// output; the Bridge route /model/modules is the only caller.
+// =========================================================================
+
+// "Sales.Order" -> "Sales"; a string with no dot is returned unchanged.
+function mgModuleOf(qn) {
+  const s = String(qn == null ? '' : qn);
+  const i = s.indexOf('.');
+  return i === -1 ? s : s.slice(0, i);
+}
+
+// elements: [{ qualifiedName }] — the full node set, so a module with no edge
+// still appears. refs: [{ from, to, kind }], already filtered to endpoints
+// whose module is known (mgAnalyzeModules does this).
+// Returns { nodes: [moduleName] (sorted),
+//           edges: [{ from, to, kinds:[...] (sorted), count }] (cross-module,
+//                    directed, de-duplicated, most-referenced first) }.
+function mgModuleGraph(elements, refs) {
+  const nodes = new Set();
+  for (const el of (Array.isArray(elements) ? elements : [])) {
+    if (el && typeof el.qualifiedName === 'string') nodes.add(mgModuleOf(el.qualifiedName));
+  }
+  const edgeMap = {};
+  for (const r of (Array.isArray(refs) ? refs : [])) {
+    if (!r || typeof r.from !== 'string' || typeof r.to !== 'string') continue;
+    const fm = mgModuleOf(r.from);
+    const tm = mgModuleOf(r.to);
+    nodes.add(fm);
+    nodes.add(tm);
+    if (fm === tm) continue;
+    const key = fm + '~' + tm;
+    if (!edgeMap[key]) edgeMap[key] = { from: fm, to: tm, kinds: new Set(), count: 0 };
+    edgeMap[key].kinds.add(r.kind || 'ref');
+    edgeMap[key].count++;
+  }
+  const edges = Object.keys(edgeMap).map(function (k) {
+    const e = edgeMap[k];
+    return { from: e.from, to: e.to, kinds: Array.from(e.kinds).sort(), count: e.count };
+  }).sort(function (a, b) {
+    return b.count - a.count || (a.from + '>' + a.to).localeCompare(b.from + '>' + b.to);
+  });
+  return { nodes: Array.from(nodes).sort(), edges: edges };
+}
+
+// Iterative Tarjan's SCC (a large app can have 100+ modules and a deep chain
+// would overflow a recursive version). nodes: string[]; edges: [{from,to}].
+// Returns [[moduleName, ...], ...] — one array per cycle: every SCC of size >= 2,
+// plus any single module with a self-edge. Members are in discovery order.
+function mgTarjanSCC(nodes, edges) {
+  const adj = {};
+  const selfLoop = {};
+  const add = function (n) { if (!adj[n]) adj[n] = []; };
+  for (const n of (Array.isArray(nodes) ? nodes : [])) add(n);
+  for (const e of (Array.isArray(edges) ? edges : [])) {
+    if (!e || e.from == null || e.to == null) continue;
+    add(e.from);
+    add(e.to);
+    if (e.from === e.to) { selfLoop[e.from] = true; continue; }
+    adj[e.from].push(e.to);
+  }
+
+  const index = {};
+  const low = {};
+  const onStack = {};
+  const stack = [];
+  let counter = 0;
+  const out = [];
+
+  for (const start of Object.keys(adj)) {
+    if (index[start] !== undefined) continue;
+    const work = [{ v: start, i: 0 }];
+    while (work.length) {
+      const frame = work[work.length - 1];
+      const v = frame.v;
+      if (frame.i === 0) {
+        index[v] = counter;
+        low[v] = counter;
+        counter++;
+        stack.push(v);
+        onStack[v] = true;
+      }
+      let descended = false;
+      while (frame.i < adj[v].length) {
+        const w = adj[v][frame.i];
+        frame.i++;
+        if (index[w] === undefined) {
+          work.push({ v: w, i: 0 });
+          descended = true;
+          break;
+        } else if (onStack[w] && index[w] < low[v]) {
+          low[v] = index[w];
+        }
+      }
+      if (descended) continue;
+      if (low[v] === index[v]) {
+        const comp = [];
+        let w;
+        do {
+          w = stack.pop();
+          onStack[w] = false;
+          comp.push(w);
+        } while (w !== v);
+        if (comp.length > 1 || selfLoop[v]) out.push(comp);
+      }
+      work.pop();
+      if (work.length) {
+        const parent = work[work.length - 1].v;
+        if (low[v] < low[parent]) low[parent] = low[v];
+      }
+    }
+  }
+  return out;
+}
+
+// Longest-path layer per module on the SCC-condensed DAG.
+// layer 0 = the module references nothing outside itself (foundational);
+// layer N = the longest chain of outward references from it (leaf).
+// Modules in one cycle share a layer. Returns { moduleName: layer }.
+function mgTopoLayers(nodes, edges) {
+  const nodeSet = new Set(Array.isArray(nodes) ? nodes : []);
+  for (const e of (Array.isArray(edges) ? edges : [])) {
+    if (!e || e.from == null || e.to == null) continue;
+    nodeSet.add(e.from);
+    nodeSet.add(e.to);
+  }
+
+  const compOf = {};
+  let cid = 0;
+  for (const comp of mgTarjanSCC(Array.from(nodeSet), edges)) {
+    const id = 'c' + cid++;
+    for (const m of comp) compOf[m] = id;
+  }
+  for (const m of nodeSet) {
+    if (compOf[m] === undefined) compOf[m] = 'c' + cid++;
+  }
+
+  const cadj = {};
+  for (const id of Object.values(compOf)) { if (!cadj[id]) cadj[id] = new Set(); }
+  for (const e of (Array.isArray(edges) ? edges : [])) {
+    if (!e || e.from == null || e.to == null) continue;
+    const a = compOf[e.from];
+    const b = compOf[e.to];
+    if (a !== b) cadj[a].add(b);
+  }
+
+  const memo = {};
+  const layerOf = function (id) {
+    if (memo[id] !== undefined) return memo[id];
+    memo[id] = 0; // guard against a stray cycle in the condensation
+    let best = 0;
+    for (const nxt of cadj[id]) best = Math.max(best, 1 + layerOf(nxt));
+    memo[id] = best;
+    return best;
+  };
+
+  const out = {};
+  for (const m in compOf) {
+    if (Object.prototype.hasOwnProperty.call(compOf, m)) out[m] = layerOf(compOf[m]);
+  }
+  return out;
+}
+
+// Per module that emits at least one reference: { module, intra, inter,
+// cohesionPct }. cohesionPct = round(100 * intra / (intra + inter)) — low means
+// the module's behaviour is entangled with other modules. Least cohesive first.
+function mgCohesion(refs) {
+  const stat = {};
+  for (const r of (Array.isArray(refs) ? refs : [])) {
+    if (!r || typeof r.from !== 'string' || typeof r.to !== 'string') continue;
+    const fm = mgModuleOf(r.from);
+    const tm = mgModuleOf(r.to);
+    if (!stat[fm]) stat[fm] = { module: fm, intra: 0, inter: 0 };
+    if (fm === tm) stat[fm].intra++;
+    else stat[fm].inter++;
+  }
+  return Object.keys(stat).map(function (m) {
+    const s = stat[m];
+    const total = s.intra + s.inter;
+    return {
+      module: s.module,
+      intra: s.intra,
+      inter: s.inter,
+      cohesionPct: total ? Math.round(100 * s.intra / total) : null
+    };
+  }).sort(function (a, b) {
+    const pa = a.cohesionPct == null ? 101 : a.cohesionPct;
+    const pb = b.cohesionPct == null ? 101 : b.cohesionPct;
+    return pa - pb || a.module.localeCompare(b.module);
+  });
+}
+
+// Modules with no cross-module reference edge in either direction. They may
+// still be wired by a domain-model association or a widget this walk does not
+// cover — the help text says so.
+function mgOrphanModules(nodes, edges) {
+  const connected = new Set();
+  for (const e of (Array.isArray(edges) ? edges : [])) {
+    if (!e || e.from == null || e.to == null) continue;
+    connected.add(e.from);
+    connected.add(e.to);
+  }
+  return (Array.isArray(nodes) ? nodes : []).filter(function (n) {
+    return !connected.has(n);
+  }).sort();
+}
+
+// generalize edges that cross a module boundary — inheritance across modules,
+// the hard blocker for separating them (breaking it needs a data migration).
+// refs: [{ from, to, kind }]. Returns [{ from, to, fromModule, toModule }].
+function mgBlockers(refs) {
+  const out = [];
+  for (const r of (Array.isArray(refs) ? refs : [])) {
+    if (!r || r.kind !== 'generalize') continue;
+    const fm = mgModuleOf(r.from);
+    const tm = mgModuleOf(r.to);
+    if (fm !== tm) out.push({ from: r.from, to: r.to, fromModule: fm, toModule: tm });
+  }
+  return out;
+}
+
+// One-shot: rawUnits straight from mprReader.mprListUnits -> the module report.
+function mgAnalyzeModules(rawUnits) {
+  const units = mgResolveModuleNames(rawUnits);
+  const elements = mgCollectElements(units);
+
+  const known = new Set();
+  for (const el of elements) known.add(mgModuleOf(el.qualifiedName));
+
+  // Keep only edges whose BOTH endpoints resolve to a real module — mgExtractRefs
+  // can emit a `from` of a project-level unit ($Type string) for navigation /
+  // scheduled events / settings, which are not modules.
+  const refs = mgExtractRefs(units).refs.filter(function (r) {
+    return r && known.has(mgModuleOf(r.from)) && known.has(mgModuleOf(r.to));
+  });
+
+  const graph = mgModuleGraph(elements, refs);
+  const cycles = mgTarjanSCC(graph.nodes, graph.edges);
+  const layers = mgTopoLayers(graph.nodes, graph.edges);
+  const cohesion = mgCohesion(refs);
+  const orphans = mgOrphanModules(graph.nodes, graph.edges);
+  const blockers = mgBlockers(refs);
+
+  return {
+    modules: graph.nodes,
+    edges: graph.edges,
+    cycles: cycles,
+    layers: layers,
+    orphans: orphans,
+    blockers: blockers,
+    cohesion: cohesion,
+    counts: {
+      modules: graph.nodes.length,
+      edges: graph.edges.length,
+      cycles: cycles.length,
+      orphans: orphans.length,
+      blockers: blockers.length
+    }
+  };
+}
+
 module.exports = {
   QN,
   ENTRY_PREFIXES,
@@ -309,5 +583,13 @@ module.exports = {
   mgKindForType,
   mgExtractRefs,
   mgFindDeadAssets,
-  mgAnalyzeUnits
+  mgAnalyzeUnits,
+  mgModuleOf,
+  mgModuleGraph,
+  mgTarjanSCC,
+  mgTopoLayers,
+  mgCohesion,
+  mgOrphanModules,
+  mgBlockers,
+  mgAnalyzeModules
 };

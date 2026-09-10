@@ -36,7 +36,7 @@ the **last saved** state. New Bridge route `POST /model/mpr`. Verified: 541/541
 units of a Mendix 11.12 v2 app and 4196/4196 of a Mendix 9.24 v1 app (a 175 MB
 single-file `.mpr`) decode without a single failure.
 
-On top of that reader, Developer Studio gains three offline analysis tabs:
+On top of that reader, Developer Studio gains four offline analysis tabs:
 
 ### Dead Code — model elements that nothing references
 
@@ -98,6 +98,25 @@ as `/model/mpr`. SOAP and legacy web services are out of scope; contract
 validation is inventory-only. Verified on a real Mendix 9.24 project: 6
 published REST services / 8 operations and 1 OData service, 3 REST services
 correctly flagged as reachable without sign-in.
+
+### Modules — the dependency graph, made actionable
+
+**A "Modules" tab that turns the module dependency graph into an answer to
+"can these modules be separated?".** The same reference walk that finds dead
+code, collapsed to modules, is a *directed* dependency graph — and it exposes
+what the association diagram in Domain Model & Architecture cannot: **dependency
+cycles** (strongly-connected components, computed with Tarjan's algorithm —
+modules in a cycle deploy and version together, none can be extracted without
+the rest), the **topological layer** of each module (foundational vs leaf),
+**orphan modules** with no reference edge either way, cross-module
+**inheritance** (an entity generalising one in another module — the hard blocker
+for a split, since breaking it needs a data migration), and a per-module
+**cohesion** figure (the share of a module's references that stay internal). It
+is the *behavioural* graph — microflow calls, retrieves, page opens,
+generalizations — read from the `.mpr` with no database and no local run, not
+the undirected association graph the Architecture tool draws (which also needs a
+live database). New Bridge route `POST /model/modules` (`{ mprPath }` or
+`{ projectRoot }`), behind the same token and path validation as `/model/mpr`.
 
 ## v1.59.0 — 2026-09-09
 
