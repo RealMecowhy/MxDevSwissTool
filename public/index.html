@@ -2345,6 +2345,7 @@
           <button type="button" class="tab" data-help-key="dev-studio-deadcode" aria-selected="false" onclick="dsSetTab('deadcode',this)">Dead Code</button>
           <button type="button" class="tab" data-help-key="dev-studio-i18n" aria-selected="false" onclick="dsSetTab('i18n',this)">Translations</button>
           <button type="button" class="tab" data-help-key="dev-studio-integrations" aria-selected="false" onclick="dsSetTab('integrations',this)">Integrations</button>
+          <button type="button" class="tab" data-help-key="dev-studio-modules" aria-selected="false" onclick="dsSetTab('modules',this)">Modules</button>
         </div>
 
         <!-- DASHBOARD VIEW -->
@@ -2688,6 +2689,34 @@
           </div>
         </div>
         <!-- /ds-integrations-view -->
+
+        <!-- MODULES VIEW (plan 008) -->
+        <div id="ds-modules-view" style="display:none; flex-direction:column; gap:var(--sp-4); width:100%">
+          <div class="card" style="padding:var(--sp-4)">
+            <h4 style="margin:0 0 var(--sp-2) 0; color:var(--text-primary)">Modules</h4>
+            <p style="color:var(--text-secondary); font-size:0.86rem; line-height:1.6; margin:0 0 var(--sp-3)">
+              The module dependency graph, made actionable &mdash; which modules form a
+              <strong>cycle</strong> (they deploy and version together, you cannot extract one without the
+              others), the <strong>topological layer</strong> of each (foundational vs leaf), modules with
+              <strong>no reference either way</strong>, and cross-module <strong>inheritance</strong> &mdash;
+              the hard blocker for splitting two modules. Read straight from the <code>.mpr</code>, offline.
+            </p>
+            <ul style="color:var(--text-muted); font-size:0.8rem; line-height:1.7; margin:0 0 var(--sp-3); padding-left:1.1rem">
+              <li>This is the <strong>behavioural</strong> graph &mdash; a module edge means one module calls a microflow, retrieves an entity, opens a page or generalises an entity in another. It is <strong>not</strong> the association diagram in Domain Model &amp; Architecture.</li>
+              <li>It reflects the <strong>last saved</strong> state of the project.</li>
+            </ul>
+            <div style="display:flex; gap:var(--sp-2)">
+              <input type="text" id="ds-modules-path" placeholder="Path to a .mpr file or project folder"
+                style="flex:1; min-width:0; font-family:var(--font-mono); font-size:0.78rem; padding:var(--sp-2); background:var(--bg-base); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-primary)">
+              <button class="btn btn-secondary" style="font-size:0.8rem; white-space:nowrap" onclick="dsFetchModules()">Analyse</button>
+            </div>
+          </div>
+
+          <div id="ds-modules-body" style="font-size:0.85rem">
+            <span style="color:var(--text-muted)">Point it at a <code>.mpr</code> file or the project folder and press <strong>Analyse</strong>.</span>
+          </div>
+        </div>
+        <!-- /ds-modules-view -->
 
       </div>
     </div>

@@ -129,10 +129,10 @@ setTimeout(async () => {
     );
     if (mprMissing.status !== 400) return fail('/model/mpr must reject a path that does not exist', 'status=' + mprMissing.status + ' body=' + mprMissing.body);
 
-    // The three model-analysis routes built on the .mpr reader (dead-code, i18n,
-    // integrations) share /model/mpr's validation — same token gate, 405 on GET,
-    // 400 on a non-absolute path.
-    for (const route of ['/model/dead-code', '/model/i18n', '/model/integrations']) {
+    // The model-analysis routes built on the .mpr reader (dead-code, i18n,
+    // integrations, modules) share /model/mpr's validation — same token gate,
+    // 405 on GET, 400 on a non-absolute path.
+    for (const route of ['/model/dead-code', '/model/i18n', '/model/integrations', '/model/modules']) {
       console.log('Checking ' + route + ' requires a token and validates its path...');
       const noTok = await request(
         { path: route, method: 'POST', headers: { 'Content-Type': 'application/json' } },

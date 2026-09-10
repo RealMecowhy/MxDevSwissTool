@@ -1016,6 +1016,28 @@ Customer [1] -- [*] Order : places</pre>
       </ol>
     `
   },
+  'dev-studio-modules': {
+    title: 'Developer Studio — Modules',
+    description: 'The module dependency graph, made actionable: which modules form a <strong>cycle</strong> (they deploy and version together &mdash; you cannot extract one without the others), the <strong>topological layer</strong> of each (foundational vs leaf), modules with <strong>no reference edge either way</strong>, cross-module <strong>inheritance</strong> (the hard blocker for a split), and a per-module <strong>cohesion</strong> figure. Read straight from the <code>.mpr</code> &mdash; no database, no local run.',
+    howToGet: `
+      <ul>
+        <li>The bridge must be running. No PostgreSQL, no <code>pg</code> module and no Studio Pro are needed &mdash; this reads the project file, on Mendix 8&ndash;11, both <code>.mpr</code> storage formats.</li>
+        <li>Point the field at a <code>.mpr</code> file or the project folder and press <strong>Analyse</strong>. If you are connected to a project on the Dashboard tab, the path is filled in for you.</li>
+      </ul>
+    `,
+    howToUse: `
+      <ol>
+        <li><strong>This is the behavioural reference graph, not the association diagram</strong> in Domain Model &amp; Architecture. A module edge here means one module <em>calls a microflow</em>, <em>retrieves / creates / changes / deletes an entity</em>, <em>opens a page</em>, <em>generalises an entity</em>, or <em>names an element</em> (a parameter or variable typed as another module's entity, for example) in another module. The Architecture tool's Modules diagram draws domain-model associations and is undirected; this one is directed and offline.</li>
+        <li><strong>The reference check errs toward showing coupling.</strong> It collects every qualified name that appears in a unit and resolves to a real element — so an edge can occasionally rest on a string match alone, and a module can look more entangled than it is. That is the safe direction here: a false &ldquo;these are coupled&rdquo; only costs you a second look, a false &ldquo;these can be split&rdquo; costs you a broken separation.</li>
+        <li><strong>Dependency cycles</strong> &mdash; a set of modules that reference each other transitively (computed as strongly-connected components). They deploy and version together; none can be extracted without the rest. &ldquo;No dependency cycles&rdquo; is shown explicitly when there are none.</li>
+        <li><strong>Inheritance blockers</strong> &mdash; an entity in one module that generalises an entity in another. This is the hard obstacle to separating two modules: breaking a generalization needs a data migration. Only shown when at least one exists.</li>
+        <li><strong>Layers</strong> &mdash; the topological layer of each module. <em>Layer 0 (Foundational)</em> references nothing outside itself; each step up depends on the layer below; the top is <em>Leaf</em>. Modules in one cycle share a layer.</li>
+        <li><strong>Orphan modules</strong> &mdash; no reference edge in either direction. They may still be wired by a domain-model association or a widget this graph does not cover, so treat it as &ldquo;no behavioural coupling&rdquo;, not &ldquo;unused&rdquo;.</li>
+        <li><strong>Cohesion</strong> &mdash; the share of a module's references that stay inside it (<em>internal ÷ (internal + external)</em>). A low figure means the module's behaviour is entangled with other modules. Listed least-cohesive first.</li>
+        <li>It reflects the <strong>last saved</strong> state of the project &mdash; unsaved edits in Studio Pro are not in the file yet.</li>
+      </ol>
+    `
+  },
   'perf-lab': {
     title: 'REST Load Tester',
     description: 'Load-tests a selected endpoint (REST API, SOAP, HTML page) and reports how it behaves under concurrency: response-time percentiles, throughput, status breakdown. Runs either a fixed batch or an open-ended test whose thread count you retune while it is running.',
