@@ -2322,6 +2322,7 @@
                <div style="display:flex; flex-direction:column; gap:var(--sp-1);">
                <label style="font-size:0.85rem; color:var(--text-secondary);">Or specify manual Project Root Path:</label>
                <input type="text" id="ds-manual-path" class="input" style="width:100%" placeholder="e.g. C:\Mendix_Projects\MyFirstApp">
+               <span style="font-size:0.78rem; color:var(--text-muted); line-height:1.5">The model views &mdash; Project File, Dead Code, Integrations, Modules &mdash; read the <code>.mpr</code> and need no running app: enter the project folder and press Connect.</span>
              </div>
            </div>
 
@@ -2343,7 +2344,6 @@
           <button type="button" class="tab active" data-help-key="dev-studio-dashboard" aria-selected="true" onclick="dsSetTab('dashboard',this)">Dashboard</button>
           <button type="button" class="tab" data-help-key="dev-studio-security" aria-selected="false" onclick="dsSetTab('security',this)">Security Matrix</button>
           <button type="button" class="tab" data-help-key="dev-studio-deadcode" aria-selected="false" onclick="dsSetTab('deadcode',this)">Dead Code</button>
-          <button type="button" class="tab" data-help-key="dev-studio-i18n" aria-selected="false" onclick="dsSetTab('i18n',this)">Translations</button>
           <button type="button" class="tab" data-help-key="dev-studio-integrations" aria-selected="false" onclick="dsSetTab('integrations',this)">Integrations</button>
           <button type="button" class="tab" data-help-key="dev-studio-modules" aria-selected="false" onclick="dsSetTab('modules',this)">Modules</button>
         </div>
@@ -2628,9 +2628,10 @@
               run. Studio Pro has no &ldquo;find unused&rdquo;; this fills that gap.
             </p>
             <ul style="color:var(--text-muted); font-size:0.8rem; line-height:1.7; margin:0 0 var(--sp-3); padding-left:1.1rem">
-              <li>The finding is <strong>conservative</strong>: the reference check over-collects on purpose, so a false &ldquo;alive&rdquo; is possible but a false &ldquo;dead&rdquo; is not. Review each hit before deleting.</li>
+              <li>The check errs toward &ldquo;alive&rdquo;: every unit in the model is scanned for element names, including names inside expressions and XPath. What it cannot see is outside the model &mdash; Java or JavaScript code, or a name built at runtime &mdash; so review each hit before deleting.</li>
+              <li>Modules installed from the <strong>Marketplace</strong> are hidden by default &mdash; their unused parts are not yours to delete.</li>
               <li>It reflects the <strong>last saved</strong> state of the project &mdash; unsaved edits in Studio Pro are invisible.</li>
-              <li>Enumerations and constants are listed separately because their inbound edges are not fully tracked.</li>
+              <li>Enumerations and constants are listed separately: Java code can use them without the model showing it.</li>
             </ul>
             <div style="display:flex; gap:var(--sp-2)">
               <input type="text" id="ds-deadcode-path" placeholder="Path to a .mpr file or project folder"
@@ -2644,39 +2645,17 @@
         </div>
         <!-- /ds-deadcode-view -->
 
-        <!-- TRANSLATIONS VIEW (plan 010) -->
-        <div id="ds-i18n-view" style="display:none; flex-direction:column; gap:var(--sp-4); width:100%">
-          <div class="card" style="padding:var(--sp-4)">
-            <h4 style="margin:0 0 var(--sp-2) 0; color:var(--text-primary)">Translation completeness</h4>
-            <p style="color:var(--text-secondary); font-size:0.86rem; line-height:1.6; margin:0 0 var(--sp-3)">
-              Reads every translatable caption and label straight from the <code>.mpr</code> and scores it against
-              the project's enabled languages &mdash; which texts have no translation in a language, and which are
-              single-language while the project is multi-language. Read-only, offline, last saved state.
-              <strong>Missing</strong> = a language enabled in the project with no text for a key the default language has.
-              <strong>Hardcoded</strong> is a heuristic and may include platform texts that are intentionally not translated.
-            </p>
-            <div style="display:flex; gap:var(--sp-2); margin-bottom:var(--sp-3)">
-              <input type="text" id="ds-i18n-path" placeholder="Path to a .mpr file or project folder"
-                style="flex:1; min-width:0; font-family:var(--font-mono); font-size:0.78rem; padding:var(--sp-2); background:var(--bg-base); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-primary)">
-              <button class="btn btn-primary" style="font-size:0.8rem; white-space:nowrap" onclick="dsFetchI18n()">Analyze</button>
-            </div>
-            <div id="ds-i18n-body" style="font-size:0.85rem">
-              <span style="color:var(--text-muted)">Point it at a project and press <strong>Analyze</strong>.</span>
-            </div>
-          </div>
-        </div>
-        <!-- /ds-i18n-view -->
-
         <!-- INTEGRATIONS VIEW (plan 014) -->
         <div id="ds-integrations-view" style="display:none; flex-direction:column; gap:var(--sp-4); width:100%">
           <div class="card" style="padding:var(--sp-4)">
             <h4 style="margin:0 0 var(--sp-2) 0; color:var(--text-primary)">Integrations</h4>
             <p style="color:var(--text-secondary); font-size:0.86rem; line-height:1.6; margin:0 0 var(--sp-3)">
-              What this app exposes and what it calls out to &mdash; published REST and OData services with
-              their per-operation microflows, consumed REST clients, and Business Event channels &mdash; read
-              straight from the <code>.mpr</code>, with nothing running. A published service with
-              <strong>no allowed roles and no authentication microflow</strong> answers anonymous callers;
-              those are flagged.
+              What this app exposes and what it calls out to &mdash; published REST, OData and SOAP services
+              with the microflow behind each operation, the REST calls its microflows make, consumed REST
+              documents and Business Event channels &mdash; read straight from the <code>.mpr</code>, with
+              nothing running. A published service set to <strong>Requires authentication: No</strong> answers
+              anyone and is flagged, and so is a REST call with a <strong>password or token typed into the
+              microflow</strong> (the value itself is never shown).
             </p>
             <div style="display:flex; gap:var(--sp-2)">
               <input type="text" id="ds-integrations-path" placeholder="Path to a .mpr file or project folder"

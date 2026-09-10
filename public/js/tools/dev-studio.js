@@ -266,25 +266,11 @@ function dsRenderDetectedProject() {
   dsFetchProjectInsights();
   dsFetchDeploymentModel();
 
-  const mprInput = document.getElementById('ds-mpr-path');
-  if (mprInput && !mprInput.value && dsProjectData && dsProjectData.projectRoot) {
-    mprInput.value = dsProjectData.projectRoot;
-  }
-  const i18nInput = document.getElementById('ds-i18n-path');
-  if (i18nInput && !i18nInput.value && dsProjectData && dsProjectData.projectRoot) {
-    i18nInput.value = dsProjectData.projectRoot;
-  }
-  const deadInput = document.getElementById('ds-deadcode-path');
-  if (deadInput && !deadInput.value && dsProjectData && dsProjectData.projectRoot) {
-    deadInput.value = dsProjectData.projectRoot;
-  }
-  const intInput = document.getElementById('ds-integrations-path');
-  if (intInput && !intInput.value && dsProjectData && dsProjectData.projectRoot) {
-    intInput.value = dsProjectData.projectRoot;
-  }
-  const modInput = document.getElementById('ds-modules-path');
-  if (modInput && !modInput.value && dsProjectData && dsProjectData.projectRoot) {
-    modInput.value = dsProjectData.projectRoot;
+  if (dsProjectData && dsProjectData.projectRoot) {
+    DS_MODEL_PATH_INPUTS.forEach(id => {
+      const input = document.getElementById(id);
+      if (input && !input.value) input.value = dsProjectData.projectRoot;
+    });
   }
 }
 
@@ -339,502 +325,599 @@ async function dsFetchDeploymentModel() {
   }
 }
 
-// ── Project file (.mpr) — the offline reader (plan 006) ─────────────────────
-// A fourth model source: the .mpr is a SQLite database whose units are BSON, so
-// this needs neither a database nor a local run. It reflects the LAST SAVED
-// state of the project; properties left at their Mendix default are not shown
-// because Mendix does not store them. A failure here is quiet by design — this
-// card degrades to its own instruction line, nothing else depends on it.
-async function dsFetchMprModel() {
-  const box = document.getElementById('ds-mpr-body');
-  const input = document.getElementById('ds-mpr-path');
-  if (!box || !input) return;
+// ── Model analyses on the .mpr (plans 006/007/014/008) ──────────────────────
+// The Project File card and the Dead Code / Integrations / Modules views read
+// the project file through the bridge — no database, no running app — and
+// reflect its LAST SAVED state. Their path fields move together (analysing in
+// one fills the others), and the bridge reuses its read of the same file for a
+// minute, so moving between views does not re-read a large project. A failure
+// stays inside the view that asked. The result styling lives in
+// styles/main.css under "Model analysis results" (.mx-*).
+const DS_MODEL_PATH_INPUTS = ['ds-mpr-path', 'ds-deadcode-path', 'ds-integrations-path', 'ds-modules-path'];
+// Marketplace modules are hidden from Dead Code and Modules until asked for:
+// their unused parts and their coupling are not the app team's to fix.
+let dsShowMarketplace = false;
+let dsDeadData = null;
+let dsDeadFilter = { type: null, q: '' };
+let dsModData = null;
+
+// The trimmed path from one field, without the double quotes Explorer's "Copy
+// as path" adds — and copied into the other model fields.
+function dsModelPath(inputId) {
+  const input = document.getElementById(inputId);
+  const raw = input ? input.value.trim().replace(/^"(.*)"$/, '$1').trim() : '';
+  if (raw) {
+    DS_MODEL_PATH_INPUTS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = raw;
+    });
+  }
+  return raw;
+}
+
+// Validates the path, shows progress, POSTs it to a /model/* route and renders
+// the answer — or the bridge's reason — into the view's body.
+async function dsRunModelView(inputId, boxId, route, render) {
+  const box = document.getElementById(boxId);
+  if (!box) return;
   const esc = window.escHtml;
-  const raw = (input.value || '').trim();
+  const raw = dsModelPath(inputId);
   if (!raw) {
     box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">Enter a path to a .mpr file or the project folder.</div>`;
     return;
   }
-  box.innerHTML = `<span style="color:var(--text-muted)"><span class="spinner-sm"></span>Reading ${esc(raw)}...</span>`;
+  box.innerHTML = `<span style="color:var(--text-muted)"><span class="spinner-sm"></span>Reading ${esc(raw)}&hellip; the first read of a large project can take up to a minute.</span>`;
+  let data;
   try {
-    const res = await fetch('http://localhost:9999/model/mpr', {
+    const res = await fetch('http://localhost:9999' + route, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mprPath: raw, projectRoot: raw })
+      body: JSON.stringify({ mprPath: raw })
     });
-    const data = await res.json();
-    if (!data || data.error || !data.ok) {
-      const reason = (data && (data.reason || data.message)) || 'Could not read the .mpr.';
-      box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">${esc(reason)}</div>`;
-      return;
-    }
-    const c = data.counts || {};
-    const s = data.security;
-    const flags = [];
-    if (s) {
-      if (s.securityLevel) flags.push(`Security: <strong style="color:var(--text-primary)">${esc(s.securityLevel)}</strong>`);
-      flags.push(`Guest access: <strong style="color:var(--text-primary)">${s.enableGuestAccess ? 'on' : 'off'}</strong>`);
-      flags.push(`Strict mode: <strong style="color:var(--text-primary)">${s.strictMode ? 'on' : 'off'}</strong>`);
-      if (s.adminPasswordSet) flags.push(`<span style="color:var(--warning)">Admin password is set in the model</span>`);
-      if (s.passwordPolicy && typeof s.passwordPolicy.minimumLength === 'number' && s.passwordPolicy.minimumLength < 8) {
-        flags.push(`<span style="color:var(--warning)">Weak password policy (min length ${s.passwordPolicy.minimumLength})</span>`);
-      }
-      const godRoles = (s.userRoles || []).filter(r => r.manageAllRoles).map(r => r.name);
-      if (godRoles.length) flags.push(`Roles that manage all roles: <strong style="color:var(--text-primary)">${esc(godRoles.join(', '))}</strong>`);
-    }
-    box.innerHTML = `
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:var(--sp-2) var(--sp-4)">
-        <div><span style="color:var(--text-muted)">Format:</span> <strong style="color:var(--text-primary)">v${data.formatVersion}</strong></div>
-        <div><span style="color:var(--text-muted)">Mendix:</span> <strong style="color:var(--text-primary)">${esc(data.productVersion || '—')}</strong></div>
-        <div><span style="color:var(--text-muted)">Modules:</span> <strong style="color:var(--text-primary)">${c.modules || 0}</strong></div>
-        <div><span style="color:var(--text-muted)">Entities:</span> <strong style="color:var(--text-primary)">${c.entities || 0}</strong></div>
-        <div><span style="color:var(--text-muted)">Microflows:</span> <strong style="color:var(--text-primary)">${c.microflows || 0}</strong></div>
-        <div><span style="color:var(--text-muted)">Pages:</span> <strong style="color:var(--text-primary)">${c.pages || 0}</strong></div>
-      </div>
-      ${flags.length ? `<div style="margin-top:var(--sp-3); display:flex; flex-direction:column; gap:2px; font-size:0.8rem">${flags.map(f => `<div>${f}</div>`).join('')}</div>` : ''}
-      <div style="margin-top:var(--sp-3); color:var(--text-muted); font-size:0.78rem">
-        Read straight from <span style="font-family:var(--font-mono)">${esc(data.projectName)}.mpr</span> — last saved state, no database or local run needed.
-      </div>`;
+    data = await res.json();
   } catch (e) {
     box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">Bridge unreachable — the .mpr could not be read.</div>`;
+    return;
   }
+  if (!data || data.error || !data.ok) {
+    const reason = (data && (data.reason || data.message)) || 'Could not read the .mpr.';
+    box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">${esc(reason)}</div>`;
+    return;
+  }
+  box.innerHTML = render(data);
+}
+
+// ── Shared result pieces ────────────────────────────────────────────────────
+// A stat tile. With `onclick` it is a button (a filter or a jump to a section).
+function dsStat(o) {
+  const esc = window.escHtml;
+  const cls = 'mx-stat' + (o.tone ? ' is-' + o.tone : '') + (o.active ? ' is-active' : '');
+  const inner = `<span class="mx-stat-value">${esc(String(o.value))}</span>
+      <span class="mx-stat-label">${esc(o.label)}</span>
+      ${o.sub ? `<span class="mx-stat-sub">${esc(o.sub)}</span>` : ''}`;
+  return o.onclick
+    ? `<button type="button" class="${cls}" onclick="${o.onclick}"${o.active !== undefined ? ` aria-pressed="${o.active ? 'true' : 'false'}"` : ''}>${inner}</button>`
+    : `<div class="${cls}">${inner}</div>`;
+}
+
+function dsChip(text, cls, title) {
+  const esc = window.escHtml;
+  return `<span class="mx-chip${cls ? ' ' + cls : ''}"${title ? ` title="${esc(title)}"` : ''}>${esc(text)}</span>`;
+}
+
+function dsMethod(m) {
+  const v = String(m || '?').toLowerCase().replace(/[^a-z?]/g, '');
+  return `<span class="mx-method m-${v}">${v.toUpperCase()}</span>`;
+}
+
+// cols: [{ label, cls }] — cls ('mono' | 'num') styles the column's cells.
+// rows: [[cellHtml, …]] — cells arrive escaped.
+function dsTable(cols, rows) {
+  return `<div class="mx-table-wrap"><table class="mx-table">
+      <thead><tr>${cols.map(c => `<th${c.cls === 'num' ? ' class="num"' : ''}>${c.label}</th>`).join('')}</tr></thead>
+      <tbody>${rows.map(r => `<tr>${r.map((cell, i) => `<td${cols[i].cls ? ` class="${cols[i].cls}"` : ''}>${cell}</td>`).join('')}</tr>`).join('')}</tbody>
+    </table></div>`;
+}
+
+function dsSection(id, title, count, inner) {
+  return `<section class="mx-section" id="${id}">
+      <h5 class="mx-section-title">${title} <span class="count">(${count})</span></h5>
+      ${inner}
+    </section>`;
+}
+
+function dsScrollTo(id) {
+  const el = document.getElementById(id);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// A unit the reader could not decode hides the references inside it.
+function dsUndecodedNote(data) {
+  const n = data.undecoded || 0;
+  return n ? `<div class="notice notice-warning" style="font-size:0.8rem">${n} unit${n === 1 ? '' : 's'} of the model could not be decoded &mdash; references inside ${n === 1 ? 'it are' : 'them are'} missing, so double-check anything listed here.</div>` : '';
+}
+
+function dsMarketplaceToggle(hidden) {
+  return `<label style="display:inline-flex; align-items:center; gap:6px; font-size:0.78rem; color:var(--text-secondary); cursor:pointer">
+      <input type="checkbox" ${dsShowMarketplace ? 'checked' : ''} onchange="dsSetMarketplace(this.checked)">
+      Include Marketplace modules${hidden ? ` <span style="color:var(--text-muted)">(${hidden} hidden)</span>` : ''}
+    </label>`;
+}
+
+function dsSetMarketplace(show) {
+  dsShowMarketplace = !!show;
+  const dead = document.getElementById('ds-deadcode-body');
+  if (dsDeadData && dead) dead.innerHTML = dsDeadRender(dsDeadData);
+  const mod = document.getElementById('ds-modules-body');
+  if (dsModData && mod) mod.innerHTML = dsModRender(dsModData);
+}
+
+// ── Project file (.mpr) card (plan 006) ──────────────────────────────────────
+// Properties left at their Mendix default are not shown because Mendix does not
+// store them.
+function dsFetchMprModel() {
+  return dsRunModelView('ds-mpr-path', 'ds-mpr-body', '/model/mpr', dsMprRender);
+}
+
+function dsMprRender(data) {
+  const esc = window.escHtml;
+  const c = data.counts || {};
+  const s = data.security;
+  const chips = [];
+  if (s) {
+    if (s.securityLevel) chips.push(dsChip('Security: ' + s.securityLevel));
+    chips.push(s.enableGuestAccess ? dsChip('Guest access on', 'is-warn') : dsChip('Guest access off'));
+    chips.push(dsChip('Strict mode ' + (s.strictMode ? 'on' : 'off')));
+    if (s.adminPasswordSet) chips.push(dsChip('Admin password stored in the model', 'is-warn'));
+    if (s.passwordPolicy && typeof s.passwordPolicy.minimumLength === 'number' && s.passwordPolicy.minimumLength < 8) {
+      chips.push(dsChip('Weak password policy (min length ' + s.passwordPolicy.minimumLength + ')', 'is-warn'));
+    }
+    (s.userRoles || []).filter(r => r.manageAllRoles).forEach(r => chips.push(dsChip('Manages all roles: ' + r.name, 'mono')));
+  }
+  return `
+    <div class="mx-stats" style="grid-template-columns:repeat(auto-fill, minmax(110px, 1fr))">
+      ${dsStat({ value: c.modules || 0, label: 'Modules', sub: c.marketplaceModules ? c.marketplaceModules + ' from Marketplace' : '' })}
+      ${dsStat({ value: c.entities || 0, label: 'Entities' })}
+      ${dsStat({ value: c.microflows || 0, label: 'Microflows' })}
+      ${dsStat({ value: c.pages || 0, label: 'Pages' })}
+    </div>
+    ${chips.length ? `<div class="mx-chips" style="margin-top:var(--sp-3)">${chips.join('')}</div>` : ''}
+    <div class="mx-note" style="margin-top:var(--sp-3)">
+      Mendix ${esc(data.productVersion || '—')} &middot; format v${data.formatVersion} &middot; read straight from
+      <span style="font-family:var(--font-mono)">${esc(data.projectName)}.mpr</span> — last saved state, no database or local run needed.
+    </div>`;
 }
 
 // ── Dead code — model elements nothing references (plan 007) ────────────────
-// Built on the same offline .mpr reader: the Bridge walks every unit's BSON for
-// qualified-name strings that resolve to a real element and reports the ones
-// with no live inbound edge. The finding is conservative by design — a false
-// "alive" is safe, a false "dead" is not — so this view leads with that caveat
-// and never offers a delete action.
+// The check errs toward "alive" and cannot see Java / JavaScript code, so this
+// view leads with that caveat and never offers a delete action. Results are
+// grouped by module; the tiles filter by kind and the field by name.
 const DS_DEAD_GROUPS = [
-  ['MICROFLOW', 'Microflows'],
-  ['NANOFLOW', 'Nanoflows'],
-  ['PAGE', 'Pages'],
-  ['SNIPPET', 'Snippets'],
-  ['ENTITY', 'Entities']
+  ['MICROFLOW', 'Microflows', 'microflow'],
+  ['NANOFLOW', 'Nanoflows', 'nanoflow'],
+  ['PAGE', 'Pages', 'page'],
+  ['SNIPPET', 'Snippets', 'snippet'],
+  ['ENTITY', 'Entities', 'entity']
 ];
+// Only this many module groups start expanded; the rest open on a click.
+const DS_DEAD_OPEN_GROUPS = 8;
 
-async function dsFetchDeadCode() {
-  const box = document.getElementById('ds-deadcode-body');
-  const input = document.getElementById('ds-deadcode-path');
-  if (!box || !input) return;
-  const esc = window.escHtml;
-  const raw = (input.value || '').trim();
-  if (!raw) {
-    box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">Enter a path to a .mpr file or the project folder.</div>`;
-    return;
-  }
-  box.innerHTML = `<span style="color:var(--text-muted)"><span class="spinner-sm"></span>Analysing ${esc(raw)}...</span>`;
-  try {
-    const res = await fetch('http://localhost:9999/model/dead-code', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mprPath: raw, projectRoot: raw })
-    });
-    const data = await res.json();
-    if (!data || data.error || !data.ok) {
-      const reason = (data && (data.reason || data.message)) || 'Could not analyse the .mpr.';
-      box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">${esc(reason)}</div>`;
-      return;
-    }
-    const dead = data.dead || [];
-    const uncertain = data.uncertain || [];
-    const counts = data.counts || {};
-    const byGroup = {};
-    for (const d of dead) (byGroup[d.objectType] = byGroup[d.objectType] || []).push(d);
-
-    const groupHtml = DS_DEAD_GROUPS.map(([type, label]) => {
-      const items = byGroup[type] || [];
-      if (!items.length) return '';
-      const rows = items.map(d =>
-        `<div style="display:flex; justify-content:space-between; gap:var(--sp-3); padding:2px 0">
-           <span style="font-family:var(--font-mono); font-size:0.78rem; color:var(--text-primary)">${esc(d.qualifiedName)}</span>
-           <span style="color:var(--text-muted); font-size:0.75rem; white-space:nowrap">${esc(d.reason)}</span>
-         </div>`).join('');
-      return `<div class="card" style="padding:var(--sp-3) var(--sp-4)">
-        <div style="font-weight:600; color:var(--text-primary); margin-bottom:var(--sp-2)">${label} <span style="color:var(--text-muted); font-weight:400">(${items.length})</span></div>
-        ${rows}
-      </div>`;
-    }).join('');
-
-    const uncertainHtml = uncertain.length ? `
-      <div class="card" style="padding:var(--sp-3) var(--sp-4)">
-        <div style="font-weight:600; color:var(--text-primary); margin-bottom:var(--sp-1)">Enumerations &amp; constants <span style="color:var(--text-muted); font-weight:400">(${uncertain.length})</span></div>
-        <div style="color:var(--text-muted); font-size:0.78rem; margin-bottom:var(--sp-2)">Inbound edges for these types are not fully captured &mdash; verify before deleting.</div>
-        ${uncertain.map(u => `<div style="font-family:var(--font-mono); font-size:0.78rem; color:var(--text-secondary); padding:1px 0">${esc(u.qualifiedName)}</div>`).join('')}
-      </div>` : '';
-
-    box.innerHTML = `
-      <div style="display:flex; flex-direction:column; gap:var(--sp-3)">
-        <div style="color:var(--text-muted); font-size:0.8rem">
-          ${counts.elements || 0} referenceable elements, ${counts.refs || 0} references &mdash;
-          <strong style="color:var(--text-primary)">${dead.length}</strong> with no live inbound edge.
-        </div>
-        ${dead.length ? groupHtml : `<div class="notice" style="font-size:0.8rem">Nothing unreferenced was found.</div>`}
-        ${uncertainHtml}
-      </div>`;
-  } catch (e) {
-    box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">Bridge unreachable — the dead-code analysis could not run.</div>`;
-  }
-}
-
-// ── Translation completeness (i18n tab, plan 010) ──────────────────────────
-// Walks the .mpr for every translatable caption/label (`Texts$Text`) and scores
-// it against the project's enabled languages. "Missing" = a language enabled in
-// the project with no text for a key the default language has. "Hardcoded" is a
-// heuristic — a single-language text while the project is multi-language — and
-// can include intentionally-untranslated platform texts. Read-only: this view
-// never edits a translation. Offline, on the plan-006 reader.
-async function dsFetchI18n() {
-  const box = document.getElementById('ds-i18n-body');
-  const input = document.getElementById('ds-i18n-path');
-  if (!box || !input) return;
-  const esc = window.escHtml;
-  const raw = (input.value || '').trim();
-  if (!raw) {
-    box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">Enter a path to a .mpr file or the project folder.</div>`;
-    return;
-  }
-  box.innerHTML = `<span style="color:var(--text-muted)"><span class="spinner-sm"></span>Reading ${esc(raw)}...</span>`;
-  try {
-    const res = await fetch('http://localhost:9999/model/i18n', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mprPath: raw, projectRoot: raw })
-    });
-    const data = await res.json();
-    if (!data || data.error || !data.ok) {
-      const reason = (data && (data.reason || data.message)) || 'Could not read the .mpr.';
-      box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">${esc(reason)}</div>`;
-      return;
-    }
-    dsRenderI18n(data);
-  } catch (e) {
-    box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">Bridge unreachable — the .mpr could not be read.</div>`;
-  }
-}
-
-function dsRenderI18n(data) {
-  const box = document.getElementById('ds-i18n-body');
-  const esc = window.escHtml;
-  const langs = Object.keys(data.byLanguage || {});
-
-  if (!langs.length) {
-    box.innerHTML = `
-      <div class="notice notice-info" style="font-size:0.82rem">
-        <strong>${esc(data.projectName)}</strong> is a single-language project
-        (<span style="font-family:var(--font-mono)">${esc(data.defaultLang || '—')}</span>),
-        so there is nothing to translate. ${data.textCount} translatable texts found.
-      </div>`;
-    return;
-  }
-
-  const bars = langs.map(function (l) {
-    const s = data.byLanguage[l];
-    const pct = s.total ? Math.round((s.translated / s.total) * 100) : 100;
-    const colour = pct >= 95 ? 'var(--success)' : (pct >= 60 ? 'var(--info)' : 'var(--warning)');
-    return `
-      <div style="display:grid; grid-template-columns:70px 1fr 120px; gap:var(--sp-2); align-items:center; font-size:0.8rem">
-        <span style="font-family:var(--font-mono)">${esc(l)}</span>
-        <span style="background:var(--bg-base); border-radius:var(--radius-sm); overflow:hidden; height:14px">
-          <span style="display:block; height:100%; width:${pct}%; background:${colour}"></span>
-        </span>
-        <span style="color:var(--text-muted); text-align:right">${pct}% &middot; ${s.missing} missing</span>
-      </div>`;
-  }).join('');
-
-  const missingByLang = {};
-  (data.missing || []).forEach(function (m) {
-    (missingByLang[m.language] = missingByLang[m.language] || []).push(m);
+function dsFetchDeadCode() {
+  return dsRunModelView('ds-deadcode-path', 'ds-deadcode-body', '/model/dead-code', data => {
+    dsDeadData = data;
+    dsDeadFilter = { type: null, q: '' };
+    return dsDeadRender(data);
   });
-  const missingGroups = Object.keys(missingByLang).map(function (l) {
-    const rows = missingByLang[l].map(function (m) {
-      return `<tr style="border-top:1px solid var(--border-subtle)">
-        <td style="padding:2px var(--sp-2); color:var(--text-secondary)">${esc(m.unitName || '—')}</td>
-        <td style="padding:2px var(--sp-2); font-family:var(--font-mono); color:var(--text-muted); font-size:0.72rem">${esc(m.location)}</td>
-        <td style="padding:2px var(--sp-2)">${esc(m.defaultText)}</td>
-      </tr>`;
+}
+
+// Marketplace filter only.
+function dsDeadVisible(data) {
+  const market = new Set(data.marketplace || []);
+  const keep = d => dsShowMarketplace || !market.has(d.module);
+  return { dead: (data.dead || []).filter(keep), uncertain: (data.uncertain || []).filter(keep) };
+}
+
+// Marketplace filter + the kind tile + the name field.
+function dsDeadFiltered() {
+  const { dead, uncertain } = dsDeadVisible(dsDeadData);
+  const f = dsDeadFilter;
+  const q = f.q.trim().toLowerCase();
+  const match = d => !q || d.qualifiedName.toLowerCase().indexOf(q) !== -1;
+  return {
+    items: f.type === 'UNCERTAIN' ? [] : dead.filter(d => (!f.type || d.objectType === f.type) && match(d)),
+    unc: (!f.type || f.type === 'UNCERTAIN') ? uncertain.filter(match) : []
+  };
+}
+
+function dsDeadStats() {
+  const data = dsDeadData;
+  const { dead, uncertain } = dsDeadVisible(data);
+  const totals = (data.counts || {}).elementsByType || {};
+  const market = (data.counts || {}).elementsByTypeMarketplace || {};
+  const tiles = DS_DEAD_GROUPS.map(([type, label]) => {
+    const total = (totals[type] || 0) - (dsShowMarketplace ? 0 : (market[type] || 0));
+    if (!total) return '';
+    return dsStat({
+      value: dead.filter(d => d.objectType === type).length, label: label, sub: 'unused of ' + total,
+      onclick: `dsDeadSetType('${type}')`, active: dsDeadFilter.type === type
+    });
+  });
+  if (uncertain.length) {
+    tiles.push(dsStat({
+      value: uncertain.length, label: 'Enums & constants', sub: 'to verify', tone: 'warn',
+      onclick: `dsDeadSetType('UNCERTAIN')`, active: dsDeadFilter.type === 'UNCERTAIN'
+    }));
+  }
+  return tiles.join('');
+}
+
+function dsDeadList() {
+  const esc = window.escHtml;
+  const { dead, uncertain } = dsDeadVisible(dsDeadData);
+  const { items, unc } = dsDeadFiltered();
+  if (!items.length && !unc.length) {
+    const hidden = (dsDeadData.dead || []).length - dead.length;
+    const msg = (dead.length + uncertain.length)
+      ? 'Nothing matches the filter.'
+      : 'Nothing unreferenced was found' + (hidden ? ' outside the Marketplace modules' : '') + '.';
+    return `<div class="notice" style="font-size:0.8rem">${msg}</div>`;
+  }
+  const order = {};
+  DS_DEAD_GROUPS.forEach(([t], i) => { order[t] = i; });
+  const single = {};
+  DS_DEAD_GROUPS.forEach(([t, , one]) => { single[t] = one; });
+  const market = new Set(dsDeadData.marketplace || []);
+
+  const byMod = {};
+  items.forEach(d => { (byMod[d.module] = byMod[d.module] || []).push(d); });
+  const mods = Object.keys(byMod).sort((a, b) => byMod[b].length - byMod[a].length || a.localeCompare(b));
+  const groups = mods.map((m, i) => {
+    const list = byMod[m].slice().sort((a, b) => order[a.objectType] - order[b.objectType] || a.qualifiedName.localeCompare(b.qualifiedName));
+    const kinds = DS_DEAD_GROUPS.map(([t, label]) => {
+      const n = list.filter(d => d.objectType === t).length;
+      return n ? dsChip(n + ' ' + (n === 1 ? single[t] : label.toLowerCase())) : '';
     }).join('');
-    return `<details style="margin-top:var(--sp-2)">
-      <summary style="cursor:pointer; font-size:0.82rem"><span style="font-family:var(--font-mono)">${esc(l)}</span> — ${data.byLanguage[l].missing} missing${missingByLang[l].length < data.byLanguage[l].missing ? ` (showing ${missingByLang[l].length})` : ''}</summary>
-      <div style="overflow-x:auto"><table style="width:100%; border-collapse:collapse; font-size:0.78rem; margin-top:4px">
-        <thead><tr style="color:var(--text-muted); text-align:left"><th style="padding:2px var(--sp-2)">Document</th><th style="padding:2px var(--sp-2)">Location</th><th style="padding:2px var(--sp-2)">Default text</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table></div>
+    const rows = list.map(d => [
+      esc(d.qualifiedName.slice(m.length + 1)),
+      esc(single[d.objectType] || d.objectType),
+      d.reason === 'prefix suggests entry point'
+        ? dsChip('entry point?', 'is-warn', 'The name prefix suggests it is called from outside the model — check before deleting')
+        : ''
+    ]);
+    return `<details class="mx-group"${i < DS_DEAD_OPEN_GROUPS ? ' open' : ''}>
+      <summary>
+        <span class="mx-group-title mono">${esc(m)}</span>
+        ${market.has(m) ? dsChip('Marketplace', 'is-muted') : ''}
+        <span class="mx-chips">${kinds}</span>
+        <span class="mx-group-count">${list.length}</span>
+      </summary>
+      <div class="mx-group-body">${dsTable([{ label: 'Element', cls: 'mono' }, { label: 'Kind' }, { label: '' }], rows)}</div>
     </details>`;
   }).join('');
 
-  const hc = data.hardcoded || [];
-  const hcRows = hc.map(function (h) {
-    return `<tr style="border-top:1px solid var(--border-subtle)">
-      <td style="padding:2px var(--sp-2); color:var(--text-secondary)">${esc(h.unitName || '—')}</td>
-      <td style="padding:2px var(--sp-2); font-family:var(--font-mono); color:var(--text-muted); font-size:0.72rem">${esc(h.location)}</td>
-      <td style="padding:2px var(--sp-2)">${esc(h.text)}</td>
-    </tr>`;
-  }).join('');
+  const uncHtml = unc.length ? `<details class="mx-group"${dsDeadFilter.type === 'UNCERTAIN' ? ' open' : ''}>
+      <summary>
+        <span class="mx-group-title">Enumerations &amp; constants to verify</span>
+        <span class="mx-group-count">${unc.length}</span>
+      </summary>
+      <div class="mx-group-body">
+        <div class="mx-note" style="margin-bottom:var(--sp-2)">Nothing in the model uses these, but Java code can without the model showing it &mdash; verify before deleting.</div>
+        ${dsTable([{ label: 'Element', cls: 'mono' }, { label: 'Kind' }],
+          unc.map(u => [esc(u.qualifiedName), u.objectType === 'ENUMERATION' ? 'enumeration' : 'constant']))}
+      </div>
+    </details>` : '';
 
-  box.innerHTML = `
-    <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:var(--sp-3)">
-      <strong style="color:var(--text-primary)">${esc(data.projectName)}</strong> &middot; ${langs.length + 1} languages
-      (default <span style="font-family:var(--font-mono)">${esc(data.defaultLang)}</span>) &middot;
-      ${data.textCount} translatable texts &middot; ${data.missingTotal} missing translations
-    </div>
-    <div style="display:flex; flex-direction:column; gap:4px">${bars}</div>
-    <h5 style="margin:var(--sp-4) 0 0; color:var(--text-primary)">Missing translations${data.missingTruncated ? ` <span style="color:var(--text-muted); font-weight:400; font-size:0.78rem">(first ${data.missing.length} of ${data.missingTotal})</span>` : ''}</h5>
-    ${missingGroups || '<div style="font-size:0.82rem; color:var(--text-muted)">None — every enabled language is complete.</div>'}
-    <h5 style="margin:var(--sp-4) 0 var(--sp-1); color:var(--text-primary)">Hardcoded / single-language texts
-      <span style="color:var(--text-muted); font-weight:400; font-size:0.78rem">— heuristic: present only in the default language${data.hardcodedTruncated ? `, first ${hc.length} of ${data.hardcodedTotal}` : ''}</span></h5>
-    <div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:var(--sp-2)">May include platform texts that are intentionally not translated.</div>
-    ${hc.length ? `<div style="overflow-x:auto"><table style="width:100%; border-collapse:collapse; font-size:0.78rem">
-      <thead><tr style="color:var(--text-muted); text-align:left"><th style="padding:2px var(--sp-2)">Document</th><th style="padding:2px var(--sp-2)">Location</th><th style="padding:2px var(--sp-2)">Text</th></tr></thead>
-      <tbody>${hcRows}</tbody></table></div>` : '<div style="font-size:0.82rem; color:var(--text-muted)">None.</div>'}`;
+  return `<div style="display:flex; flex-direction:column; gap:var(--sp-2)">${groups}${uncHtml}</div>`;
 }
 
-// ── Integrations (plan 014) ───────────────────────────────────────────────
-// The audit-surface inventory: published REST / OData services, consumed REST
-// clients and Business Event channels, read from the .mpr with no app running.
-// The authentication on a published service is the point — an empty role list
-// and no auth microflow means it answers anonymous callers, so those are
-// flagged. Degrades to its own notice line, like the .mpr card.
-async function dsFetchIntegrations() {
-  const box = document.getElementById('ds-integrations-body');
-  const input = document.getElementById('ds-integrations-path');
-  if (!box || !input) return;
+function dsDeadRender(data) {
   const esc = window.escHtml;
-  const raw = (input.value || '').trim();
-  if (!raw) {
-    box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">Enter a path to a .mpr file or the project folder.</div>`;
-    return;
+  const counts = data.counts || {};
+  const { dead, uncertain } = dsDeadVisible(data);
+  const hidden = (data.dead || []).length + (data.uncertain || []).length - dead.length - uncertain.length;
+  return `
+    <div style="display:flex; flex-direction:column; gap:var(--sp-3)">
+      ${dsUndecodedNote(data)}
+      <div class="mx-stats" id="ds-dead-stats">${dsDeadStats()}</div>
+      <div class="mx-toolbar">
+        <input type="search" class="input" id="ds-dead-q" placeholder="Filter by name or module&hellip;" aria-label="Filter the dead-code list"
+          value="${esc(dsDeadFilter.q)}" oninput="dsDeadSetQuery(this.value)" style="flex:1; min-width:180px; max-width:340px; font-size:0.8rem">
+        ${(data.marketplace || []).length ? dsMarketplaceToggle(dsShowMarketplace ? 0 : hidden) : ''}
+        ${dead.length + uncertain.length ? `<button class="btn btn-secondary" style="font-size:0.75rem; padding:2px 10px; margin-left:auto" onclick="dsDeadCopy()">Copy list</button>` : ''}
+      </div>
+      <div id="ds-dead-list">${dsDeadList()}</div>
+      <div class="mx-note">${counts.elements || 0} elements and ${counts.refs || 0} references checked in the last saved
+        <span style="font-family:var(--font-mono)">${esc(data.projectName || '')}.mpr</span>.</div>
+    </div>`;
+}
+
+function dsDeadRefresh(withStats) {
+  const list = document.getElementById('ds-dead-list');
+  if (list) list.innerHTML = dsDeadList();
+  const stats = document.getElementById('ds-dead-stats');
+  if (withStats && stats) stats.innerHTML = dsDeadStats();
+}
+
+function dsDeadSetType(type) {
+  if (!dsDeadData) return;
+  dsDeadFilter.type = dsDeadFilter.type === type ? null : type;
+  dsDeadRefresh(true);
+}
+
+function dsDeadSetQuery(q) {
+  if (!dsDeadData) return;
+  dsDeadFilter.q = q || '';
+  dsDeadRefresh(false);
+}
+
+// What is on screen, tab-separated, so it pastes into a spreadsheet or a
+// ticket as a table.
+function dsDeadCopy() {
+  if (!dsDeadData) return;
+  const { items, unc } = dsDeadFiltered();
+  const rows = items.concat(unc).map(d => d.objectType + '\t' + d.qualifiedName + '\t' + d.reason);
+  window.copyToClipboard(['Type\tElement\tReason'].concat(rows).join('\n'));
+  if (window.mtToast) window.mtToast(`Copied ${rows.length} rows.`, 'success');
+}
+
+// ── Integrations (plan 014) ─────────────────────────────────────────────────
+// The audit-surface inventory: what the app publishes and whether it asks for
+// sign-in, and where its microflows call out to — with any password or token
+// typed straight into a microflow flagged (the value is never sent here).
+function dsFetchIntegrations() {
+  return dsRunModelView('ds-integrations-path', 'ds-integrations-body', '/model/integrations', dsIntRender);
+}
+
+// Sign-in status, then the allowed roles.
+function dsIntAuth(s, types) {
+  const chips = [];
+  if (!s.authenticated) {
+    chips.push(dsChip('No sign-in required', 'is-warn', 'Requires authentication: No — anyone who can reach the app can call it'));
+  } else {
+    chips.push(dsChip('Sign-in: ' + (types.length ? types.join(', ') : 'required'), 'is-ok'));
   }
-  box.innerHTML = `<span style="color:var(--text-muted)"><span class="spinner-sm"></span>Reading ${esc(raw)}...</span>`;
-  try {
-    const res = await fetch('http://localhost:9999/model/integrations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mprPath: raw, projectRoot: raw })
-    });
-    const data = await res.json();
-    if (!data || data.error || !data.ok) {
-      const reason = (data && (data.reason || data.message)) || 'Could not read the .mpr.';
-      box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">${esc(reason)}</div>`;
-      return;
-    }
-    box.innerHTML = dsIntRender(data);
-  } catch (e) {
-    box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">Bridge unreachable — the integrations inventory could not be read.</div>`;
-  }
+  if (s.noRoles) chips.push(dsChip('No allowed roles', 'is-danger', 'Sign-in is required but no role may call it, so every call is refused'));
+  (s.allowedRoles || []).forEach(r => chips.push(dsChip(r, 'mono is-muted', 'Allowed role')));
+  if (s.authenticationMicroflow) chips.push(dsChip('auth microflow: ' + s.authenticationMicroflow, 'mono'));
+  return `<div class="mx-chips">${chips.join('')}</div>`;
+}
+
+function dsIntService(s, meta, auth, table) {
+  const esc = window.escHtml;
+  return `<div class="card" style="padding:var(--sp-3) var(--sp-4); display:flex; flex-direction:column; gap:var(--sp-2)">
+      <div style="display:flex; flex-wrap:wrap; align-items:baseline; gap:var(--sp-2)">
+        <strong style="color:var(--text-primary)">${esc(s.name || '(unnamed)')}</strong>
+        ${meta ? `<span style="font-family:var(--font-mono); font-size:0.74rem; color:var(--text-muted)">${esc(meta)}</span>` : ''}
+      </div>
+      ${auth}
+      ${table}
+    </div>`;
 }
 
 function dsIntRender(data) {
   const esc = window.escHtml;
-  const warnBadge = `<span class="badge" style="background:var(--warning); color:#000">unauthenticated</span>`;
-  const pill = (t) => `<span class="badge badge-secondary">${esc(t)}</span>`;
-  const roleP = (roles, types) => (roles || []).map(pill).join('') + (types || []).map(pill).join('');
+  const rest = data.publishedRest || [];
+  const odata = data.publishedOData || [];
+  const soap = data.publishedSoap || [];
+  const calls = data.restCalls || [];
+  const consumed = data.consumedRest || [];
+  const events = data.businessEvents || [];
 
-  const section = (title, count, inner) => count === 0 ? '' : `
-    <div style="margin-bottom:var(--sp-4)">
-      <h5 style="margin:0 0 var(--sp-2); color:var(--text-primary); font-size:0.9rem">${esc(title)} <span style="color:var(--text-muted); font-weight:400">(${count})</span></h5>
-      ${inner}
-    </div>`;
-
-  const restHtml = (data.publishedRest || []).map((s) => {
-    const ops = (s.resources || []).reduce((acc, r) => acc.concat((r.operations || []).map((o) =>
-      `<div style="font-family:var(--font-mono); font-size:0.74rem; color:var(--text-secondary)">${esc((o.httpMethod || '?').toUpperCase())} ${esc(r.name || '')}${o.path ? '/' + esc(o.path) : ''} &rarr; ${esc(o.microflow || '—')}</div>`
-    )), []).join('');
-    return `<div style="padding:var(--sp-2) 0; border-bottom:1px solid var(--border-subtle)">
-      <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap">
-        <strong style="color:var(--text-primary)">${esc(s.name || '(unnamed)')}</strong>
-        <span style="font-family:var(--font-mono); font-size:0.74rem; color:var(--text-muted)">/${esc(s.path || '')}${s.version ? ' · v' + esc(s.version) : ''}</span>
-        ${s.authenticated ? '' : warnBadge}
-        ${roleP(s.allowedRoles, s.authenticationTypes)}
-        ${s.authenticationMicroflow ? pill('auth: ' + s.authenticationMicroflow) : ''}
-      </div>
-      <div style="margin-top:3px">${ops}</div>
-    </div>`;
-  }).join('');
-
-  const odataHtml = (data.publishedOData || []).map((s) => {
-    const sets = (s.entitySets || []).map((e) =>
-      `<div style="font-family:var(--font-mono); font-size:0.74rem; color:var(--text-secondary)">${esc(e.name || '')}${e.entity ? ' &larr; ' + esc(e.entity) : ''}</div>`
-    ).join('');
-    return `<div style="padding:var(--sp-2) 0; border-bottom:1px solid var(--border-subtle)">
-      <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap">
-        <strong style="color:var(--text-primary)">${esc(s.name || '(unnamed)')}</strong>
-        <span style="font-family:var(--font-mono); font-size:0.74rem; color:var(--text-muted)">/${esc(s.path || '')}${s.odataVersion ? ' · ' + esc(s.odataVersion) : ''}</span>
-        ${s.authenticated ? '' : warnBadge}
-        ${roleP(s.allowedRoles, s.authenticationTypes)}
-        ${s.authenticationMicroflow ? pill('auth: ' + s.authenticationMicroflow) : ''}
-      </div>
-      <div style="margin-top:3px">${sets}</div>
-    </div>`;
-  }).join('');
-
-  const consumedHtml = (data.consumedRest || []).map((s) => {
-    const ops = (s.operations || []).map((o) =>
-      `<div style="font-family:var(--font-mono); font-size:0.74rem; color:var(--text-secondary)">${esc((o.httpMethod || '?').toUpperCase())} ${esc(o.location || '')}${o.name ? ' — ' + esc(o.name) : ''}</div>`
-    ).join('');
-    return `<div style="padding:var(--sp-2) 0; border-bottom:1px solid var(--border-subtle)">
-      <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap">
-        <strong style="color:var(--text-primary)">${esc(s.name || '(unnamed)')}</strong>
-        <span style="font-family:var(--font-mono); font-size:0.74rem; color:var(--text-muted)">${esc(s.baseUrl || '—')}</span>
-        ${s.baseUrlIsReference ? pill('base URL is a Constant') : ''}
-        ${s.authenticationScheme ? pill(s.authenticationScheme) : ''}
-      </div>
-      <div style="margin-top:3px">${ops}</div>
-    </div>`;
-  }).join('');
-
-  const beHtml = (data.businessEvents || []).map((s) => {
-    const ch = (s.channels || []).map((c) => pill(c.name || '(channel)')).join('');
-    const msg = (s.messages || []).map((m) => pill(m.name || '(message)')).join('');
-    return `<div style="padding:var(--sp-2) 0; border-bottom:1px solid var(--border-subtle)">
-      <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap">
-        <strong style="color:var(--text-primary)">${esc(s.name || '(unnamed)')}</strong>
-        ${s.eventNamePrefix ? `<span style="font-family:var(--font-mono); font-size:0.74rem; color:var(--text-muted)">${esc(s.eventNamePrefix)}</span>` : ''}
-      </div>
-      <div style="margin-top:3px; display:flex; gap:4px; flex-wrap:wrap">${ch}${msg}</div>
-    </div>`;
-  }).join('');
-
-  const total = (data.publishedRest || []).length + (data.publishedOData || []).length +
-    (data.consumedRest || []).length + (data.businessEvents || []).length;
+  const total = rest.length + odata.length + soap.length + calls.length + consumed.length + events.length;
   if (total === 0) {
-    return `<div class="notice" style="font-size:0.82rem">No published or consumed integrations are defined in <span style="font-family:var(--font-mono)">${esc(data.projectName || '')}.mpr</span>. SOAP and legacy web services are not covered by this view.</div>`;
+    return `${dsUndecodedNote(data)}<div class="notice" style="font-size:0.82rem">No published services, outgoing REST calls or Business Events were found in <span style="font-family:var(--font-mono)">${esc(data.projectName || '')}.mpr</span>. Consumed SOAP and OData services are not covered by this view.</div>`;
   }
 
-  const anon = (data.publishedRest || []).concat(data.publishedOData || []).filter((s) => !s.authenticated).length;
+  const published = rest.concat(odata, soap);
+  const open = published.filter(s => !s.authenticated).length;
+  const secrets = calls.filter(c => c.hardcodedCredentials).length;
+  const byTarget = {};
+  for (const c of calls) (byTarget[c.target] = byTarget[c.target] || []).push(c);
+  const targets = Object.keys(byTarget);
+  const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+  const opsOf = list => list.reduce((n, s) => n + (s.operationCount != null ? s.operationCount : (s.operations || []).length), 0);
+
+  const stats = [
+    rest.length ? dsStat({ value: rest.length, label: 'Published REST', sub: plural(opsOf(rest), 'operation', 'operations'), onclick: "dsScrollTo('ds-int-rest')" }) : '',
+    odata.length ? dsStat({ value: odata.length, label: 'Published OData', sub: plural(odata.reduce((n, s) => n + (s.entitySets || []).length, 0), 'entity set', 'entity sets'), onclick: "dsScrollTo('ds-int-odata')" }) : '',
+    soap.length ? dsStat({ value: soap.length, label: 'Published SOAP', sub: plural(opsOf(soap), 'operation', 'operations'), onclick: "dsScrollTo('ds-int-soap')" }) : '',
+    published.length ? dsStat({ value: open, label: 'No sign-in required', sub: open ? 'anyone can call' : 'every service asks for sign-in', tone: open ? 'warn' : 'ok' }) : '',
+    calls.length ? dsStat({ value: calls.length, label: 'Outgoing REST calls', sub: plural(targets.length, 'target', 'targets'), onclick: "dsScrollTo('ds-int-calls')" }) : '',
+    calls.length ? dsStat({ value: secrets, label: 'Credentials in microflows', sub: secrets ? 'typed in as text' : 'none typed in', tone: secrets ? 'danger' : 'ok' }) : '',
+    consumed.length ? dsStat({ value: consumed.length, label: 'Consumed REST', onclick: "dsScrollTo('ds-int-consumed')" }) : '',
+    events.length ? dsStat({ value: events.length, label: 'Business Events', onclick: "dsScrollTo('ds-int-events')" }) : ''
+  ].join('');
+
+  const restHtml = rest.map(s => {
+    const rows = [];
+    (s.resources || []).forEach(r => (r.operations || []).forEach(o => rows.push([
+      dsMethod(o.httpMethod),
+      esc('/' + [r.name, o.path].filter(Boolean).join('/')),
+      esc(o.microflow || '—')
+    ])));
+    const meta = '/' + (s.path || '') + (s.version ? ' · v' + s.version : '');
+    return dsIntService(s, meta, dsIntAuth(s, s.authenticationTypes || []),
+      rows.length ? dsTable([{ label: 'Method' }, { label: 'Resource', cls: 'mono' }, { label: 'Microflow', cls: 'mono' }], rows) : '');
+  }).join('');
+
+  const odataHtml = odata.map(s => {
+    const rows = (s.entitySets || []).map(e => [esc(e.name || '—'), esc(e.entity || '—')]);
+    const meta = '/' + (s.path || '') + (s.odataVersion ? ' · ' + s.odataVersion : '');
+    return dsIntService(s, meta, dsIntAuth(s, s.authenticationTypes || []),
+      rows.length ? dsTable([{ label: 'Entity set', cls: 'mono' }, { label: 'Entity', cls: 'mono' }], rows) : '');
+  }).join('');
+
+  const soapHtml = soap.map(s => {
+    const rows = (s.operations || []).map(o => [esc(o.name || '—'), esc(o.microflow || '—')]);
+    return dsIntService(s, s.caption || '', dsIntAuth(s, s.headerAuthentication ? [s.headerAuthentication] : []),
+      rows.length ? dsTable([{ label: 'Operation', cls: 'mono' }, { label: 'Microflow', cls: 'mono' }], rows) : '');
+  }).join('');
+
+  // Outgoing calls, grouped by where they go; a group carrying credentials opens.
+  const callsHtml = targets.map(t => {
+    const list = byTarget[t];
+    const flagged = list.some(c => c.hardcodedCredentials);
+    const rows = list.map(c => [
+      dsMethod(c.httpMethod),
+      esc(c.location || '—') + ((c.locationParams || []).length
+        ? `<span class="sub">${c.locationParams.map((p, i) => '{' + (i + 1) + '} = ' + esc(p)).join(' &middot; ')}</span>` : ''),
+      esc(c.microflow),
+      c.hardcodedCredentials ? dsChip('credentials in microflow', 'is-danger', 'A password or token is typed into this microflow as text') : ''
+    ]);
+    return `<details class="mx-group"${flagged || targets.length <= 3 ? ' open' : ''}>
+      <summary>
+        <span class="mx-group-title mono">${esc(t)}</span>
+        ${flagged ? dsChip('credentials in microflow', 'is-danger') : ''}
+        <span class="mx-group-count">${plural(list.length, 'call', 'calls')}</span>
+      </summary>
+      <div class="mx-group-body">${dsTable([{ label: 'Method' }, { label: 'URL', cls: 'mono' }, { label: 'Microflow', cls: 'mono' }, { label: '' }], rows)}</div>
+    </details>`;
+  }).join('');
+
+  const consumedHtml = consumed.length ? dsTable(
+    [{ label: 'Service' }, { label: 'Base URL', cls: 'mono' }, { label: 'Authentication' }, { label: 'Operations', cls: 'num' }],
+    consumed.map(s => [
+      esc(s.name || '(unnamed)'),
+      esc(s.baseUrl || '—') + (s.baseUrlIsReference ? ' ' + dsChip('Constant', 'is-muted') : ''),
+      esc(s.authenticationScheme || '—'),
+      String((s.operations || []).length)
+    ])) : '';
+
+  const eventsHtml = events.length ? dsTable(
+    [{ label: 'Service' }, { label: 'Channels' }, { label: 'Messages' }],
+    events.map(s => [
+      esc(s.name || '(unnamed)') + (s.eventNamePrefix ? `<span class="sub">${esc(s.eventNamePrefix)}</span>` : ''),
+      `<div class="mx-chips">${(s.channels || []).map(c => dsChip(c.name || '(channel)', 'mono')).join('')}</div>`,
+      `<div class="mx-chips">${(s.messages || []).map(m => dsChip(m.name || '(message)', 'mono')).join('')}</div>`
+    ])) : '';
+
+  const list = (html) => `<div style="display:flex; flex-direction:column; gap:var(--sp-2)">${html}</div>`;
   return `
-    ${anon ? `<div class="notice notice-warning" style="font-size:0.82rem; margin-bottom:var(--sp-3)">${anon} published service${anon === 1 ? '' : 's'} reachable without sign-in (no allowed roles, no authentication microflow).</div>` : ''}
-    ${section('Published REST', (data.publishedRest || []).length, restHtml)}
-    ${section('Published OData', (data.publishedOData || []).length, odataHtml)}
-    ${section('Consumed REST', (data.consumedRest || []).length, consumedHtml)}
-    ${section('Business Events', (data.businessEvents || []).length, beHtml)}
-    <div style="color:var(--text-muted); font-size:0.76rem">Read from the last saved <span style="font-family:var(--font-mono)">${esc(data.projectName || '')}.mpr</span> — consumed base URLs backed by a Constant show the reference, not the resolved value.</div>`;
+    <div style="display:flex; flex-direction:column; gap:var(--sp-4)">
+      ${dsUndecodedNote(data)}
+      <div class="mx-stats">${stats}</div>
+      ${secrets ? `<div class="notice notice-warning" style="font-size:0.82rem">${plural(secrets, 'outgoing REST call has', 'outgoing REST calls have')} a password or token typed straight into the microflow. It travels with the model into version control and every deployment package &mdash; move it to a constant or a secret store. The value is not shown here.</div>` : ''}
+      ${open ? `<div class="notice notice-warning" style="font-size:0.82rem">${plural(open, 'published service is', 'published services are')} set to <strong>Requires authentication: No</strong> &mdash; anyone who can reach the app can call ${open === 1 ? 'it' : 'them'}. Right for a public API; worth confirming otherwise.</div>` : ''}
+      ${rest.length ? dsSection('ds-int-rest', 'Published REST', rest.length, list(restHtml)) : ''}
+      ${odata.length ? dsSection('ds-int-odata', 'Published OData', odata.length, list(odataHtml)) : ''}
+      ${soap.length ? dsSection('ds-int-soap', 'Published SOAP', soap.length, list(soapHtml)) : ''}
+      ${calls.length ? dsSection('ds-int-calls', 'Outgoing REST calls', calls.length, list(callsHtml)) : ''}
+      ${consumed.length ? dsSection('ds-int-consumed', 'Consumed REST services', consumed.length, consumedHtml) : ''}
+      ${events.length ? dsSection('ds-int-events', 'Business Events', events.length, eventsHtml) : ''}
+      <div class="mx-note">Read from the last saved <span style="font-family:var(--font-mono)">${esc(data.projectName || '')}.mpr</span> — a URL built from a Constant shows the Constant, not its per-environment value.</div>
+    </div>`;
 }
 
-// ── Modules (plan 008) ────────────────────────────────────────────────────
-// The reference graph (same walk as Dead Code), collapsed to modules and made
-// actionable: dependency cycles (modules that deploy together), topological
-// layers (foundational vs leaf), orphan modules, and cross-module inheritance —
-// the hard blocker for a split. Behavioural, not the association diagram in
-// Domain Model & Architecture. Offline, on the plan-006 reader.
-async function dsFetchModules() {
-  const box = document.getElementById('ds-modules-body');
-  const input = document.getElementById('ds-modules-path');
-  if (!box || !input) return;
-  const esc = window.escHtml;
-  const raw = (input.value || '').trim();
-  if (!raw) {
-    box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">Enter a path to a .mpr file or the project folder.</div>`;
-    return;
-  }
-  box.innerHTML = `<span style="color:var(--text-muted)"><span class="spinner-sm"></span>Analysing ${esc(raw)}...</span>`;
-  try {
-    const res = await fetch('http://localhost:9999/model/modules', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mprPath: raw, projectRoot: raw })
-    });
-    const data = await res.json();
-    if (!data || data.error || !data.ok) {
-      const reason = (data && (data.reason || data.message)) || 'Could not analyse the .mpr.';
-      box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">${esc(reason)}</div>`;
-      return;
-    }
-    box.innerHTML = dsModRender(data);
-  } catch (e) {
-    box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">Bridge unreachable — the module analysis could not run.</div>`;
-  }
+// ── Modules (plan 008) ──────────────────────────────────────────────────────
+// The reference graph (same walk as Dead Code), collapsed to modules: dependency
+// cycles with the lightest links inside each (where to start untangling),
+// topological layers, orphan modules and cross-module inheritance — the hard
+// blocker for a split. Behavioural, not the association diagram in Domain
+// Model & Architecture.
+function dsFetchModules() {
+  return dsRunModelView('ds-modules-path', 'ds-modules-body', '/model/modules', data => {
+    dsModData = data;
+    return dsModRender(data);
+  });
 }
 
 function dsModRender(data) {
   const esc = window.escHtml;
   const c = data.counts || {};
-  const card = (title, count, inner) => `<div class="card" style="padding:var(--sp-3) var(--sp-4)">
-      <div style="font-weight:600; color:var(--text-primary); margin-bottom:var(--sp-2)">${esc(title)}${count == null ? '' : ` <span style="color:var(--text-muted); font-weight:400">(${count})</span>`}</div>
+  const market = new Set(data.marketplace || []);
+  const mine = (m) => dsShowMarketplace || !market.has(m);
+  const modChip = (m) => market.has(m) ? dsChip(m, 'mono is-muted', 'Marketplace module') : dsChip(m, 'mono');
+  const card = (title, count, inner) => `<div class="card" style="padding:var(--sp-3) var(--sp-4); display:flex; flex-direction:column; gap:var(--sp-2)">
+      <h5 class="mx-section-title">${esc(title)}${count == null ? '' : ` <span class="count">(${count})</span>`}</h5>
       ${inner}
     </div>`;
 
-  // Cycles — worth stating even when there are none. A big SCC reads as a comma
-  // list (a 30-way "A ↔ B ↔ C ↔ …" is unreadable); a small one keeps the ↔.
   const cycles = data.cycles || [];
-  const cycleLine = (g) => {
-    const names = g.slice().sort().map(esc);
-    return g.length <= 4
-      ? `<div style="font-family:var(--font-mono); font-size:0.78rem; color:var(--text-primary); padding:2px 0">${names.join(' &harr; ')}</div>`
-      : `<div style="padding:2px 0"><span style="color:var(--text-primary)">${g.length} modules form one cycle:</span>
-           <span style="font-family:var(--font-mono); font-size:0.76rem; color:var(--text-secondary)">${names.join(', ')}</span></div>`;
+  const edges = data.edges || [];
+  const largest = cycles.reduce((n, g) => Math.max(n, g.length), 0);
+  const blockers = (data.blockers || []).filter(b => mine(b.fromModule));
+  const orphans = (data.orphans || []).filter(mine);
+
+  const stats = [
+    dsStat({ value: c.modules || 0, label: 'Modules', sub: market.size ? market.size + ' from Marketplace' : '' }),
+    dsStat({ value: c.edges || 0, label: 'Module dependencies', sub: 'one module using another' }),
+    dsStat({ value: cycles.length, label: 'Dependency cycles', sub: cycles.length ? 'largest: ' + largest + ' modules' : 'none', tone: cycles.length ? 'warn' : 'ok' }),
+    dsStat({ value: blockers.length, label: 'Inheritance blockers', tone: blockers.length ? 'warn' : 'ok' }),
+    dsStat({ value: orphans.length, label: 'Orphan modules' })
+  ].join('');
+
+  // Each cycle: its members, then its lightest links — the cheapest places to
+  // start breaking it — with an element-level example of each.
+  const cycleBlock = (g) => {
+    const set = new Set(g);
+    const links = edges.filter(e => set.has(e.from) && set.has(e.to))
+      .sort((a, b) => a.count - b.count || (a.from + a.to).localeCompare(b.from + b.to))
+      .slice(0, 8)
+      .map(e => {
+        const s = (e.samples || [])[0];
+        return [
+          esc(e.from) + ' &rarr; ' + esc(e.to),
+          String(e.count),
+          esc((e.kinds || []).join(', ')),
+          s ? esc(s.from) + ' &rarr; ' + esc(s.to) : ''
+        ];
+      });
+    return `<div style="display:flex; flex-direction:column; gap:var(--sp-2)">
+        <div class="mx-chips">${g.slice().sort().map(modChip).join('')}</div>
+        ${links.length ? `<div class="mx-note">Lightest dependencies inside this cycle &mdash; the cheapest ones to remove when untangling it:</div>
+          ${dsTable([{ label: 'Dependency', cls: 'mono' }, { label: 'References', cls: 'num' }, { label: 'Kind' }, { label: 'For example', cls: 'mono' }], links)}` : ''}
+      </div>`;
   };
-  const cyclesInner = cycles.length
-    ? cycles.map(cycleLine).join('') +
-      `<div style="color:var(--text-muted); font-size:0.75rem; margin-top:var(--sp-2)">Modules in a cycle deploy and version together — none can be extracted without the others.</div>`
-    : `<div style="color:var(--text-muted); font-size:0.8rem">No dependency cycles — every module stands alone in the reference graph.</div>`;
+  const cyclesHtml = card('Dependency cycles', cycles.length || null, cycles.length
+    ? cycles.map(cycleBlock).join('<hr style="border:0; border-top:1px solid var(--border-subtle); margin:var(--sp-2) 0">') +
+      `<div class="mx-note">Modules in a cycle deploy and version together &mdash; none can be extracted without the others. A Marketplace module in a cycle usually means it was customised to use your modules.</div>`
+    : `<div class="mx-note">No dependency cycles.</div>`);
 
-  // Inheritance blockers — only when present.
-  const blockers = data.blockers || [];
   const blockersHtml = blockers.length ? card('Inheritance blockers', blockers.length,
-    blockers.map(b =>
-      `<div style="font-size:0.78rem; padding:2px 0">
-         <span style="font-family:var(--font-mono); color:var(--text-primary)">${esc(b.from)}</span>
-         <span style="color:var(--text-muted)"> extends </span>
-         <span style="font-family:var(--font-mono); color:var(--text-primary)">${esc(b.to)}</span>
-         <span style="color:var(--text-muted)"> — ${esc(b.fromModule)} and ${esc(b.toModule)} cannot be split without a data migration.</span>
-       </div>`).join('')) : '';
+    dsTable([{ label: 'Entity', cls: 'mono' }, { label: 'Extends', cls: 'mono' }, { label: 'Cannot be split without a data migration' }],
+      blockers.map(b => [esc(b.from), esc(b.to), esc(b.fromModule) + ' &harr; ' + esc(b.toModule)]))) : '';
 
-  // Layers — group modules by layer number.
   const layers = data.layers || {};
   const byLayer = {};
-  Object.keys(layers).forEach(m => { (byLayer[layers[m]] = byLayer[layers[m]] || []).push(m); });
+  Object.keys(layers).filter(mine).forEach(m => { (byLayer[layers[m]] = byLayer[layers[m]] || []).push(m); });
   const layerNums = Object.keys(byLayer).map(Number).sort((a, b) => a - b);
   const maxLayer = layerNums.length ? layerNums[layerNums.length - 1] : 0;
-  const layersInner = layerNums.map(n => {
-    const label = n === 0 ? 'Foundational' : (n === maxLayer ? 'Leaf' : `Layer ${n}`);
-    return `<div style="padding:2px 0; font-size:0.8rem">
-      <span style="color:var(--text-muted); display:inline-block; min-width:92px">${label}</span>
-      <span style="font-family:var(--font-mono); color:var(--text-primary)">${byLayer[n].sort().map(esc).join(', ')}</span>
-    </div>`;
-  }).join('');
   const layersHtml = layerNums.length ? card('Layers', null,
-    layersInner + `<div style="color:var(--text-muted); font-size:0.75rem; margin-top:var(--sp-2)">Layer 0 references nothing outside itself; each step up depends on the layer below.</div>`) : '';
+    dsTable([{ label: 'Layer' }, { label: 'Modules' }], layerNums.map(n => [
+      `<span style="white-space:nowrap">${n === 0 ? 'Foundational' : (n === maxLayer ? 'Leaf' : 'Layer ' + n)}</span>`,
+      `<div class="mx-chips">${byLayer[n].sort().map(modChip).join('')}</div>`
+    ])) + `<div class="mx-note">Layer 0 references nothing outside itself; each step up depends on the layer below. Modules in one cycle share a layer.</div>`) : '';
 
-  // Orphans — only when present.
-  const orphans = data.orphans || [];
   const orphansHtml = orphans.length ? card('Orphan modules', orphans.length,
-    `<div style="font-family:var(--font-mono); font-size:0.78rem; color:var(--text-primary)">${orphans.map(esc).join(', ')}</div>
-     <div style="color:var(--text-muted); font-size:0.75rem; margin-top:var(--sp-2)">No reference edge either way. They may still be wired by a domain-model association or a widget this graph does not cover.</div>`) : '';
+    `<div class="mx-chips">${orphans.map(modChip).join('')}</div>
+     <div class="mx-note">No reference edge either way. A pluggable widget, a theme or Java code can still use them without the model showing it.</div>`) : '';
 
-  // Cohesion — least cohesive first.
-  const cohesion = data.cohesion || [];
+  const cohesion = (data.cohesion || []).filter(r => mine(r.module));
   const cohesionHtml = cohesion.length ? card('Cohesion', null,
-    `<div style="color:var(--text-muted); font-size:0.75rem; margin-bottom:var(--sp-2)">Share of a module's references that stay inside it — low means entangled with other modules.</div>
-     <table style="width:100%; font-size:0.78rem; border-collapse:collapse">
-       <thead><tr style="color:var(--text-muted); text-align:left">
-         <th style="padding:2px var(--sp-3) 2px 0; font-weight:400">Module</th>
-         <th style="padding:2px var(--sp-3) 2px 0; font-weight:400; text-align:right">Internal</th>
-         <th style="padding:2px var(--sp-3) 2px 0; font-weight:400; text-align:right">External</th>
-         <th style="padding:2px 0; font-weight:400; text-align:right">Cohesion</th>
-       </tr></thead>
-       <tbody>${cohesion.map(r => `<tr>
-         <td style="padding:2px var(--sp-3) 2px 0; font-family:var(--font-mono); color:var(--text-primary)">${esc(r.module)}</td>
-         <td style="padding:2px var(--sp-3) 2px 0; text-align:right; color:var(--text-secondary)">${r.intra}</td>
-         <td style="padding:2px var(--sp-3) 2px 0; text-align:right; color:var(--text-secondary)">${r.inter}</td>
-         <td style="padding:2px 0; text-align:right; color:var(--text-primary)">${r.cohesionPct == null ? '—' : r.cohesionPct + '%'}</td>
-       </tr>`).join('')}</tbody>
-     </table>`) : '';
+    `<div class="mx-note">Share of a module's references that stay inside it &mdash; low means entangled with other modules.</div>` +
+    dsTable([{ label: 'Module', cls: 'mono' }, { label: 'Internal', cls: 'num' }, { label: 'External', cls: 'num' }, { label: 'Cohesion', cls: 'num' }],
+      cohesion.map(r => {
+        const pct = r.cohesionPct;
+        const tone = pct == null ? '' : (pct < 34 ? ' is-low' : (pct < 67 ? ' is-mid' : ' is-high'));
+        return [
+          esc(r.module),
+          String(r.intra),
+          String(r.inter),
+          pct == null ? '—' : `<span class="mx-bar${tone}" aria-hidden="true"><span style="width:${pct}%"></span></span> ${pct}%`
+        ];
+      }))) : '';
 
   return `
     <div style="display:flex; flex-direction:column; gap:var(--sp-3)">
-      <div style="color:var(--text-muted); font-size:0.8rem">
-        ${c.modules || 0} modules, ${c.edges || 0} cross-module reference edges &mdash;
-        <strong style="color:var(--text-primary)">${c.cycles || 0}</strong> cycle${(c.cycles || 0) === 1 ? '' : 's'},
-        <strong style="color:var(--text-primary)">${c.blockers || 0}</strong> inheritance blocker${(c.blockers || 0) === 1 ? '' : 's'}.
-      </div>
-      ${card('Dependency cycles', cycles.length || null, cyclesInner)}
+      ${dsUndecodedNote(data)}
+      <div class="mx-stats">${stats}</div>
+      ${market.size ? `<div class="mx-toolbar">${dsMarketplaceToggle(dsShowMarketplace ? 0 : market.size)}</div>` : ''}
+      ${cyclesHtml}
       ${blockersHtml}
       ${layersHtml}
       ${orphansHtml}
       ${cohesionHtml}
-      <div style="color:var(--text-muted); font-size:0.76rem">Read from the last saved <span style="font-family:var(--font-mono)">${esc(data.projectName || '')}.mpr</span> — the behavioural reference graph, not the association diagram.</div>
+      <div class="mx-note">Read from the last saved <span style="font-family:var(--font-mono)">${esc(data.projectName || '')}.mpr</span> — the behavioural reference graph, not the association diagram.</div>
     </div>`;
 }
 
@@ -1006,7 +1089,6 @@ function dsShowOfflineView() {
   document.getElementById('ds-dashboard-view').style.display = 'none';
   document.getElementById('ds-security-view').style.display = 'none';
   document.getElementById('ds-deadcode-view').style.display = 'none';
-  document.getElementById('ds-i18n-view').style.display = 'none';
   document.getElementById('ds-integrations-view').style.display = 'none';
   document.getElementById('ds-modules-view').style.display = 'none';
 }
@@ -1024,7 +1106,6 @@ function dsSetTab(tabId, el) {
   document.getElementById('ds-dashboard-view').style.display = tabId === 'dashboard' ? 'flex' : 'none';
   document.getElementById('ds-security-view').style.display = tabId === 'security' ? 'flex' : 'none';
   document.getElementById('ds-deadcode-view').style.display = tabId === 'deadcode' ? 'flex' : 'none';
-  document.getElementById('ds-i18n-view').style.display = tabId === 'i18n' ? 'flex' : 'none';
   document.getElementById('ds-integrations-view').style.display = tabId === 'integrations' ? 'flex' : 'none';
   document.getElementById('ds-modules-view').style.display = tabId === 'modules' ? 'flex' : 'none';
 }
@@ -1448,7 +1529,11 @@ window.dsSecCloseMembers = dsSecCloseMembers;
 window.dsSecRenderMembers = dsSecRenderMembers;
 window.dsFetchMprModel = dsFetchMprModel;
 window.dsFetchDeadCode = dsFetchDeadCode;
-window.dsFetchI18n = dsFetchI18n;
+window.dsSetMarketplace = dsSetMarketplace;
+window.dsDeadCopy = dsDeadCopy;
+window.dsDeadSetType = dsDeadSetType;
+window.dsDeadSetQuery = dsDeadSetQuery;
+window.dsScrollTo = dsScrollTo;
 window.dsFetchIntegrations = dsFetchIntegrations;
 window.dsFetchModules = dsFetchModules;
 

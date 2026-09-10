@@ -905,9 +905,9 @@ Customer [1] -- [*] Order : places</pre>
   },
   'dev-studio': {
     title: 'Mendix Developer Studio Connector',
-    description: 'Local inspector for a Mendix project running on your machine: <strong>Dashboard</strong> (project and database configuration, live metrics, roles, scheduled events, deployment model, and an offline <code>.mpr</code> reader), <strong>Security Matrix</strong> (every entity and document access rule, per role, exported by <code>mx.exe</code>), <strong>Dead Code</strong> (model elements nothing references), <strong>Translations</strong> (translation completeness per language) and <strong>Integrations</strong> (published and consumed REST/OData services and Business Events, with their authentication) &mdash; the last three read straight from the <code>.mpr</code>, offline.',
+    description: 'Local inspector for a Mendix project running on your machine: <strong>Dashboard</strong> (project and database configuration, live metrics, roles, scheduled events, deployment model, and an offline <code>.mpr</code> reader), <strong>Security Matrix</strong> (every entity and document access rule, per role, exported by <code>mx.exe</code>), <strong>Dead Code</strong> (model elements nothing references), <strong>Integrations</strong> (published REST/OData/SOAP services with their authentication, and the REST calls the app makes) and <strong>Modules</strong> (dependency cycles, layers and inheritance blockers) &mdash; the last three read straight from the <code>.mpr</code>, offline.',
     howToGet: 'Run your project locally in Mendix Studio Pro and start the local bridge. See the Dashboard tab help for details.',
-    howToUse: 'Connect to a project, then switch between the Dashboard, Security Matrix, Dead Code, Translations and Integrations tabs.'
+    howToUse: 'Connect to a project, then switch between the Dashboard, Security Matrix, Dead Code, Integrations and Modules tabs. The last three need no running app &mdash; a project folder is enough.'
   },
   'dev-studio-dashboard': {
     title: 'Developer Studio — Dashboard',
@@ -962,78 +962,62 @@ Customer [1] -- [*] Order : places</pre>
     description: 'The microflows, nanoflows, pages, snippets and entities that nothing in the model references &mdash; the &ldquo;find unused&rdquo; Studio Pro does not have. It reads the <code>.mpr</code> directly (SQLite + BSON), so it needs no database and no local run.',
     howToGet: `
       <ul>
-        <li>The bridge must be running. No PostgreSQL, no <code>pg</code> module and no Studio Pro are needed &mdash; this reads the project file, not the database.</li>
+        <li>The bridge must be running. No PostgreSQL and no Studio Pro are needed &mdash; this reads the project file, not the database. Studio Pro can stay open.</li>
         <li>Works on Mendix 8&ndash;11, both <code>.mpr</code> storage formats.</li>
       </ul>
     `,
     howToUse: `
       <ol>
-        <li>Point it at a <code>.mpr</code> file or the project folder and press <strong>Analyse</strong>. It builds a reference graph from every unit and lists the elements with no live inbound edge, grouped by kind with a count.</li>
-        <li><strong>The finding is conservative on purpose.</strong> The reference check collects every qualified name (<code>Module.Element</code>) that appears anywhere in a unit and resolves to a real element &mdash; it over-collects slightly (a string literal that looks like a name), so a genuinely unused element can occasionally show as referenced, but a used element is never reported as dead. A <em>false &ldquo;alive&rdquo;</em> is safe; a <em>false &ldquo;dead&rdquo;</em> is not. Review every hit before deleting anything.</li>
-        <li>An element is not flagged if it is an entry point: a microflow reached by a scheduled event, a data source, a widget action or the project settings (after-startup / before-shutdown / health-check); a page reached by a menu item, the home or login page, or a widget action; an entity with any inbound reference. A microflow whose name starts <code>ACT_</code>, <code>SCH_</code>, <code>WS_</code>, <code>REST_</code> or <code>OData_</code> is still listed but tagged &ldquo;prefix suggests entry point&rdquo; &mdash; those names usually mark a flow called from outside the model.</li>
-        <li>It reflects the <strong>last saved</strong> state of the project &mdash; unsaved edits in Studio Pro are not in the file yet.</li>
-        <li><strong>Enumerations and constants are listed separately</strong> because the ways they are referenced are not fully tracked yet &mdash; treat that list as &ldquo;worth checking&rdquo;, not &ldquo;confirmed unused&rdquo;.</li>
-        <li>Cross-module inheritance is recorded but not chased: an entity generalising one in another module keeps the parent alive, but a longer chain across modules is not resolved.</li>
-      </ol>
-    `
-  },
-  'dev-studio-i18n': {
-    title: 'Developer Studio — Translations',
-    description: 'Translation completeness for a multi-language project: every enabled language with a translated-vs-total bar, the list of texts with no translation in a given language, and a heuristic list of texts that exist only in the default language. Read straight from the <code>.mpr</code> &mdash; no database, no local run &mdash; and entirely read-only: this view reports gaps, it does not edit translations or export <code>.xlf</code>.',
-    howToGet: `
-      <ul>
-        <li>The bridge must be running. No PostgreSQL and no <code>pg</code> module are needed &mdash; this reads the project file.</li>
-        <li>Works on Mendix 8&ndash;11, format v1 and v2. It reflects the <strong>last saved</strong> state of the project; unsaved edits in Studio Pro are not in the file yet.</li>
-      </ul>
-    `,
-    howToUse: `
-      <ol>
-        <li>Point the field at a <code>.mpr</code> file or the project folder and press <strong>Analyze</strong>. If you are connected to a project on the Dashboard tab, the path is filled in for you.</li>
-        <li><strong>Per-language bars</strong> show translated ÷ total, where "total" counts the texts that have a value in the default language (there is nothing to translate for a key the default language leaves blank).</li>
-        <li><strong>Missing translations</strong> &mdash; a language that is enabled in the project but has no text, or an empty text, for a key the default language does have. Grouped by language; expand a language to see the document, the location within it, and the default-language text. This is the list you would hand a translator.</li>
-        <li><strong>Hardcoded / single-language texts</strong> &mdash; a caption that exists only in the default language while the project has more than one. This is a <em>heuristic</em>: it catches captions typed as plain text and never opened for translation, but it also lists texts that are intentionally the same in every language (a product name) and some platform-supplied texts. Treat it as a review list, not a defect list.</li>
-        <li>The System module's texts are platform-supplied and are excluded from "missing" &mdash; you cannot translate them from your project anyway.</li>
-        <li>Long lists are capped for transport; the heading says when you are seeing the first N of a larger total. The per-language counts are always exact.</li>
+        <li>Point it at a <code>.mpr</code> file or the project folder (a path copied with Explorer&rsquo;s &ldquo;Copy as path&rdquo;, quotes included, works) and press <strong>Analyse</strong>. It lists the elements with no inbound reference, grouped by kind. <strong>Copy list</strong> copies them as a tab-separated table for a spreadsheet or a ticket.</li>
+        <li><strong>How the check works.</strong> Every unit in the model &mdash; pages, microflows, layouts, navigation, published services, import/export mappings, Java action definitions &mdash; is scanned for element names, including names inside expressions, XPath and string literals (a <code>'Module.Microflow'</code> handed to a queue or a Java action). Anything named anywhere counts as used, so the check errs toward &ldquo;alive&rdquo;.</li>
+        <li><strong>What it cannot see</strong> is outside the model: Java or JavaScript code, a microflow name built at runtime, a page reached only by URL. Review every hit before deleting. A microflow named <code>ACT_</code>, <code>SCH_</code>, <code>WS_</code>, <code>REST_</code> or <code>OData_</code> is tagged &ldquo;prefix suggests entry point&rdquo; &mdash; those names usually mark a flow called from outside the model.</li>
+        <li><strong>Marketplace modules are hidden</strong> by default &mdash; their unused parts are not yours to delete, and they come back with the next module update. Tick <em>Include Marketplace modules</em> to see them.</li>
+        <li>Only the top of a dead chain is listed: something used only by dead code still counts as used. Delete, analyse again, and the next layer shows up.</li>
+        <li><strong>Enumerations and constants are listed separately</strong>: nothing in the model uses them, but Java code can without the model showing it &mdash; treat that list as &ldquo;worth checking&rdquo;, not &ldquo;confirmed unused&rdquo;.</li>
+        <li>It reflects the <strong>last saved</strong> state of the project. The bridge reuses its read of a project for up to a minute, so moving between Dead Code, Integrations and Modules is instant; analyse again after that to pick up new saves.</li>
       </ol>
     `
   },
   'dev-studio-integrations': {
     title: 'Developer Studio — Integrations',
-    description: 'A model-side inventory of what the app exposes and what it calls out to &mdash; published REST and OData services with their resources, entity sets and per-operation microflows, consumed REST clients, and Business Event channels &mdash; read straight from the <code>.mpr</code> with <strong>no app running</strong>. The authentication on a published service is the point: a service with no allowed roles and no authentication microflow answers anonymous callers.',
+    description: 'A model-side inventory of what the app exposes and what it calls out to &mdash; published REST, OData and SOAP services with the microflow behind every operation, every REST call its microflows make, consumed REST documents and Business Event channels &mdash; read straight from the <code>.mpr</code> with <strong>no app running</strong>. It flags services anyone can call without signing in, and REST calls with a password or token typed into the microflow.',
     howToGet: `
       <ul>
         <li>The bridge must be running. No database, no local run and no Studio Pro are needed &mdash; this reads the project file, the same way the Dashboard's <strong>Project File (.mpr)</strong> card does, on Mendix 8&ndash;11.</li>
-        <li>Point the field at a <code>.mpr</code> file or the project folder and press <strong>Read</strong>. If you connected to a running project the path is filled in for you.</li>
+        <li>Point the field at a <code>.mpr</code> file or the project folder and press <strong>Read</strong>. If you connected to a project the path is filled in for you.</li>
       </ul>
     `,
     howToUse: `
       <ol>
-        <li>Four sections load: <strong>Published REST</strong>, <strong>Published OData</strong>, <strong>Consumed REST</strong> and <strong>Business Events</strong>. A section with nothing in it is hidden; SOAP and legacy web services are not covered by this view.</li>
-        <li>Each published service shows its base path, version, allowed module roles and authentication types, and every operation with the microflow behind it.</li>
-        <li><strong><code>authenticated: false</code></strong> &mdash; shown as an <em>unauthenticated</em> badge and a warning line &mdash; means the service has no allowed roles and no authentication microflow, so it is reachable <strong>without sign-in</strong>. On a public-facing app some of these are intended; the point is to see the whole list at once. (A role that maps only to the anonymous user role also counts as unauthenticated; distinguishing that needs the security model and is a follow-up.)</li>
-        <li>A <strong>consumed REST</strong> base URL that is backed by a Constant is shown as the <em>reference</em> (<code>MyModule.MyConstant</code>), never the resolved value &mdash; resolving it would leak a per-environment endpoint that is not part of the model.</li>
+        <li>Up to six sections load: <strong>Published REST</strong>, <strong>Published OData</strong>, <strong>Published SOAP</strong>, <strong>Outgoing REST calls</strong>, <strong>Consumed REST services</strong> and <strong>Business Events</strong>. A section with nothing in it is hidden. Consumed SOAP and consumed OData services are not covered.</li>
+        <li>Each published service shows its path, version, allowed roles and authentication types, and every operation (or entity set) with the microflow (or entity) behind it.</li>
+        <li><strong>no sign-in required</strong> means the service is set to <em>Requires authentication: No</em> (no authentication type selected; for SOAP, header authentication <em>None</em>) &mdash; anyone who can reach the app can call it, and its allowed roles do not apply. Right for a public API; worth confirming otherwise. <strong>no allowed roles</strong> means sign-in is required but no role may call it, so every call is refused.</li>
+        <li><strong>Outgoing REST calls</strong> lists every <em>Call REST service</em> activity in a microflow, grouped by where it goes: the host of a literal URL, or the constant or variable the URL starts with. Each line shows the method, the URL template with its <code>{n}</code> parameters, and the microflow.</li>
+        <li><strong>credentials in microflow</strong> marks a call whose password, or whose <code>Authorization</code> / API-key / token header, is typed as a literal string in the microflow. It travels with the model into version control and every deployment package &mdash; move it to a constant or a secret store. The value is never read out to this page.</li>
+        <li>A URL built from a Constant shows the Constant (<code>@MyModule.BaseUrl</code>), never its resolved per-environment value.</li>
         <li>It reflects the <strong>last saved</strong> state of the project. Unsaved edits open in Studio Pro are not in the file yet.</li>
       </ol>
     `
   },
   'dev-studio-modules': {
     title: 'Developer Studio — Modules',
-    description: 'The module dependency graph, made actionable: which modules form a <strong>cycle</strong> (they deploy and version together &mdash; you cannot extract one without the others), the <strong>topological layer</strong> of each (foundational vs leaf), modules with <strong>no reference edge either way</strong>, cross-module <strong>inheritance</strong> (the hard blocker for a split), and a per-module <strong>cohesion</strong> figure. Read straight from the <code>.mpr</code> &mdash; no database, no local run.',
+    description: 'The module dependency graph, made actionable: which modules form a <strong>cycle</strong> (they deploy and version together &mdash; you cannot extract one without the others) and the lightest dependencies inside it, the <strong>topological layer</strong> of each module (foundational vs leaf), modules with <strong>no reference edge either way</strong>, cross-module <strong>inheritance</strong> (the hard blocker for a split), and a per-module <strong>cohesion</strong> figure. Read straight from the <code>.mpr</code> &mdash; no database, no local run.',
     howToGet: `
       <ul>
-        <li>The bridge must be running. No PostgreSQL, no <code>pg</code> module and no Studio Pro are needed &mdash; this reads the project file, on Mendix 8&ndash;11, both <code>.mpr</code> storage formats.</li>
+        <li>The bridge must be running. No PostgreSQL and no Studio Pro are needed &mdash; this reads the project file, on Mendix 8&ndash;11, both <code>.mpr</code> storage formats.</li>
         <li>Point the field at a <code>.mpr</code> file or the project folder and press <strong>Analyse</strong>. If you are connected to a project on the Dashboard tab, the path is filled in for you.</li>
       </ul>
     `,
     howToUse: `
       <ol>
-        <li><strong>This is the behavioural reference graph, not the association diagram</strong> in Domain Model &amp; Architecture. A module edge here means one module <em>calls a microflow</em>, <em>retrieves / creates / changes / deletes an entity</em>, <em>opens a page</em>, <em>generalises an entity</em>, or <em>names an element</em> (a parameter or variable typed as another module's entity, for example) in another module. The Architecture tool's Modules diagram draws domain-model associations and is undirected; this one is directed and offline.</li>
-        <li><strong>The reference check errs toward showing coupling.</strong> It collects every qualified name that appears in a unit and resolves to a real element — so an edge can occasionally rest on a string match alone, and a module can look more entangled than it is. That is the safe direction here: a false &ldquo;these are coupled&rdquo; only costs you a second look, a false &ldquo;these can be split&rdquo; costs you a broken separation.</li>
-        <li><strong>Dependency cycles</strong> &mdash; a set of modules that reference each other transitively (computed as strongly-connected components). They deploy and version together; none can be extracted without the rest. &ldquo;No dependency cycles&rdquo; is shown explicitly when there are none.</li>
+        <li><strong>This is the behavioural reference graph, not the association diagram</strong> in Domain Model &amp; Architecture. A module edge here means one module <em>calls a microflow or a Java action</em>, <em>retrieves / creates / changes / deletes an entity</em>, <em>opens a page</em>, <em>uses a layout or snippet</em>, <em>has an association to</em> or <em>generalises an entity</em>, or <em>names an element</em> (a parameter typed as another module's entity, for example) in another module. The Architecture tool's Modules diagram draws domain-model associations and is undirected; this one is directed and offline.</li>
+        <li><strong>The reference check errs toward showing coupling.</strong> An edge can occasionally rest on a name match alone, so a module can look more entangled than it is. That is the safe direction: a false &ldquo;these are coupled&rdquo; costs a second look, a false &ldquo;these can be split&rdquo; costs a broken separation.</li>
+        <li><strong>Dependency cycles</strong> &mdash; modules that reference each other transitively (strongly-connected components). They deploy and version together; none can be extracted without the rest. Under each cycle are its <strong>lightest dependencies</strong>: the module-to-module links with the fewest references, each with an element-level example (<em>which</em> microflow or page makes the link). They are the cheapest places to start untangling. A Marketplace module in a cycle usually means it was customised to use your own modules &mdash; a pain at its next update.</li>
         <li><strong>Inheritance blockers</strong> &mdash; an entity in one module that generalises an entity in another. This is the hard obstacle to separating two modules: breaking a generalization needs a data migration. Only shown when at least one exists.</li>
         <li><strong>Layers</strong> &mdash; the topological layer of each module. <em>Layer 0 (Foundational)</em> references nothing outside itself; each step up depends on the layer below; the top is <em>Leaf</em>. Modules in one cycle share a layer.</li>
-        <li><strong>Orphan modules</strong> &mdash; no reference edge in either direction. They may still be wired by a domain-model association or a widget this graph does not cover, so treat it as &ldquo;no behavioural coupling&rdquo;, not &ldquo;unused&rdquo;.</li>
+        <li><strong>Orphan modules</strong> &mdash; no reference edge in either direction. A pluggable widget, a theme or Java code can still use them without the model showing it, so treat it as &ldquo;no behavioural coupling&rdquo;, not &ldquo;unused&rdquo;.</li>
         <li><strong>Cohesion</strong> &mdash; the share of a module's references that stay inside it (<em>internal ÷ (internal + external)</em>). A low figure means the module's behaviour is entangled with other modules. Listed least-cohesive first.</li>
+        <li><strong>Marketplace modules</strong> are left out of layers, orphans, blockers and cohesion by default &mdash; tick <em>Include Marketplace modules</em> to see them. Cycles always show every module in them.</li>
         <li>It reflects the <strong>last saved</strong> state of the project &mdash; unsaved edits in Studio Pro are not in the file yet.</li>
       </ol>
     `

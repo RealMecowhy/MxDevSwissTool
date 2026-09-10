@@ -5703,112 +5703,6 @@ const mg = require('../server/model-graph.js');
   ok('mg: counts echo the findings', report.counts.cycles === 1 && report.counts.blockers === 1);
 })();
 
-// ── Model i18n (plan 010, server/model-i18n.js) ───────────────────────────
-// Translation completeness: collect every `Texts$Text` from decoded units, then
-// score it against the project's enabled languages. Pure layer only — fixtures
-// are hand-built decoded units in the shape measured on Calculator v2 /
-// Web Order Entry v1 (2026-09-09): Items = [3, { LanguageCode, Text }, ...].
-const mi = require('../server/model-i18n.js');
-
-(function () {
-  // fromItems drops the index-0 version marker and keys by language code.
-  const fi = mi.miFromItems([3,
-    { $Type: 'Texts$Translation', LanguageCode: 'en_US', Text: 'Order' },
-    { $Type: 'Texts$Translation', LanguageCode: 'nl_NL', Text: 'Bestelling' }
-  ]);
-  eq('i18n: fromItems drops the marker and keeps en_US', fi.en_US, 'Order');
-  eq('i18n: fromItems keeps nl_NL', fi.nl_NL, 'Bestelling');
-  ok('i18n: fromItems has exactly the two languages', Object.keys(fi).length === 2);
-
-  // A Texts$Text nested two levels deep inside an array-of-objects is still found.
-  const nestedUnit = {
-    name: 'HomePage', type: 'Forms$Page',
-    doc: {
-      $Type: 'Forms$Page', Name: 'HomePage',
-      Widgets: [3, {
-        $Type: 'Forms$DataView',
-        Children: [3, {
-          $Type: 'Forms$Button',
-          Caption: {
-            $Type: 'Texts$Text',
-            Items: [3, { LanguageCode: 'en_US', Text: 'Save' }, { LanguageCode: 'nl_NL', Text: 'Opslaan' }]
-          }
-        }]
-      }]
-    }
-  };
-  const nestedTexts = mi.miCollectTexts([nestedUnit]);
-  eq('i18n: a Texts$Text nested two levels deep is collected', nestedTexts.length, 1);
-  eq('i18n: the nested text carries both languages', Object.keys(nestedTexts[0].byLanguage).length, 2);
-  ok('i18n: the location path names the enclosing fields',
-    nestedTexts[0].location.indexOf('Caption') !== -1);
-
-  // System-module texts are platform-supplied — never counted as "missing".
-  const sysExcluded = mi.miCollectTexts([
-    { name: 'SystemTexts', type: 'Texts$SystemTextCollection', doc: {
-      $Type: 'Texts$SystemTextCollection',
-      Texts: [3, { $Type: 'Texts$Text', Items: [3, { LanguageCode: 'en_US', Text: 'Blocked' }] }]
-    } },
-    { name: 'AppText', type: 'Forms$Page', module: 'System', doc: {
-      $Type: 'Forms$Page',
-      Title: { $Type: 'Texts$Text', Items: [3, { LanguageCode: 'en_US', Text: 'Also blocked' }] }
-    } }
-  ]);
-  eq('i18n: System-module and SystemTextCollection texts are excluded', sysExcluded.length, 0);
-
-  // miLanguages reads Settings$LanguageSettings (DefaultLanguageCode + Languages).
-  const langUnit = {
-    name: null, type: 'Settings$ProjectSettings',
-    doc: { $Type: 'Settings$ProjectSettings', Settings: [2, { $Type: 'Settings$LanguageSettings',
-      DefaultLanguageCode: 'en_US',
-      Languages: [3, { $Type: 'Texts$Language', Code: 'en_US' }, { $Type: 'Texts$Language', Code: 'nl_NL' }]
-    }] }
-  };
-  const langInfo = mi.miLanguages([langUnit]);
-  eq('i18n: default language is read from the settings unit', langInfo.defaultLang, 'en_US');
-  eq('i18n: both enabled languages are listed', langInfo.languages.join(','), 'en_US,nl_NL');
-  eq('i18n: no settings unit yields an empty language list',
-    mi.miLanguages([{ type: 'Forms$Page', doc: {} }]).languages.length, 0);
-
-  // ── miGaps ──────────────────────────────────────────────────────────────
-  // Case 1: translated in both project languages -> no gap.
-  const both = [{ location: 'a', unitName: 'U', byLanguage: { en_US: 'Order', nl_NL: 'Bestelling' } }];
-  const g1 = mi.miGaps(both, ['en_US', 'nl_NL'], 'en_US');
-  eq('i18n: a fully translated text produces no missing entry', g1.missing.length, 0);
-  eq('i18n: a fully translated text produces no hardcoded entry', g1.hardcoded.length, 0);
-  eq('i18n: byLanguage counts the translated text', g1.byLanguage.nl_NL.translated, 1);
-
-  // Case 2: translated in the default only, project has en_US + nl_NL.
-  const defOnly = [{ location: 'btn/Caption', unitName: 'HomePage', byLanguage: { en_US: 'Save' } }];
-  const g2 = mi.miGaps(defOnly, ['en_US', 'nl_NL'], 'en_US');
-  eq('i18n: a default-only text is one missing entry for nl_NL', g2.missing.length, 1);
-  eq('i18n: the missing entry names the language', g2.missing[0].language, 'nl_NL');
-  eq('i18n: the missing entry carries the default text', g2.missing[0].defaultText, 'Save');
-  eq('i18n: a default-only text is one hardcoded entry', g2.hardcoded.length, 1);
-  eq('i18n: the hardcoded entry carries the text', g2.hardcoded[0].text, 'Save');
-
-  // Case 3: byLanguage counts — 3 texts, 2 translated into nl_NL.
-  const three = [
-    { location: 'a', unitName: 'U', byLanguage: { en_US: 'A', nl_NL: 'A-nl' } },
-    { location: 'b', unitName: 'U', byLanguage: { en_US: 'B', nl_NL: 'B-nl' } },
-    { location: 'c', unitName: 'U', byLanguage: { en_US: 'C' } }
-  ];
-  const g3 = mi.miGaps(three, ['en_US', 'nl_NL'], 'en_US');
-  eq('i18n: byLanguage total counts every text with a default', g3.byLanguage.nl_NL.total, 3);
-  eq('i18n: byLanguage translated counts the done ones', g3.byLanguage.nl_NL.translated, 2);
-  eq('i18n: byLanguage missing is the remainder', g3.byLanguage.nl_NL.missing, 1);
-
-  // A single-language project has no non-default languages and no gaps.
-  const g4 = mi.miGaps(defOnly, ['en_US'], 'en_US');
-  eq('i18n: a single-language project has an empty byLanguage', Object.keys(g4.byLanguage).length, 0);
-  eq('i18n: a single-language project has no missing entries', g4.missing.length, 0);
-  eq('i18n: a single-language project has no hardcoded entries', g4.hardcoded.length, 0);
-
-  // An empty / whitespace default text is not measurable — skip it.
-  const emptyDef = [{ location: 'x', unitName: 'U', byLanguage: { en_US: '   ', nl_NL: '' } }];
-  eq('i18n: a text with no default is not counted', mi.miGaps(emptyDef, ['en_US', 'nl_NL'], 'en_US').missing.length, 0);
-})();
-
 // ── Model integrations (plan 014, server/model-integrations.js) ─────────────
 // Pure shaping over mprListUnits() output: published REST / OData services,
 // consumed REST clients, Business Event channels, and the authentication that
@@ -5905,7 +5799,222 @@ const mint = require('../server/model-integrations.js');
   eq('mint: miCollect keeps the business event channel', collected.businessEvents[0].channels[0].name, 'orders');
   eq('mint: miCollect ignores a non-integration unit', collected.publishedRest[0].name, 'R1');
   ok('mint: miCollect tolerates a non-array argument',
-    JSON.stringify(mint.miCollect(null)) === JSON.stringify({ publishedRest: [], publishedOData: [], consumedRest: [], businessEvents: [] }));
+    JSON.stringify(mint.miCollect(null)) === JSON.stringify({ publishedRest: [], publishedOData: [], publishedSoap: [], consumedRest: [], restCalls: [], businessEvents: [] }));
+})();
+
+// ── Review fixes (2026-09-10) — BSON, dead-code coverage, integrations ─────
+// The .mpr reader decodes BSON itself (the release ZIP ships no node_modules),
+// the dead-code walk covers every unit, published-service auth follows
+// "Requires authentication", and outgoing REST calls are inventoried.
+(function () {
+  // A minimal BSON encoder for fixtures, written from the spec — the decoder
+  // must read what any encoder writes.
+  const cstr = s => Buffer.concat([Buffer.from(s, 'utf8'), Buffer.from([0])]);
+  const i32 = n => { const b = Buffer.alloc(4); b.writeInt32LE(n); return b; };
+  const enc = function (obj) {
+    const parts = [];
+    for (const k of Object.keys(obj)) {
+      const v = obj[k];
+      const key = cstr(k);
+      if (v === null) parts.push(Buffer.from([0x0A]), key);
+      else if (typeof v === 'string') { const s = cstr(v); parts.push(Buffer.from([0x02]), key, i32(s.length), s); }
+      else if (typeof v === 'boolean') parts.push(Buffer.from([0x08]), key, Buffer.from([v ? 1 : 0]));
+      else if (typeof v === 'bigint') { const b = Buffer.alloc(8); b.writeBigInt64LE(v); parts.push(Buffer.from([0x12]), key, b); }
+      else if (typeof v === 'number' && Number.isInteger(v)) parts.push(Buffer.from([0x10]), key, i32(v));
+      else if (typeof v === 'number') { const b = Buffer.alloc(8); b.writeDoubleLE(v); parts.push(Buffer.from([0x01]), key, b); }
+      else if (Buffer.isBuffer(v)) parts.push(Buffer.from([0x05]), key, i32(v.length), Buffer.from([0]), v);
+      else if (v instanceof Date) { const b = Buffer.alloc(8); b.writeBigInt64LE(BigInt(v.getTime())); parts.push(Buffer.from([0x09]), key, b); }
+      else if (Array.isArray(v)) { const o = {}; v.forEach((x, i) => { o[i] = x; }); parts.push(Buffer.from([0x04]), key, enc(o)); }
+      else parts.push(Buffer.from([0x03]), key, enc(v));
+    }
+    const body = Buffer.concat(parts);
+    return Buffer.concat([i32(body.length + 5), body, Buffer.from([0])]);
+  };
+  const dec = mpr.bsonDecode(enc({
+    $Type: 'Microflows$Microflow', Name: 'Zażółć', Excluded: false, Count: 42, Ratio: 1.5,
+    Big: 5000000000n, When: new Date(1700000000000), Nothing: null, $ID: Buffer.from('0a0b', 'hex'),
+    Items: [3, 'a', { $Type: 'X$Y', Deep: [1] }]
+  }));
+  eq('bson: a string decodes as UTF-8', dec.Name, 'Zażółć');
+  eq('bson: a boolean decodes', dec.Excluded, false);
+  eq('bson: an int32 decodes', dec.Count, 42);
+  eq('bson: a double decodes', dec.Ratio, 1.5);
+  eq('bson: an int64 decodes to a Number', dec.Big, 5000000000);
+  eq('bson: a datetime decodes to a Date', dec.When.getTime(), 1700000000000);
+  eq('bson: null decodes', dec.Nothing, null);
+  eq('bson: binary decodes to lowercase hex', dec.$ID, '0a0b');
+  eq('bson: an array keeps its order, version marker included', JSON.stringify(dec.Items), JSON.stringify([3, 'a', { $Type: 'X$Y', Deep: [1] }]));
+  const unsupported = Buffer.concat([i32(20), Buffer.from([0x07]), cstr('a'), Buffer.alloc(12), Buffer.from([0])]);
+  ok('bson: an unsupported element type throws instead of guessing',
+    (function () { try { mpr.bsonDecode(unsupported); return false; } catch (e) { return /unsupported/.test(e.message); } })());
+  ok('bson: a truncated document throws',
+    (function () { try { mpr.bsonDecode(i32(99).slice(0, 4)); return false; } catch (e) { return true; } })());
+
+  // Dead code — every unit is a source, not a hand-picked list.
+  const deadOf = units => mg.mgFindDeadAssets(mg.mgCollectElements(units), mg.mgExtractRefs(units).refs).dead
+    .map(d => d.qualifiedName);
+  const mf = (mod, name, doc) => ({ id: mod + name, type: 'Microflows$Microflow', name: name, moduleName: mod, doc: Object.assign({ $Type: 'Microflows$Microflow' }, doc || {}) });
+
+  ok('mg: a microflow behind a published REST operation is not dead', deadOf([
+    { id: 'svc', type: 'Rest$PublishedRestService', name: 'Api', moduleName: 'Web', doc: {
+      $Type: 'Rest$PublishedRestService',
+      Resources: [2, { Operations: [2, { $Type: 'Rest$PublishedRestServiceOperation', Microflow: 'Web.GetOrders' }] }] } },
+    mf('Web', 'GetOrders')
+  ]).indexOf('Web.GetOrders') === -1);
+
+  ok('mg: a microflow set as a role-based home page is not dead', deadOf([
+    { id: 'nav', type: 'Navigation$NavigationDocument', name: null, moduleName: null, doc: {
+      $Type: 'Navigation$NavigationDocument',
+      Profiles: [2, { RoleBasedHomePages: [2, { $Type: 'Navigation$RoleBasedHomePage', Microflow: 'Home.ShowStart' }] }] } },
+    mf('Home', 'ShowStart')
+  ]).indexOf('Home.ShowStart') === -1);
+
+  ok('mg: an entity mapped only by an import mapping is not dead', deadOf([
+    { id: 'im', type: 'ImportMappings$ImportMapping', name: 'IMM_Order', moduleName: 'Api', doc: {
+      $Type: 'ImportMappings$ImportMapping', RootMappingElements: [2, { Entity: 'Api.OrderDto' }] } },
+    { id: 'dm', type: 'DomainModels$DomainModel', name: null, moduleName: 'Api', doc: {
+      $Type: 'DomainModels$DomainModel', Entities: [2, { $Type: 'DomainModels$Entity', Name: 'OrderDto' }] } }
+  ]).indexOf('Api.OrderDto') === -1);
+
+  ok('mg: a recursive microflow does not keep itself alive', deadOf([
+    mf('Jobs', 'Loop', { ObjectCollection: { Objects: [2, { Action: {
+      $Type: 'Microflows$MicroflowCallAction', MicroflowCall: { Microflow: 'Jobs.Loop' } } }] } })
+  ]).indexOf('Jobs.Loop') !== -1);
+
+  const exprUnits = [
+    mf('Jobs', 'Enqueue', { ObjectCollection: { Objects: [2, { Action: {
+      $Type: 'Microflows$JavaActionCallAction',
+      ParameterMappings: [2, { Argument: "'Jobs.RunLater'" }, { Argument: "@Cfg.BaseUrl + '/orders'" }] } }] } }),
+    mf('Jobs', 'RunLater'),
+    { id: 'c', type: 'Constants$Constant', name: 'BaseUrl', moduleName: 'Cfg', doc: { $Type: 'Constants$Constant' } }
+  ];
+  ok('mg: a microflow named in a string literal is not dead', deadOf(exprUnits).indexOf('Jobs.RunLater') === -1);
+  const exprUncertain = mg.mgFindDeadAssets(mg.mgCollectElements(exprUnits), mg.mgExtractRefs(exprUnits).refs).uncertain;
+  ok('mg: a constant used as @Module.Name in an expression is not uncertain',
+    exprUncertain.every(u => u.qualifiedName !== 'Cfg.BaseUrl'));
+
+  const assocDead = deadOf([
+    { id: 'dm', type: 'DomainModels$DomainModel', name: null, moduleName: 'Sales', doc: {
+      $Type: 'DomainModels$DomainModel',
+      Entities: [3, { $Type: 'DomainModels$Entity', $ID: 'aa', Name: 'Order' }, { $Type: 'DomainModels$Entity', $ID: 'bb', Name: 'Line' }],
+      Associations: [2, { $Type: 'DomainModels$Association', Name: 'Line_Order', Parent: 'bb', Child: 'aa' }],
+      CrossAssociations: [2, { $Type: 'DomainModels$CrossAssociation', Name: 'Order_Customer', Parent: 'aa', Child: 'Crm.Customer' }] } },
+    { id: 'dm2', type: 'DomainModels$DomainModel', name: null, moduleName: 'Crm', doc: {
+      $Type: 'DomainModels$DomainModel', Entities: [2, { $Type: 'DomainModels$Entity', $ID: 'cc', Name: 'Customer' }] } }
+  ]);
+  ok('mg: both ends of an association (by $ID) are not dead',
+    assocDead.indexOf('Sales.Order') === -1 && assocDead.indexOf('Sales.Line') === -1);
+  ok('mg: the far end of a cross-module association is not dead', assocDead.indexOf('Crm.Customer') === -1);
+
+  eq('mg: a folder is a container, not an element',
+    mg.mgCollectElements([{ type: 'Projects$Folder', name: 'Private', moduleName: 'Sales', doc: {} }]).length, 0);
+  eq('mg: marketplace modules come from FromAppStore', mg.mgMarketplaceModules([
+    { type: 'Projects$ModuleImpl', name: 'Sales', doc: {} },
+    { type: 'Projects$ModuleImpl', name: 'Atlas_Core', doc: { FromAppStore: true } }
+  ]).join(','), 'Atlas_Core');
+
+  // A Java action is an element, so calling one links the two modules — the
+  // Marketplace library a module uses is no longer an "orphan".
+  const libUnits = [
+    { id: 'mS', containerId: null, type: 'Projects$ModuleImpl', name: 'Sales', doc: {} },
+    { id: 'mL', containerId: null, type: 'Projects$ModuleImpl', name: 'Lib', doc: { FromAppStore: true } },
+    { id: 'ja', containerId: 'mL', type: 'JavaActions$JavaAction', name: 'DoThing', doc: { $Type: 'JavaActions$JavaAction' } },
+    { id: 'm1', containerId: 'mS', type: 'Microflows$Microflow', name: 'Checkout', doc: {
+      $Type: 'Microflows$Microflow', ObjectCollection: { Objects: [2, { Action: {
+        $Type: 'Microflows$JavaActionCallAction', JavaAction: 'Lib.DoThing' } }] } } }
+  ];
+  const libReport = mg.mgAnalyzeModules(libUnits);
+  eq('mg: a module reached only through a Java action is not an orphan', libReport.orphans.indexOf('Lib'), -1);
+  eq('mg: the module edge keeps an element-level sample',
+    libReport.edges[0].samples[0].from + ' -> ' + libReport.edges[0].samples[0].to, 'Sales.Checkout -> Lib.DoThing');
+  eq('mg: the module report names the marketplace modules', libReport.marketplace.join(','), 'Lib');
+  eq('mg: a dead element carries its module',
+    mg.mgAnalyzeUnits(libUnits).dead.find(d => d.qualifiedName === 'Sales.Checkout').module, 'Sales');
+  const marketCounts = mg.mgAnalyzeUnits(libUnits.concat([
+    { id: 'm2', containerId: 'mL', type: 'Microflows$Microflow', name: 'Helper', doc: { $Type: 'Microflows$Microflow' } }
+  ])).counts;
+  ok('mg: per-kind totals keep the Marketplace share apart (for "X of Y" in the view)',
+    marketCounts.elementsByType.MICROFLOW === 2 && marketCounts.elementsByTypeMarketplace.MICROFLOW === 1);
+
+  // Published-service auth = "Requires authentication", i.e. AuthenticationTypes.
+  const noAuthWithRoles = mint.miShapePublishedRest({
+    Name: 'ShippingCosts', AllowedRoles: [1, 'Web.Api'], AuthenticationTypes: [1] });
+  eq('mint: no authentication types means no sign-in, whatever the roles', noAuthWithRoles.authenticated, false);
+  const sessionNoRoles = mint.miShapePublishedRest({ Name: 'UserData', AllowedRoles: [1], AuthenticationTypes: [1, 'Session'] });
+  eq('mint: an authentication type means sign-in is required', sessionNoRoles.authenticated, true);
+  eq('mint: sign-in required with no allowed role is flagged', sessionNoRoles.noRoles, true);
+  eq('mint: sign-in with a role is not flagged',
+    mint.miShapePublishedRest({ AllowedRoles: [1, 'Web.Api'], AuthenticationTypes: [1, 'Basic'] }).noRoles, false);
+
+  // Mendix 10+ OData: entity sets point at an entity type by $ID.
+  const od2 = mint.miShapePublishedOData({
+    $Type: 'ODataPublish$PublishedODataService2', Name: 'Movies', Path: 'odata/movies/v1/',
+    AuthenticationTypes: [1, 'Basic'], AllowedModuleRoles: [1, 'Data.Api'],
+    EntityTypes: [3, { $ID: '01', Entity: 'Data.Movie' }],
+    EntitySets: [3, { ExposedName: 'Movies', EntityTypePointer: '01' }]
+  });
+  eq('mint: an OData v2-format entity set resolves its entity', od2.entitySets[0].entity, 'Data.Movie');
+  eq('mint: miCollect buckets the Mendix 10+ OData service',
+    mint.miCollect([{ type: 'ODataPublish$PublishedODataService2', doc: { Name: 'X' } }]).publishedOData.length, 1);
+
+  // Published SOAP — the latest version decides.
+  const soap = mint.miShapePublishedSoap({ Name: 'WS_Orders', VersionedWebServices: [2,
+    { HeaderAuthentication: 'UsernamePassword', Operations: [3] },
+    { HeaderAuthentication: 'None', Operations: [3, { Name: 'GetOrders', Microflow: 'Web.WS_GetOrders' }] }
+  ] });
+  eq('mint: a SOAP service with header authentication None needs no sign-in', soap.authenticated, false);
+  eq('mint: a SOAP operation keeps its microflow', soap.operations[0].microflow, 'Web.WS_GetOrders');
+
+  // Outgoing REST calls — credentials are flagged, never copied.
+  const call = (cfg) => mint.miShapeRestCall({ $Type: 'Microflows$RestCallAction', HttpConfiguration: cfg }, 'Int.Call');
+  const pw = call({ HttpMethod: 'Get', UseHttpAuthentication: true, HttpAuthenticationUserName: "'svc'",
+    HttpAuthenticationPassword: "'S3cr3tValue'", CustomLocationTemplate: { Text: 'https://api.example.com/v1/x?y={1}', Parameters: [2, { Expression: '$Id' }] } });
+  eq('mint: a literal password in a REST call is flagged', pw.hardcodedCredentials, true);
+  ok('mint: the password value never appears in the shaped call', JSON.stringify(pw).indexOf('S3cr3tValue') === -1);
+  eq('mint: a literal URL groups by its host', pw.target, 'api.example.com');
+  eq('mint: the URL template parameters are listed', pw.locationParams[0], '$Id');
+  eq('mint: a password from a variable is not flagged',
+    call({ UseHttpAuthentication: true, HttpAuthenticationPassword: '$Settings/Password' }).hardcodedCredentials, false);
+  eq('mint: a literal bearer token header is flagged',
+    call({ HttpHeaderEntries: [3, { Key: 'Authorization', Value: "'Bearer abc123'" }] }).hardcodedCredentials, true);
+  eq('mint: a token built from a variable is not flagged',
+    call({ HttpHeaderEntries: [3, { Key: 'Authorization', Value: "'Bearer '+$Token" }] }).hardcodedCredentials, false);
+  eq('mint: a "token type" header is not a credential',
+    call({ HttpHeaderEntries: [3, { Key: 'X-Snowflake-Authorization-Token-Type', Value: "'KEYPAIR_JWT'" }] }).hardcodedCredentials, false);
+  eq('mint: a URL starting with a constant groups by the constant',
+    call({ CustomLocationTemplate: { Text: '{1}/orders', Parameters: [2, { Expression: '@Int.BaseUrl' }] } }).target, '@Int.BaseUrl');
+  eq('mint: a URL given as a literal parameter groups by its host',
+    call({ CustomLocationTemplate: { Text: '{1}', Parameters: [2, { Expression: "'https://aws.example.com/'" }] } }).target, 'aws.example.com');
+  const collectedCalls = mint.miCollect([{ type: 'Microflows$Microflow', name: 'Sync', moduleName: 'Int', doc: {
+    $Type: 'Microflows$Microflow', ObjectCollection: { Objects: [2, { Action: {
+      $Type: 'Microflows$RestCallAction', HttpConfiguration: { HttpMethod: 'Post', CustomLocation: 'https://x.example.com' } } }] } } }]);
+  eq('mint: miCollect finds a REST call inside a microflow and names it', collectedCalls.restCalls[0].microflow, 'Int.Sync');
+})();
+
+// ── Release packaging guard ─────────────────────────────────────────────────
+// The release ZIP (.github/workflows/release.yml) ships server/ without
+// node_modules, and the bridge is also what applies updates — a top-level
+// require of an npm package makes it die on start for every user who updates.
+// Optional packages (pg) must be required lazily, inside the code that needs them.
+(function () {
+  const fs = require('fs');
+  const path = require('path');
+  const builtin = new Set(require('module').builtinModules);
+  const files = [];
+  (function walk(d) {
+    for (const f of fs.readdirSync(d, { withFileTypes: true })) {
+      if (f.isDirectory()) walk(path.join(d, f.name));
+      else if (f.name.endsWith('.js')) files.push(path.join(d, f.name));
+    }
+  })(path.join(__dirname, '..', 'server'));
+  const offenders = [];
+  for (const f of files) {
+    for (const line of fs.readFileSync(f, 'utf8').split('\n')) {
+      const m = /^(?:const|let|var)\s.*\brequire\('([^']+)'\)/.exec(line);
+      if (m && m[1][0] !== '.' && m[1].indexOf('node:') !== 0 && !builtin.has(m[1])) offenders.push(path.basename(f) + ' -> ' + m[1]);
+    }
+  }
+  eq('release: server/ requires no npm package at top level', offenders.join(', '), '');
 })();
 
 // ── MX Tool Runner (wave 28, server/mx-tool.js) ────────────────────────────

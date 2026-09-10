@@ -20,7 +20,6 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "bson": "^7.3.2",
     "pg": "^8.22.0"
   },
   "devDependencies": {

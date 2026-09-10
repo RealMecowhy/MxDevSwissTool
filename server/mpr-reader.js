@@ -7,9 +7,9 @@
 // share. Works on Mendix 8-11, format v1 (units inline in SQLite) and v2
 // (units in mprcontents/*.mxunit).
 //
-// Verified 2026-09-09: BSON.deserialize decodes 541/541 units of a Mx 11.12 v2
-// app and 4196/4196 of a Mx 9.24 v1 app (175 MB single-file .mpr) with zero
-// failures.
+// Zero npm dependencies on purpose: the release ZIP ships no node_modules, so
+// BSON is decoded by the small decoder below and SQLite comes from Node itself
+// (`node:sqlite`, loaded lazily so an older Node still starts the bridge).
 //
 // Pure functions live at the top (no fs, no sqlite) so scripts/parser-test.js
 // can unit-test them from hand-built BSON buffers — the model-deployment.js
@@ -19,15 +19,60 @@
 const fsp = require('fs').promises;
 const fs = require('fs');
 const path = require('path');
-const { BSON } = require('bson');
-const { DatabaseSync } = require('node:sqlite');
 
 // A single unit above this size is not something we were meant to read into
 // memory — say so rather than letting the process grow unbounded.
 const MAX_UNIT_BYTES = 32 * 1024 * 1024;
-// The whole v1 Contents blob is read once; the largest real v1 .mpr measured
-// here is 175 MB, so the SQLite row can be large but not unbounded.
+// A v1 .mpr keeps every unit inside the SQLite file; the largest real one
+// measured here is 175 MB, so the file can be large but not unbounded.
 const MAX_V1_DB_BYTES = 512 * 1024 * 1024;
+// v2 units are separate files; reading a handful at once instead of one by one
+// is what makes a cold read of a 4000-unit project bearable.
+const READ_BATCH = 16;
+// The model views ask for the same project one after another; one read serves
+// them all for this long (and while the .mpr file itself is unchanged).
+const LOAD_CACHE_TTL_MS = 60 * 1000;
+
+// ── BSON decoding ───────────────────────────────────────────────────────────
+// Only the element types a Mendix unit uses — measured over seven real
+// projects (Mendix 9.24-11.12, v1 and v2) on 2026-09-10: double, string,
+// document, array, binary, boolean, datetime, null, int32, int64. Anything else
+// throws, and the caller counts that unit as undecoded rather than guessing.
+// Binary values (Mendix uses them only for $ID and pointer GUIDs) come back as
+// lowercase hex strings, datetimes as Date, int64 as Number.
+function bsonDecode(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 5) throw new Error('BSON: buffer too short');
+  if (buf.readInt32LE(0) > buf.length) throw new Error('BSON: truncated document');
+  return bsonReadDoc(buf, 0, false);
+}
+
+function bsonReadDoc(buf, start, asArray) {
+  const end = start + buf.readInt32LE(start) - 1; // the trailing 0x00
+  const out = asArray ? [] : {};
+  let i = start + 4;
+  while (i < end) {
+    const type = buf[i++];
+    const nameEnd = buf.indexOf(0, i);
+    if (nameEnd === -1 || nameEnd >= end) throw new Error('BSON: malformed element name');
+    const name = asArray ? null : buf.toString('utf8', i, nameEnd);
+    i = nameEnd + 1;
+    let v, n;
+    switch (type) {
+      case 0x01: v = buf.readDoubleLE(i); i += 8; break;
+      case 0x02: n = buf.readInt32LE(i); v = buf.toString('utf8', i + 4, i + 3 + n); i += 4 + n; break;
+      case 0x03: case 0x04: n = buf.readInt32LE(i); v = bsonReadDoc(buf, i, type === 0x04); i += n; break;
+      case 0x05: n = buf.readInt32LE(i); v = buf.toString('hex', i + 5, i + 5 + n); i += 5 + n; break;
+      case 0x08: v = buf[i] === 1; i += 1; break;
+      case 0x09: v = new Date(Number(buf.readBigInt64LE(i))); i += 8; break;
+      case 0x0A: v = null; break;
+      case 0x10: v = buf.readInt32LE(i); i += 4; break;
+      case 0x12: v = Number(buf.readBigInt64LE(i)); i += 8; break;
+      default: throw new Error('BSON: unsupported element type 0x' + type.toString(16));
+    }
+    if (asArray) out.push(v); else out[name] = v;
+  }
+  return out;
+}
 
 // ── UUID <-> blob (Microsoft GUID byte order) ────────────────────────────────
 // Unit.UnitID is a 16-byte blob. The display UUID and the .mxunit filename
@@ -202,6 +247,21 @@ function mprShapeSecurity(doc) {
 
 // ── Reading from disk ───────────────────────────────────────────────────────
 
+// `node:sqlite` arrived in Node 22.5. Loaded on first use so an older Node
+// still starts the bridge — only the .mpr views then report what is missing.
+let DatabaseSync = null;
+function sqliteDatabase() {
+  if (!DatabaseSync) {
+    try {
+      DatabaseSync = require('node:sqlite').DatabaseSync;
+    } catch (e) {
+      throw new Error(`Reading a .mpr needs Node.js 22.5 or newer; the bridge is running on ${process.version}. ` +
+        'Install a current Node.js LTS, or put a portable node.exe in the runtime folder next to the launcher.');
+    }
+  }
+  return DatabaseSync;
+}
+
 function unitTableHasColumn(db, col) {
   const rows = db.prepare('PRAGMA table_info(Unit)').all();
   return rows.some(r => r.name === col);
@@ -209,8 +269,9 @@ function unitTableHasColumn(db, col) {
 
 // Opens the .mpr SQLite database READ-ONLY and detects the storage format.
 // Returns a context object, or throws a plain Error with a human message when
-// the path is not a .mpr. The connection is opened read-only on every path so
-// _Transaction.LastTransactionID (Studio Pro's F4-sync marker) is never touched.
+// the path is not a readable .mpr. The connection is opened read-only on every
+// path so _Transaction.LastTransactionID (Studio Pro's F4-sync marker) is never
+// touched.
 async function mprOpen(mprPath) {
   let stat;
   try {
@@ -220,9 +281,10 @@ async function mprOpen(mprPath) {
   }
   if (!stat.isFile()) throw new Error(`Not a file: ${mprPath}`);
 
+  const Database = sqliteDatabase();
   let db;
   try {
-    db = new DatabaseSync(mprPath, { readOnly: true });
+    db = new Database(mprPath, { readOnly: true });
   } catch (e) {
     throw new Error(`Could not open as SQLite (not a .mpr?): ${e.message}`);
   }
@@ -231,10 +293,7 @@ async function mprOpen(mprPath) {
     const hasUnit = db.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' AND name='Unit'"
     ).get();
-    if (!hasUnit) {
-      db.close();
-      throw new Error(`Not a Mendix .mpr (no Unit table): ${mprPath}`);
-    }
+    if (!hasUnit) throw new Error(`Not a Mendix .mpr (no Unit table): ${mprPath}`);
 
     let productVersion = null, buildVersion = null, schemaHash = null;
     try {
@@ -253,6 +312,10 @@ async function mprOpen(mprPath) {
     const hasContents = unitTableHasColumn(db, 'Contents');
     const contentsDir = path.join(path.dirname(mprPath), 'mprcontents');
     const v2 = !hasContents || fs.existsSync(contentsDir);
+    if (!v2 && stat.size > MAX_V1_DB_BYTES) {
+      throw new Error(`${path.basename(mprPath)} is ${Math.round(stat.size / 1024 / 1024)} MB, above ` +
+        `the ${MAX_V1_DB_BYTES / 1024 / 1024} MB limit for an inline (v1) .mpr.`);
+    }
 
     return {
       db: db,
@@ -272,8 +335,9 @@ async function mprOpen(mprPath) {
 // Raw BSON bytes for one unit. v1: the Contents column. v2: the .mxunit file
 // under mprcontents/<xx>/<yy>/<display-uuid>.mxunit.
 async function mprUnitBytes(ctx, unitIdBlob) {
+  const idBlob = Buffer.isBuffer(unitIdBlob) ? unitIdBlob : Buffer.from(unitIdBlob);
   if (ctx.v2) {
-    const uuid = blobToUuid(Buffer.isBuffer(unitIdBlob) ? unitIdBlob : Buffer.from(unitIdBlob));
+    const uuid = blobToUuid(idBlob);
     if (!uuid) return null;
     const p = path.join(ctx.contentsDir, uuid.slice(0, 2), uuid.slice(2, 4), uuid + '.mxunit');
     let st;
@@ -288,67 +352,123 @@ async function mprUnitBytes(ctx, unitIdBlob) {
     }
     return fsp.readFile(p);
   }
-  const row = ctx.db.prepare('SELECT Contents FROM Unit WHERE UnitID = ?')
-    .get(Buffer.isBuffer(unitIdBlob) ? unitIdBlob : Buffer.from(unitIdBlob));
+  if (!ctx.contentsStmt) ctx.contentsStmt = ctx.db.prepare('SELECT Contents FROM Unit WHERE UnitID = ?');
+  const row = ctx.contentsStmt.get(idBlob);
   if (!row || row.Contents == null) return null;
   return Buffer.isBuffer(row.Contents) ? row.Contents : Buffer.from(row.Contents);
 }
 
 // Every unit, decoded: [{ id, containerId, containmentName, type, name, doc }].
+// A unit that cannot be read or decoded keeps doc = null — callers count those.
+// Reads in small batches and hands the event loop back between them, so a
+// large project does not freeze log tailing and the other tools meanwhile.
 async function mprListUnits(ctx) {
   const rows = ctx.db.prepare(
     'SELECT UnitID, ContainerID, ContainmentName FROM Unit'
   ).all();
-  const out = [];
-  for (const r of rows) {
+  const readRow = async function (r) {
     const idBlob = Buffer.isBuffer(r.UnitID) ? r.UnitID : Buffer.from(r.UnitID);
     let doc = null;
     try {
       const bytes = await mprUnitBytes(ctx, idBlob);
-      if (bytes) doc = BSON.deserialize(bytes);
+      if (bytes) doc = bsonDecode(bytes);
     } catch (e) {
       doc = null;
     }
-    out.push({
+    return {
       id: blobToUuid(idBlob),
       containerId: r.ContainerID ? blobToUuid(Buffer.isBuffer(r.ContainerID) ? r.ContainerID : Buffer.from(r.ContainerID)) : null,
       containmentName: r.ContainmentName || null,
       type: doc ? (doc.$Type || null) : null,
       name: doc ? (doc.Name || null) : null,
       doc: doc
-    });
+    };
+  };
+  const out = [];
+  for (let i = 0; i < rows.length; i += READ_BATCH) {
+    const batch = await Promise.all(rows.slice(i, i + READ_BATCH).map(readRow));
+    for (const u of batch) out.push(u);
+    await yieldToEventLoop();
   }
   return out;
+}
+
+function yieldToEventLoop() {
+  return new Promise(resolve => setImmediate(resolve));
+}
+
+// Opens, lists and closes in one go, and remembers the result: the model views
+// ask for the same project one after another, and a cold read of a large v2
+// project takes tens of seconds. One project is kept; the entry is reused while
+// the .mpr file is unchanged and for at most LOAD_CACHE_TTL_MS after the read
+// finished (a v2 save can change a unit file without touching the .mpr).
+// Concurrent callers share the in-flight read. `memo` is scratch space for the
+// analyses built on these units, so they are not recomputed either.
+const loadCache = new Map();
+async function mprLoad(mprPath) {
+  let st;
+  try {
+    st = await fsp.stat(mprPath);
+  } catch (e) {
+    throw new Error(`Not a file: ${mprPath}`);
+  }
+  const key = st.size + ':' + st.mtimeMs;
+  const hit = loadCache.get(mprPath);
+  if (hit && hit.key === key && (hit.doneAt === null || Date.now() - hit.doneAt < LOAD_CACHE_TTL_MS)) {
+    return hit.promise;
+  }
+  const entry = { key: key, doneAt: null, promise: null };
+  entry.promise = (async function () {
+    const ctx = await mprOpen(mprPath);
+    try {
+      const units = await mprListUnits(ctx);
+      return {
+        mprPath: mprPath,
+        projectName: path.basename(mprPath).replace(/\.mpr$/i, ''),
+        formatVersion: ctx.v2 ? 2 : 1,
+        productVersion: ctx.productVersion,
+        buildVersion: ctx.buildVersion,
+        schemaHash: ctx.schemaHash,
+        units: units,
+        undecoded: units.filter(u => !u.doc).length,
+        memo: {}
+      };
+    } finally {
+      try { ctx.db.close(); } catch (_) {}
+    }
+  })();
+  loadCache.clear();
+  loadCache.set(mprPath, entry);
+  entry.promise.then(
+    function () { entry.doneAt = Date.now(); },
+    function () { if (loadCache.get(mprPath) === entry) loadCache.delete(mprPath); }
+  );
+  return entry.promise;
 }
 
 // The public entry point. Returns { ok:false, reason } when the path is not a
 // readable .mpr, otherwise the shaped project.
 async function mprReadProject(mprPath) {
-  let ctx;
+  let loaded;
   try {
-    ctx = await mprOpen(mprPath);
+    loaded = await mprLoad(mprPath);
   } catch (e) {
     return { ok: false, reason: e.message };
   }
 
   try {
-    const stat = await fsp.stat(mprPath);
-    if (!ctx.v2 && stat.size > MAX_V1_DB_BYTES) {
-      return {
-        ok: false,
-        reason: `${path.basename(mprPath)} is ${Math.round(stat.size / 1024 / 1024)} MB, above ` +
-          `the ${MAX_V1_DB_BYTES / 1024 / 1024} MB limit for an inline (v1) .mpr.`
-      };
-    }
-
-    const units = await mprListUnits(ctx);
+    const units = loaded.units;
     const byId = {};
     for (const u of units) byId[u.id] = u;
 
     // module id -> name
     const moduleName = {};
+    const marketplace = new Set();
     for (const u of units) {
-      if (u.type === 'Projects$ModuleImpl' && u.name) moduleName[u.id] = u.name;
+      if (u.type === 'Projects$ModuleImpl' && u.name) {
+        moduleName[u.id] = u.name;
+        if (u.doc && u.doc.FromAppStore === true) marketplace.add(u.name);
+      }
     }
 
     // Resolve a DomainModel's module by walking ContainerID up through folders.
@@ -376,7 +496,9 @@ async function mprReadProject(mprPath) {
 
     const counts = {
       units: units.length,
+      undecoded: loaded.undecoded,
       modules: Object.keys(moduleName).length,
+      marketplaceModules: marketplace.size,
       entities: entityCount,
       microflows: units.filter(u => u.type === 'Microflows$Microflow').length,
       nanoflows: units.filter(u => u.type === 'Microflows$Nanoflow').length,
@@ -385,24 +507,25 @@ async function mprReadProject(mprPath) {
 
     return {
       ok: true,
-      productVersion: ctx.productVersion,
-      buildVersion: ctx.buildVersion,
-      schemaHash: ctx.schemaHash,
-      formatVersion: ctx.v2 ? 2 : 1,
-      projectName: path.basename(mprPath).replace(/\.mpr$/i, ''),
-      modules: Object.keys(moduleName).map(id => ({ name: moduleName[id] })).sort((a, b) => a.name.localeCompare(b.name)),
+      productVersion: loaded.productVersion,
+      buildVersion: loaded.buildVersion,
+      schemaHash: loaded.schemaHash,
+      formatVersion: loaded.formatVersion,
+      projectName: loaded.projectName,
+      modules: Object.keys(moduleName)
+        .map(id => ({ name: moduleName[id], fromMarketplace: marketplace.has(moduleName[id]) }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
       domainModels: domainModels,
       security: security,
       counts: counts
     };
   } catch (e) {
     return { ok: false, reason: `MPR read failed: ${e.message}` };
-  } finally {
-    try { ctx.db.close(); } catch (_) {}
   }
 }
 
 module.exports = {
+  bsonDecode,
   blobToUuid,
   uuidToBlob,
   mprBool,
@@ -414,6 +537,7 @@ module.exports = {
   mprOpen,
   mprUnitBytes,
   mprListUnits,
+  mprLoad,
   mprReadProject,
   MAX_UNIT_BYTES
 };

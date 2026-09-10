@@ -4231,3 +4231,72 @@ kbd {
     scroll-behavior: auto !important;
   }
 }
+
+/* ── Model analysis results (Developer Studio: Project File, Dead Code, Integrations, Modules) ──
+   Small shared primitives — stat tiles, chips, compact tables, HTTP method tags,
+   collapsible groups, an inline bar. Built only on theme tokens, so both themes follow. */
+.mx-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--sp-3); }
+.mx-stat {
+  display: flex; flex-direction: column; gap: 2px; text-align: left;
+  padding: var(--sp-3) var(--sp-4); background: var(--bg-surface);
+  border: 1px solid var(--border); border-radius: var(--r-lg);
+  font: inherit; color: inherit;
+}
+button.mx-stat { cursor: pointer; }
+button.mx-stat:hover { border-color: var(--accent-muted); }
+.mx-stat.is-active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.mx-stat-value { font-size: 1.45rem; font-weight: 700; line-height: 1.15; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.mx-stat-label { font-size: 0.74rem; color: var(--text-secondary); }
+.mx-stat-sub { font-size: 0.7rem; color: var(--text-muted); }
+.mx-stat.is-warn { border-left: 3px solid var(--warning); }
+.mx-stat.is-danger { border-left: 3px solid var(--danger); }
+.mx-stat.is-ok { border-left: 3px solid var(--success); }
+.mx-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-4); }
+.mx-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.mx-chip {
+  display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px;
+  border: 1px solid var(--border); border-radius: var(--r-full);
+  background: var(--bg-elevated); color: var(--text-secondary);
+  font-size: 0.72rem; line-height: 1.5; white-space: nowrap;
+}
+.mx-chip.mono { font-family: var(--font-mono); }
+.mx-chip.is-muted { border-style: dashed; color: var(--text-muted); background: transparent; }
+.mx-chip.is-warn { border-color: transparent; background: var(--warning-subtle); color: var(--log-warning); font-weight: 600; }
+.mx-chip.is-danger { border-color: transparent; background: var(--danger-subtle); color: var(--log-error); font-weight: 600; }
+.mx-chip.is-ok { border-color: transparent; background: var(--success-subtle); color: var(--success); }
+.mx-table-wrap { overflow-x: auto; }
+.mx-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+.mx-table th { text-align: left; font-weight: 500; color: var(--text-muted); padding: 4px var(--sp-2); border-bottom: 1px solid var(--border); white-space: nowrap; }
+.mx-table td { padding: 4px var(--sp-2); border-top: 1px solid var(--border-subtle); color: var(--text-secondary); vertical-align: top; }
+.mx-table tbody tr:first-child td { border-top: 0; }
+.mx-table tbody tr:hover td { background: var(--bg-hover); }
+.mx-table .mono { font-family: var(--font-mono); color: var(--text-primary); overflow-wrap: anywhere; }
+.mx-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mx-table .sub { display: block; margin-top: 2px; font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted); overflow-wrap: anywhere; }
+.mx-method {
+  display: inline-block; min-width: 3.6em; padding: 0 4px; text-align: center;
+  border-radius: var(--r-sm); font-family: var(--font-mono); font-size: 0.66rem; font-weight: 700;
+  background: var(--bg-hover); color: var(--text-secondary);
+}
+.mx-method.m-get { background: var(--success-subtle); color: var(--success); }
+.mx-method.m-post { background: var(--info-subtle); color: var(--info); }
+.mx-method.m-put, .mx-method.m-patch { background: var(--warning-subtle); color: var(--log-warning); }
+.mx-method.m-delete { background: var(--danger-subtle); color: var(--log-error); }
+.mx-group { border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--bg-surface); }
+.mx-group > summary { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-4); cursor: pointer; list-style: none; }
+.mx-group > summary::-webkit-details-marker { display: none; }
+.mx-group > summary::before { content: '\25B8'; color: var(--text-muted); font-size: 0.7rem; transition: transform 0.15s; }
+.mx-group[open] > summary::before { transform: rotate(90deg); }
+.mx-group-title { font-weight: 600; color: var(--text-primary); overflow-wrap: anywhere; }
+.mx-group-title.mono { font-family: var(--font-mono); font-size: 0.82rem; }
+.mx-group-count { margin-left: auto; color: var(--text-muted); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+.mx-group-body { padding: 0 var(--sp-4) var(--sp-3); }
+.mx-bar { display: inline-block; width: 90px; height: 6px; border-radius: var(--r-full); background: var(--bg-hover); overflow: hidden; vertical-align: middle; }
+.mx-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+.mx-bar.is-low > span { background: var(--danger); }
+.mx-bar.is-mid > span { background: var(--warning); }
+.mx-bar.is-high > span { background: var(--success); }
+.mx-section { display: flex; flex-direction: column; gap: var(--sp-2); scroll-margin-top: var(--sp-4); }
+.mx-section-title { margin: 0; font-size: 0.9rem; color: var(--text-primary); }
+.mx-section-title .count { color: var(--text-muted); font-weight: 400; }
+.mx-note { color: var(--text-muted); font-size: 0.76rem; line-height: 1.5; }

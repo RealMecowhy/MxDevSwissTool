@@ -22,7 +22,6 @@ const livedb = require('./livedb');
 const modelDeployment = require('./model-deployment');
 const mprReader = require('./mpr-reader');
 const modelGraph = require('./model-graph');
-const modelI18n = require('./model-i18n');
 const modelIntegrations = require('./model-integrations');
 const mxTool = require('./mx-tool');
 const perfSession = require('./perf-session');
@@ -1019,6 +1018,56 @@ function sendError(req, res, message, code = 200) {
   res.end(JSON.stringify({ error: true, message }));
 }
 
+// ── .mpr model routes — the shared contract ─────────────────────────────────
+// /model/mpr, /model/dead-code, /model/integrations and /model/modules all take
+// POST { mprPath } or { projectRoot }: an absolute path (the double quotes
+// Explorer's "Copy as path" adds are dropped) to a .mpr, or to a folder holding
+// exactly one. `analyse(mprPath)` produces the JSON answer; a thrown Error
+// becomes a 400 carrying its message.
+async function resolveMprPath(p) {
+  let st;
+  try {
+    st = await fsp.stat(p);
+  } catch (e) {
+    throw new Error(`No such path: ${p}`);
+  }
+  if (!st.isDirectory()) return p;
+  const mprs = (await fsp.readdir(p)).filter(f => f.toLowerCase().endsWith('.mpr'));
+  if (mprs.length !== 1) throw new Error(`Expected exactly one .mpr in ${p}, found ${mprs.length}`);
+  return path.join(p, mprs[0]);
+}
+
+function handleMprRoute(req, res, label, analyse) {
+  if (req.method !== 'POST') return sendError(req, res, 'Method Not Allowed', 405);
+  readBody(req, res, 1 * 1024 * 1024, (rawBody) => {
+    let raw;
+    try {
+      const body = JSON.parse(rawBody.toString('utf8'));
+      raw = body.mprPath || body.projectRoot;
+      if (!raw || typeof raw !== 'string') throw new Error('Missing mprPath or projectRoot');
+      raw = raw.trim().replace(/^"(.*)"$/, '$1').trim();
+      if (!path.isAbsolute(raw)) throw new Error('path must be absolute');
+    } catch (e) {
+      return sendError(req, res, `Invalid request: ${e.message}`, 400);
+    }
+    resolveMprPath(path.resolve(raw))
+      .then(analyse)
+      .then(r => sendJson(req, res, r))
+      .catch(e => sendError(req, res, `${label}: ${e.message}`, 400));
+  });
+}
+
+// Analysis results kept on the cached read they were computed from, so a view
+// opened again (or the next view sharing the reference walk) costs nothing.
+function modelMemo(loaded, key, compute) {
+  if (!Object.prototype.hasOwnProperty.call(loaded.memo, key)) loaded.memo[key] = compute();
+  return loaded.memo[key];
+}
+
+function modelPrep(loaded) {
+  return modelMemo(loaded, 'prep', () => modelGraph.mgPrepare(loaded.units));
+}
+
 const server = http.createServer((req, res) => {
   // CORS Preflight
   if (req.method === 'OPTIONS') {
@@ -1371,318 +1420,65 @@ const server = http.createServer((req, res) => {
     return sendError(req, res, 'Method Not Allowed', 405);
   }
 
-  // Reads a Mendix .mpr project file directly — SQLite + BSON, fully offline,
-  // no database, no Studio Pro, no local run (Plan 006). The fourth model
-  // source alongside /model/deployment, live DB, and /model/security. It
-  // reflects the LAST SAVED state of the project.
-  //
-  // Accepts { mprPath } (absolute path to a .mpr) or { projectRoot } (absolute
-  // dir; the single .mpr inside it is used). Validated the same way
-  // /model/deployment validates projectRoot: absolute path, must exist. The
-  // reader opens SQLite read-only and never writes a unit.
+  // The offline .mpr model routes (plans 006/007/014/008). Each reads the
+  // project file directly — SQLite + BSON, no database, no Studio Pro, no local
+  // run — and reflects its LAST SAVED state. handleMprRoute owns the shared
+  // contract: POST { mprPath } or { projectRoot }, path validation, and the
+  // cached read (mprReader.mprLoad) that lets the views share one pass over a
+  // large project. The reader opens SQLite read-only and never writes a unit.
   if (url.pathname === '/model/mpr') {
-    if (req.method === 'POST') {
-      readBody(req, res, 1 * 1024 * 1024, (rawBody) => {
-        let mprPath;
-        try {
-          const body = JSON.parse(rawBody.toString('utf8'));
-          const raw = body.mprPath || body.projectRoot;
-          if (!raw || typeof raw !== 'string') throw new Error('Missing mprPath or projectRoot');
-          if (!path.isAbsolute(raw)) throw new Error('path must be absolute');
-          mprPath = path.resolve(raw);
-        } catch (e) {
-          return sendError(req, res, `Invalid request: ${e.message}`, 400);
-        }
-
-        fsp.stat(mprPath)
-          .catch(() => { throw new Error(`No such path: ${mprPath}`); })
-          .then(async (st) => {
-            if (st.isDirectory()) {
-              const entries = await fsp.readdir(mprPath);
-              const mprs = entries.filter(f => f.toLowerCase().endsWith('.mpr'));
-              if (mprs.length !== 1) {
-                throw new Error(`Expected exactly one .mpr in ${mprPath}, found ${mprs.length}`);
-              }
-              mprPath = path.join(mprPath, mprs[0]);
-            }
-            return mprReader.mprReadProject(mprPath);
-          })
-          .then(r => sendJson(req, res, r))
-          .catch(e => sendError(req, res, `MPR read error: ${e.message}`, 400));
-      });
-      return;
-    }
-    return sendError(req, res, 'Method Not Allowed', 405);
+    return handleMprRoute(req, res, 'MPR read error', p => mprReader.mprReadProject(p));
   }
 
-  // "Dead code" — the model elements that nothing references (Plan 007). Built
-  // on the same offline .mpr reader as /model/mpr: open the SQLite database
-  // read-only, decode every unit's BSON, walk it for qualified-name strings that
-  // resolve to a real element, and report the microflows, nanoflows, pages,
-  // snippets and entities with no live inbound edge. The reference heuristic is
-  // deliberately loose — a false "alive" is safe, a false "dead" is not — and it
-  // reflects the LAST SAVED state of the project. Enumerations and constants are
-  // returned separately (`uncertain`) because their inbound edges are not fully
-  // tracked. Accepts { mprPath } or { projectRoot }, validated exactly as
-  // /model/mpr does.
+  // "Dead code" — the model elements nothing references (Plan 007). Every unit
+  // is walked for qualified names that resolve to a real element; microflows,
+  // nanoflows, pages, snippets and entities with no inbound reference are
+  // listed. The check errs toward "alive" — a false "dead" is the costly
+  // mistake. Enumerations and constants come back separately (`uncertain`)
+  // because Java code can use them invisibly. `marketplace` names the modules
+  // installed from the Marketplace, which the view hides by default.
   if (url.pathname === '/model/dead-code') {
-    if (req.method === 'POST') {
-      readBody(req, res, 1 * 1024 * 1024, (rawBody) => {
-        let mprPath;
-        try {
-          const body = JSON.parse(rawBody.toString('utf8'));
-          const raw = body.mprPath || body.projectRoot;
-          if (!raw || typeof raw !== 'string') throw new Error('Missing mprPath or projectRoot');
-          if (!path.isAbsolute(raw)) throw new Error('path must be absolute');
-          mprPath = path.resolve(raw);
-        } catch (e) {
-          return sendError(req, res, `Invalid request: ${e.message}`, 400);
-        }
-
-        fsp.stat(mprPath)
-          .catch(() => { throw new Error(`No such path: ${mprPath}`); })
-          .then(async (st) => {
-            if (st.isDirectory()) {
-              const entries = await fsp.readdir(mprPath);
-              const mprs = entries.filter(f => f.toLowerCase().endsWith('.mpr'));
-              if (mprs.length !== 1) {
-                throw new Error(`Expected exactly one .mpr in ${mprPath}, found ${mprs.length}`);
-              }
-              mprPath = path.join(mprPath, mprs[0]);
-            }
-            const ctx = await mprReader.mprOpen(mprPath);
-            try {
-              const units = await mprReader.mprListUnits(ctx);
-              const analysis = modelGraph.mgAnalyzeUnits(units);
-              return { ok: true, dead: analysis.dead, uncertain: analysis.uncertain, counts: analysis.counts };
-            } finally {
-              try { ctx.db.close(); } catch (_) {}
-            }
-          })
-          .then(r => sendJson(req, res, r))
-          .catch(e => sendError(req, res, `Dead-code analysis error: ${e.message}`, 400));
-      });
-      return;
-    }
-    return sendError(req, res, 'Method Not Allowed', 405);
-  }
-
-  // Translation completeness (Plan 010). Walks the .mpr for `Texts$Text` nodes
-  // and scores each against the project's enabled languages: which texts have no
-  // translation in language X, and which are single-language while the project is
-  // multi-language ("hardcoded" — a heuristic). Read-only, offline, built on the
-  // plan-006 reader. All the model logic is pure in server/model-i18n.js.
-  //
-  // Accepts { mprPath } or { projectRoot }, validated exactly like /model/mpr.
-  if (url.pathname === '/model/i18n') {
-    if (req.method === 'POST') {
-      readBody(req, res, 1 * 1024 * 1024, (rawBody) => {
-        let mprPath;
-        try {
-          const body = JSON.parse(rawBody.toString('utf8'));
-          const raw = body.mprPath || body.projectRoot;
-          if (!raw || typeof raw !== 'string') throw new Error('Missing mprPath or projectRoot');
-          if (!path.isAbsolute(raw)) throw new Error('path must be absolute');
-          mprPath = path.resolve(raw);
-        } catch (e) {
-          return sendError(req, res, `Invalid request: ${e.message}`, 400);
-        }
-
-        const LIST_CAP = 2000;
-
-        const readI18n = async function (p) {
-          const ctx = await mprReader.mprOpen(p);
-          try {
-            const units = await mprReader.mprListUnits(ctx);
-            const byId = {};
-            for (const u of units) byId[u.id] = u;
-            const moduleName = {};
-            for (const u of units) {
-              if (u.type === 'Projects$ModuleImpl' && u.name) moduleName[u.id] = u.name;
-            }
-            const resolveModule = function (unit) {
-              let cur = unit;
-              for (let hop = 0; hop < 20 && cur; hop++) {
-                if (cur.containerId && moduleName[cur.containerId]) return moduleName[cur.containerId];
-                cur = cur.containerId ? byId[cur.containerId] : null;
-              }
-              return null;
-            };
-            const tagged = units.map(u => ({ name: u.name, type: u.type, module: resolveModule(u), doc: u.doc }));
-
-            let { languages, defaultLang } = modelI18n.miLanguages(units);
-
-            // Fallback: deployment/model/metadata.json carries a language list
-            // once the app has been run. Only used when the model has none.
-            if (!languages.length) {
-              try {
-                const metaPath = path.join(path.dirname(p), 'deployment', 'model', 'metadata.json');
-                const meta = JSON.parse(await fsp.readFile(metaPath, 'utf8'));
-                if (Array.isArray(meta.Languages)) {
-                  languages = meta.Languages.filter(l => typeof l === 'string');
-                  defaultLang = defaultLang || languages[0] || null;
-                }
-              } catch (e) { /* no metadata.json — handled below */ }
-            }
-
-            if (!languages.length) {
-              return {
-                ok: false,
-                reason: 'Could not find the project language settings in the .mpr, and no ' +
-                  'deployment/model/metadata.json is present. Open the project once in Studio Pro ' +
-                  'or run it locally so a language list exists.'
-              };
-            }
-
-            const texts = modelI18n.miCollectTexts(tagged);
-            const gaps = modelI18n.miGaps(texts, languages, defaultLang);
-            let missingTotal = 0, hardcodedTotal = gaps.hardcoded.length;
-            for (const l of Object.keys(gaps.byLanguage)) missingTotal += gaps.byLanguage[l].missing;
-
-            return {
-              ok: true,
-              projectName: path.basename(p).replace(/\.mpr$/i, ''),
-              formatVersion: ctx.v2 ? 2 : 1,
-              productVersion: ctx.productVersion,
-              languages: languages,
-              defaultLang: defaultLang,
-              textCount: texts.length,
-              byLanguage: gaps.byLanguage,
-              missing: gaps.missing.slice(0, LIST_CAP),
-              missingTotal: missingTotal,
-              missingTruncated: gaps.missing.length > LIST_CAP,
-              hardcoded: gaps.hardcoded.slice(0, LIST_CAP),
-              hardcodedTotal: hardcodedTotal,
-              hardcodedTruncated: gaps.hardcoded.length > LIST_CAP
-            };
-          } finally {
-            try { ctx.db.close(); } catch (e) { /* already closed */ }
-          }
-        };
-
-        fsp.stat(mprPath)
-          .catch(() => { throw new Error(`No such path: ${mprPath}`); })
-          .then(async (st) => {
-            if (st.isDirectory()) {
-              const entries = await fsp.readdir(mprPath);
-              const mprs = entries.filter(f => f.toLowerCase().endsWith('.mpr'));
-              if (mprs.length !== 1) {
-                throw new Error(`Expected exactly one .mpr in ${mprPath}, found ${mprs.length}`);
-              }
-              mprPath = path.join(mprPath, mprs[0]);
-            }
-            return readI18n(mprPath);
-          })
-          .then(r => sendJson(req, res, r))
-          .catch(e => sendError(req, res, `i18n read error: ${e.message}`, 400));
-      });
-      return;
-    }
-    return sendError(req, res, 'Method Not Allowed', 405);
+    return handleMprRoute(req, res, 'Dead-code analysis error', async p => {
+      const loaded = await mprReader.mprLoad(p);
+      const a = modelMemo(loaded, 'deadCode', () => modelGraph.mgAnalyzeUnits(loaded.units, modelPrep(loaded)));
+      return {
+        ok: true,
+        projectName: loaded.projectName,
+        undecoded: loaded.undecoded,
+        dead: a.dead,
+        uncertain: a.uncertain,
+        marketplace: a.marketplace,
+        counts: a.counts
+      };
+    });
   }
 
   // What the app exposes and what it calls out to, read from the model (Plan
-  // 014). Published REST + OData services with their per-operation microflows
-  // and authentication, consumed REST clients, Business Event channels — an
-  // audit-surface inventory with no app running. Same offline .mpr reader and
-  // the same path validation as /model/mpr; the db is opened read-only and
-  // closed in a finally.
+  // 014): published REST, OData and SOAP services with their authentication,
+  // the REST calls its microflows make (credentials never copied — only
+  // whether one is typed in literally), consumed REST documents and Business
+  // Event channels. An audit-surface inventory with no app running.
   if (url.pathname === '/model/integrations') {
-    if (req.method === 'POST') {
-      readBody(req, res, 1 * 1024 * 1024, (rawBody) => {
-        let mprPath;
-        try {
-          const body = JSON.parse(rawBody.toString('utf8'));
-          const raw = body.mprPath || body.projectRoot;
-          if (!raw || typeof raw !== 'string') throw new Error('Missing mprPath or projectRoot');
-          if (!path.isAbsolute(raw)) throw new Error('path must be absolute');
-          mprPath = path.resolve(raw);
-        } catch (e) {
-          return sendError(req, res, `Invalid request: ${e.message}`, 400);
-        }
-
-        fsp.stat(mprPath)
-          .catch(() => { throw new Error(`No such path: ${mprPath}`); })
-          .then(async (st) => {
-            if (st.isDirectory()) {
-              const entries = await fsp.readdir(mprPath);
-              const mprs = entries.filter(f => f.toLowerCase().endsWith('.mpr'));
-              if (mprs.length !== 1) {
-                throw new Error(`Expected exactly one .mpr in ${mprPath}, found ${mprs.length}`);
-              }
-              mprPath = path.join(mprPath, mprs[0]);
-            }
-            const ctx = await mprReader.mprOpen(mprPath);
-            try {
-              const units = await mprReader.mprListUnits(ctx);
-              const collected = modelIntegrations.miCollect(units);
-              return Object.assign(
-                { ok: true, projectName: path.basename(mprPath).replace(/\.mpr$/i, '') },
-                collected
-              );
-            } finally {
-              try { ctx.db.close(); } catch (_) { /* already closed */ }
-            }
-          })
-          .then(r => sendJson(req, res, r))
-          .catch(e => sendError(req, res, `Integrations read error: ${e.message}`, 400));
-      });
-      return;
-    }
-    return sendError(req, res, 'Method Not Allowed', 405);
+    return handleMprRoute(req, res, 'Integrations read error', async p => {
+      const loaded = await mprReader.mprLoad(p);
+      const collected = modelMemo(loaded, 'integrations', () => modelIntegrations.miCollect(modelPrep(loaded).units));
+      return Object.assign({ ok: true, projectName: loaded.projectName, undecoded: loaded.undecoded }, collected);
+    });
   }
 
   // The module dependency graph, made actionable (Plan 008). The same reference
   // walk as /model/dead-code, collapsed to modules: which modules form a
-  // dependency cycle (deploy and version together), the topological layer of
-  // each (foundational vs leaf), modules with no reference edge either way, and
-  // cross-module generalizations — the hard blocker for splitting two modules.
-  // This is the behavioural reference graph, not the domain-model association
-  // diagram in Domain Model & Architecture. Offline, same path validation as
-  // /model/mpr, db opened read-only and closed in a finally.
+  // dependency cycle (with the element-level edges that close it), the
+  // topological layer of each (foundational vs leaf), modules with no reference
+  // edge either way, and cross-module generalizations — the hard blocker for
+  // splitting two modules. The behavioural reference graph, not the
+  // domain-model association diagram in Domain Model & Architecture.
   if (url.pathname === '/model/modules') {
-    if (req.method === 'POST') {
-      readBody(req, res, 1 * 1024 * 1024, (rawBody) => {
-        let mprPath;
-        try {
-          const body = JSON.parse(rawBody.toString('utf8'));
-          const raw = body.mprPath || body.projectRoot;
-          if (!raw || typeof raw !== 'string') throw new Error('Missing mprPath or projectRoot');
-          if (!path.isAbsolute(raw)) throw new Error('path must be absolute');
-          mprPath = path.resolve(raw);
-        } catch (e) {
-          return sendError(req, res, `Invalid request: ${e.message}`, 400);
-        }
-
-        fsp.stat(mprPath)
-          .catch(() => { throw new Error(`No such path: ${mprPath}`); })
-          .then(async (st) => {
-            if (st.isDirectory()) {
-              const entries = await fsp.readdir(mprPath);
-              const mprs = entries.filter(f => f.toLowerCase().endsWith('.mpr'));
-              if (mprs.length !== 1) {
-                throw new Error(`Expected exactly one .mpr in ${mprPath}, found ${mprs.length}`);
-              }
-              mprPath = path.join(mprPath, mprs[0]);
-            }
-            const ctx = await mprReader.mprOpen(mprPath);
-            try {
-              const units = await mprReader.mprListUnits(ctx);
-              const analysis = modelGraph.mgAnalyzeModules(units);
-              return Object.assign(
-                { ok: true, projectName: path.basename(mprPath).replace(/\.mpr$/i, '') },
-                analysis
-              );
-            } finally {
-              try { ctx.db.close(); } catch (_) { /* already closed */ }
-            }
-          })
-          .then(r => sendJson(req, res, r))
-          .catch(e => sendError(req, res, `Module analysis error: ${e.message}`, 400));
-      });
-      return;
-    }
-    return sendError(req, res, 'Method Not Allowed', 405);
+    return handleMprRoute(req, res, 'Module analysis error', async p => {
+      const loaded = await mprReader.mprLoad(p);
+      const a = modelMemo(loaded, 'modules', () => modelGraph.mgAnalyzeModules(loaded.units, modelPrep(loaded)));
+      return Object.assign({ ok: true, projectName: loaded.projectName, undecoded: loaded.undecoded }, a);
+    });
   }
 
   // === SECURITY MATRIX (Wave 28) — mx.exe export-security-overview ===

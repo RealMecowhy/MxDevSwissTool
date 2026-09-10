@@ -3,15 +3,18 @@
 // =========================================================================
 // Studio Pro has no "find unused". This builds a loose reference graph from
 // the decoded model units the plan-006 reader hands back and reports the
-// referenceable elements with no live inbound edge — dead microflows, pages,
+// referenceable elements with no inbound edge — dead microflows, pages,
 // snippets, entities.
 //
-// The reference heuristic is DELIBERATELY loose: any qualified-name string
-// (`Module.Element`) that appears anywhere in a unit's BSON and resolves to a
-// real element is treated as a reference. It over-collects (a string literal
-// that happens to look like a name) but never misses a real edge — the right
-// trade for a "dead code" finding: a false "alive" is safe, a false "dead" is
-// not.
+// The reference heuristic is DELIBERATELY loose, and it runs over EVERY unit
+// in the model (published services, mappings, layouts, Java action
+// definitions, navigation — not a hand-picked list): any string that is, or
+// contains, a qualified name (`Module.Element`) of a real element counts as a
+// reference to it — so a microflow named in an expression (`'Jobs.RunLater'`),
+// a constant (`@Mod.Url`) or an XPath path is seen too. It over-collects (a
+// caption that happens to read like a name) but misses only what lives outside
+// the model: Java / JavaScript source and names built at runtime. A false
+// "alive" is safe; a false "dead" is not.
 //
 // Pure functions only — no fs, no sqlite. scripts/parser-test.js unit-tests
 // them from hand-built decoded-BSON objects. The caller (the Bridge) opens the
@@ -22,8 +25,13 @@ const { mprArray } = require('./mpr-reader');
 
 // A qualified name: Module.Element, optionally Module.Element.Member.
 const QN = /^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$/;
+// A Module.Element token anywhere inside a longer string (an expression, an
+// XPath, a string literal).
+const QN_TOKEN = /[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*/g;
 
-// Unit $Type -> the objectType we classify it as.
+// Unit $Type -> the objectType we classify it as. Any other named unit inside a
+// module (a layout, a Java action, a mapping, a published service …) is still
+// an element — something can reference it — with objectType 'OTHER'.
 const MG_TYPE_MAP = {
   'Microflows$Microflow': 'MICROFLOW',
   'Microflows$Nanoflow': 'NANOFLOW',
@@ -33,9 +41,9 @@ const MG_TYPE_MAP = {
   'Constants$Constant': 'CONSTANT'
 };
 
-// Unit $Types that are not themselves elements but do reference elements, with
-// the edge kind to assume while walking them (activity-level $Types below can
-// still refine it).
+// Project-level units whose references carry a known edge kind (activity-level
+// $Types below can still refine it). Only the label differs — every unit is
+// walked.
 const MG_SOURCE_KINDS = {
   'Navigation$NavigationDocument': 'menu_item',
   'Menus$MenuDocument': 'menu_item',
@@ -44,10 +52,8 @@ const MG_SOURCE_KINDS = {
 };
 
 const ENTRY_PREFIXES = ['ACT_', 'SCH_', 'WS_', 'REST_', 'OData_'];
-const MF_LIVE_KINDS = ['call', 'schedule', 'datasource', 'action', 'calculate', 'settings'];
-const PAGE_LIVE_KINDS = ['show_page', 'home_page', 'login_page', 'menu_item', 'action'];
 // The classified-as-potentially-dead set. Enumerations / constants are reported
-// separately because their inbound edges are not fully captured.
+// separately because references to them from Java code are invisible.
 const MG_CLASSIFY = ['MICROFLOW', 'NANOFLOW', 'PAGE', 'SNIPPET', 'ENTITY'];
 
 // ── module-name resolution ──────────────────────────────────────────────────
@@ -74,25 +80,43 @@ function mgResolveModuleNames(rawUnits) {
   });
 }
 
+// Modules installed from the Marketplace (Projects$ModuleImpl.FromAppStore).
+// Their dead code and coupling are not the app team's to fix, so the views
+// hide them by default. Sorted names.
+function mgMarketplaceModules(rawUnits) {
+  const out = [];
+  for (const u of (Array.isArray(rawUnits) ? rawUnits : [])) {
+    if (u && u.type === 'Projects$ModuleImpl' && u.name && u.doc && u.doc.FromAppStore === true) out.push(u.name);
+  }
+  return out.sort();
+}
+
 // ── element inventory ───────────────────────────────────────────────────────
-// units: [{ id, type, name, moduleName, doc }]. Entities live inside a
-// DomainModels$DomainModel unit's doc, not as their own unit, so they are
-// pulled from there.
+// units: [{ id, type, name, moduleName, doc }]. Entities and associations live
+// inside a DomainModels$DomainModel unit's doc, not as their own unit, so they
+// are pulled from there. Projects$* units (folders, module settings) are
+// containers, not elements.
 function mgCollectElements(units) {
   const list = Array.isArray(units) ? units : [];
   const out = [];
   for (const u of list) {
-    const ot = MG_TYPE_MAP[u.type];
-    if (ot && u.name && u.moduleName) {
-      out.push({ qualifiedName: u.moduleName + '.' + u.name, objectType: ot });
-    }
-    if (u.type === 'DomainModels$DomainModel' && u.doc && u.moduleName) {
+    if (!u || !u.moduleName) continue;
+    if (u.type === 'DomainModels$DomainModel') {
+      if (!u.doc) continue;
       for (const e of mprArray(u.doc.Entities)) {
         if (e && typeof e.Name === 'string' && e.Name) {
           out.push({ qualifiedName: u.moduleName + '.' + e.Name, objectType: 'ENTITY' });
         }
       }
+      for (const a of mprArray(u.doc.Associations).concat(mprArray(u.doc.CrossAssociations))) {
+        if (a && typeof a.Name === 'string' && a.Name) {
+          out.push({ qualifiedName: u.moduleName + '.' + a.Name, objectType: 'ASSOCIATION' });
+        }
+      }
+      continue;
     }
+    if (!u.name || typeof u.type !== 'string' || u.type.indexOf('Projects$') === 0) continue;
+    out.push({ qualifiedName: u.moduleName + '.' + u.name, objectType: MG_TYPE_MAP[u.type] || 'OTHER' });
   }
   return out;
 }
@@ -126,6 +150,7 @@ function mgKindForType(t) {
   if (t.endsWith('DeleteAction')) return 'delete';
   if (t.endsWith('ShowPageAction') || t.endsWith('ShowFormAction')) return 'show_page';
   if (t === 'DomainModels$Generalization') return 'generalize';
+  if (t === 'DomainModels$Association' || t === 'DomainModels$CrossAssociation') return 'associate';
   if (t === 'Navigation$HomePage') return 'home_page';
   if (t.endsWith('MicroflowSource') || t.endsWith('XPathSource') || t.endsWith('EntitySource')) return 'datasource';
   if (t === 'Forms$FormAction' || t === 'Forms$MicroflowAction' || t === 'Forms$NanoflowAction') return 'action';
@@ -133,9 +158,19 @@ function mgKindForType(t) {
   return null;
 }
 
-// Walk a decoded doc, emitting { from, to, kind } for every QN string that is a
-// known element. `kind` is the nearest enclosing $Type that implies one, else
-// the source default, else 'ref'.
+// Pushes { from, to, kind } once per distinct triple; never a self-edge (a
+// recursive microflow or a page naming itself does not keep itself alive).
+function mgAddRef(from, to, kind, refs, seen) {
+  if (from === to) return;
+  const sig = from + ' -> ' + to + ' :: ' + kind;
+  if (seen.has(sig)) return;
+  seen.add(sig);
+  refs.push({ from: from, to: to, kind: kind });
+}
+
+// Walk a decoded doc, emitting an edge for every string that is — or contains —
+// a known element's qualified name. `kind` is the nearest enclosing $Type that
+// implies one, else the source default, else 'ref'.
 function mgWalkRefs(node, kind, from, elements, refs, seen) {
   if (Array.isArray(node)) {
     for (let i = 0; i < node.length; i++) mgWalkRefs(node[i], kind, from, elements, refs, seen);
@@ -146,24 +181,30 @@ function mgWalkRefs(node, kind, from, elements, refs, seen) {
     const inferred = mgKindForType(node.$Type);
     if (inferred) here = inferred;
     for (const k in node) {
+      if (k === '$ID' || k === '$Type') continue;
       if (Object.prototype.hasOwnProperty.call(node, k)) {
         mgWalkRefs(node[k], here, from, elements, refs, seen);
       }
     }
     return;
   }
-  if (typeof node === 'string' && QN.test(node) && elements.has(node)) {
-    const finalKind = kind || 'ref';
-    const sig = from + ' -> ' + node + ' :: ' + finalKind;
-    if (!seen.has(sig)) {
-      seen.add(sig);
-      refs.push({ from: from, to: node, kind: finalKind });
-    }
+  if (typeof node !== 'string' || node.length < 3) return;
+  if (elements.has(node)) {
+    mgAddRef(from, node, kind || 'ref', refs, seen);
+    return;
+  }
+  if (node.indexOf('.') === -1) return;
+  QN_TOKEN.lastIndex = 0;
+  let m;
+  while ((m = QN_TOKEN.exec(node)) !== null) {
+    if (elements.has(m[0])) mgAddRef(from, m[0], kind || 'ref', refs, seen);
   }
 }
 
 // units: [{ id, type, name, moduleName, doc }].
 // Returns { elements: Set<qualifiedName>, refs: [{ from, to, kind }] }.
+// `from` is the referencing element (Module.Name), or the unit $Type for a
+// project-level unit (navigation, settings, security) that belongs to no module.
 function mgExtractRefs(units) {
   const list = Array.isArray(units) ? units : [];
   const typed = mgCollectElements(list);
@@ -174,29 +215,31 @@ function mgExtractRefs(units) {
   const seen = new Set();
 
   for (const u of list) {
-    if (!u.doc) continue;
+    if (!u || !u.doc) continue;
 
     if (u.type === 'DomainModels$DomainModel') {
       const mod = u.moduleName ? u.moduleName + '.' : '';
+      const entityById = {};
       for (const ent of mprArray(u.doc.Entities)) {
         if (!ent || typeof ent.Name !== 'string' || !ent.Name) continue;
+        if (typeof ent.$ID === 'string') entityById[ent.$ID] = mod + ent.Name;
         mgWalkRefs(ent, null, mod + ent.Name, elements, refs, seen);
+      }
+      // An association points at its entities by $ID (same module) or by
+      // qualified name (a cross-module child). Either way both ends are in use.
+      for (const a of mprArray(u.doc.Associations).concat(mprArray(u.doc.CrossAssociations))) {
+        if (!a || typeof a.Name !== 'string' || !a.Name) continue;
+        const from = mod + a.Name;
+        for (const end of [a.Parent, a.Child]) {
+          if (typeof end === 'string' && entityById[end]) mgAddRef(from, entityById[end], 'associate', refs, seen);
+        }
+        mgWalkRefs(a, 'associate', from, elements, refs, seen);
       }
       continue;
     }
 
-    const ot = MG_TYPE_MAP[u.type];
-    if (ot) {
-      if (!u.name || !u.moduleName) continue;
-      mgWalkRefs(u.doc, null, u.moduleName + '.' + u.name, elements, refs, seen);
-      continue;
-    }
-
-    const sourceKind = MG_SOURCE_KINDS[u.type];
-    if (sourceKind) {
-      const from = (u.moduleName && u.name) ? (u.moduleName + '.' + u.name) : u.type;
-      mgWalkRefs(u.doc, sourceKind, from, elements, refs, seen);
-    }
+    const from = (u.moduleName && u.name) ? (u.moduleName + '.' + u.name) : u.type;
+    mgWalkRefs(u.doc, MG_SOURCE_KINDS[u.type] || null, from, elements, refs, seen);
   }
 
   return { elements: elements, refs: refs };
@@ -204,18 +247,18 @@ function mgExtractRefs(units) {
 
 // ── dead-asset classification ───────────────────────────────────────────────
 // elements: [{ qualifiedName, objectType }] (from mgCollectElements or the
-// caller). refs: from mgExtractRefs.
+// caller). refs: from mgExtractRefs. Any inbound edge from something else keeps
+// an element alive — what kind of edge it is does not matter.
 // Returns { dead: [{ qualifiedName, objectType, reason }],
 //           uncertain: [{ qualifiedName, objectType, reason }] }.
 function mgFindDeadAssets(elements, refs) {
   const list = Array.isArray(elements) ? elements : [];
   const edges = Array.isArray(refs) ? refs : [];
 
-  const inbound = {};
+  const inbound = new Set();
   for (const r of edges) {
-    if (!r || typeof r.to !== 'string') continue;
-    if (!inbound[r.to]) inbound[r.to] = new Set();
-    inbound[r.to].add(r.kind);
+    if (!r || typeof r.to !== 'string' || r.from === r.to) continue;
+    inbound.add(r.to);
   }
 
   const dead = [];
@@ -223,75 +266,73 @@ function mgFindDeadAssets(elements, refs) {
 
   for (const el of list) {
     if (!el || typeof el.qualifiedName !== 'string') continue;
-    const kinds = inbound[el.qualifiedName];
-    const kindList = kinds ? Array.from(kinds) : [];
-    const shortName = el.qualifiedName.split('.').pop();
+    if (inbound.has(el.qualifiedName)) continue;
 
     if (el.objectType === 'ENUMERATION' || el.objectType === 'CONSTANT') {
-      if (!kinds || kinds.size === 0) {
-        uncertain.push({
-          qualifiedName: el.qualifiedName,
-          objectType: el.objectType,
-          reason: 'inbound edges for this type are not fully captured — verify before deleting'
-        });
-      }
+      uncertain.push({
+        qualifiedName: el.qualifiedName,
+        objectType: el.objectType,
+        reason: 'Java code can reference this type without the model showing it — verify before deleting'
+      });
       continue;
     }
-
     if (MG_CLASSIFY.indexOf(el.objectType) === -1) continue;
 
-    if (el.objectType === 'MICROFLOW' || el.objectType === 'NANOFLOW') {
-      const live = kindList.some(function (k) {
-        return k === 'ref' || MF_LIVE_KINDS.indexOf(k) !== -1;
-      });
-      if (live) continue;
-      const isEntry = ENTRY_PREFIXES.some(function (p) { return shortName.indexOf(p) === 0; });
-      dead.push({
-        qualifiedName: el.qualifiedName,
-        objectType: el.objectType,
-        reason: isEntry ? 'prefix suggests entry point' : 'no inbound reference'
-      });
-    } else if (el.objectType === 'PAGE' || el.objectType === 'SNIPPET') {
-      const live = kindList.some(function (k) {
-        return k === 'ref' || PAGE_LIVE_KINDS.indexOf(k) !== -1;
-      });
-      if (live) continue;
-      dead.push({
-        qualifiedName: el.qualifiedName,
-        objectType: el.objectType,
-        reason: 'no inbound reference'
-      });
-    } else if (el.objectType === 'ENTITY') {
-      if (kinds && kinds.size > 0) continue;
-      dead.push({
-        qualifiedName: el.qualifiedName,
-        objectType: el.objectType,
-        reason: 'no inbound reference'
-      });
-    }
+    const shortName = el.qualifiedName.split('.').pop();
+    const isFlow = el.objectType === 'MICROFLOW' || el.objectType === 'NANOFLOW';
+    const isEntry = isFlow && ENTRY_PREFIXES.some(function (p) { return shortName.indexOf(p) === 0; });
+    dead.push({
+      qualifiedName: el.qualifiedName,
+      objectType: el.objectType,
+      reason: isEntry ? 'prefix suggests entry point' : 'no inbound reference'
+    });
   }
 
   return { dead: dead, uncertain: uncertain };
 }
 
-// ── one-shot: units in -> report out ────────────────────────────────────────
+// ── one-shot helpers ────────────────────────────────────────────────────────
+// The expensive part — resolving modules and walking every unit — shared by the
+// dead-code and module reports so one read of a project serves both.
 // rawUnits: straight from mprReader.mprListUnits (no moduleName yet).
-function mgAnalyzeUnits(rawUnits) {
+function mgPrepare(rawUnits) {
   const units = mgResolveModuleNames(rawUnits);
   const elements = mgCollectElements(units);
-  const { refs } = mgExtractRefs(units);
-  const { dead, uncertain } = mgFindDeadAssets(elements, refs);
+  const refs = mgExtractRefs(units).refs;
+  return { units: units, elements: elements, refs: refs, marketplace: mgMarketplaceModules(rawUnits) };
+}
 
+function mgAnalyzeUnits(rawUnits, prepared) {
+  const prep = prepared || mgPrepare(rawUnits);
+  const { dead, uncertain } = mgFindDeadAssets(prep.elements, prep.refs);
+  const withModule = function (d) {
+    return Object.assign({ module: mgModuleOf(d.qualifiedName) }, d);
+  };
+
+  // What the view can list: the classified kinds plus enumerations / constants,
+  // with the Marketplace share apart so "X of Y" follows the view's filter.
+  const market = new Set(prep.marketplace);
   const byType = {};
-  for (const e of elements) byType[e.objectType] = (byType[e.objectType] || 0) + 1;
+  const byTypeMarketplace = {};
+  let listable = 0;
+  for (const e of prep.elements) {
+    if (e.objectType === 'OTHER' || e.objectType === 'ASSOCIATION') continue;
+    byType[e.objectType] = (byType[e.objectType] || 0) + 1;
+    if (market.has(mgModuleOf(e.qualifiedName))) {
+      byTypeMarketplace[e.objectType] = (byTypeMarketplace[e.objectType] || 0) + 1;
+    }
+    listable++;
+  }
 
   return {
-    dead: dead,
-    uncertain: uncertain,
+    dead: dead.map(withModule),
+    uncertain: uncertain.map(withModule),
+    marketplace: prep.marketplace,
     counts: {
-      elements: elements.length,
+      elements: listable,
       elementsByType: byType,
-      refs: refs.length,
+      elementsByTypeMarketplace: byTypeMarketplace,
+      refs: prep.refs.length,
       dead: dead.length,
       uncertain: uncertain.length
     }
@@ -323,12 +364,16 @@ function mgModuleOf(qn) {
   return i === -1 ? s : s.slice(0, i);
 }
 
+// Element-level examples kept per module edge, so a cycle can be traced back
+// to the microflow or page that closes it.
+const EDGE_SAMPLES = 3;
+
 // elements: [{ qualifiedName }] — the full node set, so a module with no edge
 // still appears. refs: [{ from, to, kind }], already filtered to endpoints
 // whose module is known (mgAnalyzeModules does this).
 // Returns { nodes: [moduleName] (sorted),
-//           edges: [{ from, to, kinds:[...] (sorted), count }] (cross-module,
-//                    directed, de-duplicated, most-referenced first) }.
+//           edges: [{ from, to, kinds:[...] (sorted), count, samples:[{from,to}] }]
+//                  (cross-module, directed, de-duplicated, most-referenced first) }.
 function mgModuleGraph(elements, refs) {
   const nodes = new Set();
   for (const el of (Array.isArray(elements) ? elements : [])) {
@@ -343,13 +388,15 @@ function mgModuleGraph(elements, refs) {
     nodes.add(tm);
     if (fm === tm) continue;
     const key = fm + '~' + tm;
-    if (!edgeMap[key]) edgeMap[key] = { from: fm, to: tm, kinds: new Set(), count: 0 };
-    edgeMap[key].kinds.add(r.kind || 'ref');
-    edgeMap[key].count++;
+    if (!edgeMap[key]) edgeMap[key] = { from: fm, to: tm, kinds: new Set(), count: 0, samples: [] };
+    const e = edgeMap[key];
+    e.kinds.add(r.kind || 'ref');
+    e.count++;
+    if (e.samples.length < EDGE_SAMPLES) e.samples.push({ from: r.from, to: r.to });
   }
   const edges = Object.keys(edgeMap).map(function (k) {
     const e = edgeMap[k];
-    return { from: e.from, to: e.to, kinds: Array.from(e.kinds).sort(), count: e.count };
+    return { from: e.from, to: e.to, kinds: Array.from(e.kinds).sort(), count: e.count, samples: e.samples };
   }).sort(function (a, b) {
     return b.count - a.count || (a.from + '>' + a.to).localeCompare(b.from + '>' + b.to);
   });
@@ -504,8 +551,8 @@ function mgCohesion(refs) {
 }
 
 // Modules with no cross-module reference edge in either direction. They may
-// still be wired by a domain-model association or a widget this walk does not
-// cover — the help text says so.
+// still be wired by a pluggable widget or by Java code this walk does not see —
+// the help text says so.
 function mgOrphanModules(nodes, edges) {
   const connected = new Set();
   for (const e of (Array.isArray(edges) ? edges : [])) {
@@ -533,17 +580,17 @@ function mgBlockers(refs) {
 }
 
 // One-shot: rawUnits straight from mprReader.mprListUnits -> the module report.
-function mgAnalyzeModules(rawUnits) {
-  const units = mgResolveModuleNames(rawUnits);
-  const elements = mgCollectElements(units);
+function mgAnalyzeModules(rawUnits, prepared) {
+  const prep = prepared || mgPrepare(rawUnits);
+  const elements = prep.elements;
 
   const known = new Set();
   for (const el of elements) known.add(mgModuleOf(el.qualifiedName));
 
   // Keep only edges whose BOTH endpoints resolve to a real module — mgExtractRefs
-  // can emit a `from` of a project-level unit ($Type string) for navigation /
+  // emits a `from` of a project-level unit ($Type string) for navigation /
   // scheduled events / settings, which are not modules.
-  const refs = mgExtractRefs(units).refs.filter(function (r) {
+  const refs = prep.refs.filter(function (r) {
     return r && known.has(mgModuleOf(r.from)) && known.has(mgModuleOf(r.to));
   });
 
@@ -556,6 +603,7 @@ function mgAnalyzeModules(rawUnits) {
 
   return {
     modules: graph.nodes,
+    marketplace: prep.marketplace,
     edges: graph.edges,
     cycles: cycles,
     layers: layers,
@@ -575,14 +623,14 @@ function mgAnalyzeModules(rawUnits) {
 module.exports = {
   QN,
   ENTRY_PREFIXES,
-  MF_LIVE_KINDS,
-  PAGE_LIVE_KINDS,
   mgResolveModuleNames,
+  mgMarketplaceModules,
   mgCollectElements,
   mgStringsIn,
   mgKindForType,
   mgExtractRefs,
   mgFindDeadAssets,
+  mgPrepare,
   mgAnalyzeUnits,
   mgModuleOf,
   mgModuleGraph,

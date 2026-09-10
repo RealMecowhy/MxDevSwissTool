@@ -129,10 +129,20 @@ setTimeout(async () => {
     );
     if (mprMissing.status !== 400) return fail('/model/mpr must reject a path that does not exist', 'status=' + mprMissing.status + ' body=' + mprMissing.body);
 
-    // The model-analysis routes built on the .mpr reader (dead-code, i18n,
+    // Explorer's "Copy as path" wraps the path in double quotes — accepted, so
+    // this reaches the "no such path" check instead of "must be absolute".
+    const mprQuoted = await request(
+      { path: '/model/mpr', method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Bridge-Token': parsed.token } },
+      JSON.stringify({ mprPath: '"C:\\does\\not\\exist.mpr"' })
+    );
+    if (mprQuoted.status !== 400 || !/No such path/.test(mprQuoted.body)) {
+      return fail('/model/mpr must accept a quoted absolute path', 'status=' + mprQuoted.status + ' body=' + mprQuoted.body);
+    }
+
+    // The model-analysis routes built on the .mpr reader (dead-code,
     // integrations, modules) share /model/mpr's validation — same token gate,
     // 405 on GET, 400 on a non-absolute path.
-    for (const route of ['/model/dead-code', '/model/i18n', '/model/integrations', '/model/modules']) {
+    for (const route of ['/model/dead-code', '/model/integrations', '/model/modules']) {
       console.log('Checking ' + route + ' requires a token and validates its path...');
       const noTok = await request(
         { path: route, method: 'POST', headers: { 'Content-Type': 'application/json' } },

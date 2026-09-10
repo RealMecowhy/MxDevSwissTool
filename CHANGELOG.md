@@ -14,109 +14,85 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
-## v1.60.0 — 2026-09-09
+## v1.60.0 — 2026-09-10
 
-**Developer Studio reads a `.mpr` project file directly, offline — and three new
+**Developer Studio reads a `.mpr` project file directly, offline — and three
 views build on it.** Until now the tool could describe a Mendix model only when
 the app had been run locally (`deployment/model/`), had a reachable database
 (`mendixsystem$*`), or opened in Studio Pro (`mx.exe`). A project handed over by
 a client and never run on this machine was a blind spot. A `.mpr` is a SQLite
-database whose model units are standard BSON, so a new **Project File (.mpr)**
-card on the Dashboard reads it with nothing running — SQLite (built into Node)
-plus the `bson` package — on Mendix 8–11, format v1 (units inline) and v2
-(`mprcontents/*.mxunit`). It reports the format and Mendix version,
-module/entity/microflow/page counts, and the project security settings: level,
-guest access, strict mode, whether an admin password is stored in the model, a
-weak-password-policy flag, and any role that manages all roles. Entity-level
-READ/WRITE is derived from member access the way Mendix itself derives it (there
-is no stored flag); stored passwords surface only as "is set" booleans, never as
-values. The reader opens the database read-only and never touches `_Transaction`
-(Studio Pro's external-change marker), so Studio Pro can stay open. It reflects
-the **last saved** state. New Bridge route `POST /model/mpr`. Verified: 541/541
-units of a Mendix 11.12 v2 app and 4196/4196 of a Mendix 9.24 v1 app (a 175 MB
-single-file `.mpr`) decode without a single failure.
+database whose model units are BSON, so a new **Project File (.mpr)** card on
+the Dashboard reads it with nothing running, on Mendix 8–11, format v1 (units
+inline) and v2 (`mprcontents/*.mxunit`). It reports the format and Mendix
+version, module (and Marketplace-module) / entity / microflow / page counts, and
+the project security settings: level, guest access, strict mode, whether an
+admin password is stored in the model, a weak-password-policy flag, and any role
+that manages all roles. Stored passwords surface only as "is set" booleans,
+never as values. The reader opens the database read-only and never touches
+`_Transaction` (Studio Pro's external-change marker), so Studio Pro can stay
+open. It reflects the **last saved** state. New Bridge route `POST /model/mpr`.
 
-On top of that reader, Developer Studio gains four offline analysis tabs:
+It needs **no npm package**: SQLite comes from Node itself (`node:sqlite`,
+loaded only when a `.mpr` is read, with a plain message on a Node older than
+22.5) and BSON is decoded by a small built-in decoder — the release package
+ships no `node_modules`, and the bridge is also what installs updates, so a
+dependency here would have stopped it from starting for everyone who updated.
+Checked on seven real projects (Mendix 9.24–11.12, both formats): all 21,306
+units decode, identically to the reference `bson` library. A new test fails the
+build if anything in `server/` ever requires an npm package at load time again.
+
+The model views share one read of a project: the bridge keeps the last one for
+a minute (and while the file is unchanged), reads a v2 project's unit files in
+parallel, and hands the event loop back while it reads, so a large project no
+longer freezes live log tailing and the other tools. A path copied with
+Explorer's "Copy as path" (quotes included) is accepted, and the offline screen
+now says the model views need no running app.
 
 ### Dead Code — model elements that nothing references
 
-**Developer Studio finds dead code — model elements that nothing references.**
 Studio Pro has no "find unused", so dead microflows, pages, snippets and
-entities accumulate for years. The new **Dead Code** tab reads the `.mpr`
-directly (the same offline SQLite + BSON reader as the Project File card),
-builds a reference graph from every unit, and lists the elements with no live
-inbound edge — grouped by kind, with the reason for each. An element is kept
-alive by a call, a scheduled event, a data source, a widget action, the
-project's after-startup / before-shutdown / health-check setting, a menu item,
-or the home/login page; an entity is kept alive by any retrieve, create,
-association or generalization edge. A microflow named `ACT_`, `SCH_`, `WS_`,
-`REST_` or `OData_` is still listed but tagged as a likely entry point.
-
-The finding is **conservative on purpose**: the reference check collects every
-qualified-name string that appears anywhere in a unit and resolves to a real
-element, so it over-collects slightly (a string literal that looks like a
-name) — a false "alive" is safe, a false "dead" is not. It reflects the
-**last saved** state of the project. Enumerations and constants are listed
-separately because their inbound edges are not fully tracked yet.
-
-New Bridge route `POST /model/dead-code` ({ mprPath | projectRoot }),
-validated and token-gated exactly as `/model/mpr`.
-### Translations — translation completeness per language
-
-**A Translations tab: translation completeness for the whole
-project.** Before a multi-language release, "which texts are not translated into
-language X" has no answer in Studio Pro short of clicking through every document.
-The new tab reads every translatable caption and label straight from the `.mpr`
-(a `Texts$Text` node in unit BSON, on the offline plan-006 reader — no database,
-no local run) and scores each against the project's enabled languages, read from
-the model's own language settings. It shows a translated-vs-total bar per
-language, the list of texts a given language is missing (grouped by language,
-with the document, the location inside it, and the default-language text — the
-list you would hand a translator), and a heuristic list of texts that exist only
-in the default language while the project is multi-language. System-module texts
-are platform-supplied and are excluded from "missing". The view is read-only — it
-reports gaps, it does not edit translations or export `.xlf`. New Bridge route
-`POST /model/i18n`. Verified against real projects: Calculator (17 languages, v2),
-Web Order Entry (17 languages, v1, 175 MB), and a single-language Mendix 11.12 app
-(one language, empty missing list).
+entities accumulate for years. The **Dead Code** tab lists the ones nothing in
+the model references, grouped by kind, with **Copy list** for a spreadsheet or a
+ticket. Every unit in the model is scanned — pages, microflows, layouts,
+navigation, published REST/SOAP/OData services, import/export mappings, Java
+action definitions — including names inside expressions, XPath and string
+literals (a `'Module.Microflow'` handed to a queue), and both ends of every
+association. Anything named anywhere counts as used, so the check errs toward
+"alive"; what it cannot see is outside the model (Java/JavaScript code, names
+built at runtime), and it says so. Modules installed from the **Marketplace**
+are hidden by default — their unused parts are not yours to delete. A microflow
+named `ACT_`, `SCH_`, `WS_`, `REST_` or `OData_` is tagged as a likely entry
+point; enumerations and constants are listed apart, since Java code can use
+them invisibly. New Bridge route `POST /model/dead-code`.
 
 ### Integrations — the audit surface, read from the model
 
-**An "Integrations" tab — the audit-surface inventory,
-read from the model.** "What does this app expose, and what does it call out
-to?" was answerable today only by replaying production logs. The model already
-holds it: the new tab reads the `.mpr` directly (no app running) and lists the
-**published REST** services with their resources and per-operation microflows,
-the **published OData** services with their entity sets, any **consumed REST**
-clients, and **Business Event** channels. The **authentication** is the point —
-a published service with no allowed roles and no authentication microflow
-answers anonymous callers, and every such service is flagged. Consumed base
-URLs backed by a Constant are shown as the reference, never the resolved
-per-environment value. New Bridge route `POST /model/integrations`
-(`{ mprPath }` or `{ projectRoot }`), behind the same token and path validation
-as `/model/mpr`. SOAP and legacy web services are out of scope; contract
-validation is inventory-only. Verified on a real Mendix 9.24 project: 6
-published REST services / 8 operations and 1 OData service, 3 REST services
-correctly flagged as reachable without sign-in.
+"What does this app expose, and what does it call out to?" The **Integrations**
+tab answers from the model with no app running: **published REST, OData
+(Mendix 9 and 10+ formats) and SOAP** services with the microflow or entity
+behind every operation, **every REST call the microflows make** (grouped by
+host or by the constant the URL starts with, with the URL template and its
+parameters), consumed REST documents and Business Event channels. A published
+service set to *Requires authentication: No* is flagged as answering anyone
+(its allowed roles then do not apply), one that requires sign-in but allows no
+role is flagged too, and so is a REST call with a **password or token typed
+straight into the microflow** — the value itself never leaves the bridge. New
+Bridge route `POST /model/integrations`.
 
 ### Modules — the dependency graph, made actionable
 
-**A "Modules" tab that turns the module dependency graph into an answer to
-"can these modules be separated?".** The same reference walk that finds dead
-code, collapsed to modules, is a *directed* dependency graph — and it exposes
-what the association diagram in Domain Model & Architecture cannot: **dependency
-cycles** (strongly-connected components, computed with Tarjan's algorithm —
-modules in a cycle deploy and version together, none can be extracted without
-the rest), the **topological layer** of each module (foundational vs leaf),
-**orphan modules** with no reference edge either way, cross-module
-**inheritance** (an entity generalising one in another module — the hard blocker
-for a split, since breaking it needs a data migration), and a per-module
-**cohesion** figure (the share of a module's references that stay internal). It
-is the *behavioural* graph — microflow calls, retrieves, page opens,
-generalizations — read from the `.mpr` with no database and no local run, not
-the undirected association graph the Architecture tool draws (which also needs a
-live database). New Bridge route `POST /model/modules` (`{ mprPath }` or
-`{ projectRoot }`), behind the same token and path validation as `/model/mpr`.
+The same reference walk, collapsed to modules, is a *directed* dependency graph
+— microflow and Java-action calls, retrieves, page opens, layouts,
+associations, generalizations. The **Modules** tab shows **dependency cycles**
+(strongly-connected components — modules in one deploy and version together)
+with the **lightest dependencies inside each cycle** and an element-level
+example of each, the cheapest places to start untangling; the **topological
+layer** of each module; **orphan modules**; cross-module **inheritance** (the
+hard blocker for a split, since breaking it needs a data migration); and a
+per-module **cohesion** figure. Marketplace modules are left out of the lists
+unless asked for. It is the behavioural graph read from the `.mpr` — not the
+undirected association graph the Architecture tool draws from a live database.
+New Bridge route `POST /model/modules`.
 
 ## v1.59.0 — 2026-09-09
 
