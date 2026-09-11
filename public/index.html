@@ -103,7 +103,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.61.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.62.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -289,7 +289,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.61.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.62.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -2322,7 +2322,7 @@
                <div style="display:flex; flex-direction:column; gap:var(--sp-1);">
                <label style="font-size:0.85rem; color:var(--text-secondary);">Or specify manual Project Root Path:</label>
                <input type="text" id="ds-manual-path" class="input" style="width:100%" placeholder="e.g. C:\Mendix_Projects\MyFirstApp">
-               <span style="font-size:0.78rem; color:var(--text-muted); line-height:1.5">The model views &mdash; Project File, Dead Code, Integrations, Modules &mdash; read the <code>.mpr</code> and need no running app: enter the project folder and press Connect.</span>
+               <span style="font-size:0.78rem; color:var(--text-muted); line-height:1.5">The model views &mdash; Project File, Dead Code, Integrations, Modules, Navigate &mdash; read the <code>.mpr</code> and need no running app: enter the project folder and press Connect.</span>
              </div>
            </div>
 
@@ -2346,6 +2346,7 @@
           <button type="button" class="tab" data-help-key="dev-studio-deadcode" aria-selected="false" onclick="dsSetTab('deadcode',this)">Dead Code</button>
           <button type="button" class="tab" data-help-key="dev-studio-integrations" aria-selected="false" onclick="dsSetTab('integrations',this)">Integrations</button>
           <button type="button" class="tab" data-help-key="dev-studio-modules" aria-selected="false" onclick="dsSetTab('modules',this)">Modules</button>
+          <button type="button" class="tab" data-help-key="dev-studio-navigate" aria-selected="false" onclick="dsSetTab('navigate',this)">Navigate</button>
         </div>
 
         <!-- DASHBOARD VIEW -->
@@ -2697,6 +2698,35 @@
           </div>
         </div>
         <!-- /ds-modules-view -->
+
+        <!-- NAVIGATE VIEW (plan 011) -->
+        <div id="ds-navigate-view" style="display:none; flex-direction:column; gap:var(--sp-4); width:100%">
+          <div class="card" style="padding:var(--sp-4)">
+            <h4 style="margin:0 0 var(--sp-2) 0; color:var(--text-primary)">Navigate</h4>
+            <p style="color:var(--text-secondary); font-size:0.86rem; line-height:1.6; margin:0 0 var(--sp-3)">
+              What references an element, what it references, and what can break when you change it &mdash;
+              <strong>transitively</strong>, where Studio Pro's <em>Find usages</em> stops after one hop. Pick a
+              microflow, page, entity or any other element and ask for its <strong>callers</strong>,
+              <strong>callees</strong>, <strong>impact</strong> or <strong>context</strong>. The same read lists
+              <strong>database queries repeated inside a loop</strong> &mdash; including the ones hidden behind a
+              sub-microflow call, which Studio Pro's Best Practice check cannot see.
+            </p>
+            <ul style="color:var(--text-muted); font-size:0.8rem; line-height:1.7; margin:0 0 var(--sp-3); padding-left:1.1rem">
+              <li>Only a value that names an element counts &mdash; a call, a retrieve, a button, a data source, an XPath. A caption or documentation that happens to read like a name does not.</li>
+              <li>It reflects the <strong>last saved</strong> state of the project.</li>
+            </ul>
+            <div style="display:flex; gap:var(--sp-2)">
+              <input type="text" id="ds-navigate-path" placeholder="Path to a .mpr file or project folder"
+                style="flex:1; min-width:0; font-family:var(--font-mono); font-size:0.78rem; padding:var(--sp-2); background:var(--bg-base); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-primary)">
+              <button class="btn btn-secondary" style="font-size:0.8rem; white-space:nowrap" onclick="dsNavLoad()">Analyse</button>
+            </div>
+          </div>
+
+          <div id="ds-navigate-body" style="font-size:0.85rem">
+            <span style="color:var(--text-muted)">Point it at a <code>.mpr</code> file or the project folder and press <strong>Analyse</strong>.</span>
+          </div>
+        </div>
+        <!-- /ds-navigate-view -->
 
       </div>
     </div>

@@ -5776,6 +5776,153 @@ const mg = require('../server/model-graph.js');
   ok('mg: counts echo the findings', report.counts.cycles === 1 && report.counts.blockers === 1);
 })();
 
+// ── Model graph precise / navigation (plan 011, server/model-graph.js) ────
+// A precise reference graph (a property value that names an element — never a
+// caption), the transitive callers / callees / impact / context queries on it,
+// and the database-query-in-a-loop check (PERF02 / PERF03).
+(function () {
+  let seq = 0;
+  const act = (action, extra) => Object.assign({ $ID: 'act' + (++seq), $Type: 'Microflows$ActionActivity', Action: action }, extra || {});
+  const call = (qn) => act({ $Type: 'Microflows$MicroflowCallAction', MicroflowCall: { $Type: 'Microflows$MicroflowCall', Microflow: qn } });
+  const dbRetrieve = (ent) => act({ $Type: 'Microflows$RetrieveAction', RetrieveSource: { $Type: 'Microflows$DatabaseRetrieveSource', Entity: ent, XpathConstraint: '' } });
+  const loop = (objects, list) => ({
+    $Type: 'Microflows$LoopedActivity',
+    LoopSource: { $Type: 'Microflows$IterableList', ListVariableName: list || 'Items' },
+    ObjectCollection: { $Type: 'Microflows$MicroflowObjectCollection', Objects: [3].concat(objects) }
+  });
+  const flow = (mod, id, name, objects) => ({
+    id: id, containerId: mod, type: 'Microflows$Microflow', name: name,
+    doc: { $Type: 'Microflows$Microflow', Name: name, ObjectCollection: { $Type: 'Microflows$MicroflowObjectCollection', Objects: [3].concat(objects) } }
+  });
+  const hex = (n) => 'aa' + String(n).padStart(30, '0');
+
+  // Mod.A calls Mod.B, B retrieves Mod.Order, page Mod.C has a button that
+  // runs A (and a title that merely reads "Mod.B"), Mod.Special generalizes
+  // Order, Order_Customer links Order and Customer by $ID, Mod.E changes an
+  // attribute of Order, Mod.D calls a Java action that does not exist and one in
+  // System, and an excluded microflow calls A.
+  const raw = [
+    { id: 'mod', containerId: null, type: 'Projects$ModuleImpl', name: 'Mod', doc: {} },
+    flow('mod', 'a', 'A', [call('Mod.B')]),
+    flow('mod', 'b', 'B', [dbRetrieve('Mod.Order')]),
+    { id: 'c', containerId: 'mod', type: 'Forms$Page', name: 'C', doc: {
+      $Type: 'Forms$Page', Name: 'C',
+      Title: { $Type: 'Texts$Text', Items: [2, { $Type: 'Texts$Translation', LanguageCode: 'en_US', Text: 'Mod.B' }] },
+      Widgets: [2, { $Type: 'Forms$ActionButton',
+        Action: { $Type: 'Forms$MicroflowAction', MicroflowSettings: { $Type: 'Forms$MicroflowSettings', Microflow: 'Mod.A' } } }]
+    } },
+    flow('mod', 'd', 'D', [
+      act({ $Type: 'Microflows$JavaActionCallAction', JavaAction: 'Mod.Ghost' }),
+      act({ $Type: 'Microflows$JavaActionCallAction', JavaAction: 'System.VerifyPassword' })
+    ]),
+    flow('mod', 'e', 'E', [act({ $Type: 'Microflows$ChangeAction', ChangeVariableName: 'o', Commit: 'No',
+      Items: [2, { $Type: 'Microflows$ChangeActionItem', Attribute: 'Mod.Order.Total', Value: '' }] })]),
+    { id: 'dm', containerId: 'mod', type: 'DomainModels$DomainModel', name: null, doc: {
+      $Type: 'DomainModels$DomainModel',
+      Entities: [2,
+        { $ID: hex(1), $Type: 'DomainModels$Entity', Name: 'Order',
+          Attributes: [2, { $ID: hex(11), $Type: 'DomainModels$Attribute', Name: 'Total' }],
+          MaybeGeneralization: { $Type: 'DomainModels$NoGeneralization', Persistable: true } },
+        { $ID: hex(2), $Type: 'DomainModels$Entity', Name: 'Special',
+          MaybeGeneralization: { $Type: 'DomainModels$Generalization', Generalization: 'Mod.Order' } },
+        { $ID: hex(3), $Type: 'DomainModels$Entity', Name: 'Customer' }],
+      Associations: [2, { $ID: hex(4), $Type: 'DomainModels$Association', Name: 'Order_Customer',
+        ParentPointer: hex(1), ChildPointer: hex(3) }]
+    } },
+    flow('mod', 'x', 'Old', [call('Mod.A')])
+  ];
+  raw[raw.length - 1].doc.Excluded = true;
+
+  const prep = mg.mgPrepare(raw);
+  const g = mg.mgExtractRefsPrecise(prep.units);
+  const has = (from, to, kind) => g.refs.some(r => r.from === from && r.to === to && (!kind || r.kind === kind));
+  ok('mg011: A -> B is a call', has('Mod.A', 'Mod.B', 'call'));
+  ok('mg011: B -> Order is a retrieve', has('Mod.B', 'Mod.Order', 'retrieve'));
+  ok('mg011: page C -> A is a button action', has('Mod.C', 'Mod.A', 'action'));
+  ok('mg011: Special -> Order is a generalization', has('Mod.Special', 'Mod.Order', 'generalize'));
+  ok('mg011: an association reaches both entities through their $IDs',
+    has('Mod.Order_Customer', 'Mod.Order', 'associate') && has('Mod.Order_Customer', 'Mod.Customer', 'associate'));
+  ok('mg011: an attribute path resolves to its entity', has('Mod.E', 'Mod.Order', 'change'));
+  ok('mg011: a caption that reads like a name makes no edge', !has('Mod.C', 'Mod.B'));
+  ok('mg011: an excluded document makes no edge', !has('Mod.Old', 'Mod.A'));
+  eq('mg011: a reference to a missing element is counted as unresolved', g.unresolved, 1);
+  ok('mg011: ... and never emitted as an edge', !g.refs.some(r => r.to === 'Mod.Ghost'));
+  eq('mg011: the unresolved sample names its property', g.unresolvedSamples[0] && g.unresolvedSamples[0].prop, 'JavaAction');
+  eq('mg011: a System reference is counted apart, not as unresolved', g.system, 1);
+
+  const nav = mg.mgNavPrepare(prep);
+  const names = (r) => r.items.map(i => i.qn).sort().join(',');
+  eq('mg011: direct callers of B', names(mg.mgCallers(nav, 'Mod.B')), 'Mod.A');
+  const allCallersB = mg.mgCallers(nav, 'Mod.B', { depth: 0 });
+  const viaPage = allCallersB.items.find(i => i.qn === 'Mod.C');
+  ok('mg011: transitive callers of B reach the page', !!viaPage);
+  eq('mg011: the page is two hops away, reached via A', viaPage && (viaPage.depth + ' ' + viaPage.via), '2 Mod.A');
+  eq('mg011: direct callees of A stop at B', names(mg.mgCallees(nav, 'Mod.A')), 'Mod.B');
+  ok('mg011: transitive callees of A reach Order', mg.mgCallees(nav, 'Mod.A', { depth: 0 }).items.some(i => i.qn === 'Mod.Order'));
+
+  const imp = mg.mgImpact(nav, 'Mod.Order');
+  eq('mg011: impact of Order — retrieved by B', (imp.byKind.retrieve || []).join(','), 'Mod.B');
+  eq('mg011: impact of Order — generalized by Special', (imp.byKind.generalize || []).join(','), 'Mod.Special');
+  eq('mg011: impact of Order — changed by E', (imp.byKind.change || []).join(','), 'Mod.E');
+  eq('mg011: impact of Order — its association', (imp.byKind.associate || []).join(','), 'Mod.Order_Customer');
+  ok('mg011: impact of Order reaches A and the page transitively',
+    imp.transitive.some(i => i.qn === 'Mod.A') && imp.transitive.some(i => i.qn === 'Mod.C'));
+  eq('mg011: impact byType counts the page', imp.byType.PAGE, 1);
+
+  const ctx = mg.mgContext(nav, 'Mod.Order');
+  eq('mg011: context names the element type', ctx.element.objectType, 'ENTITY');
+  eq('mg011: context counts the entity attributes', ctx.element.attributes, 1);
+  ok('mg011: context lists the generalization and the association it takes part in',
+    ctx.participates.some(p => p.kind === 'generalize' && p.from === 'Mod.Special') &&
+    ctx.participates.some(p => p.kind === 'associate' && p.from === 'Mod.Order_Customer'));
+  eq('mg011: context of a microflow counts its activities', mg.mgContext(nav, 'Mod.B').element.activities, 1);
+
+  const cyc = { index: mg.mgRefIndex([{ from: 'X.a', to: 'X.b', kind: 'call' }, { from: 'X.b', to: 'X.a', kind: 'call' }]) };
+  eq('mg011: a call cycle terminates', names(mg.mgCallers(cyc, 'X.a', { depth: 0 })), 'X.b');
+  const chain = [];
+  for (let i = 0; i < 30; i++) chain.push({ from: 'C.n' + (i + 1), to: 'C.n' + i, kind: 'call' });
+  const capped = mg.mgCallers({ index: mg.mgRefIndex(chain) }, 'C.n0', { depth: 0, cap: 10 });
+  ok('mg011: the node cap stops the walk and says so', capped.items.length === 10 && capped.truncated === true);
+
+  // PERF02 / PERF03 — a separate module so the loop fixtures stay readable.
+  const L = (id, name, objects) => flow('lm', id, name, objects);
+  const lraw = [
+    { id: 'lm', containerId: null, type: 'Projects$ModuleImpl', name: 'L', doc: {} },
+    L('l1', 'InLoop', [loop([dbRetrieve('L.Order')], 'Orders')]),
+    L('l2', 'NoLoop', [dbRetrieve('L.Order')]),
+    L('l3', 'SplitInLoop', [loop([{ $Type: 'Microflows$ExclusiveSplit', SplitCondition: { $Type: 'Microflows$ExpressionSplitCondition', Expression: 'true' } }, dbRetrieve('L.Order')])]),
+    L('l4', 'Nested', [loop([loop([dbRetrieve('L.Order')], 'Inner')], 'Outer')]),
+    L('l5', 'AssocInLoop', [loop([act({ $Type: 'Microflows$RetrieveAction', RetrieveSource: { $Type: 'Microflows$AssociationRetrieveSource', AssociationId: 'L.A_B', StartVariableName: 'x' } })])]),
+    L('l6', 'DisabledInLoop', [loop([Object.assign(dbRetrieve('L.Order'), { Disabled: true })])]),
+    L('l7', 'CallsInLoop', [loop([call('L.Mid')])]),
+    L('l8', 'Mid', [call('L.Leaf')]),
+    L('l9', 'Leaf', [dbRetrieve('L.Order')]),
+    L('l10', 'CycleCaller', [loop([call('L.P')])]),
+    L('l11', 'P', [call('L.Q')]),
+    L('l12', 'Q', [call('L.P')]),
+    L('l13', 'CommitCaller', [loop([call('L.Saver')])]),
+    L('l14', 'Saver', [act({ $Type: 'Microflows$ChangeAction', ChangeVariableName: 'o', Commit: 'Yes' })])
+  ];
+  const lr = mg.mgLoopDbAccess(mg.mgNavPrepare(mg.mgPrepare(lraw)));
+  const f = (mf, id) => lr.findings.filter(x => x.microflow === mf && (!id || x.id === id));
+  eq('mg011: a database retrieve in a loop is PERF02', f('L.InLoop', 'PERF02').length, 1);
+  eq('mg011: PERF02 names the list the loop iterates', f('L.InLoop', 'PERF02')[0].loop, 'Orders');
+  eq('mg011: the same retrieve outside a loop is not flagged', f('L.NoLoop').length, 0);
+  eq('mg011: a retrieve beside a split inside a loop is PERF02', f('L.SplitInLoop', 'PERF02').length, 1);
+  eq('mg011: a retrieve in nested loops is reported once', f('L.Nested', 'PERF02').length, 1);
+  eq('mg011: ... under the loop that holds it', f('L.Nested', 'PERF02')[0].loop, 'Inner');
+  eq('mg011: an association retrieve in a loop is not flagged', f('L.AssocInLoop').length, 0);
+  eq('mg011: a disabled activity in a loop is not flagged', f('L.DisabledInLoop').length, 0);
+  const p3 = f('L.CallsInLoop', 'PERF03');
+  eq('mg011: a loop calling a sub-flow that retrieves is one PERF03', p3.length, 1);
+  eq('mg011: PERF03 reports the call chain', p3[0] && p3[0].chain.join(' -> '), 'L.Mid -> L.Leaf');
+  eq('mg011: PERF03 names the entity', p3[0] && p3[0].entity, 'L.Order');
+  eq('mg011: a call cycle with no database access terminates without a finding', f('L.CycleCaller').length, 0);
+  eq('mg011: a sub-flow that commits is PERF03 too',
+    f('L.CommitCaller', 'PERF03').map(x => x.what + ':' + x.chain.join('>')).join(), 'commit:L.Saver');
+  eq('mg011: counts add up', lr.counts.PERF02 + '/' + lr.counts.PERF03, '3/2');
+})();
+
 // ── Model integrations (plan 014, server/model-integrations.js) ─────────────
 // Pure shaping over mprListUnits() output: published REST / OData services,
 // consumed REST clients, Business Event channels, and the authentication that

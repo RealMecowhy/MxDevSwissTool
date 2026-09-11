@@ -148,7 +148,7 @@ setTimeout(async () => {
     // The model-analysis routes built on the .mpr reader (dead-code,
     // integrations, modules) share /model/mpr's validation — same token gate,
     // 405 on GET, 400 on a non-absolute path.
-    for (const route of ['/model/dead-code', '/model/integrations', '/model/modules']) {
+    for (const route of ['/model/dead-code', '/model/integrations', '/model/modules', '/model/refs']) {
       console.log('Checking ' + route + ' requires a token and validates its path...');
       const noTok = await request(
         { path: route, method: 'POST', headers: { 'Content-Type': 'application/json' } },

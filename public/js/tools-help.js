@@ -905,9 +905,9 @@ Customer [1] -- [*] Order : places</pre>
   },
   'dev-studio': {
     title: 'Mendix Developer Studio Connector',
-    description: 'Local inspector for a Mendix project running on your machine: <strong>Dashboard</strong> (project and database configuration, live metrics, roles, scheduled events, deployment model, and an offline <code>.mpr</code> reader), <strong>Security Matrix</strong> (every entity and document access rule, per role, exported by <code>mx.exe</code>), <strong>Dead Code</strong> (model elements nothing references), <strong>Integrations</strong> (published REST/OData/SOAP services with their authentication, and the REST calls the app makes) and <strong>Modules</strong> (dependency cycles, layers and inheritance blockers) &mdash; the last three read straight from the <code>.mpr</code>, offline.',
+    description: 'Local inspector for a Mendix project running on your machine: <strong>Dashboard</strong> (project and database configuration, live metrics, roles, scheduled events, deployment model, and an offline <code>.mpr</code> reader), <strong>Security Matrix</strong> (every entity and document access rule, per role, exported by <code>mx.exe</code>), <strong>Dead Code</strong> (model elements nothing references), <strong>Integrations</strong> (published REST/OData/SOAP services with their authentication, and the REST calls the app makes) <strong>Modules</strong> (dependency cycles, layers and inheritance blockers) and <strong>Navigate</strong> (transitive callers, callees and impact of any element, and database queries repeated inside loops) &mdash; the last four read straight from the <code>.mpr</code>, offline.',
     howToGet: 'Run your project locally in Mendix Studio Pro and start the local bridge. See the Dashboard tab help for details.',
-    howToUse: 'Connect to a project, then switch between the Dashboard, Security Matrix, Dead Code, Integrations and Modules tabs. The last three need no running app &mdash; a project folder is enough.'
+    howToUse: 'Connect to a project, then switch between the Dashboard, Security Matrix, Dead Code, Integrations, Modules and Navigate tabs. The last four need no running app &mdash; a project folder is enough.'
   },
   'dev-studio-dashboard': {
     title: 'Developer Studio — Dashboard',
@@ -1019,6 +1019,30 @@ Customer [1] -- [*] Order : places</pre>
         <li><strong>Orphan modules</strong> &mdash; no reference edge in either direction. A pluggable widget, a theme or Java code can still use them without the model showing it, so treat it as &ldquo;no behavioural coupling&rdquo;, not &ldquo;unused&rdquo;.</li>
         <li><strong>Cohesion</strong> &mdash; the share of a module's references that stay inside it (<em>internal ÷ (internal + external)</em>). A low figure means the module's behaviour is entangled with other modules. Listed least-cohesive first.</li>
         <li><strong>Marketplace modules</strong> are left out of layers, orphans, blockers and cohesion by default &mdash; tick <em>Include Marketplace modules</em> to see them. Cycles always show every module in them.</li>
+        <li>It reflects the <strong>last saved</strong> state of the project &mdash; unsaved edits in Studio Pro are not in the file yet.</li>
+      </ol>
+    `
+  },
+  'dev-studio-navigate': {
+    title: 'Developer Studio — Navigate',
+    description: 'Callers, callees and impact for any model element, <strong>transitively</strong> &mdash; Studio Pro&rsquo;s <em>Find usages</em> stops after one hop and one direction. Plus the database queries a loop repeats on every pass, including the ones hidden inside a sub-microflow. Read straight from the <code>.mpr</code> &mdash; no database, no local run.',
+    howToGet: `
+      <ul>
+        <li>The bridge must be running. No PostgreSQL and no Studio Pro are needed &mdash; this reads the project file, on Mendix 8&ndash;11, both <code>.mpr</code> storage formats.</li>
+        <li>Point the field at a <code>.mpr</code> file or the project folder and press <strong>Analyse</strong>. If you are connected to a project on the Dashboard tab, the path is filled in for you.</li>
+      </ul>
+    `,
+    howToUse: `
+      <ol>
+        <li><strong>Pick an element</strong> &mdash; type part of its name and choose it from the list (microflows, nanoflows, pages, snippets, entities, associations, enumerations, constants, Java actions, layouts, published services&hellip;). Then press one of the four buttons.</li>
+        <li><strong>Callers</strong> &mdash; everything that references the element: microflows that call or retrieve it, pages whose buttons or data sources use it, navigation, scheduled events, published services. <strong>Callees</strong> &mdash; everything the element references. With <em>Depth</em> above <em>Direct</em> the walk continues from each result, drawn as an indented tree: an element appears once, under the one it was first reached from.</li>
+        <li><strong>Impact</strong> &mdash; what can break when you change or delete the element: all of its callers, at every level. The direct references are grouped by how they use it &mdash; for an entity: who <em>retrieves</em>, <em>creates</em>, <em>changes</em> it, which entities <em>generalize</em> it, its <em>associations</em>, the <em>XPath</em> constraints and <em>parameters</em> typed as it. An attribute of an entity counts as the entity.</li>
+        <li><strong>Context</strong> &mdash; one package for a code review or an AI assistant: what the element is (its parameters and activity count for a flow, attributes and generalization for an entity), its direct callers and callees, and the associations and generalizations it takes part in.</li>
+        <li>Click any name in a result to ask the same question about it.</li>
+        <li><strong>Only a value that names an element counts</strong> &mdash; a call, a retrieve, a button, a data source, a parameter type, an XPath or an expression. A caption or documentation that happens to read like a name does not, and neither do documents excluded from the project. Dead Code deliberately uses a looser check (any name found anywhere keeps an element alive); the two answer different questions.</li>
+        <li><strong>Unresolved references</strong> &mdash; a reference property naming something that is not in the model (usually a leftover Studio Pro would flag as an error). A high count means some references could not be followed, so treat the results as a lower bound. References into the <code>System</code> module are counted apart: they are real but have nothing to open.</li>
+        <li>A walk stops after <strong>5,000 elements</strong> and says so &mdash; on a large app, transitive impact of a core entity can reach most of the model; lower the depth to see the nearest part.</li>
+        <li><strong>Database queries in loops</strong> &mdash; the pre-deploy companion to the Microflow Tracer&rsquo;s log-based N+1 detection. <em>PERF02</em>: a retrieve from the database inside a loop &mdash; one query per iteration. <em>PERF03</em>: a loop calling a sub-microflow that, directly or further down its calls, retrieves from the database or commits &mdash; the same cost, invisible to Studio Pro&rsquo;s Best Practice check because that check looks at one microflow at a time. The chain shows which call leads to the query. Retrieves over an association are left out (often served from memory), and so is a commit directly in a loop, which Studio Pro already flags. The section is hidden when nothing is found.</li>
         <li>It reflects the <strong>last saved</strong> state of the project &mdash; unsaved edits in Studio Pro are not in the file yet.</li>
       </ol>
     `

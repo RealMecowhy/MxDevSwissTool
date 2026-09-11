@@ -631,9 +631,557 @@ function mgAnalyzeModules(rawUnits, prepared) {
   };
 }
 
+// =========================================================================
+// PRECISE REFERENCE GRAPH + NAVIGATION — callers / callees / impact (Plan 011)
+// =========================================================================
+// The dead-code walk above counts a name found anywhere, a caption included —
+// safe for "is it used?", wrong for "what breaks if I change it?", where a false
+// edge sends someone to test the wrong thing. This graph only takes a property
+// VALUE that names an element outright:
+//   - the whole string is a qualified name (`Mod.ACT_Save`), or a member of one
+//     (`Mod.Order.Total` -> the entity, `Mod.Status.Open` -> the enumeration,
+//     `Mod.Page.Param` -> the page);
+//   - it is the `$ID` of an entity, attribute or association (the pointers an
+//     association keeps to its two entities);
+//   - it is a token inside an expression or an XPath constraint.
+// Captions, documentation and names never make an edge. The edge kind is the
+// nearest enclosing $Type that implies one (a retrieve, a call, a button ...).
+//
+// Matching on values rather than on a per-$Type property table keeps it working
+// across Mendix versions — Studio Pro 11 still stores Mendix 9's type names
+// (`ShowFormAction`, `CreateChangeAction`, `ChangeAction`), and a table would
+// miss whatever it did not list. What a table is good for — "did we fail to
+// resolve something?" — is kept: a value in a known reference property that
+// names nothing in the model is counted as unresolved.
+// =========================================================================
+
+// Properties that hold a by-name reference. A non-empty value here that
+// resolves to nothing is counted as unresolved (the health metric).
+const MG_REF_PROPS = new Set([
+  'Microflow', 'Nanoflow', 'Page', 'Form', 'Snippet', 'Layout', 'Entity',
+  'JavaAction', 'JavaScriptAction', 'Generalization', 'Enumeration', 'Constant',
+  'Rule', 'Attribute', 'Association', 'AssociationId', 'Workflow',
+  'AfterStartupMicroflow', 'BeforeShutdownMicroflow', 'HealthCheckMicroflow'
+]);
+// Free text that can look like a name but never references anything.
+const MG_TEXT_PROPS = new Set(['Documentation', 'Name', 'Text', 'Caption', 'GUID', 'ExportLevel']);
+// Expression / XPath properties — scanned for name tokens.
+const MG_EXPR_PROP = /^(xpathconstraint|expression|value|initialvalue|argument|returnvalue)$/i;
+const MG_HEX_ID = /^[0-9a-f]{32}$/;
+// Every breadth-first walk stops after this many elements and says so.
+const MG_NODE_CAP = 5000;
+const MG_SAMPLE_CAP = 20;
+
+// The edge kind a $Type implies, beyond what mgKindForType knows: the storage
+// names Studio Pro actually writes, and the non-activity references.
+function mgPreciseKind(t) {
+  if (typeof t !== 'string' || !t) return null;
+  if (t === 'Microflows$CreateChangeAction') return 'create';
+  if (t === 'Microflows$ChangeAction') return 'change';
+  if (t === 'Microflows$CommitAction') return 'commit';
+  if (t === 'Microflows$JavaActionCallAction' || t === 'Microflows$JavaScriptActionCallAction') return 'call';
+  if (t === 'Microflows$RuleCall' || t === 'Microflows$MicroflowParameterValue') return 'call';
+  if (t === 'Mappings$MappingMicroflowCallImpl') return 'call';
+  if (t === 'DomainModels$EventHandler') return 'event_handler';
+  if (t === 'DomainModels$CalculatedValue') return 'calculate';
+  if (t === 'Forms$SnippetCall') return 'snippet';
+  if (t === 'Forms$LayoutCall') return 'layout';
+  if (t === 'Forms$AttributeRef') return 'attribute';
+  if (t === 'Microflows$MicroflowParameter' || t === 'Microflows$MicroflowParameterObject') return 'parameter';
+  if (t === 'Forms$PageParameter' || t === 'Forms$SnippetParameter') return 'parameter';
+  if (t.endsWith('MappingElement')) return 'mapping';
+  if (t.indexOf('$Published') !== -1) return 'publish';
+  if (/^(Forms|CustomWidgets)\$\w*Source$/.test(t)) return 'datasource';
+  return mgKindForType(t);
+}
+
+// $ID -> qualified name, for the references Mendix stores by id: entities,
+// their attributes (-> the entity), associations, and named module units.
+function mgIdMap(units) {
+  const map = {};
+  for (const u of (Array.isArray(units) ? units : [])) {
+    if (!u || !u.doc || !u.moduleName) continue;
+    if (u.type === 'DomainModels$DomainModel') {
+      for (const e of mprArray(u.doc.Entities)) {
+        if (!e || typeof e.Name !== 'string' || !e.Name) continue;
+        const qn = u.moduleName + '.' + e.Name;
+        if (typeof e.$ID === 'string') map[e.$ID] = qn;
+        for (const a of mprArray(e.Attributes)) {
+          if (a && typeof a.$ID === 'string') map[a.$ID] = qn;
+        }
+      }
+      for (const a of mprArray(u.doc.Associations).concat(mprArray(u.doc.CrossAssociations))) {
+        if (a && typeof a.Name === 'string' && a.Name && typeof a.$ID === 'string') map[a.$ID] = u.moduleName + '.' + a.Name;
+      }
+      continue;
+    }
+    if (u.name && typeof u.doc.$ID === 'string') map[u.doc.$ID] = u.moduleName + '.' + u.name;
+  }
+  return map;
+}
+
+// units: [{ id, type, name, moduleName, doc }] (mgResolveModuleNames output).
+// Returns { types: { qn: objectType }, refs: [{ from, to, kind }],
+//           unresolved, unresolvedSamples: [{ from, prop, value }], system }.
+// `system` counts references into the System module, which has no unit in the
+// .mpr — they are real, just not navigable, so they are not "unresolved".
+function mgExtractRefsPrecise(units) {
+  const list = Array.isArray(units) ? units : [];
+  const types = {};
+  for (const e of mgCollectElements(list)) types[e.qualifiedName] = e.objectType;
+  const idMap = mgIdMap(list);
+
+  const refs = [];
+  const seen = new Set();
+  const stat = { unresolved: 0, unresolvedSamples: [], system: 0 };
+
+  const resolve = function (s) {
+    if (Object.prototype.hasOwnProperty.call(types, s)) return s;
+    if (MG_HEX_ID.test(s)) return idMap[s] || null;
+    if (QN.test(s)) {
+      const parts = s.split('.');
+      if (parts.length === 3) {
+        const owner = parts[0] + '.' + parts[1];
+        if (Object.prototype.hasOwnProperty.call(types, owner)) return owner;
+      }
+    }
+    return null;
+  };
+
+  const visit = function (node, kind, locked, from, prop) {
+    if (Array.isArray(node)) {
+      for (let i = 0; i < node.length; i++) visit(node[i], kind, locked, from, prop);
+      return;
+    }
+    if (node && typeof node === 'object') {
+      if (node.Disabled === true && node.$Type === 'Microflows$ActionActivity') return;
+      let here = kind;
+      const inferred = mgPreciseKind(node.$Type);
+      if (locked) here = inferred === 'home_page' ? inferred : locked;
+      else if (inferred) here = inferred;
+      else if (!kind && typeof node.$Type === 'string' && node.$Type.indexOf('DataTypes$') === 0) here = 'type';
+      // A layout argument's `Parameter` names the layout's placeholder; the
+      // widgets it holds are the page's own content, not "layout" references.
+      const isLayoutArg = node.$Type === 'Forms$FormCallArgument';
+      for (const k in node) {
+        if (k === '$ID' || k === '$Type' || MG_TEXT_PROPS.has(k)) continue;
+        if (!Object.prototype.hasOwnProperty.call(node, k)) continue;
+        visit(node[k], (isLayoutArg && k !== 'Parameter' && !locked) ? null : here, locked, from, k);
+      }
+      return;
+    }
+    if (typeof node !== 'string' || node.length < 3) return;
+    const target = resolve(node);
+    if (target) {
+      mgAddRef(from, target, kind || 'ref', refs, seen);
+      return;
+    }
+    if (MG_REF_PROPS.has(prop) && (QN.test(node) || MG_HEX_ID.test(node))) {
+      if (node.indexOf('System.') === 0) { stat.system++; return; }
+      stat.unresolved++;
+      if (stat.unresolvedSamples.length < MG_SAMPLE_CAP) stat.unresolvedSamples.push({ from: from, prop: prop, value: node });
+      return;
+    }
+    if (prop && MG_EXPR_PROP.test(prop) && node.indexOf('.') !== -1) {
+      const tokenKind = /xpath/i.test(prop) ? 'xpath' : 'expression';
+      QN_TOKEN.lastIndex = 0;
+      let m;
+      while ((m = QN_TOKEN.exec(node)) !== null) {
+        if (Object.prototype.hasOwnProperty.call(types, m[0])) mgAddRef(from, m[0], tokenKind, refs, seen);
+      }
+    }
+  };
+
+  for (const u of list) {
+    if (!u || !u.doc || u.doc.Excluded === true) continue;
+    if (u.type === 'DomainModels$DomainModel') {
+      if (!u.moduleName) continue;
+      const mod = u.moduleName + '.';
+      for (const ent of mprArray(u.doc.Entities)) {
+        if (ent && typeof ent.Name === 'string' && ent.Name) visit(ent, null, null, mod + ent.Name, null);
+      }
+      for (const a of mprArray(u.doc.Associations).concat(mprArray(u.doc.CrossAssociations))) {
+        if (a && typeof a.Name === 'string' && a.Name) visit(a, 'associate', null, mod + a.Name, null);
+      }
+      continue;
+    }
+    const from = (u.moduleName && u.name) ? (u.moduleName + '.' + u.name) : u.type;
+    if (!from) continue;
+    visit(u.doc, null, MG_SOURCE_KINDS[u.type] || null, from, null);
+  }
+
+  return {
+    types: types,
+    refs: refs,
+    unresolved: stat.unresolved,
+    unresolvedSamples: stat.unresolvedSamples,
+    system: stat.system
+  };
+}
+
+// Adjacency in both directions: Map<qn, Map<neighbour, kinds[]>>.
+function mgRefIndex(refs) {
+  const out = new Map();
+  const inb = new Map();
+  const add = function (m, a, b, kind) {
+    if (!m.has(a)) m.set(a, new Map());
+    const n = m.get(a);
+    if (!n.has(b)) n.set(b, []);
+    if (n.get(b).indexOf(kind) === -1) n.get(b).push(kind);
+  };
+  for (const r of (Array.isArray(refs) ? refs : [])) {
+    if (!r || typeof r.from !== 'string' || typeof r.to !== 'string') continue;
+    add(out, r.from, r.to, r.kind || 'ref');
+    add(inb, r.to, r.from, r.kind || 'ref');
+  }
+  return { out: out, in: inb };
+}
+
+// Breadth-first from `start` over one direction of the index. opts.depth: how
+// many hops (default 1; 0 = no limit); opts.cap: node cap (MG_NODE_CAP).
+// Returns { items: [{ qn, kinds, depth, via }], truncated } — `via` is the
+// element it was reached from, so the caller can draw the walk as a tree.
+function mgBfs(adj, start, opts) {
+  const o = opts || {};
+  const maxDepth = (typeof o.depth === 'number' && o.depth > 0) ? o.depth : (o.depth === 0 ? Infinity : 1);
+  const cap = (typeof o.cap === 'number' && o.cap > 0) ? o.cap : MG_NODE_CAP;
+  const seen = new Set([start]);
+  const items = [];
+  let frontier = [start];
+  let truncated = false;
+  for (let d = 1; d <= maxDepth && frontier.length && !truncated; d++) {
+    const next = [];
+    for (const cur of frontier) {
+      const nb = adj.get(cur);
+      if (!nb) continue;
+      for (const [qn, kinds] of nb) {
+        if (seen.has(qn)) continue;
+        if (items.length >= cap) { truncated = true; break; }
+        seen.add(qn);
+        items.push({ qn: qn, kinds: kinds.slice(), depth: d, via: cur });
+        next.push(qn);
+      }
+      if (truncated) break;
+    }
+    frontier = next;
+  }
+  return { items: items, truncated: truncated };
+}
+
+// nav: mgNavPrepare output. What references `qn` (directly, or up to opts.depth).
+function mgCallers(nav, qn, opts) {
+  return mgBfs(nav.index.in, qn, opts);
+}
+
+// What `qn` references (directly, or up to opts.depth).
+function mgCallees(nav, qn, opts) {
+  return mgBfs(nav.index.out, qn, opts);
+}
+
+// Everything that can break when `qn` changes: every element that references it,
+// transitively (default: no depth limit, node cap applies). `byKind` groups the
+// DIRECT references by how they use it — for an entity that is who retrieves /
+// creates / changes / deletes it, which entities generalize it, and which
+// associations and pages point at it. `byType` counts the whole impact set.
+function mgImpact(nav, qn, opts) {
+  const o = Object.assign({ depth: 0 }, opts || {});
+  const walk = mgBfs(nav.index.in, qn, o);
+  const direct = walk.items.filter(i => i.depth === 1);
+  const byKind = {};
+  for (const i of direct) {
+    for (const k of i.kinds) (byKind[k] = byKind[k] || []).push(i.qn);
+  }
+  for (const k in byKind) byKind[k].sort();
+  const byType = {};
+  for (const i of walk.items) {
+    const t = nav.types[i.qn] || 'PROJECT';
+    byType[t] = (byType[t] || 0) + 1;
+  }
+  return {
+    direct: direct,
+    transitive: walk.items.filter(i => i.depth > 1),
+    byKind: byKind,
+    byType: byType,
+    truncated: walk.truncated
+  };
+}
+
+// A short, factual description of one element from its own document.
+function mgElementSummary(nav, qn) {
+  const type = nav.types[qn] || null;
+  const doc = nav.docs.get(qn) || null;
+  const out = {
+    qualifiedName: qn,
+    objectType: type,
+    module: mgModuleOf(qn),
+    marketplace: nav.marketplace.has(mgModuleOf(qn))
+  };
+  if (!doc) return out;
+  if (typeof doc.Documentation === 'string' && doc.Documentation.trim()) {
+    out.documentation = doc.Documentation.trim().slice(0, 400);
+  }
+  if (type === 'MICROFLOW' || type === 'NANOFLOW') {
+    const params = [];
+    let activities = 0;
+    let loops = 0;
+    const walk = function (n) {
+      if (Array.isArray(n)) { n.forEach(walk); return; }
+      if (!n || typeof n !== 'object') return;
+      if (n.$Type === 'Microflows$MicroflowParameter' || n.$Type === 'Microflows$MicroflowParameterObject') {
+        const t = n.VariableType || n.Type || {};
+        params.push({ name: n.Name || '', type: (t && (t.Entity || (typeof t.$Type === 'string' ? t.$Type.replace(/^DataTypes\$/, '').replace(/Type$/, '') : ''))) || '' });
+      }
+      if (n.$Type === 'Microflows$ActionActivity') activities++;
+      if (n.$Type === 'Microflows$LoopedActivity') loops++;
+      for (const k in n) { if (k !== '$ID' && k !== '$Type') walk(n[k]); }
+    };
+    walk(doc.ObjectCollection);
+    out.parameters = params;
+    out.activities = activities;
+    out.loops = loops;
+  } else if (type === 'ENTITY') {
+    out.attributes = mprArray(doc.Attributes).length;
+    const g = doc.MaybeGeneralization || doc.Generalization;
+    if (g && typeof g.Generalization === 'string' && g.Generalization) out.generalization = g.Generalization;
+    else if (g && typeof g.Persistable === 'boolean') out.persistable = g.Persistable;
+  }
+  return out;
+}
+
+// The "one package" view of an element: what it is, what references it, what
+// it references (both up to opts.depth, default 1), and the structural links it
+// takes part in (associations, generalizations) in either direction.
+function mgContext(nav, qn, opts) {
+  const participates = [];
+  const pick = function (adj, outward) {
+    const nb = adj.get(qn);
+    if (!nb) return;
+    for (const [other, kinds] of nb) {
+      for (const k of kinds) {
+        if (k === 'associate' || k === 'generalize') {
+          participates.push(outward ? { from: qn, to: other, kind: k } : { from: other, to: qn, kind: k });
+        }
+      }
+    }
+  };
+  pick(nav.index.out, true);
+  pick(nav.index.in, false);
+  return {
+    element: mgElementSummary(nav, qn),
+    callers: mgCallers(nav, qn, opts),
+    callees: mgCallees(nav, qn, opts),
+    participates: participates
+  };
+}
+
+// One pass for the navigation queries. prep: mgPrepare output (resolved units +
+// marketplace). Returns the precise graph, both adjacency maps, each element's
+// own document (for summaries and the loop check) and the reference health
+// figures the view reports.
+function mgNavPrepare(prep) {
+  const graph = mgExtractRefsPrecise(prep.units);
+  const docs = new Map();
+  for (const u of prep.units) {
+    if (!u || !u.doc || !u.moduleName) continue;
+    if (u.type === 'DomainModels$DomainModel') {
+      for (const e of mprArray(u.doc.Entities)) {
+        if (e && typeof e.Name === 'string' && e.Name) docs.set(u.moduleName + '.' + e.Name, e);
+      }
+      continue;
+    }
+    if (u.name) docs.set(u.moduleName + '.' + u.name, u.doc);
+  }
+  const elements = Object.keys(graph.types).sort().map(qn => ({ qn: qn, type: graph.types[qn] }));
+  const total = graph.refs.length + graph.unresolved;
+  return {
+    types: graph.types,
+    refs: graph.refs,
+    index: mgRefIndex(graph.refs),
+    docs: docs,
+    marketplace: new Set(prep.marketplace || []),
+    elements: elements,
+    stats: {
+      elements: elements.length,
+      edges: graph.refs.length,
+      unresolved: graph.unresolved,
+      unresolvedPct: total ? Math.round(1000 * graph.unresolved / total) / 10 : 0,
+      unresolvedSamples: graph.unresolvedSamples,
+      system: graph.system
+    }
+  };
+}
+
+// ── N+1 from the model (Plan 011 step 6) ─────────────────────────────────────
+// Studio Pro's Best Practice Bot flags a commit in a loop and XPath problems,
+// one microflow at a time. It does not flag a DATABASE RETRIEVE inside a loop
+// (PERF02), nor a loop that calls a sub-microflow which — directly or further
+// down — retrieves from or commits to the database (PERF03): one query per
+// iteration hidden behind a call. "Inside a loop" = anywhere in the loop's own
+// object collection (a split in a loop is a sibling there, not a container).
+// Association retrieves are left out — they are often served from memory.
+
+// The loop variable a LoopedActivity iterates, or 'while' for a while-loop.
+function mgLoopLabel(loop) {
+  const s = loop && loop.LoopSource;
+  if (s && typeof s.ListVariableName === 'string' && s.ListVariableName) return s.ListVariableName;
+  return 'while';
+}
+
+// Calls fn(action) for every enabled action activity under `node`.
+function mgEachAction(node, fn) {
+  if (Array.isArray(node)) { for (let i = 0; i < node.length; i++) mgEachAction(node[i], fn); return; }
+  if (!node || typeof node !== 'object') return;
+  if (node.$Type === 'Microflows$ActionActivity') {
+    if (node.Disabled !== true && node.Action) fn(node.Action);
+    return;
+  }
+  for (const k in node) { if (k !== '$ID' && k !== '$Type') mgEachAction(node[k], fn); }
+}
+
+function mgActionsIn(node) {
+  const out = [];
+  mgEachAction(node, function (a) { out.push(a); });
+  return out;
+}
+
+function mgIsDbRetrieve(a) {
+  return a && a.$Type === 'Microflows$RetrieveAction' && a.RetrieveSource &&
+    a.RetrieveSource.$Type === 'Microflows$DatabaseRetrieveSource';
+}
+
+// The first database hit anywhere in a microflow: { what, entity } or null.
+function mgDbHit(doc) {
+  let hit = null;
+  mgEachAction(doc && doc.ObjectCollection, function (a) {
+    if (hit) return;
+    if (mgIsDbRetrieve(a)) { hit = { what: 'retrieve', entity: a.RetrieveSource.Entity || null }; return; }
+    if (a.$Type === 'Microflows$CommitAction') { hit = { what: 'commit', entity: null }; return; }
+    const changes = a.$Type === 'Microflows$CreateChangeAction' || a.$Type === 'Microflows$ChangeAction' ||
+      a.$Type === 'Microflows$CreateObjectAction' || a.$Type === 'Microflows$ChangeObjectAction';
+    if (changes && typeof a.Commit === 'string' && a.Commit !== 'No') hit = { what: 'commit', entity: a.Entity || null };
+  });
+  return hit;
+}
+
+// The microflows a microflow calls directly (enabled call activities only).
+function mgCalledFlows(doc) {
+  const out = [];
+  mgEachAction(doc && doc.ObjectCollection, function (a) {
+    if (a.$Type === 'Microflows$MicroflowCallAction' && a.MicroflowCall && typeof a.MicroflowCall.Microflow === 'string') {
+      if (out.indexOf(a.MicroflowCall.Microflow) === -1) out.push(a.MicroflowCall.Microflow);
+    }
+  });
+  return out;
+}
+
+// Every LoopedActivity in a microflow doc, outermost first.
+function mgLoopsIn(node, out) {
+  if (Array.isArray(node)) { for (let i = 0; i < node.length; i++) mgLoopsIn(node[i], out); return out; }
+  if (!node || typeof node !== 'object') return out;
+  if (node.$Type === 'Microflows$LoopedActivity') out.push(node);
+  for (const k in node) { if (k !== '$ID' && k !== '$Type') mgLoopsIn(node[k], out); }
+  return out;
+}
+
+// nav: mgNavPrepare output.
+// Returns { findings: [{ id, microflow, loop, entity, what, chain, count }],
+//           counts: { PERF02, PERF03, microflows, loops } }.
+function mgLoopDbAccess(nav, opts) {
+  const cap = (opts && opts.cap > 0) ? opts.cap : MG_NODE_CAP;
+  const flows = [];
+  for (const qn in nav.types) {
+    if (nav.types[qn] === 'MICROFLOW' && nav.docs.has(qn)) flows.push(qn);
+  }
+  flows.sort();
+
+  const hitMemo = new Map();
+  const hitOf = function (qn) {
+    if (!hitMemo.has(qn)) hitMemo.set(qn, nav.docs.has(qn) ? mgDbHit(nav.docs.get(qn)) : null);
+    return hitMemo.get(qn);
+  };
+  const callMemo = new Map();
+  const callsOf = function (qn) {
+    if (!callMemo.has(qn)) callMemo.set(qn, nav.docs.has(qn) ? mgCalledFlows(nav.docs.get(qn)) : []);
+    return callMemo.get(qn);
+  };
+  // Shortest call chain from `start` to a microflow that hits the database.
+  const chainTo = function (start) {
+    const prev = new Map([[start, null]]);
+    const queue = [start];
+    for (let i = 0; i < queue.length && prev.size <= cap; i++) {
+      const cur = queue[i];
+      const hit = hitOf(cur);
+      if (hit) {
+        const chain = [];
+        for (let n = cur; n !== null; n = prev.get(n)) chain.unshift(n);
+        return { chain: chain, hit: hit };
+      }
+      for (const nxt of callsOf(cur)) {
+        if (!prev.has(nxt)) { prev.set(nxt, cur); queue.push(nxt); }
+      }
+    }
+    return null;
+  };
+
+  const findings = [];
+  let loopCount = 0;
+  for (const mf of flows) {
+    // Innermost first: an action inside nested loops is reported once, under
+    // the loop that directly holds it.
+    const loops = mgLoopsIn(nav.docs.get(mf).ObjectCollection, []).reverse();
+    loopCount += loops.length;
+    const seenActions = new Set();
+    const perf02 = new Map();
+    const perf03 = new Map();
+    for (const loop of loops) {
+      const label = mgLoopLabel(loop);
+      for (const a of mgActionsIn(loop.ObjectCollection)) {
+        if (seenActions.has(a)) continue;
+        seenActions.add(a);
+        if (mgIsDbRetrieve(a)) {
+          const ent = a.RetrieveSource.Entity || '';
+          const key = label + '|' + ent;
+          if (perf02.has(key)) perf02.get(key).count++;
+          else perf02.set(key, { id: 'PERF02', microflow: mf, loop: label, entity: ent || null, what: 'retrieve', chain: [], count: 1 });
+          continue;
+        }
+        if (a.$Type === 'Microflows$MicroflowCallAction' && a.MicroflowCall && typeof a.MicroflowCall.Microflow === 'string') {
+          const callee = a.MicroflowCall.Microflow;
+          if (callee === mf || perf03.has(callee)) continue;
+          const found = chainTo(callee);
+          if (found) {
+            perf03.set(callee, { id: 'PERF03', microflow: mf, loop: label, entity: found.hit.entity, what: found.hit.what, chain: found.chain, count: 1 });
+          }
+        }
+      }
+    }
+    for (const f of perf02.values()) findings.push(f);
+    for (const f of perf03.values()) findings.push(f);
+  }
+  return {
+    findings: findings,
+    counts: {
+      PERF02: findings.filter(f => f.id === 'PERF02').length,
+      PERF03: findings.filter(f => f.id === 'PERF03').length,
+      microflows: flows.length,
+      loops: loopCount
+    }
+  };
+}
+
 module.exports = {
   QN,
   ENTRY_PREFIXES,
+  MG_NODE_CAP,
+  mgIdMap,
+  mgExtractRefsPrecise,
+  mgRefIndex,
+  mgCallers,
+  mgCallees,
+  mgImpact,
+  mgContext,
+  mgNavPrepare,
+  mgLoopDbAccess,
   mgResolveModuleNames,
   mgMarketplaceModules,
   mgCollectElements,

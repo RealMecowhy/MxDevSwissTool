@@ -1019,11 +1019,11 @@ function sendError(req, res, message, code = 200) {
 }
 
 // ── .mpr model routes — the shared contract ─────────────────────────────────
-// /model/mpr, /model/dead-code, /model/integrations and /model/modules all take
-// POST { mprPath } or { projectRoot }: an absolute path (the double quotes
-// Explorer's "Copy as path" adds are dropped) to a .mpr, or to a folder holding
-// exactly one. `analyse(mprPath)` produces the JSON answer; a thrown Error
-// becomes a 400 carrying its message.
+// /model/mpr, /model/dead-code, /model/integrations, /model/modules and
+// /model/refs all take POST { mprPath } or { projectRoot }: an absolute path
+// (the double quotes Explorer's "Copy as path" adds are dropped) to a .mpr, or
+// to a folder holding exactly one. `analyse(mprPath, body)` produces the JSON
+// answer; a thrown Error becomes a 400 carrying its message.
 async function resolveMprPath(p) {
   let st;
   try {
@@ -1041,8 +1041,9 @@ function handleMprRoute(req, res, label, analyse) {
   if (req.method !== 'POST') return sendError(req, res, 'Method Not Allowed', 405);
   readBody(req, res, 1 * 1024 * 1024, (rawBody) => {
     let raw;
+    let body;
     try {
-      const body = JSON.parse(rawBody.toString('utf8'));
+      body = JSON.parse(rawBody.toString('utf8'));
       raw = body.mprPath || body.projectRoot;
       if (!raw || typeof raw !== 'string') throw new Error('Missing mprPath or projectRoot');
       raw = raw.trim().replace(/^"(.*)"$/, '$1').trim();
@@ -1051,7 +1052,7 @@ function handleMprRoute(req, res, label, analyse) {
       return sendError(req, res, `Invalid request: ${e.message}`, 400);
     }
     resolveMprPath(path.resolve(raw))
-      .then(analyse)
+      .then(p => analyse(p, body))
       .then(r => sendJson(req, res, r))
       .catch(e => sendError(req, res, `${label}: ${e.message}`, 400));
   });
@@ -1067,6 +1068,8 @@ function modelMemo(loaded, key, compute) {
 function modelPrep(loaded) {
   return modelMemo(loaded, 'prep', () => modelGraph.mgPrepare(loaded.units));
 }
+
+const MODEL_REF_QUERIES = ['elements', 'callers', 'callees', 'impact', 'context', 'loops'];
 
 const server = http.createServer((req, res) => {
   // CORS Preflight
@@ -1478,6 +1481,46 @@ const server = http.createServer((req, res) => {
       const loaded = await mprReader.mprLoad(p);
       const a = modelMemo(loaded, 'modules', () => modelGraph.mgAnalyzeModules(loaded.units, modelPrep(loaded)));
       return Object.assign({ ok: true, projectName: loaded.projectName, undecoded: loaded.undecoded }, a);
+    });
+  }
+
+  // "What calls this / what does this call / what breaks if I change this"
+  // (Plan 011). A PRECISE reference graph — only a property value that names an
+  // element makes an edge, never a caption — walked transitively, with a node
+  // cap so a cyclic model cannot run away. Body: { query, element?, depth? }:
+  // `elements` lists what can be asked about; `callers` / `callees` (depth
+  // default 1) / `impact` (default 0 = no limit) / `context` need an element;
+  // `loops` lists database queries repeated inside a loop, directly or through
+  // a sub-microflow call.
+  if (url.pathname === '/model/refs') {
+    return handleMprRoute(req, res, 'Reference query error', async (p, body) => {
+      const query = body.query;
+      if (MODEL_REF_QUERIES.indexOf(query) === -1) throw new Error('query must be one of: ' + MODEL_REF_QUERIES.join(', '));
+      const loaded = await mprReader.mprLoad(p);
+      const prep = modelPrep(loaded);
+      const nav = modelMemo(loaded, 'nav', () => modelGraph.mgNavPrepare(prep));
+      const base = {
+        ok: true,
+        projectName: loaded.projectName,
+        undecoded: loaded.undecoded,
+        query: query,
+        marketplace: prep.marketplace,
+        stats: nav.stats
+      };
+      if (query === 'elements') return Object.assign(base, { elements: nav.elements });
+      if (query === 'loops') return Object.assign(base, modelMemo(loaded, 'loops', () => modelGraph.mgLoopDbAccess(nav)));
+
+      const element = typeof body.element === 'string' ? body.element.trim() : '';
+      if (!element) throw new Error('Missing element');
+      if (!Object.prototype.hasOwnProperty.call(nav.types, element)) throw new Error(`No element named ${element} in this model`);
+      const depth = body.depth == null ? (query === 'impact' ? 0 : 1) : Number(body.depth);
+      if (!Number.isInteger(depth) || depth < 0 || depth > 50) throw new Error('depth must be a whole number from 0 (no limit) to 50');
+      const opts = { depth: depth };
+      const result = query === 'callers' ? modelGraph.mgCallers(nav, element, opts)
+        : query === 'callees' ? modelGraph.mgCallees(nav, element, opts)
+          : query === 'impact' ? modelGraph.mgImpact(nav, element, opts)
+            : modelGraph.mgContext(nav, element, opts);
+      return Object.assign(base, { element: element, elementType: nav.types[element], depth: depth, result: result });
     });
   }
 

@@ -14,6 +14,37 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.62.0 — 2026-09-11
+
+**Navigate: what calls this, what does it call, what breaks if I change it.**
+A new Developer Studio tab answers the questions Studio Pro's *Find usages*
+cannot — it is one hop and one direction. Pick any element (microflow, page,
+entity, association, enumeration, Java action …) and ask for its **callers**,
+**callees**, **impact** or **context**, one level or all the way down, drawn as
+an indented tree; click a name to ask again from there. **Impact** of an entity
+groups its direct users by how they use it — who retrieves, creates, changes
+it, which entities generalize it, its associations, XPaths and parameters.
+**Context** is one package for a review or an AI assistant: what the element is,
+its direct callers and callees, its associations and generalizations.
+
+The graph behind it is **precise**, not the loose one Dead Code uses: only a
+property value that names an element counts (a call, a retrieve, a button, a
+data source, an attribute path, a pointer by `$ID`, a name inside an XPath or
+expression) — a caption or documentation never does, and documents excluded
+from the project are skipped. A reference naming something that is not in the
+model is counted as **unresolved** (0 on the three real apps checked). On a
+4,196-unit Mendix 9 app the graph builds in under a second; every walk stops at
+5,000 elements and says so.
+
+**Database queries repeated inside loops.** The same tab lists **PERF02** — a
+database retrieve inside a loop, one query per iteration — and **PERF03** — a
+loop that calls a microflow which, directly or further down its calls,
+retrieves from the database or commits, with the call chain that leads there.
+Studio Pro's Best Practice check looks at one microflow at a time and flags
+neither. Association retrieves are left out (often served from memory), and so
+is a commit directly in a loop, which Studio Pro already reports. On two real
+apps it found 173 and 227 such loops in the teams' own modules.
+
 ## v1.61.0 — 2026-09-11
 
 **A one-page handover summary of a Mendix model.** The Project File (.mpr) card

@@ -333,7 +333,7 @@ async function dsFetchDeploymentModel() {
 // minute, so moving between views does not re-read a large project. A failure
 // stays inside the view that asked. The result styling lives in
 // styles/main.css under "Model analysis results" (.mx-*).
-const DS_MODEL_PATH_INPUTS = ['ds-mpr-path', 'ds-deadcode-path', 'ds-integrations-path', 'ds-modules-path'];
+const DS_MODEL_PATH_INPUTS = ['ds-mpr-path', 'ds-deadcode-path', 'ds-integrations-path', 'ds-modules-path', 'ds-navigate-path'];
 // Marketplace modules are hidden from Dead Code and Modules until asked for:
 // their unused parts and their coupling are not the app team's to fix.
 let dsShowMarketplace = false;
@@ -450,6 +450,8 @@ function dsSetMarketplace(show) {
   if (dsDeadData && dead) dead.innerHTML = dsDeadRender(dsDeadData);
   const mod = document.getElementById('ds-modules-body');
   if (dsModData && mod) mod.innerHTML = dsModRender(dsModData);
+  const loops = document.getElementById('ds-nav-loops-wrap');
+  if (dsNavLoops && loops) loops.innerHTML = dsNavLoopsHtml();
 }
 
 // ── Project file (.mpr) card (plan 006) ──────────────────────────────────────
@@ -924,6 +926,335 @@ function dsModRender(data) {
     </div>`;
 }
 
+// ── Navigate (plan 011) ─────────────────────────────────────────────────────
+// Callers / callees / impact / context for one element over the bridge's
+// PRECISE reference graph (a property value that names an element, never a
+// caption), and the database queries repeated inside loops. Analyse loads the
+// element list and the loop check together; each question afterwards is one
+// small call against the bridge's cached read. Clicks go through one delegated
+// handler on the view body (names and query buttons carry data-* attributes).
+const DS_NAV_ROW_CAP = 1000;
+const DS_NAV_KINDS = {
+  call: 'calls', retrieve: 'retrieves', create: 'creates', change: 'changes', delete: 'deletes',
+  commit: 'commits', show_page: 'opens', action: 'button', menu_item: 'menu', home_page: 'home page',
+  schedule: 'scheduled event', settings: 'project settings', datasource: 'data source',
+  generalize: 'generalizes', associate: 'association', calculate: 'calculated attribute',
+  event_handler: 'event handler', parameter: 'parameter', type: 'variable type', expression: 'expression',
+  xpath: 'XPath', attribute: 'attribute', snippet: 'snippet', layout: 'layout', mapping: 'mapping',
+  publish: 'published', ref: 'uses'
+};
+const DS_NAV_TYPES = {
+  MICROFLOW: 'microflow', NANOFLOW: 'nanoflow', PAGE: 'page', SNIPPET: 'snippet', ENTITY: 'entity',
+  ASSOCIATION: 'association', ENUMERATION: 'enumeration', CONSTANT: 'constant', JAVA_ACTION: 'Java action',
+  JS_ACTION: 'JavaScript action', OTHER: 'other'
+};
+const DS_NAV_QUERIES = [['callers', 'Callers'], ['callees', 'Callees'], ['impact', 'Impact'], ['context', 'Context']];
+let dsNavPath = '';
+let dsNavData = null;          // the `elements` answer
+let dsNavTypeOf = new Map();   // qualified name -> objectType
+let dsNavLoops = null;         // the `loops` answer
+let dsNavQuery = 'callers';
+let dsNavSeq = 0;              // the newest request wins; older answers are dropped
+
+async function dsNavPost(body) {
+  const res = await fetch('http://localhost:9999/model/refs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  return res.json();
+}
+
+function dsNavNotice(html) {
+  return `<div class="notice notice-warning" style="font-size:0.8rem">${html}</div>`;
+}
+
+async function dsNavLoad() {
+  const box = document.getElementById('ds-navigate-body');
+  if (!box) return;
+  const esc = window.escHtml;
+  const raw = dsModelPath('ds-navigate-path');
+  if (!raw) {
+    box.innerHTML = dsNavNotice('Enter a path to a .mpr file or the project folder.');
+    return;
+  }
+  const ticket = ++dsNavSeq;
+  box.innerHTML = `<span style="color:var(--text-muted)"><span class="spinner-sm"></span>Reading ${esc(raw)}&hellip; the first read of a large project can take up to a minute.</span>`;
+  let answers;
+  try {
+    answers = await Promise.all([
+      dsNavPost({ mprPath: raw, query: 'elements' }),
+      dsNavPost({ mprPath: raw, query: 'loops' })
+    ]);
+  } catch (e) {
+    if (ticket === dsNavSeq) box.innerHTML = dsNavNotice('Bridge unreachable — the .mpr could not be read.');
+    return;
+  }
+  if (ticket !== dsNavSeq) return;
+  const bad = answers.find(d => !d || d.error || !d.ok);
+  if (bad) {
+    box.innerHTML = dsNavNotice(esc((bad && (bad.reason || bad.message)) || 'Could not read the .mpr.'));
+    return;
+  }
+  dsNavPath = raw;
+  dsNavData = answers[0];
+  dsNavLoops = answers[1];
+  dsNavTypeOf = new Map((dsNavData.elements || []).map(e => [e.qn, e.type]));
+  box.onclick = dsNavClick;
+  box.onkeydown = function (e) {
+    if (e.key === 'Enter' && e.target && e.target.id === 'ds-nav-element') dsNavRun(dsNavQuery);
+  };
+  box.innerHTML = dsNavRender();
+}
+
+function dsNavClick(e) {
+  const t = e.target && e.target.closest ? e.target.closest('[data-nav-qn],[data-nav-query]') : null;
+  if (!t) return;
+  if (t.dataset.navQuery) { dsNavRun(t.dataset.navQuery); return; }
+  dsNavRun(dsNavQuery, t.dataset.navQn);
+  const controls = document.getElementById('ds-nav-controls');
+  if (controls) controls.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function dsNavVisibleFindings() {
+  const market = new Set((dsNavData && dsNavData.marketplace) || []);
+  return ((dsNavLoops && dsNavLoops.findings) || []).filter(f => dsShowMarketplace || !market.has(f.microflow.split('.')[0]));
+}
+
+function dsNavRender() {
+  const esc = window.escHtml;
+  const data = dsNavData;
+  const s = data.stats || {};
+  const loops = dsNavVisibleFindings();
+  const stats = [
+    dsStat({ value: s.elements || 0, label: 'Elements' }),
+    dsStat({ value: s.edges || 0, label: 'References', sub: s.system ? s.system + ' more into System' : '' }),
+    dsStat({ value: s.unresolved || 0, label: 'Unresolved references', sub: (s.unresolvedPct || 0) + '% of all', tone: s.unresolved ? 'warn' : 'ok' }),
+    dsStat({ value: loops.length, label: 'Queries in loops', tone: loops.length ? 'warn' : 'ok', onclick: loops.length ? "dsScrollTo('ds-nav-loops')" : '' })
+  ].join('');
+  const samples = (s.unresolvedSamples || []).slice(0, 5);
+  const unresolvedNote = s.unresolved ? `<div class="mx-note">Unresolved: a reference property naming something that is not in the model, e.g. ${samples.map(x => `<span style="font-family:var(--font-mono)">${esc(x.from)} &rarr; ${esc(x.value)}</span>`).join(', ')}. Results are a lower bound.</div>` : '';
+  const options = (data.elements || []).map(e => `<option value="${esc(e.qn)}">${esc(DS_NAV_TYPES[e.type] || e.type)}</option>`).join('');
+  const buttons = DS_NAV_QUERIES.map(([q, label]) =>
+    `<button type="button" class="btn btn-secondary" style="font-size:0.8rem" data-nav-query="${q}" aria-pressed="${q === dsNavQuery ? 'true' : 'false'}">${label}</button>`).join('');
+  return `
+    <div style="display:flex; flex-direction:column; gap:var(--sp-3)">
+      ${dsUndecodedNote(data)}
+      <div class="mx-stats">${stats}</div>
+      ${unresolvedNote}
+      <div class="card" id="ds-nav-controls" style="padding:var(--sp-3) var(--sp-4); display:flex; flex-direction:column; gap:var(--sp-3)">
+        <div class="mx-toolbar" style="flex-wrap:wrap">
+          <input type="text" id="ds-nav-element" list="ds-nav-elements" autocomplete="off" placeholder="Element — type part of a name, e.g. ACT_Save"
+            style="flex:1; min-width:240px; font-family:var(--font-mono); font-size:0.78rem; padding:var(--sp-2); background:var(--bg-base); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-primary)">
+          <datalist id="ds-nav-elements">${options}</datalist>
+          <label style="display:inline-flex; align-items:center; gap:6px; font-size:0.78rem; color:var(--text-secondary)">Depth
+            <select id="ds-nav-depth" style="font-size:0.78rem">
+              <option value="">Direct (Impact: all levels)</option>
+              <option value="2">2 levels</option>
+              <option value="3">3 levels</option>
+              <option value="5">5 levels</option>
+              <option value="0">All levels</option>
+            </select>
+          </label>
+          ${buttons}
+        </div>
+        <div id="ds-nav-result"><span style="color:var(--text-muted)">Pick an element, then press Callers, Callees, Impact or Context.</span></div>
+      </div>
+      <div id="ds-nav-loops-wrap">${dsNavLoopsHtml()}</div>
+      <div class="mx-note">Read from the last saved <span style="font-family:var(--font-mono)">${esc(data.projectName || '')}.mpr</span>. Only values that name an element count — captions, documentation and excluded documents do not.</div>
+    </div>`;
+}
+
+// The "Database queries in loops" section — hidden when the check found none.
+function dsNavLoopsHtml() {
+  const esc = window.escHtml;
+  const all = (dsNavLoops && dsNavLoops.findings) || [];
+  if (!all.length) return '';
+  const market = new Set((dsNavData && dsNavData.marketplace) || []);
+  const shown = dsNavVisibleFindings().slice().sort((a, b) => a.microflow.localeCompare(b.microflow) || a.id.localeCompare(b.id));
+  const rows = shown.map(f => [
+    dsChip(f.id, f.id === 'PERF03' ? 'mono is-warn' : 'mono'),
+    dsNavName(f.microflow),
+    `<span style="font-family:var(--font-mono)">${f.loop === 'while' ? 'while loop' : 'each ' + esc(f.loop)}</span>`,
+    f.id === 'PERF02'
+      ? `retrieves ${f.entity ? dsNavName(f.entity) : 'from the database'}${f.count > 1 ? ` <span style="color:var(--text-muted)">(${f.count} places)</span>` : ''}`
+      : `calls ${f.chain.map(dsNavName).join(' &rarr; ')} &mdash; ${f.what === 'commit' ? 'commits' : 'retrieves'} ${f.entity ? dsNavName(f.entity) : ''}`
+  ]);
+  const inner = `
+    ${market.size ? `<div class="mx-toolbar">${dsMarketplaceToggle(dsShowMarketplace ? 0 : market.size)}</div>` : ''}
+    ${rows.length
+      ? dsTable([{ label: 'Check' }, { label: 'Microflow', cls: 'mono' }, { label: 'Loop' }, { label: 'Query on every iteration' }], rows)
+      : `<div class="mx-note">None in your own modules &mdash; tick <em>Include Marketplace modules</em> to see the ${all.length} in Marketplace modules.</div>`}
+    <div class="mx-note"><strong>PERF02</strong> &mdash; a retrieve from the database inside a loop: one query per iteration. <strong>PERF03</strong> &mdash; a loop calls a microflow that, directly or further down its calls, retrieves from the database or commits: the same cost, hidden behind the call. Studio Pro's Best Practice check looks at one microflow at a time and flags neither. Association retrieves are left out.</div>`;
+  return dsSection('ds-nav-loops', 'Database queries in loops', shown.length, inner);
+}
+
+// An element name that re-centres the current question on it when clicked; a
+// project-level document (`Navigation$NavigationDocument`) is plain text.
+function dsNavName(qn) {
+  const esc = window.escHtml;
+  if (dsNavTypeOf.has(qn)) {
+    return `<button type="button" data-nav-qn="${esc(qn)}" style="background:none; border:0; padding:0; cursor:pointer; color:var(--accent); font-family:var(--font-mono); font-size:0.8rem; text-align:left">${esc(qn)}</button>`;
+  }
+  const s = String(qn || '');
+  const label = s.indexOf('$') !== -1 ? s.split('$')[1].replace(/([a-z])([A-Z])/g, '$1 $2') : s;
+  return `<span style="font-family:var(--font-mono); font-size:0.8rem; color:var(--text-secondary)">${esc(label)}</span>`;
+}
+
+function dsNavTypeChip(qn) {
+  const t = dsNavTypeOf.get(qn);
+  const market = new Set((dsNavData && dsNavData.marketplace) || []);
+  return (t ? dsChip(DS_NAV_TYPES[t] || t, 'is-muted') : dsChip('project', 'is-muted')) +
+    (market.has(String(qn).split('.')[0]) ? dsChip('Marketplace', 'is-muted') : '');
+}
+
+// items: [{ qn, kinds, depth, via }] from a breadth-first walk rooted at `root`,
+// drawn as an indented tree — each element once, under the one it was first
+// reached from.
+function dsNavTree(root, items) {
+  const kids = new Map();
+  for (const it of items) {
+    if (!kids.has(it.via)) kids.set(it.via, []);
+    kids.get(it.via).push(it);
+  }
+  for (const list of kids.values()) list.sort((a, b) => a.qn.localeCompare(b.qn));
+  const rows = [];
+  const stack = (kids.get(root) || []).slice().reverse();
+  while (stack.length && rows.length < DS_NAV_ROW_CAP) {
+    const it = stack.pop();
+    rows.push(it);
+    const ch = kids.get(it.qn);
+    if (ch) for (let i = ch.length - 1; i >= 0; i--) stack.push(ch[i]);
+  }
+  const html = rows.map(it => `<div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; padding:2px 0 2px ${(it.depth - 1) * 18}px">
+      ${it.depth > 1 ? '<span style="color:var(--text-muted)">&#8627;</span>' : ''}
+      ${it.kinds.map(k => dsChip(DS_NAV_KINDS[k] || k, 'is-muted')).join('')}
+      ${dsNavName(it.qn)}
+      ${dsNavTypeChip(it.qn)}
+    </div>`).join('');
+  const more = items.length > rows.length ? `<div class="mx-note">Showing the first ${rows.length} of ${items.length}.</div>` : '';
+  return `<div style="display:flex; flex-direction:column">${html}</div>${more}`;
+}
+
+async function dsNavRun(query, qn) {
+  const out = document.getElementById('ds-nav-result');
+  const input = document.getElementById('ds-nav-element');
+  if (!out || !input || !dsNavData) return;
+  const esc = window.escHtml;
+  if (query) dsNavQuery = query;
+  if (qn) input.value = qn;
+  document.querySelectorAll('#ds-nav-controls [data-nav-query]').forEach(b => {
+    b.setAttribute('aria-pressed', b.dataset.navQuery === dsNavQuery ? 'true' : 'false');
+  });
+  const element = input.value.trim();
+  if (!element) {
+    out.innerHTML = dsNavNotice('Pick an element first &mdash; type part of its name and choose it from the list.');
+    return;
+  }
+  if (!dsNavTypeOf.has(element)) {
+    out.innerHTML = dsNavNotice(`No element named <span style="font-family:var(--font-mono)">${esc(element)}</span> in ${esc(dsNavData.projectName || 'this project')} &mdash; choose one from the list.`);
+    return;
+  }
+  const body = { mprPath: dsNavPath, query: dsNavQuery, element: element };
+  const sel = document.getElementById('ds-nav-depth');
+  if (sel && sel.value !== '') body.depth = Number(sel.value);
+  const ticket = ++dsNavSeq;
+  out.innerHTML = `<span style="color:var(--text-muted)"><span class="spinner-sm"></span>Following the references of ${esc(element)}&hellip;</span>`;
+  let data;
+  try {
+    data = await dsNavPost(body);
+  } catch (e) {
+    if (ticket === dsNavSeq) out.innerHTML = dsNavNotice('Bridge unreachable.');
+    return;
+  }
+  if (ticket !== dsNavSeq) return;
+  if (!data || data.error || !data.ok) {
+    out.innerHTML = dsNavNotice(esc((data && (data.reason || data.message)) || 'The question could not be answered.'));
+    return;
+  }
+  out.innerHTML = dsNavResultHtml(data);
+}
+
+function dsNavResultHtml(data) {
+  const r = data.result || {};
+  const el = data.element;
+  const name = dsNavName(el);
+  const levels = data.depth === 0 ? 'all levels' : (data.depth === 1 ? 'direct only' : data.depth + ' levels');
+  const capNote = (r.truncated || (r.callers && r.callers.truncated) || (r.callees && r.callees.truncated))
+    ? dsNavNotice('Stopped after 5,000 elements &mdash; lower the depth to see the nearest part.') : '';
+
+  if (data.query === 'callers' || data.query === 'callees') {
+    const items = r.items || [];
+    if (!items.length) {
+      return `<div class="mx-note">${data.query === 'callers'
+        ? `Nothing in the model references ${name}. Java or JavaScript code, a pluggable widget or a name built at runtime can still use it.`
+        : `${name} references no other element.`}</div>`;
+    }
+    const how = data.query === 'callers' ? 'each line references the one it is indented under' : 'each line is referenced by the one it is indented under';
+    return `${capNote}<div class="mx-note">${items.length} element${items.length === 1 ? '' : 's'} ${data.query === 'callers' ? 'reference' : 'referenced by'} ${name} &mdash; ${levels}; ${how}.</div>
+      ${dsNavTree(el, items)}`;
+  }
+
+  if (data.query === 'impact') {
+    const all = (r.direct || []).concat(r.transitive || []);
+    if (!all.length) {
+      return `<div class="mx-note">Nothing in the model references ${name} &mdash; changing it breaks nothing the model can see. Java or JavaScript code, widgets and names built at runtime are out of reach.</div>`;
+    }
+    const byType = r.byType || {};
+    const typeSummary = Object.keys(byType).sort((a, b) => byType[b] - byType[a])
+      .map(t => {
+        const word = DS_NAV_TYPES[t] || t.toLowerCase();
+        return byType[t] + ' ' + (byType[t] === 1 ? word : word.replace(/y$/, 'ie') + 's');
+      }).join(' · ');
+    const byKind = r.byKind || {};
+    const kindRows = Object.keys(byKind).sort((a, b) => byKind[b].length - byKind[a].length).map(k => {
+      const list = byKind[k];
+      return [
+        `<span style="white-space:nowrap">${window.escHtml(DS_NAV_KINDS[k] || k)}</span>`,
+        String(list.length),
+        list.slice(0, 40).map(dsNavName).join(', ') + (list.length > 40 ? ` <span style="color:var(--text-muted)">+${list.length - 40} more</span>` : '')
+      ];
+    });
+    return `${capNote}
+      <div class="mx-stats">
+        ${dsStat({ value: all.length, label: 'Affected elements', sub: levels })}
+        ${dsStat({ value: (r.direct || []).length, label: 'Reference it directly' })}
+      </div>
+      <div class="mx-note">${window.escHtml(typeSummary)}</div>
+      ${dsTable([{ label: 'Used as' }, { label: 'Direct', cls: 'num' }, { label: 'By', cls: 'mono' }], kindRows)}
+      <div class="mx-note">Everything that reaches ${name} &mdash; each line references the one it is indented under:</div>
+      ${dsNavTree(el, all)}`;
+  }
+
+  // context
+  const esc = window.escHtml;
+  const e = r.element || {};
+  const facts = [];
+  facts.push(`<strong>${esc(DS_NAV_TYPES[e.objectType] || e.objectType || 'element')}</strong> in module <span style="font-family:var(--font-mono)">${esc(e.module || '')}</span>${e.marketplace ? ' (Marketplace)' : ''}`);
+  if (typeof e.activities === 'number') facts.push(`${e.activities} activit${e.activities === 1 ? 'y' : 'ies'}, ${e.loops} loop${e.loops === 1 ? '' : 's'}`);
+  if (typeof e.attributes === 'number') facts.push(`${e.attributes} attribute${e.attributes === 1 ? '' : 's'}`);
+  if (e.generalization) facts.push(`generalizes ${dsNavName(e.generalization)}`);
+  else if (e.persistable === false) facts.push('non-persistable');
+  const params = (e.parameters || []).length
+    ? dsTable([{ label: 'Parameter', cls: 'mono' }, { label: 'Type', cls: 'mono' }], e.parameters.map(p => [esc(p.name), p.type && dsNavTypeOf.has(p.type) ? dsNavName(p.type) : esc(p.type)]))
+    : '';
+  const callers = (r.callers && r.callers.items) || [];
+  const callees = (r.callees && r.callees.items) || [];
+  const part = r.participates || [];
+  return `${capNote}
+    <div style="display:flex; flex-direction:column; gap:var(--sp-2)">
+      <div>${name} &mdash; ${facts.join(' · ')}</div>
+      ${e.documentation ? `<div class="mx-note" style="white-space:pre-wrap">${esc(e.documentation)}</div>` : ''}
+      ${params}
+      <h5 class="mx-section-title">Referenced by <span class="count">(${callers.length})</span></h5>
+      ${callers.length ? dsNavTree(el, callers) : '<div class="mx-note">Nothing in the model.</div>'}
+      <h5 class="mx-section-title">References <span class="count">(${callees.length})</span></h5>
+      ${callees.length ? dsNavTree(el, callees) : '<div class="mx-note">No other element.</div>'}
+      ${part.length ? `<h5 class="mx-section-title">Associations and generalizations <span class="count">(${part.length})</span></h5>
+        ${dsTable([{ label: 'From', cls: 'mono' }, { label: 'Link' }, { label: 'To', cls: 'mono' }], part.map(p => [dsNavName(p.from), esc(DS_NAV_KINDS[p.kind] || p.kind), dsNavName(p.to)]))}` : ''}
+    </div>`;
+}
+
 // ── Handover summary (plan 020) ─────────────────────────────────────────────
 // One self-contained HTML page to hand to a client or attach to an audit: what
 // the Project File, Dead Code, Integrations and Modules views show (plus the
@@ -1319,6 +1650,7 @@ function dsSetTab(tabId, el) {
   document.getElementById('ds-deadcode-view').style.display = tabId === 'deadcode' ? 'flex' : 'none';
   document.getElementById('ds-integrations-view').style.display = tabId === 'integrations' ? 'flex' : 'none';
   document.getElementById('ds-modules-view').style.display = tabId === 'modules' ? 'flex' : 'none';
+  document.getElementById('ds-navigate-view').style.display = tabId === 'navigate' ? 'flex' : 'none';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1747,6 +2079,7 @@ window.dsDeadSetQuery = dsDeadSetQuery;
 window.dsScrollTo = dsScrollTo;
 window.dsFetchIntegrations = dsFetchIntegrations;
 window.dsFetchModules = dsFetchModules;
+window.dsNavLoad = dsNavLoad;
 window.dsExportSummary = dsExportSummary;
 window.dsSummaryBuild = dsSummaryBuild;
 window.dsSummarySameProject = dsSummarySameProject;
