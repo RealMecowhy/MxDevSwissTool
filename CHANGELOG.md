@@ -14,6 +14,19 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.60.1 — 2026-09-11
+
+**Dead Code lists unused Java and JavaScript actions.** An action nothing in the
+model calls is still compiled, and still has to survive every Mendix upgrade.
+They join enumerations and constants in the "to verify" list rather than the
+dead list — Java or JavaScript code can call an action without the model
+showing it. Marketplace modules stay hidden by default (on four real apps, 95%+
+of the actions were Marketplace ones; the app's own unused actions were 0–2).
+
+The CI smoke test no longer fails on Linux: it used a `C:\...` path as its
+"absolute path that does not exist", which is a relative path on the Ubuntu
+runner. It now builds one from the OS temp directory.
+
 ## v1.60.0 — 2026-09-10
 
 **Developer Studio reads a `.mpr` project file directly, offline — and three

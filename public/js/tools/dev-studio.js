@@ -499,6 +499,9 @@ const DS_DEAD_GROUPS = [
   ['SNIPPET', 'Snippets', 'snippet'],
   ['ENTITY', 'Entities', 'entity']
 ];
+const DS_DEAD_UNCERTAIN_KIND = {
+  ENUMERATION: 'enumeration', CONSTANT: 'constant', JAVA_ACTION: 'Java action', JS_ACTION: 'JavaScript action'
+};
 // Only this many module groups start expanded; the rest open on a click.
 const DS_DEAD_OPEN_GROUPS = 8;
 
@@ -544,7 +547,7 @@ function dsDeadStats() {
   });
   if (uncertain.length) {
     tiles.push(dsStat({
-      value: uncertain.length, label: 'Enums & constants', sub: 'to verify', tone: 'warn',
+      value: uncertain.length, label: 'To verify', sub: 'enums, constants, actions', tone: 'warn',
       onclick: `dsDeadSetType('UNCERTAIN')`, active: dsDeadFilter.type === 'UNCERTAIN'
     }));
   }
@@ -597,13 +600,13 @@ function dsDeadList() {
 
   const uncHtml = unc.length ? `<details class="mx-group"${dsDeadFilter.type === 'UNCERTAIN' ? ' open' : ''}>
       <summary>
-        <span class="mx-group-title">Enumerations &amp; constants to verify</span>
+        <span class="mx-group-title">Enumerations, constants &amp; code actions to verify</span>
         <span class="mx-group-count">${unc.length}</span>
       </summary>
       <div class="mx-group-body">
-        <div class="mx-note" style="margin-bottom:var(--sp-2)">Nothing in the model uses these, but Java code can without the model showing it &mdash; verify before deleting.</div>
+        <div class="mx-note" style="margin-bottom:var(--sp-2)">Nothing in the model uses these, but Java or JavaScript code can without the model showing it &mdash; verify before deleting.</div>
         ${dsTable([{ label: 'Element', cls: 'mono' }, { label: 'Kind' }],
-          unc.map(u => [esc(u.qualifiedName), u.objectType === 'ENUMERATION' ? 'enumeration' : 'constant']))}
+          unc.map(u => [esc(u.qualifiedName), DS_DEAD_UNCERTAIN_KIND[u.objectType] || u.objectType]))}
       </div>
     </details>` : '';
 

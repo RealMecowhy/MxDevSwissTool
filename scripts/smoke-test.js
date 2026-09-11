@@ -1,5 +1,11 @@
 const { spawn } = require('child_process');
 const http = require('http');
+const os = require('os');
+const path = require('path');
+
+// An absolute path that does not exist — absolute on the OS running the test
+// (a `C:\...` literal is a RELATIVE path on the Linux CI runner).
+const MISSING_MPR = path.join(os.tmpdir(), 'mxdev-smoke-does-not-exist', 'App.mpr');
 
 console.log('Starting bridge server for smoke test...');
 const server = spawn('node', ['server/mendix-observability-bridge.js']);
@@ -125,7 +131,7 @@ setTimeout(async () => {
 
     const mprMissing = await request(
       { path: '/model/mpr', method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Bridge-Token': parsed.token } },
-      JSON.stringify({ mprPath: 'C:\\does\\not\\exist.mpr' })
+      JSON.stringify({ mprPath: MISSING_MPR })
     );
     if (mprMissing.status !== 400) return fail('/model/mpr must reject a path that does not exist', 'status=' + mprMissing.status + ' body=' + mprMissing.body);
 
@@ -133,7 +139,7 @@ setTimeout(async () => {
     // this reaches the "no such path" check instead of "must be absolute".
     const mprQuoted = await request(
       { path: '/model/mpr', method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Bridge-Token': parsed.token } },
-      JSON.stringify({ mprPath: '"C:\\does\\not\\exist.mpr"' })
+      JSON.stringify({ mprPath: '"' + MISSING_MPR + '"' })
     );
     if (mprQuoted.status !== 400 || !/No such path/.test(mprQuoted.body)) {
       return fail('/model/mpr must accept a quoted absolute path', 'status=' + mprQuoted.status + ' body=' + mprQuoted.body);

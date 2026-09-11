@@ -5585,6 +5585,26 @@ const mg = require('../server/model-graph.js');
     enumClass.uncertain.some(u => u.qualifiedName === 'Look.ApiKey' &&
       /verify before deleting/.test(u.reason)));
 
+  // Java / JavaScript actions: unreferenced -> uncertain (code can call them);
+  // called from a microflow -> alive.
+  const actUnits = [
+    { id: 'ja', type: 'JavaActions$JavaAction', name: 'GetIP', moduleName: 'Net', doc: { $Type: 'JavaActions$JavaAction' } },
+    { id: 'jb', type: 'JavaActions$JavaAction', name: 'Hash', moduleName: 'Net', doc: { $Type: 'JavaActions$JavaAction' } },
+    { id: 'js', type: 'JavaScriptActions$JavaScriptAction', name: 'DeviceInfo', moduleName: 'Net', doc: { $Type: 'JavaScriptActions$JavaScriptAction' } },
+    { id: 'mfa', type: 'Microflows$Microflow', name: 'ACT_Login', moduleName: 'Net', doc: {
+      $Type: 'Microflows$Microflow',
+      ObjectCollection: { Objects: [3, { $Type: 'Microflows$ActionActivity', Action: { $Type: 'Microflows$JavaActionCallAction', JavaAction: 'Net.Hash' } }] }
+    } }
+  ];
+  const actClass = mg.mgFindDeadAssets(mg.mgCollectElements(actUnits), mg.mgExtractRefs(actUnits).refs);
+  ok('mg: an unreferenced Java action is uncertain, not dead',
+    actClass.dead.every(d => d.qualifiedName !== 'Net.GetIP') &&
+    actClass.uncertain.some(u => u.qualifiedName === 'Net.GetIP' && u.objectType === 'JAVA_ACTION' && /verify before deleting/.test(u.reason)));
+  ok('mg: an unreferenced JavaScript action is uncertain',
+    actClass.uncertain.some(u => u.qualifiedName === 'Net.DeviceInfo' && u.objectType === 'JS_ACTION'));
+  ok('mg: a Java action called from a microflow is neither dead nor uncertain',
+    actClass.dead.concat(actClass.uncertain).every(d => d.qualifiedName !== 'Net.Hash'));
+
   // mgResolveModuleNames walks ContainerID up through folders to the module.
   const raw = [
     { id: 'mod', containerId: null, containmentName: null, type: 'Projects$ModuleImpl', name: 'Sales', doc: {} },

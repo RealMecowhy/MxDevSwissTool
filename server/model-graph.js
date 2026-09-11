@@ -38,7 +38,9 @@ const MG_TYPE_MAP = {
   'Forms$Page': 'PAGE',
   'Forms$Snippet': 'SNIPPET',
   'Enumerations$Enumeration': 'ENUMERATION',
-  'Constants$Constant': 'CONSTANT'
+  'Constants$Constant': 'CONSTANT',
+  'JavaActions$JavaAction': 'JAVA_ACTION',
+  'JavaScriptActions$JavaScriptAction': 'JS_ACTION'
 };
 
 // Project-level units whose references carry a known edge kind (activity-level
@@ -52,8 +54,9 @@ const MG_SOURCE_KINDS = {
 };
 
 const ENTRY_PREFIXES = ['ACT_', 'SCH_', 'WS_', 'REST_', 'OData_'];
-// The classified-as-potentially-dead set. Enumerations / constants are reported
-// separately because references to them from Java code are invisible.
+// The classified-as-potentially-dead set. Enumerations / constants / Java and
+// JavaScript actions are reported separately because references to them from
+// Java or JavaScript code are invisible.
 const MG_CLASSIFY = ['MICROFLOW', 'NANOFLOW', 'PAGE', 'SNIPPET', 'ENTITY'];
 
 // ── module-name resolution ──────────────────────────────────────────────────
@@ -273,6 +276,14 @@ function mgFindDeadAssets(elements, refs) {
         qualifiedName: el.qualifiedName,
         objectType: el.objectType,
         reason: 'Java code can reference this type without the model showing it — verify before deleting'
+      });
+      continue;
+    }
+    if (el.objectType === 'JAVA_ACTION' || el.objectType === 'JS_ACTION') {
+      uncertain.push({
+        qualifiedName: el.qualifiedName,
+        objectType: el.objectType,
+        reason: 'Java or JavaScript code can call this action without the model showing it — verify before deleting'
       });
       continue;
     }
