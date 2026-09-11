@@ -14,6 +14,24 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.61.0 — 2026-09-11
+
+**A one-page handover summary of a Mendix model.** The Project File (.mpr) card
+gets an **Export summary** button: one self-contained HTML file to hand to a
+client, attach to an audit, or keep as a before/after snapshot of a refactor.
+It gathers what the model views already find — the project security settings,
+**Dead Code** (and the "to verify" list), **Integrations** (every published
+service with its sign-in setting, consumed services, outgoing REST targets and
+calls with credentials typed in), **Modules** (dependency cycles and
+inheritance blockers) — and, when the **Security Matrix** was already generated
+for the same project, its three review shortcuts. There is deliberately no
+score: each section is the list its tab shows, capped at 500 rows, for your own
+modules (Marketplace modules are left out of dead code and blockers). A check
+that found nothing is named in the page's note instead of printed as an empty
+table. Read offline from the last saved `.mpr`; the file makes no network
+requests when opened. Checked on two real projects (Mendix 11.3 and 11.12,
+32–38 modules): six sections each, about 4 s for the larger one.
+
 ## v1.60.1 — 2026-09-11
 
 **Dead Code lists unused Java and JavaScript actions.** An action nothing in the

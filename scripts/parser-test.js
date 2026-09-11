@@ -4584,6 +4584,59 @@ eq('backoff: 5th attempt is 32s, capped to 30s', global.dsBackoffDelay(5), 30000
 eq('backoff: stays capped at 30s for a long outage (attempt 20)', global.dsBackoffDelay(20), 30000);
 ok('backoff: monotonically non-decreasing up to the cap', global.dsBackoffDelay(3) >= global.dsBackoffDelay(2) && global.dsBackoffDelay(2) >= global.dsBackoffDelay(1));
 
+// ── Handover summary (plan 020) — section building, empty checks, caps ──
+console.log('\nDeveloper Studio — handover summary');
+{
+  const summaryBase = {
+    mpr: { projectName: 'Shop', counts: { modules: 3 }, modules: [{ name: 'Sales' }, { name: 'Admin', fromMarketplace: true }],
+      security: { securityLevel: 'CheckEverything', enableGuestAccess: true, strictMode: false, adminPasswordSet: false,
+        passwordPolicy: { minimumLength: 6 }, userRoles: [{ name: 'Boss', manageAllRoles: true }] } },
+    dead: { dead: [
+      { qualifiedName: 'Sales.Old', objectType: 'MICROFLOW', module: 'Sales', reason: 'no inbound reference' },
+      { qualifiedName: 'Sales.ACT_Run', objectType: 'MICROFLOW', module: 'Sales', reason: 'prefix suggests entry point' },
+      { qualifiedName: 'Admin.Unused', objectType: 'PAGE', module: 'Admin', reason: 'no inbound reference' }
+    ], uncertain: [] },
+    int: { failed: 'MPR read error' },
+    mod: { cycles: [], blockers: [] }
+  };
+  const sum = global.dsSummaryBuild(summaryBase, null, 'C:\\p\\Shop');
+  const byTitle = t => sum.sections.find(s => s.title.indexOf(t) === 0);
+  eq('summary: title names the project', sum.title, 'Model handover summary — Shop');
+  const secRows = byTitle('Project security settings').rows;
+  ok('summary: weak password policy is marked', secRows.some(r => r[0] === 'Password minimum length' && r[1] === '6 (weak)'));
+  ok('summary: a role that manages all roles is listed', secRows.some(r => r[1] === 'Boss'));
+  const deadRows = byTitle('Dead code').rows;
+  eq('summary: Marketplace dead code is left out', deadRows.length, 2);
+  ok('summary: the entry-point prefix is noted', deadRows.some(r => r[1] === 'ACT_Run' && /entry point/.test(r[3])));
+  ok('summary: an empty check is named in the note, not printed as a table',
+    !byTitle('To verify') && !byTitle('Module dependency cycles') && /Checked, nothing found: to verify, module dependency cycles, inheritance blockers\./.test(sum.note));
+  ok('summary: a failed route is reported as not available', /Not available: integrations \(MPR read error\)/.test(sum.note));
+  ok('summary: without a Security Matrix the note says how to add it', /generate it on the Security Matrix tab/.test(sum.note));
+
+  const many = Object.assign({}, summaryBase, { dead: { dead: Array.from({ length: 620 }, (_, i) =>
+    ({ qualifiedName: 'Sales.F' + i, objectType: 'MICROFLOW', module: 'Sales', reason: 'no inbound reference' })), uncertain: [] } });
+  const capped = global.dsSummaryBuild(many, null, 'x').sections.find(s => s.title.indexOf('Dead code') === 0);
+  ok('summary: a long section is capped at 500 rows with a note', capped.rows.length === 500 && /first 500 of 620/.test(capped.note));
+
+  const sec = {
+    meta: { binaryVersion: '11.12.2' },
+    entityRules: [{ role: 'User', qname: 'Sales.Order', create: true, del: true, xpath: '' },
+      { role: 'Guest', qname: 'Sales.Lead', create: false, del: false, xpath: '[Public = true()]' }],
+    documentRules: [{ type: 'Page', module: 'Sales', name: 'Landing', roles: ['Guest'], anonRoles: ['Guest'] }],
+    highlights: { broadWrite: [0], anonEntity: [1], anonDocument: [0] }
+  };
+  const secSection = global.dsSummaryBuild(summaryBase, sec, 'x').sections.find(s => s.title.indexOf('Security matrix') === 0);
+  ok('summary: Security Matrix shortcuts become rows',
+    secSection && secSection.rows.length === 3 &&
+    secSection.rows[0].join('|') === 'Broad write access|User|Sales.Order|create + delete with no XPath' &&
+    secSection.rows[2].join('|') === 'Anonymous document|Guest|Sales.Landing|Page');
+
+  ok('summary: same project — folder', global.dsSummarySameProject('C:\\Apps\\Shop', 'C:\\Apps\\Shop'));
+  ok('summary: same project — .mpr inside, any case/slashes', global.dsSummarySameProject('c:/apps/shop/Shop.mpr', 'C:\\Apps\\Shop\\'));
+  ok('summary: a sibling folder sharing a prefix is another project', !global.dsSummarySameProject('C:\\Apps\\Shop-copy', 'C:\\Apps\\Shop'));
+  ok('summary: no connected project — no matrix', !global.dsSummarySameProject('C:\\Apps\\Shop', null));
+}
+
 // =========================================================================
 // OPENAPI / SWAGGER IMPORT — spec → a filled-in request
 // =========================================================================

@@ -924,6 +924,214 @@ function dsModRender(data) {
     </div>`;
 }
 
+// ── Handover summary (plan 020) ─────────────────────────────────────────────
+// One self-contained HTML page to hand to a client or attach to an audit: what
+// the Project File, Dead Code, Integrations and Modules views show (plus the
+// Security Matrix shortcuts, if that matrix was already generated for this
+// project), through the shared exporter. No score and no new analysis. A check
+// that found nothing is named in the note instead of printing an empty table.
+const DS_SUMMARY_ROW_CAP = 500;
+const DS_SUMMARY_ROUTES = [['mpr', '/model/mpr'], ['dead', '/model/dead-code'], ['int', '/model/integrations'], ['mod', '/model/modules']];
+
+// results: { mpr, dead, int, mod } — each a route's answer, or { failed: reason }.
+// sec: dsSecData for the same project, or null. Returns mtExportToHtml opts.
+function dsSummaryBuild(results, sec, source) {
+  const p = results.mpr;
+  const c = p.counts || {};
+  const market = new Set((p.modules || []).filter(m => m.fromMarketplace).map(m => m.name));
+  const mine = m => !market.has(m);
+  const sections = [];
+  const nothing = [];
+  const missing = [];
+  const add = (s, rows) => {
+    if (!rows.length) { nothing.push(s.title.split(' — ')[0].toLowerCase()); return; }
+    s.rows = rows.slice(0, DS_SUMMARY_ROW_CAP);
+    if (rows.length > DS_SUMMARY_ROW_CAP) {
+      s.note = (s.note ? s.note + ' ' : '') + `Showing the first ${DS_SUMMARY_ROW_CAP} of ${rows.length} — the full list is in the tab.`;
+    }
+    sections.push(s);
+  };
+  const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+
+  const s = p.security;
+  if (s) {
+    const pp = s.passwordPolicy || {};
+    const rows = [
+      ['Security level', s.securityLevel || '—'],
+      ['Guest access', s.enableGuestAccess ? 'on' : 'off'],
+      ['Strict mode', s.strictMode ? 'on' : 'off'],
+      ['Admin password stored in the model', s.adminPasswordSet ? 'yes' : 'no']
+    ];
+    if (typeof pp.minimumLength === 'number') rows.push(['Password minimum length', pp.minimumLength + (pp.minimumLength < 8 ? ' (weak)' : '')]);
+    (s.userRoles || []).filter(r => r.manageAllRoles).forEach(r => rows.push(['Role that manages all roles', r.name]));
+    add({ title: 'Project security settings', columns: ['Setting', 'Value'] }, rows);
+  }
+
+  const dead = results.dead;
+  if (dead.failed) {
+    missing.push('dead code (' + dead.failed + ')');
+  } else {
+    const kind = t => (DS_DEAD_GROUPS.find(g => g[0] === t) || [])[2] || t;
+    const short = d => d.qualifiedName.slice(d.module.length + 1);
+    const list = (dead.dead || []).filter(d => mine(d.module))
+      .sort((a, b) => a.qualifiedName.localeCompare(b.qualifiedName));
+    add({
+      title: 'Dead code — nothing in the model references these',
+      subtitle: plural(list.length, 'element', 'elements') + ' across ' + plural(new Set(list.map(d => d.module)).size, 'module', 'modules'),
+      columns: ['Module', 'Element', 'Kind', 'Note'],
+      note: 'Java / JavaScript code and names built at runtime are invisible to this check — review every entry before deleting.'
+    }, list.map(d => [d.module, short(d), kind(d.objectType), d.reason === 'prefix suggests entry point' ? 'name suggests an entry point' : '']));
+    const unc = (dead.uncertain || []).filter(d => mine(d.module))
+      .sort((a, b) => a.qualifiedName.localeCompare(b.qualifiedName));
+    add({
+      title: 'To verify — unused in the model, but code can use them',
+      columns: ['Module', 'Element', 'Kind']
+    }, unc.map(d => [d.module, short(d), DS_DEAD_UNCERTAIN_KIND[d.objectType] || d.objectType]));
+  }
+
+  const int = results.int;
+  if (int.failed) {
+    missing.push('integrations (' + int.failed + ')');
+  } else {
+    const auth = x => !x.authenticated ? 'NO SIGN-IN REQUIRED'
+      : (x.noRoles ? 'sign-in, but no allowed roles' : 'sign-in: ' + ((x.authenticationTypes || []).join(', ') || x.headerAuthentication || 'required'));
+    const rest = int.publishedRest || [];
+    const odata = int.publishedOData || [];
+    const soap = int.publishedSoap || [];
+    const consumed = int.consumedRest || [];
+    const events = int.businessEvents || [];
+    const byTarget = {};
+    (int.restCalls || []).forEach(x => { (byTarget[x.target] = byTarget[x.target] || []).push(x); });
+    const rows = [];
+    rest.forEach(x => rows.push(['Published', 'REST', x.name || '(unnamed)', '/' + (x.path || '') + (x.version ? ' v' + x.version : ''), auth(x)]));
+    odata.forEach(x => rows.push(['Published', 'OData', x.name || '(unnamed)', '/' + (x.path || '') + (x.odataVersion ? ' ' + x.odataVersion : ''), auth(x)]));
+    soap.forEach(x => rows.push(['Published', 'SOAP', x.name || '(unnamed)', x.caption || '', auth(x)]));
+    consumed.forEach(x => rows.push(['Consumed', 'REST service', x.name || '(unnamed)', x.baseUrl || '—', x.authenticationScheme || '—']));
+    Object.keys(byTarget).sort().forEach(t => {
+      const calls = byTarget[t];
+      const secrets = calls.filter(x => x.hardcodedCredentials).length;
+      rows.push(['Outgoing', 'REST calls', t, plural(calls.length, 'call', 'calls') + ' from ' + plural(new Set(calls.map(x => x.microflow)).size, 'microflow', 'microflows'),
+        secrets ? 'CREDENTIALS TYPED IN ' + plural(secrets, 'CALL', 'CALLS') : '']);
+    });
+    events.forEach(x => rows.push(['Business events', 'service', x.name || '(unnamed)', plural((x.channels || []).length, 'channel', 'channels'), '']));
+    const open = rest.concat(odata, soap).filter(x => !x.authenticated).length;
+    const secrets = (int.restCalls || []).filter(x => x.hardcodedCredentials).length;
+    add({
+      title: 'Integrations — what the app exposes and calls',
+      subtitle: `${rest.length + odata.length + soap.length} published (${open} without sign-in), ${consumed.length} consumed, ` +
+        `${plural(Object.keys(byTarget).length, 'outgoing REST target', 'outgoing REST targets')}; ${plural(secrets, 'call', 'calls')} with credentials typed into the microflow`,
+      columns: ['Direction', 'Type', 'Name', 'Where', 'Authentication'],
+      note: 'A URL built from a Constant shows the Constant, not its per-environment value. Credential values are never read out.'
+    }, rows);
+  }
+
+  const mod = results.mod;
+  if (mod.failed) {
+    missing.push('modules (' + mod.failed + ')');
+  } else {
+    const label = m => market.has(m) ? m + ' (Marketplace)' : m;
+    add({
+      title: 'Module dependency cycles',
+      subtitle: 'Modules that reference each other — they deploy and version together; none can be extracted without the rest.',
+      columns: ['Cycle', 'Modules', 'Members']
+    }, (mod.cycles || []).map((g, i) => [String(i + 1), String(g.length), g.slice().sort().map(label).join(', ')]));
+    add({
+      title: 'Inheritance blockers',
+      subtitle: 'An entity extending one in another module — separating those modules needs a data migration.',
+      columns: ['Entity', 'Extends', 'Modules']
+    }, (mod.blockers || []).filter(b => mine(b.fromModule)).map(b => [b.from, b.to, b.fromModule + ' ↔ ' + b.toModule]));
+  }
+
+  if (sec && sec.highlights) {
+    const h = sec.highlights;
+    const rows = [];
+    h.broadWrite.forEach(i => {
+      const e = sec.entityRules[i];
+      rows.push(['Broad write access', e.role, e.qname, [e.create ? 'create' : '', e.del ? 'delete' : ''].filter(Boolean).join(' + ') + ' with no XPath']);
+    });
+    h.anonEntity.forEach(i => {
+      const e = sec.entityRules[i];
+      rows.push(['Anonymous entity access', e.role, e.qname, e.xpath ? 'XPath: ' + e.xpath : 'no XPath']);
+    });
+    h.anonDocument.forEach(i => {
+      const d = sec.documentRules[i];
+      rows.push(['Anonymous document', (d.anonRoles || []).join(', '), d.module + '.' + d.name, d.type]);
+    });
+    add({
+      title: 'Security matrix — review shortcuts',
+      subtitle: `${sec.entityRules.length} entity rules, ${sec.documentRules.length} document rules (exported by mx.exe ${sec.meta.binaryVersion})`,
+      columns: ['Finding', 'Role', 'Element', 'Detail']
+    }, rows);
+  }
+
+  const note = ['Read from the last saved project file, offline — no database or running app was involved.'];
+  if (market.size) note.push(plural(market.size, 'Marketplace module is', 'Marketplace modules are') + ' left out of dead code and inheritance blockers.');
+  if (nothing.length) note.push('Checked, nothing found: ' + nothing.join(', ') + '.');
+  if (missing.length) note.push('Not available: ' + missing.join('; ') + '.');
+  if (!sec) note.push('Security matrix not included — generate it on the Security Matrix tab first to add its review shortcuts.');
+  note.push('Contains module, entity, role and endpoint names — review before sharing.');
+
+  return {
+    title: 'Model handover summary — ' + (p.projectName || 'project'),
+    subtitle: source,
+    meta: [
+      { label: 'Mendix', value: p.productVersion || '—' },
+      { label: 'Modules', value: (c.modules || 0) + (market.size ? ' (' + market.size + ' Marketplace)' : '') },
+      { label: 'Entities', value: c.entities || 0 },
+      { label: 'Microflows', value: c.microflows || 0 },
+      { label: 'Pages', value: c.pages || 0 }
+    ],
+    note: note.join(' '),
+    sections: sections
+  };
+}
+
+// The Security Matrix belongs to the connected project; only fold it in when
+// the summary is for that same project (its folder, or a .mpr inside it).
+function dsSummarySameProject(raw, projectRoot) {
+  if (!raw || !projectRoot) return false;
+  const norm = v => String(v).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  const root = norm(projectRoot);
+  const target = norm(raw);
+  return target === root || target.indexOf(root + '/') === 0;
+}
+
+async function dsExportSummary(btn) {
+  const box = document.getElementById('ds-mpr-body');
+  const esc = window.escHtml;
+  const raw = dsModelPath('ds-mpr-path');
+  if (!raw) {
+    if (box) box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">Enter a path to a .mpr file or the project folder.</div>`;
+    return;
+  }
+  const label = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Exporting&hellip;'; }
+  try {
+    const settled = await Promise.allSettled(DS_SUMMARY_ROUTES.map(([, route]) =>
+      fetch('http://localhost:9999' + route, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mprPath: raw })
+      }).then(res => res.json())));
+    const results = {};
+    DS_SUMMARY_ROUTES.forEach(([key], i) => {
+      const d = settled[i].status === 'fulfilled' ? settled[i].value : null;
+      results[key] = (d && d.ok && !d.error) ? d : { failed: (d && (d.reason || d.message)) || 'bridge unreachable' };
+    });
+    // Without the project header there is nothing to summarise — and the other
+    // routes read the same file, so they failed for the same reason.
+    if (results.mpr.failed) {
+      if (box) box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">${esc(results.mpr.failed)}</div>`;
+      return;
+    }
+    const sec = dsSecData && dsProjectData && dsSummarySameProject(raw, dsProjectData.projectRoot) ? dsSecData : null;
+    const opts = dsSummaryBuild(results, sec, raw);
+    window.mtExport.downloadHtml('handover-summary-' + results.mpr.projectName + '.html', opts);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = label; }
+  }
+}
+
 async function dsFetchDbDetails() {
   if (!dsProjectData || !dsProjectData.success) return;
   const config = dsProjectData.config || {};
@@ -1539,6 +1747,9 @@ window.dsDeadSetQuery = dsDeadSetQuery;
 window.dsScrollTo = dsScrollTo;
 window.dsFetchIntegrations = dsFetchIntegrations;
 window.dsFetchModules = dsFetchModules;
+window.dsExportSummary = dsExportSummary;
+window.dsSummaryBuild = dsSummaryBuild;
+window.dsSummarySameProject = dsSummarySameProject;
 
 // Exposed for scripts/parser-test.js (pure function, no DOM).
 window.dsBackoffDelay = dsBackoffDelay;

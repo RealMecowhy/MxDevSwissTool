@@ -103,7 +103,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.60.1</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.61.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -289,7 +289,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.60.1</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.61.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -2472,6 +2472,7 @@
                   <input type="text" id="ds-mpr-path" placeholder="Path to a .mpr file or project folder"
                     style="flex:1; min-width:0; font-family:var(--font-mono); font-size:0.78rem; padding:var(--sp-2); background:var(--bg-base); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-primary)">
                   <button class="btn btn-secondary" style="font-size:0.8rem; white-space:nowrap" onclick="dsFetchMprModel()">Read</button>
+                  <button class="btn btn-secondary" style="font-size:0.8rem; white-space:nowrap" onclick="dsExportSummary(this)" title="One self-contained HTML page: security settings, dead code, integrations, module cycles and blockers">Export summary</button>
                 </div>
                 <div id="ds-mpr-body" style="font-size:0.85rem">
                   <span style="color:var(--text-muted)">Reads the model straight from the <code>.mpr</code> &mdash; no database, no local run, Mendix 8&ndash;11.</span>
