@@ -1299,6 +1299,10 @@ kbd {
 }
 .level-filter-btn:not(.active) {
   opacity: 0.4;
+  /* State has to read without colour: level hues differ so much in lightness that
+     in grayscale an active CRITICAL chip was darker than an inactive WARN one.
+     Off = dashed outline; on = solid outline plus the level's fill. */
+  border-style: dashed;
 }
 .lf-trace {
   border-color: var(--log-trace);
@@ -1340,8 +1344,10 @@ kbd {
   color: var(--log-critical);
 }
 .lf-critical.active {
-  background: #3d0f0f;
+  background: var(--danger-subtle);
 }
+/* "Insights · 15" — the number of problem categories, shown before the tab is opened. */
+.log-tab-count { color: var(--accent); font-weight: 700; }
 #log-stats {
   padding: var(--sp-2) var(--sp-4);
   background: var(--bg-elevated);
@@ -4122,6 +4128,20 @@ kbd {
   padding: 0 2px;
 }
 .mt-toast-close:hover { color: var(--text); }
+.mt-toast-actions { display: flex; gap: var(--sp-1); flex-shrink: 0; align-self: center; }
+.mt-toast-actions:empty { display: none; }
+.mt-toast-action {
+  border: 1px solid var(--border);
+  background: var(--bg-base);
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 0.78rem;
+  padding: 2px var(--sp-2);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mt-toast-action:hover { border-color: var(--accent); }
 .mt-toast-out { animation: mt-toast-out 0.2s ease-in forwards; }
 @keyframes mt-toast-in  { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
 @keyframes mt-toast-out { to { opacity: 0; transform: translateX(12px); } }

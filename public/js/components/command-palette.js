@@ -109,9 +109,16 @@ export function initCommandPalette(toolsList, navigateFn) {
 
     selectedIndex = 0;
     
+    // A symptom ("slow", "timeout", "deadlock") matches no tool name or description,
+    // and a bare "No tools found." left the user nowhere. Point at where diagnosis
+    // starts instead — the log and the error message — plus the full tool list.
+    let hint = '';
     if (currentResults.length === 0) {
-      resultsContainer.innerHTML = '<div style="padding:var(--sp-3); color:var(--text-secondary); text-align:center;">No tools found.</div>';
-      return;
+      const escHtml = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      currentResults = ['log-viewer', 'error-decoder', 'home']
+        .map(id => toolsList.find(t => t.id === id)).filter(Boolean);
+      hint = '<div style="padding:var(--sp-2) var(--sp-3); color:var(--text-secondary); font-size:0.8rem;">No tool matches “' +
+        escHtml(query) + '”. Chasing a problem? Start from the log or the error message:</div>';
     }
 
     // The three flex children each need an explicit sizing rule. Without them a
@@ -120,7 +127,7 @@ export function initCommandPalette(toolsList, navigateFn) {
     // their siblings out: the icon span collapsed to zero width and vanished, the
     // section label was shoved past the container edge, and text-overflow:ellipsis
     // never fired because the row simply overflowed instead of being constrained.
-    resultsContainer.innerHTML = currentResults.map((t, idx) => `
+    resultsContainer.innerHTML = hint + currentResults.map((t, idx) => `
       <div class="cmd-result-item ${idx === 0 ? 'active' : ''}" data-idx="${idx}" style="display:flex; align-items:center; padding:var(--sp-2) var(--sp-3); cursor:pointer; border-radius:var(--r-md); margin-bottom:2px;">
         <span style="font-size:1.2rem; color:${t.color}; margin-right:var(--sp-3); width:24px; flex-shrink:0; text-align:center;">${t.icon}</span>
         <div style="flex:1; min-width:0;">

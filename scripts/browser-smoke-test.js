@@ -543,18 +543,26 @@ async function run() {
         return c.length > 0 && Array.from(c).every(el => el.hasAttribute('aria-pressed'));
       }));
 
-    // Enter on a chip must toggle it exactly like a click, and the exposed
-    // state must follow — the class is toggled by code this module never calls.
-    ok('Enter activates a chip and aria-pressed follows',
+    // Level chips follow the Grafana legend: Enter (a click) shows only that level,
+    // Shift+Enter (Shift+click) adds or removes one. The exposed state must follow
+    // both — the class is toggled by code this module never calls.
+    ok('Enter isolates a chip, Shift+Enter adds one, aria-pressed follows',
       await page.evaluate(async () => {
         window.navigate('log-viewer', null);
-        const chip = document.querySelector('#panel-log-viewer .level-filter-btn');
-        const before = chip.getAttribute('aria-pressed');
-        chip.focus();
-        chip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-        await new Promise(r => setTimeout(r, 100));
-        return chip.getAttribute('aria-pressed') !== before &&
-          chip.getAttribute('aria-pressed') === String(chip.classList.contains('active'));
+        const chips = Array.from(document.querySelectorAll('#panel-log-viewer .level-filter-btn[onclick^="logToggleLevel"]'));
+        const trace = chips[0], debug = chips[1];
+        const press = (el, shiftKey) => {
+          el.focus();
+          el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: shiftKey, bubbles: true }));
+          return new Promise(r => setTimeout(r, 100));
+        };
+        const synced = () => chips.every(c => c.getAttribute('aria-pressed') === String(c.classList.contains('active')));
+        await press(trace, false);
+        const isolated = trace.getAttribute('aria-pressed') === 'true' && debug.getAttribute('aria-pressed') === 'false' && synced();
+        await press(debug, true);
+        const added = trace.getAttribute('aria-pressed') === 'true' && debug.getAttribute('aria-pressed') === 'true' && synced();
+        window.logToggleAllLevels(true);
+        return isolated && added;
       }));
 
     // Focus has to move into the dialog, stay there, and come back on close.

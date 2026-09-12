@@ -103,7 +103,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.62.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.63.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -289,7 +289,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.62.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.63.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -344,14 +344,14 @@
           <button class="btn btn-danger btn-sm" id="log-clear-btn" disabled onclick="logClear()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Clear</button>
           <span class="toolbar-sep" aria-hidden="true"></span>
           <button class="btn btn-secondary btn-sm" onclick="logOpenPasteModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>Paste Logs</button>
-          <label class="btn btn-primary btn-sm" for="log-file-input"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Load Log File</label>
+          <label class="btn btn-secondary btn-sm" id="log-load-btn" for="log-file-input"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><span id="log-load-label">Load Log File</span></label>
           <input type="file" id="log-file-input" style="display:none" accept=".log,.txt,.csv,.gz" multiple onchange="logLoadFiles(this.files)">
         </div>
       <div data-mt-hub="log-viewer" style="display:none;margin:0 var(--sp-4) var(--sp-2)"></div>
       <div class="tool-body" style="padding-top:0">
         <div class="tabs" style="margin-bottom:var(--sp-2);padding:0;border-bottom:1px solid var(--border)">
           <button type="button" class="tab active" data-help-key="log-viewer-stream" onclick="logSetTab('stream',this)">Log Stream</button>
-          <button type="button" class="tab" data-help-key="log-viewer-insights" onclick="logSetTab('insights',this)">Insights</button>
+          <button type="button" class="tab" data-help-key="log-viewer-insights" onclick="logSetTab('insights',this)">Insights<span id="log-insights-count" class="log-tab-count"></span></button>
           <button type="button" class="tab" data-help-key="log-viewer-matrix" onclick="logSetTab('matrix',this)">Levels Matrix</button>
           <button type="button" class="tab" data-help-key="log-viewer-correlation" onclick="logSetTab('correlation',this)">Correlation Flow</button>
           <button type="button" class="tab" data-help-key="log-viewer-sequence" onclick="logSetTab('sequence',this)">Sequence Diagram</button>
@@ -364,12 +364,12 @@
         <div class="log-toolbar-row1">
           <input class="input input-mono" id="log-search" placeholder="Search messages, nodes, text..." oninput="logApplyFilters()">
           <div class="log-level-filters">
-            <span class="level-filter-btn lf-trace active" onclick="logToggleLevel('TRACE',this)">TRACE</span>
-            <span class="level-filter-btn lf-debug active" onclick="logToggleLevel('DEBUG',this)">DEBUG</span>
-            <span class="level-filter-btn lf-info active" onclick="logToggleLevel('INFO',this)">INFO</span>
-            <span class="level-filter-btn lf-warn active" onclick="logToggleLevel('WARN',this)">WARN</span>
-            <span class="level-filter-btn lf-error active" onclick="logToggleLevel('ERROR',this)">ERROR</span>
-            <span class="level-filter-btn lf-critical active" onclick="logToggleLevel('CRITICAL',this)">CRITICAL</span>
+            <span class="level-filter-btn lf-trace active" onclick="logToggleLevel('TRACE',this,event)" title="Show only TRACE · Shift/Ctrl+click adds or removes it">TRACE</span>
+            <span class="level-filter-btn lf-debug active" onclick="logToggleLevel('DEBUG',this,event)" title="Show only DEBUG · Shift/Ctrl+click adds or removes it">DEBUG</span>
+            <span class="level-filter-btn lf-info active" onclick="logToggleLevel('INFO',this,event)" title="Show only INFO · Shift/Ctrl+click adds or removes it">INFO</span>
+            <span class="level-filter-btn lf-warn active" onclick="logToggleLevel('WARN',this,event)" title="Show only WARN · Shift/Ctrl+click adds or removes it">WARN</span>
+            <span class="level-filter-btn lf-error active" onclick="logToggleLevel('ERROR',this,event)" title="Show only ERROR · Shift/Ctrl+click adds or removes it">ERROR</span>
+            <span class="level-filter-btn lf-critical active" onclick="logToggleLevel('CRITICAL',this,event)" title="Show only CRITICAL · Shift/Ctrl+click adds or removes it">CRITICAL</span>
           </div>
           <button class="btn btn-ghost btn-sm" onclick="logToggleAllLevels(true)">All</button>
           <button class="btn btn-ghost btn-sm" onclick="logToggleAllLevels(false)">None</button>
@@ -414,8 +414,8 @@
             <div class="empty-state-title">Drop a log file here</div>
             <div class="empty-state-hint">Mendix Cloud live logs (.txt/.log), Studio Pro CSV exports and Grafana exports &bull; multiple files merged chronologically &bull; .gz archives &bull; large files OK</div>
             <div class="empty-state-actions">
-              <label class="btn btn-secondary btn-sm" for="log-file-input-empty" style="cursor:pointer">Browse Files</label>
-              <button class="btn btn-primary btn-sm" onclick="logOpenPasteModal()">Paste Log Content</button>
+              <label class="btn btn-primary btn-sm" for="log-file-input-empty" style="cursor:pointer">Browse Files</label>
+              <button class="btn btn-secondary btn-sm" onclick="logOpenPasteModal()">Paste Log Content</button>
             </div>
             <details>
               <summary>How to get this data</summary>

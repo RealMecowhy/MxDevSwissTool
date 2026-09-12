@@ -39,16 +39,21 @@ function mtToastContainer() {
 
 // msg may be long (a stack-trace message, a parser complaint) — it is inserted as
 // text, never HTML, because most callers pass strings built from file contents.
-function mtToast(msg, type) {
+// opts.actions — [{label, onClick}] buttons, e.g. Undo. A toast carrying actions is
+// never collapsed into an identical one (each undoes its own change), may set its
+// own opts.duration, and is returned so the caller can dismiss it early.
+function mtToast(msg, type, opts) {
   const kind = MT_TOAST_ICON[type] ? type : 'info';
   const text = String(msg == null ? '' : msg);
   if (!text) return;
+  const actions = opts && Array.isArray(opts.actions) ? opts.actions : [];
+  const lifetime = (opts && opts.duration) || MT_TOAST_LIFETIME[kind];
 
   const host = mtToastContainer();
 
   // Collapse a repeat of the identical message into a counter instead of
   // stacking five copies — a loop that fails per row would otherwise bury the UI.
-  const existing = Array.prototype.find.call(host.children, el => el.dataset.msg === text);
+  const existing = actions.length ? null : Array.prototype.find.call(host.children, el => el.dataset.msg === text);
   if (existing) {
     const n = (parseInt(existing.dataset.count, 10) || 1) + 1;
     existing.dataset.count = String(n);
@@ -69,17 +74,28 @@ function mtToast(msg, type) {
       'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + MT_TOAST_ICON[kind] + '</svg>' +
     '<span class="mt-toast-msg"></span>' +
     '<span class="mt-toast-count" style="display:none"></span>' +
+    '<span class="mt-toast-actions"></span>' +
     '<button class="mt-toast-close" type="button" aria-label="Dismiss">&times;</button>';
   el.querySelector('.mt-toast-msg').textContent = text;
   el.querySelector('.mt-toast-close').onclick = () => mtToastDismiss(el);
+  const actionHost = el.querySelector('.mt-toast-actions');
+  actions.forEach(a => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'mt-toast-action';
+    b.textContent = a.label;
+    b.onclick = () => { mtToastDismiss(el); a.onClick(); };
+    actionHost.appendChild(b);
+  });
 
   host.appendChild(el);
   while (host.children.length > MT_TOAST_MAX) mtToastDismiss(host.firstElementChild, true);
 
-  el.dataset.timer = String(setTimeout(() => mtToastDismiss(el), MT_TOAST_LIFETIME[kind]));
+  el.dataset.timer = String(setTimeout(() => mtToastDismiss(el), lifetime));
   // Returns nothing on purpose: several call sites are written as
   // `return alert(msg);` to bail out of a function, and a void return keeps that
-  // substitution behaviour-identical.
+  // substitution behaviour-identical. Only a toast with actions returns itself.
+  if (actions.length) return el;
 }
 
 function mtToastDismiss(el, immediate) {

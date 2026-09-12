@@ -14,6 +14,46 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.63.0 — 2026-09-11
+
+**The Log Viewer stops mixing and losing your data, and points at the answer.**
+From an in-app UX review; every change was measured before and after with the
+same scripted scenario on a real 46 MB, 55,248-record Mendix Cloud log.
+
+- **Loading another file no longer merges it silently into the one on screen.**
+  A Studio Pro CSV loaded after a Cloud log used to produce one 56,248-record
+  timeline while the Data Hub bar described only the CSV's 1,000 records — and
+  *Open in…* handed over only that file. A file loaded over a log now
+  **replaces** it, and the notice that follows offers **Undo** and **Merge
+  instead** (after a merge the bar says that only one of the files is shared).
+  Several files dropped at once are still merged, as before.
+- **Re-opening the same file from the Data Hub no longer duplicates it.**
+  *Open in → Log Viewer* appended the file a second time — 55,248 records became
+  110,496 — although the Hub's own prompt promised a replace. Hand-offs from the
+  Microflow Tracer, REST & WS Extractor and the Nginx correlator replace the view
+  as well, with Undo.
+- **Clear can be undone.** It unloads the log, its filters and its bookmarks in
+  one click; an **Undo** notice now gives all of it back for 10 seconds, instead
+  of asking "are you sure?" on every deliberate Clear.
+- **Level chips work like a Grafana legend.** A click on ERROR used to *hide* the
+  errors while the stream looked unchanged (54,204 of 55,248 rows still shown).
+  Now a click shows only that level, **Shift/Ctrl+click** (Shift+Enter from the
+  keyboard) adds or removes one, and clicking the only active level brings all
+  back. A switched-off chip has a dashed outline, so the state no longer depends
+  on colour — in grayscale an active CRITICAL chip used to look darker than an
+  inactive WARN one. The CRITICAL chip's hard-coded dark-red fill is now a theme
+  token.
+- **Insights announces itself.** The tab reads *Insights · 15* about 0.6 s after
+  the stream appears, counted while the browser is idle; the stream is not
+  slower for it (752 ms vs 764 ms to the first rows).
+- **One primary action in the empty Log Viewer** — it had two, *Load Log File*
+  and *Paste Log Content*. With a log loaded, the toolbar button reads
+  *Replace Log…*.
+- **Ctrl+K no longer dead-ends.** A search that matches no tool — usually a
+  symptom: *slow*, *timeout*, *deadlock*, *500* — suggests the Log Viewer, the
+  Error Decoder and the full tool list instead of "No tools found." Searches by
+  name (*base64*, *epoch*, *decode*) return exactly what they did.
+
 ## v1.62.0 — 2026-09-11
 
 **Navigate: what calls this, what does it call, what breaks if I change it.**

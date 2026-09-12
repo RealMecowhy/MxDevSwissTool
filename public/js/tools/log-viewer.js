@@ -85,6 +85,12 @@ function logLoadFiles(files) {
   showLoader('Reading files...');
   (async () => {
     const list = Array.from(files);
+    // A log already on screen is replaced, not silently merged into: a second file
+    // used to join the first while the Data Hub described only the newcomer. The
+    // previous state is kept for Undo / Merge instead (logOfferUndo).
+    const prev = logAllEntries.length ? logSnapshot() : null;
+    if (prev) logClearState();
+    const loaded = [];
     // The Data Hub carries ONE file; with a multi-file drop the last one that
     // actually parsed is shared and the rest are reported as staying here.
     let shareable = null;
@@ -97,6 +103,7 @@ function logLoadFiles(files) {
         logParseContent(text, f.name);
         const added = logAllEntries.length - before;
         if (added > 0) {
+          loaded.push({ text: text, name: f.name });
           shareable = {
             name: f.name,
             // .gz reports its compressed size, which would misdescribe the text
@@ -112,19 +119,105 @@ function logLoadFiles(files) {
         window.mtToast('Could not read "' + f.name + '": ' + err.message, 'error');
       }
     }
+    // A file that failed to parse must not cost the log that was on screen.
+    if (prev && !shareable) { logRestore(prev); hideLoader(); return; }
     // Sharing the decompressed text is what lets the other log tools consume a
     // .gz download at all — only the Log Viewer knows how to unpack one.
     if (shareable && window.mtHub) {
       window.mtHub.setSource(Object.assign({ origin: 'log-viewer', siblings: list.length - 1 }, shareable));
     }
     hideLoader();
+    if (prev && shareable) logOfferUndo(prev, logReplacedMessage(prev.entries, logFilesLabel(logAllEntries)), loaded);
   })();
 }
 // Cross-link / Data Hub entry point: parse raw log text as if it were a dropped
-// file, mirroring lqeLoadText / mftLoadText / wsreLoadText.
+// file, mirroring lqeLoadText / mftLoadText / wsreLoadText. It replaces what is on
+// screen: appending made the Data Hub's "re-parse the same file" double every
+// record (55,248 → 110,496), although its own prompt promises a replace.
 function logLoadText(text, filename) {
+  const prev = logAllEntries.length ? logSnapshot() : null;
+  if (prev) logClearState();
   logParseContent(text, filename || 'shared.log');
   hideLoader();
+  if (prev) logOfferUndo(prev, logReplacedMessage(prev.entries, filename || 'shared.log'), null);
+}
+// Re-opening the file already on screen (the Data Hub's "re-parse") loses none of
+// the log, only its filters and bookmarks — say that, not "replaced X with X".
+function logReplacedMessage(prevEntries, newLabel) {
+  const oldLabel = logFilesLabel(prevEntries);
+  return oldLabel === newLabel
+    ? 'Reloaded ' + newLabel + ' — filters and bookmarks were reset.'
+    : 'Replaced ' + oldLabel + ' with ' + newLabel + '.';
+}
+
+// ── Undo for the two actions that throw a loaded log away: Clear, and loading over it ──
+// The previous entries are kept by reference, not copied, and only the toast's
+// buttons hold the snapshot, so the memory goes when the toast does. Any newer
+// parse or restore bumps logUndoGen, which turns an older toast's Undo stale.
+let logUndoGen = 0;
+function logSnapshot() {
+  const val = id => document.getElementById(id).value;
+  return {
+    entries: logAllEntries, multi: logMultiFileActive,
+    bookmarks: new Map(logBookmarks), levels: new Set(logActiveLevels),
+    search: val('log-search'), from: val('log-time-from'), to: val('log-time-to'),
+    node: val('log-node-filter'), date: val('log-date-filter'),
+    hub: window.mtHub ? window.mtHub.getSource() : null
+  };
+}
+function logRestore(s) {
+  logClearState();
+  logUndoGen++;
+  logAllEntries = s.entries;
+  logMultiFileActive = s.multi;
+  logBookmarks = s.bookmarks;
+  logActiveLevels = new Set(s.levels);
+  logSyncLevelChips();
+  document.getElementById('log-search').value = s.search;
+  document.getElementById('log-time-from').value = s.from;
+  document.getElementById('log-time-to').value = s.to;
+  document.getElementById('log-node-filter').value = s.node;
+  logBuildDateFilter();
+  document.getElementById('log-date-filter').value = s.date;
+  logShowLoaded();
+  if (window.mtHub) {
+    const now = window.mtHub.getSource();
+    if (s.hub) window.mtHub.setSource(s.hub);
+    else if (now && now.origin === 'log-viewer') window.mtHub.clear();
+  }
+}
+// "logs_A.txt", or "logs_A.txt (+1 more)" for a merged timeline.
+function logFilesLabel(entries) {
+  const files = new Set();
+  for (const e of entries) files.add(e.file || 'log');
+  const first = files.values().next().value || 'log';
+  return files.size > 1 ? first + ' (+' + (files.size - 1) + ' more)' : first;
+}
+function logOfferUndo(snap, message, loaded) {
+  const gen = ++logUndoGen;
+  const stale = () => gen !== logUndoGen;
+  const expired = () => window.mtToast('Nothing to undo — the log has changed since.', 'warning');
+  const actions = [{ label: 'Undo', onClick: () => stale() ? expired() : logRestore(snap) }];
+  if (loaded && loaded.length) {
+    actions.push({ label: 'Merge instead', onClick: () => {
+      if (stale()) return expired();
+      logRestore(snap);
+      loaded.forEach(l => logParseContent(l.text, l.name));
+      logShareMerged(loaded[loaded.length - 1]);
+    } });
+  }
+  window.mtToast(message, 'info', { actions: actions, duration: 10000 });
+}
+// The Data Hub carries one file, so a merged timeline shares its newest file and
+// says how many others stay here — the same honest wording as a multi-file drop.
+function logShareMerged(last) {
+  if (!window.mtHub) return;
+  const files = new Set(logAllEntries.map(e => e.file));
+  window.mtHub.setSource({
+    origin: 'log-viewer', name: last.name, size: last.text.length, text: last.text,
+    records: logAllEntries.filter(e => e.file === last.name).length,
+    format: logDetectSourceFormat(last.name, last.text), siblings: files.size - 1
+  });
 }
 function logHandleDrop(e) {
   e.preventDefault();
@@ -380,6 +473,14 @@ function logParseContent(text, filename) {
   }
 
   logBuildDateFilter();
+  logShowLoaded();
+}
+
+// Everything the view needs once logAllEntries holds a log — after a parse, and
+// after an Undo puts a previous log back. A newer log also makes any pending Undo
+// stale (logUndoGen).
+function logShowLoaded() {
+  logUndoGen++;
   logApplyFilters();
   const insTab = document.getElementById('log-tab-insights');
   if (insTab && insTab.style.display !== 'none') logRenderInsights();
@@ -393,6 +494,7 @@ function logParseContent(text, filename) {
   document.getElementById('log-empty-state').style.display = 'none';
   document.getElementById('log-virtual-list').style.display = 'block';
   logSetDataDependentUI(true);
+  logUpdateInsightsCount();
 }
 
 // Search, level chips, the time range, the node filter and the date select are
@@ -407,6 +509,15 @@ function logSetDataDependentUI(hasData) {
     const b = document.getElementById(id);
     if (b) b.disabled = !hasData;
   });
+  // With a log on screen another file replaces this one (with Undo), so the button
+  // says so. It is never the primary action: the empty state's Browse Files is, and
+  // once a log is loaded the next step is analysis, not loading another.
+  const load = document.getElementById('log-load-btn');
+  if (load) {
+    load.title = hasData ? 'Load another log in place of this one — Undo and Merge instead are offered afterwards' : '';
+    const label = document.getElementById('log-load-label');
+    if (label) label.textContent = hasData ? 'Replace Log…' : 'Load Log File';
+  }
 }
 function logBuildDateFilter() {
   const dates = [...new Set(logAllEntries.map(e => { const m = e.ts.match(/(\d{4}-\d{2}-\d{2})/); return m ? m[1] : null; }).filter(Boolean))];
@@ -414,10 +525,29 @@ function logBuildDateFilter() {
   sel.innerHTML = '<option value="">All dates</option>';
   dates.forEach(d => { const o = document.createElement('option'); o.value = d; o.textContent = d; if (d === cur) o.selected = true; sel.appendChild(o); });
 }
-function logToggleLevel(level, btn) {
-  if (logActiveLevels.has(level)) { logActiveLevels.delete(level); btn.classList.remove('active'); }
-  else { logActiveLevels.add(level); btn.classList.add('active'); }
+// Grafana's legend convention, which Mendix developers already know: a click shows
+// only that level, Shift/Ctrl/Cmd+click adds or removes it, and clicking the only
+// active level brings every level back. A plain toggle made the first instinct —
+// "show me the errors" — hide them instead, with the stream looking unchanged.
+function logToggleLevel(level, btn, ev) {
+  const additive = !!(ev && (ev.shiftKey || ev.ctrlKey || ev.metaKey));
+  if (additive) {
+    if (logActiveLevels.has(level)) logActiveLevels.delete(level); else logActiveLevels.add(level);
+  } else if (logActiveLevels.size === 1 && logActiveLevels.has(level)) {
+    logActiveLevels = new Set(LOG_LEVEL_ORDER);
+  } else {
+    logActiveLevels = new Set([level]);
+  }
+  logSyncLevelChips();
   logApplyFilters();
+}
+// Scoped to this tool's own chips: the same .level-filter-btn class dresses the
+// Nginx and other tools' chips, whose handlers are their own.
+function logSyncLevelChips() {
+  document.querySelectorAll('#panel-log-viewer .level-filter-btn[onclick^="logToggleLevel"]').forEach(function (b) {
+    const m = /'([A-Z]+)'/.exec(b.getAttribute('onclick'));
+    if (m) b.classList.toggle('active', logActiveLevels.has(m[1]));
+  });
 }
 function logToggleAllLevels(val) {
   ['TRACE','DEBUG','INFO','WARN','ERROR','CRITICAL'].forEach(l => {
@@ -647,8 +777,16 @@ function logUpdateStats() {
   document.getElementById('ls-info').textContent = i;
 }
 function logScrollTo(pos) { const c = document.getElementById('log-container'); c.scrollTop = pos==='top'?0:c.scrollHeight; }
+// Clear unloads the log, its filters and its bookmarks in one click, so the click is
+// forgiven (Undo, 10 s) rather than questioned with a dialog on every deliberate use.
 function logClear() {
+  const snap = logAllEntries.length ? logSnapshot() : null;
+  logClearState();
+  if (snap) logOfferUndo(snap, 'Log cleared.', null);
+}
+function logClearState() {
   logAllEntries=[]; logFilteredEntries=[];
+  logInsightsCache = null; logUpdateInsightsCount();
   logMultiFileActive = false; logFileBadgeCache.clear();
   logCloseRowContextMenu();
   document.getElementById('log-virtual-list').innerHTML=''; document.getElementById('log-virtual-list').style.display='none';
@@ -1667,6 +1805,32 @@ function logSetTab(tabId, el) {
   if (tabId === 'correlation') logRenderCorrelations();
 }
 
+// Insights is computed when its tab opens, but the tab has to say how many problems
+// there are before anyone opens it. The result is cached per loaded entry array
+// (the array is replaced on every load) and counted while the browser is idle —
+// 571 ms on a 55,248-record log, so never on the path that renders the stream.
+let logInsightsCache = null;
+function logInsightsFor(entries) {
+  if (!logInsightsCache || logInsightsCache.entries !== entries) {
+    logInsightsCache = { entries: entries, result: logExtractInsights(entries) };
+  }
+  return logInsightsCache.result;
+}
+function logUpdateInsightsCount() {
+  const badge = document.getElementById('log-insights-count');
+  if (!badge) return;
+  badge.textContent = '';
+  const entries = logAllEntries;
+  if (!entries.length) return;
+  const run = function () {
+    if (entries !== logAllEntries) return;
+    const n = logInsightsFor(entries).categories.filter(function (c) { return c.severity !== 'info'; }).length;
+    badge.textContent = n ? ' · ' + n : '';
+  };
+  if (window.requestIdleCallback) window.requestIdleCallback(run, { timeout: 1000 });
+  else setTimeout(run, 0);
+}
+
 // Builds the Insights problem-card overview from the loaded records. Honors the
 // data-driven rule: empty log → guidance; loaded but no WARN/ERROR patterns →
 // an explicit "clean" state; otherwise one card per category that occurs.
@@ -1681,7 +1845,7 @@ function logRenderInsights() {
     return;
   }
 
-  const result = logExtractInsights(logAllEntries);
+  const result = logInsightsFor(logAllEntries);
   const cats = result.categories;
 
   // Observations ('info') are not problems, so they are counted separately —

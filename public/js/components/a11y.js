@@ -96,7 +96,10 @@ function a11yKeyActivate(e) {
   if (!el || !el.getAttribute || el.getAttribute('role') !== 'button') return;
   if (el.tagName === 'BUTTON' || el.tagName === 'A') return; // native already does this
   e.preventDefault();
-  el.click();
+  // The modifiers travel with the click, so Shift+Enter on a level chip adds or
+  // removes it the way Shift+click does — a plain el.click() would drop them.
+  el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window,
+    ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey, altKey: e.altKey }));
 }
 
 // Escape closes the topmost dialog by clicking its own close control, so each
