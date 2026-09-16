@@ -1461,6 +1461,217 @@ kbd {
   color: #7a5800;
   background: #ffc40059;
 }
+/* ── Timeline: records over time, above the stream ── */
+#log-timeline {
+  padding: var(--sp-2) var(--sp-5) var(--sp-1);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.log-tl-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-1);
+}
+.log-tl-title {
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+.log-tl-hint {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+.log-tl-range {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--accent);
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+#log-tl-box {
+  position: relative;
+  cursor: crosshair;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: none;
+}
+#log-tl-svg {
+  display: block;
+  width: 100%;
+  height: 62px;
+}
+.log-tl-bar-all { fill: var(--border); }
+.log-tl-bar-cur { fill: var(--text-muted); }
+/* Lighter than the volume lane's background bars on purpose: these are a third
+   of the height, and at ~3px --border would read as a rendering artefact rather
+   than as "there is severity here that the filter is hiding". Nothing in the
+   severity lane's foreground is neutral, so a neutral fill stays unambiguous. */
+.log-tl-bar-sev-all { fill: color-mix(in srgb, var(--text-muted) 55%, transparent); }
+.log-tl-bm-tick { fill: var(--warning); }
+.log-tl-bar-warn { fill: var(--log-warning); }
+.log-tl-bar-err { fill: var(--log-error); }
+/* Where you are in the stream, as a band rather than a line: on a short log it
+   shows how much of the axis fits on screen, which a hairline cannot. */
+#log-tl-band {
+  position: absolute;
+  top: 0;
+  bottom: 4px;
+  min-width: 3px;
+  background: var(--accent-subtle);
+  border-left: 2px solid var(--accent);
+  border-right: 2px solid var(--accent);
+  pointer-events: none;
+  box-sizing: border-box;
+  display: none;
+}
+#log-tl-drag {
+  position: absolute;
+  top: 0;
+  bottom: 4px;
+  background: color-mix(in srgb, var(--text-primary) 14%, transparent);
+  border-left: 1px solid var(--text-secondary);
+  border-right: 1px solid var(--text-secondary);
+  pointer-events: none;
+  box-sizing: border-box;
+  display: none;
+}
+#log-tl-tip {
+  position: absolute;
+  top: 2px;
+  display: none;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: var(--sp-1) var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  line-height: 1.5;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 5;
+  box-shadow: var(--shadow-sm);
+  color: var(--text-primary);
+}
+.log-tl-tip-warn { color: var(--log-warning); }
+.log-tl-tip-err { color: var(--log-error); }
+.log-tl-axis {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.log-tl-note {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  padding-top: 2px;
+}
+
+/* ── Search mode (Filter / Highlight) and match stepping ── */
+/* The search box yields width to the mode switch and the match stepper instead
+   of pushing the level chips onto a second row. */
+#log-search {
+  flex: 1 1 220px;
+  min-width: 160px;
+}
+.log-search-mode {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.log-mode-btn {
+  height: var(--control-h);
+  padding: 0 var(--sp-3);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border: 0;
+  font-family: var(--font-sans);
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.log-mode-btn + .log-mode-btn {
+  border-left: 1px solid var(--border);
+}
+.log-mode-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+.log-mode-btn.active {
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+.log-hit-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  height: var(--control-h);
+  padding: 0 var(--sp-1) 0 var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg-elevated);
+  flex-shrink: 0;
+}
+#log-hit-count {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  min-width: 54px;
+  text-align: center;
+}
+/* A search that matches nothing leaves the stream looking untouched in highlight
+   mode, so the zero count has to read as "no matches", not as a stale counter. */
+.log-hit-nav-empty #log-hit-count {
+  color: var(--text-muted);
+}
+.log-hit-nav button {
+  background: none;
+  border: 0;
+  color: var(--text-secondary);
+  cursor: pointer;
+  width: 22px;
+  height: 22px;
+  line-height: 1;
+  border-radius: var(--r-sm);
+  font-size: 0.7rem;
+}
+.log-hit-nav button:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+.log-hit-nav-empty button {
+  opacity: 0.35;
+  cursor: default;
+}
+.log-hit-nav-empty button:hover {
+  background: none;
+  color: var(--text-secondary);
+}
+/* Non-matching lines recede but stay readable — they are the context that
+   highlight mode exists to show, not noise to be hidden. */
+.log-row-dimmed .log-row-ts,
+.log-row-dimmed .log-row-node,
+.log-row-dimmed .log-row-msg {
+  opacity: 0.45;
+}
+.log-row-hit-current {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.log-row-hit-current .log-highlight {
+  background: var(--accent);
+  color: var(--text-inverse);
+  font-weight: 700;
+}
 /* ── Row context menu (right-click → Filter by Correlation ID) ── */
 .log-ctxmenu {
   position: absolute;

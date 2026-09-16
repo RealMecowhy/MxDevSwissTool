@@ -161,7 +161,7 @@ function logSnapshot() {
     entries: logAllEntries, multi: logMultiFileActive,
     bookmarks: new Map(logBookmarks), levels: new Set(logActiveLevels),
     search: val('log-search'), from: val('log-time-from'), to: val('log-time-to'),
-    node: val('log-node-filter'), date: val('log-date-filter'),
+    node: val('log-node-filter'), date: val('log-date-filter'), mode: logSearchMode,
     hub: window.mtHub ? window.mtHub.getSource() : null
   };
 }
@@ -173,6 +173,7 @@ function logRestore(s) {
   logBookmarks = s.bookmarks;
   logActiveLevels = new Set(s.levels);
   logSyncLevelChips();
+  logSetSearchMode(s.mode || 'filter');
   document.getElementById('log-search').value = s.search;
   document.getElementById('log-time-from').value = s.from;
   document.getElementById('log-time-to').value = s.to;
@@ -481,6 +482,8 @@ function logParseContent(text, filename) {
 // stale (logUndoGen).
 function logShowLoaded() {
   logUndoGen++;
+  logAssignMs(logAllEntries);
+  logBuildChart();
   logApplyFilters();
   const insTab = document.getElementById('log-tab-insights');
   if (insTab && insTab.style.display !== 'none') logRenderInsights();
@@ -557,25 +560,62 @@ function logToggleAllLevels(val) {
   });
   logApplyFilters();
 }
+// ── SEARCH MODE ───────────────────────────────────────────────────────────
+// 'filter' (the default, and how the stream has always worked) drops the lines
+// that do not match, so everything on screen is a hit. 'highlight' keeps every
+// line, marks the hits and steps between them — which is what you want when the
+// question is "what happened around this error", not "show me only this error".
+// Stepping between hits only makes sense in highlight mode: under 'filter' the
+// next hit is always the next row.
+let logSearchMode = 'filter';
+let logHitIndices = [];
+let logHitCursor = 0;
+
+function logSetSearchMode(mode) {
+  if (mode !== 'filter' && mode !== 'highlight') return;
+  logSearchMode = mode;
+  const f = document.getElementById('log-mode-filter');
+  const h = document.getElementById('log-mode-highlight');
+  if (f) { f.classList.toggle('active', mode === 'filter'); f.setAttribute('aria-pressed', String(mode === 'filter')); }
+  if (h) { h.classList.toggle('active', mode === 'highlight'); h.setAttribute('aria-pressed', String(mode === 'highlight')); }
+  logHitCursor = 0;
+  logApplyFilters();
+}
+
+// Enter steps to the next hit, Shift+Enter to the previous one — the find-bar
+// reflex. Only bound in highlight mode; under 'filter' there is nothing to step
+// through, so Enter is left alone.
+function logSearchKey(ev) {
+  if (ev.key !== 'Enter' || logSearchMode !== 'highlight') return;
+  ev.preventDefault();
+  logGotoHit(ev.shiftKey ? -1 : 1);
+}
+
 function logApplyFilters() {
   const search = document.getElementById('log-search').value.toLowerCase();
   const from = document.getElementById('log-time-from').value.trim();
   const to = document.getElementById('log-time-to').value.trim();
   const node = document.getElementById('log-node-filter').value.toLowerCase();
   const date = document.getElementById('log-date-filter').value;
+  const narrowBySearch = search && logSearchMode === 'filter';
   logFilteredEntries = logAllEntries.filter(e => {
     if (logActiveSignatureKey) {
       const entrySig = logGetSignature(e);
       if (entrySig.key !== logActiveSignatureKey) return false;
     }
     if (!logActiveLevels.has(e.level)) return false;
-    if (search && !e.raw.toLowerCase().includes(search)) return false;
+    if (logChartRange) {
+      if (typeof e.ms !== 'number' || isNaN(e.ms)) return false;
+      if (e.ms < logChartRange.from || e.ms > logChartRange.to) return false;
+    }
+    if (narrowBySearch && !e.raw.toLowerCase().includes(search)) return false;
     if (node && !e.node.toLowerCase().includes(node)) return false;
     if (date && !e.ts.includes(date)) return false;
     if (from || to) { const m = e.ts.match(/(\d{2}:\d{2}:\d{2})/); if (m) { const t = m[1]; if (from && t < from) return false; if (to && t > to) return false; } }
     return true;
   });
-  logRender(); logUpdateStats();
+  logCollectHits(search);
+  logRender(); logUpdateStats(); logRenderChart();
   const clearBtn = document.getElementById('log-clear-filters-btn');
   if (clearBtn) clearBtn.style.display = logAnyFilterActive() ? 'inline-flex' : 'none';
 }
@@ -585,9 +625,86 @@ function logApplyFilters() {
 // keeps the button in sync with no extra wiring on the individual controls.
 function logAnyFilterActive() {
   if (logActiveSignatureKey) return true;
+  if (logChartRange) return true;
   if (logActiveLevels.size !== LOG_LEVEL_ORDER.length) return true;
   return ['log-search', 'log-time-from', 'log-time-to', 'log-node-filter', 'log-date-filter']
     .some(function (id) { const el = document.getElementById(id); return el && el.value.trim() !== ''; });
+}
+
+// Indices into logFilteredEntries of the lines that match the search. Only
+// populated in highlight mode — under 'filter' every entry in the list is a hit
+// and a "1 / all" counter would say nothing.
+function logCollectHits(search) {
+  logHitIndices = [];
+  if (search && logSearchMode === 'highlight') {
+    for (let i = 0; i < logFilteredEntries.length; i++) {
+      if (logFilteredEntries[i].raw.toLowerCase().includes(search)) logHitIndices.push(i);
+    }
+  }
+  if (logHitCursor >= logHitIndices.length) logHitCursor = 0;
+  logUpdateHitNav();
+  logUpdateSearchScopeNotice();
+}
+
+function logUpdateHitNav() {
+  const nav = document.getElementById('log-hit-nav');
+  const out = document.getElementById('log-hit-count');
+  if (!nav || !out) return;
+  const el = document.getElementById('log-search');
+  const searching = el && el.value.trim() !== '';
+  // Shown with a zero count too: in highlight mode nothing is removed from the
+  // stream, so a search that matches nothing looks exactly like no search at all
+  // unless the counter says "0 / 0".
+  nav.style.display = (logSearchMode === 'highlight' && searching) ? 'inline-flex' : 'none';
+  nav.classList.toggle('log-hit-nav-empty', logHitIndices.length === 0);
+  out.textContent = logHitIndices.length ? (logHitCursor + 1) + ' / ' + logHitIndices.length : '0 / 0';
+}
+
+// Highlight mode takes the search out of logFilteredEntries, which is also what
+// Export Filtered, the Incident Report and the counts in the stats bar read. That
+// is a real change of meaning, so it is stated on screen rather than left for the
+// user to discover from an export that is larger than they expected.
+function logUpdateSearchScopeNotice() {
+  const note = document.getElementById('log-search-scope-note');
+  if (!note) return;
+  const el = document.getElementById('log-search');
+  const searching = el && el.value.trim() !== '';
+  if (logSearchMode !== 'highlight' || !searching || !logAllEntries.length) {
+    note.style.display = 'none';
+    return;
+  }
+  note.style.display = 'block';
+  note.innerHTML = 'Highlight mode keeps every line, so <strong>Export Filtered</strong>, the '
+    + '<strong>Incident Report</strong> and the counts above cover all '
+    + logFilteredEntries.length.toLocaleString() + ' line' + (logFilteredEntries.length === 1 ? '' : 's')
+    + ' — not just the ' + logHitIndices.length.toLocaleString() + ' match'
+    + (logHitIndices.length === 1 ? '' : 'es') + '. Switch to <strong>Filter</strong> to narrow them.';
+}
+
+// Pages the infinite-scroll list far enough to put entry `idx` in the DOM and
+// returns its row. The list holds one child per loaded entry, in order, so the
+// index doubles as the child position.
+function logRevealRow(idx) {
+  const list = document.getElementById('log-virtual-list');
+  let guard = 0;
+  while (logScrollState.currentLoaded <= idx && logScrollState.currentLoaded < logFilteredEntries.length && guard++ < 100000) logLoadMore();
+  return list && list.children[idx];
+}
+
+// Steps to the next/previous match and centres it. Scrolls instantly rather than
+// smoothly: holding the arrow walks through hits, and queued smooth scrolls
+// interrupt one another so you lose track of where you landed.
+function logGotoHit(delta) {
+  if (!logHitIndices.length) return;
+  logHitCursor = (logHitCursor + delta + logHitIndices.length) % logHitIndices.length;
+  const row = logRevealRow(logHitIndices[logHitCursor]);
+  if (row) {
+    const prev = document.querySelector('#log-virtual-list .log-row-hit-current');
+    if (prev) prev.classList.remove('log-row-hit-current');
+    row.classList.add('log-row-hit-current');
+    row.scrollIntoView({ block: 'center', behavior: 'auto' });
+  }
+  logUpdateHitNav();
 }
 let logScrollState = {
   batchSize: 1000,
@@ -655,9 +772,24 @@ function logRender() {
   logLoadMore();
 }
 
+// Escapes text to HTML and wraps every hit on `search` in a <mark>. The search
+// filter matches e.raw — the whole line: timestamp, level, node and every stack
+// frame — so the highlighter has to cover the same ground. It used to mark only
+// the first line of the message, which left a search for a node name or a stack
+// frame showing rows with nothing marked in them: it read as "search doesn't
+// highlight" when the row was, in fact, a genuine hit. Both sides are escaped
+// before matching, so a term containing & < > " finds the escaped text instead
+// of silently missing it.
+function logHighlight(text, search) {
+  const safe = escHtml(text);
+  if (!search) return safe;
+  const re = new RegExp(escRegex(escHtml(search)), 'gi');
+  return safe.replace(re, m => '<mark class="log-highlight">' + m + '</mark>');
+}
+
 function logLoadMore() {
   if (logScrollState.currentLoaded >= logFilteredEntries.length) return;
-  
+
   const list = document.getElementById('log-virtual-list');
   const search = document.getElementById('log-search') ? document.getElementById('log-search').value : '';
   
@@ -666,8 +798,17 @@ function logLoadMore() {
   
   const rows = logFilteredEntries.slice(start, end);
   logScrollState.currentLoaded = end;
-  
+
+  // In highlight mode the non-matching lines stay — that is the point — but they
+  // recede so the hits read at a glance. In filter mode nothing is dimmed,
+  // because everything left in the list already matched.
+  const needle = logSearchMode === 'highlight' && search ? search.toLowerCase() : '';
+  const curHit = logHitIndices.length ? logHitIndices[logHitCursor] : -1;
+
   const html = rows.map((e, i) => {
+    const idx = start + i;
+    const dimmed = needle && !e.raw.toLowerCase().includes(needle) ? ' log-row-dimmed' : '';
+    const current = idx === curHit ? ' log-row-hit-current' : '';
     const cls = 'row-' + e.level.toLowerCase();
     const msgParts = e.msg.split('\n');
     const mainLine = msgParts[0];
@@ -680,11 +821,7 @@ function logLoadMore() {
       + ' onclick="event.stopPropagation();logToggleBookmark(this,' + logJsStr(e.file) + ',' + e.line + ')">'
       + (isBm ? '★' : '☆') + '</span>';
 
-    let mainHtml = escHtml(mainLine);
-    if (search && search.length > 1) {
-      const re = new RegExp(escRegex(search), 'gi');
-      mainHtml = mainHtml.replace(re, m => '<mark class="log-highlight">'+m+'</mark>');
-    }
+    const mainHtml = logHighlight(mainLine, search);
 
     // ERROR/CRITICAL rows get an "Explain" chip that hands the full message
     // (headline + stack) to the Mendix Error Decoder. Index is into the current
@@ -702,7 +839,7 @@ function logLoadMore() {
       }
     }
     const explainChip = showExplain
-      ? '<span class="log-explain-chip" onclick="event.stopPropagation();window.logExplainError('+(start+i)+')" title="Decode this error\'s mechanism in the Mendix Error Decoder">Explain</span>'
+      ? '<span class="log-explain-chip" onclick="event.stopPropagation();window.logExplainError('+idx+')" title="Decode this error\'s mechanism in the Mendix Error Decoder">Explain</span>'
       : '';
 
     // When >1 file is loaded (merged chronological timeline), show which file
@@ -715,21 +852,29 @@ function logLoadMore() {
     let stackHtml = '';
     if (stackLines.length > 0) {
       const id = 'st' + (e.file||'').replace(/[^a-z0-9]/gi,'').slice(-10) + e.line;
-      const preview = stackLines.length + ' frame' + (stackLines.length > 1 ? 's' : '');
+      // A hit inside a stack frame is a hit the filter already honored, but the
+      // stack is collapsed by default — so without saying so on the toggle, the
+      // row looks unmarked for the same reason the old highlighter did. Count the
+      // frames that match and put it on the label; auto-expanding instead would
+      // unfold hundreds of stacks on a common search term.
+      const stackMarked = stackLines.map(l => logHighlight(l, search));
+      const stackHits = search ? stackMarked.filter(h => h.indexOf('<mark') !== -1).length : 0;
+      const preview = stackLines.length + ' frame' + (stackLines.length > 1 ? 's' : '')
+        + (stackHits ? ' &middot; ' + stackHits + ' matching' : '');
       stackHtml = '<div style="width:100%; margin-top:4px; padding-left:42px; box-sizing:border-box">'
         + '<span class="log-stack-toggle" onclick="logToggleStack(\''+id+'\')" style="cursor:pointer; font-size:.72rem; color:var(--text-primary); background:var(--bg-elevated); border:1px solid var(--border); padding:3px 8px; border-radius:var(--r-md); font-weight:600; user-select:none; display:inline-block; transition:all 0.2s" onmouseover="this.style.borderColor=\'var(--accent)\'; this.style.color=\'var(--accent)\'" onmouseout="this.style.borderColor=\'var(--border)\'; this.style.color=\'var(--text-primary)\'">&#9654; Show ' + preview + '</span>'
         + '<div id="'+id+'" class="log-stack-body" style="display:none;margin-top:6px;padding:6px 10px;background:var(--bg-overlay);border-radius:4px;border:1px solid var(--border-subtle);font-size:.72rem;color:var(--text-muted);white-space:pre;overflow-x:auto;max-height:350px;overflow-y:auto">'
-        + stackLines.map(l => escHtml(l)).join('\n')
+        + stackMarked.join('\n')
         + '</div></div>';
     }
 
-    return '<div class="log-row '+cls+(isBm ? ' log-row-bookmarked' : '')+'" style="flex-wrap:wrap" oncontextmenu="logShowRowContextMenu(event,'+(start+i)+')">'
+    return '<div class="log-row '+cls+(isBm ? ' log-row-bookmarked' : '')+dimmed+current+'" style="flex-wrap:wrap" oncontextmenu="logShowRowContextMenu(event,'+idx+')">'
       + bmToggle
       + '<span class="log-row-num">'+e.line+'</span>'
       + fileBadge
-      + '<span class="log-row-ts">'+escHtml(e.ts)+'</span>'
+      + '<span class="log-row-ts">'+logHighlight(e.ts, search)+'</span>'
       + '<span class="log-row-level">'+logBadge(e.level)+'</span>'
-      + '<span class="log-row-node" title="'+escHtml(e.node)+'">'+escHtml(e.node)+'</span>'
+      + '<span class="log-row-node" title="'+escHtml(e.node)+'">'+logHighlight(e.node, search)+'</span>'
       + '<span class="log-row-msg">'+mainHtml+'</span>'
       + explainChip
       + stackHtml
@@ -788,6 +933,9 @@ function logClearState() {
   logAllEntries=[]; logFilteredEntries=[];
   logInsightsCache = null; logUpdateInsightsCount();
   logMultiFileActive = false; logFileBadgeCache.clear();
+  logChartRange = null; logChartAxis = null; logChartBg = null; logChartFg = null;
+  const tl = document.getElementById('log-timeline');
+  if (tl) tl.style.display = 'none';
   logCloseRowContextMenu();
   document.getElementById('log-virtual-list').innerHTML=''; document.getElementById('log-virtual-list').style.display='none';
   
@@ -939,12 +1087,356 @@ function logCloseRowContextMenu() {
   if (el) el.remove();
 }
 
+// The Insights cards and the row context menu both mean "narrow the stream to
+// this". They drive the same search box, so under highlight mode they would set
+// the term and narrow nothing — the action would look broken. Carrying a term
+// forces filter mode; without one the user's chosen mode is left alone.
+function logApplyProgrammaticSearch() {
+  const el = document.getElementById('log-search');
+  if (el && el.value.trim() && logSearchMode !== 'filter') logSetSearchMode('filter');
+  else logApplyFilters();
+}
+
 // Reuses the existing search filter — same substring match the Correlation
 // tab and the highlighter already rely on — so no new filter dimension is needed.
 function logFilterByCorrId(id) {
   logCloseRowContextMenu();
   document.getElementById('log-search').value = id;
+  logApplyProgrammaticSearch();
+}
+
+// ============================================================
+// TIMELINE — records over time, above the stream
+// ============================================================
+// Answers "when did this log get loud", which nothing else here does: the Levels
+// matrix pivots by node and severity with no time axis, and the Gantt measures
+// the gap between consecutive lines for at most 500 of them.
+//
+// Two lanes, not one stack. INFO outnumbers ERROR by two or three orders of
+// magnitude in a healthy runtime, so stacking them hides exactly the bars worth
+// seeing; the severity lane carries WARN/ERROR alone, on its own scale.
+//
+// Background is the whole log, foreground the current filter. Drawing only the
+// filtered set would throw away the context the chart exists for — after
+// narrowing to ERROR you still want to see where those errors sit in the run.
+const LOG_TL_H_VOL = 42, LOG_TL_H_SEV = 15, LOG_TL_Y_SEV = 47, LOG_TL_W = 1000;
+// Smallest severity bar that is actually a bar. Scaling WARN/ERROR strictly to the
+// busiest bucket reproduces, inside the severity lane, the very problem the lane
+// exists to avoid: against a burst holding 120 of them, a bucket holding one
+// renders 0.12 of 15 units and disappears. Every bucket that has a warning or an
+// error is therefore drawn at least this tall, keeping the warn-to-error ratio
+// within it. The lane answers "is there trouble here"; the hover tooltip carries
+// the exact counts.
+// 3 viewBox units ≈ 2.8 rendered pixels in a ~14 px lane: a tick you can see
+// without it competing with the bars that carry real counts.
+const LOG_TL_SEV_MIN = 3;
+let logChartAxis = null;    // {t0, t1, span, epoch, timed, skipped} of the whole log
+let logChartBg = null;      // whole-log buckets: the faint background bars
+let logChartFg = null;      // current-filter buckets, reused by the hover tooltip
+let logChartBuckets = 120;
+let logChartRange = null;   // {from, to} in e.ms units — the drag-selected window
+let logChartWired = false;
+let logChartBandRaf = 0;
+
+// The time range typed into log-time-from/to compares HH:MM:SS as text, which is
+// date-blind on purpose — it answers "every day between 09:00 and 10:00". A range
+// dragged off the chart means one specific window, so it filters on e.ms instead
+// of borrowing those fields, which on a multi-day log would silently select that
+// clock hour on every day in it.
+function logSetChartRange(from, to) {
+  logChartRange = { from: Math.min(from, to), to: Math.max(from, to) };
   logApplyFilters();
+}
+function logClearChartRange() {
+  logChartRange = null;
+  logApplyFilters();
+}
+
+function logBuildChart() {
+  logChartAxis = null;
+  logChartBg = null;
+  let t0 = Infinity, t1 = -Infinity, timed = 0;
+  for (let i = 0; i < logAllEntries.length; i++) {
+    const ms = logAllEntries[i].ms;
+    if (typeof ms !== 'number' || isNaN(ms)) continue;
+    timed++;
+    if (ms < t0) t0 = ms;
+    if (ms > t1) t1 = ms;
+  }
+  // Under two timestamped lines, or a log that all happened in the same
+  // millisecond, there is no axis to draw — the chart hides rather than render a
+  // single meaningless bar.
+  if (timed < 2 || t1 <= t0) return;
+  logChartAxis = {
+    t0: t0, t1: t1, span: t1 - t0,
+    // Time-only logs (LOG_PAT_TIME) carry ms since midnight plus a day carry, so
+    // they stay far below any real epoch value. Anything larger came from a date.
+    epoch: t0 > 86400000 * 400,
+    timed: timed, skipped: logAllEntries.length - timed
+  };
+  logChartBg = logChartBucketize(logAllEntries);
+}
+
+function logChartBucketize(entries) {
+  const n = logChartBuckets, a = logChartAxis;
+  const vol = new Array(n).fill(0), warn = new Array(n).fill(0), err = new Array(n).fill(0);
+  if (!a) return { vol: vol, warn: warn, err: err, max: 0, sevMax: 0 };
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    if (typeof e.ms !== 'number' || isNaN(e.ms)) continue;
+    let b = Math.floor(((e.ms - a.t0) / a.span) * n);
+    if (b < 0) b = 0; else if (b >= n) b = n - 1;
+    vol[b]++;
+    if (e.level === 'ERROR' || e.level === 'CRITICAL') err[b]++;
+    else if (e.level === 'WARN') warn[b]++;
+  }
+  let max = 0, sevMax = 0;
+  for (let i = 0; i < n; i++) {
+    if (vol[i] > max) max = vol[i];
+    const s = warn[i] + err[i];
+    if (s > sevMax) sevMax = s;
+  }
+  return { vol: vol, warn: warn, err: err, max: max, sevMax: sevMax };
+}
+
+// Bar heights for one bucket of the severity lane, as [warn, error]. Proportional
+// to the busiest bucket, then lifted to LOG_TL_SEV_MIN as a pair when the two
+// together would otherwise round away to nothing — lifting the pair rather than
+// each bar keeps the warn-to-error split inside the bucket intact.
+function logSevHeights(warn, err, sevMax) {
+  if (warn + err === 0) return [0, 0];
+  let hW = (warn / sevMax) * LOG_TL_H_SEV;
+  let hE = (err / sevMax) * LOG_TL_H_SEV;
+  const total = hW + hE;
+  if (total < LOG_TL_SEV_MIN) {
+    const k = LOG_TL_SEV_MIN / total;
+    hW *= k;
+    hE *= k;
+  }
+  return [hW, hE];
+}
+
+function logChartTimeLabel(ms, withDate) {
+  const p = n => String(n).padStart(2, '0');
+  if (logChartAxis && logChartAxis.epoch) {
+    // logTsToMs pins the log's wall clock to UTC so the number does not move with
+    // the viewer's timezone. Reading it back with local getters would print an
+    // axis offset from the timestamps in the rows right below it, so read UTC.
+    const d = new Date(ms);
+    const t = p(d.getUTCHours()) + ':' + p(d.getUTCMinutes()) + ':' + p(d.getUTCSeconds());
+    return withDate ? p(d.getUTCMonth() + 1) + '-' + p(d.getUTCDate()) + ' ' + t : t;
+  }
+  const t = ((ms % 86400000) + 86400000) % 86400000, s = Math.floor(t / 1000);
+  return p(Math.floor(s / 3600)) + ':' + p(Math.floor(s / 60) % 60) + ':' + p(s % 60);
+}
+
+function logRenderChart() {
+  const wrap = document.getElementById('log-timeline');
+  if (!wrap) return;
+  if (!logChartAxis || !logAllEntries.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = 'block';
+
+  // Kept on the module so the hover tooltip can read it: bucketizing per
+  // pointermove would walk the whole filtered log on every pixel of mouse travel.
+  const fg = logChartBucketize(logFilteredEntries);
+  logChartFg = fg;
+  // Both lanes scale to the whole log, never to the filtered subset, so filtering
+  // visibly shrinks the bars instead of silently rescaling the axis under them.
+  const volMax = Math.max(1, logChartBg.max);
+  const sevMax = Math.max(1, logChartBg.sevMax);
+  const n = logChartBuckets, w = LOG_TL_W / n, gap = w > 3 ? 0.9 : 0.25, bw = (w - gap).toFixed(2);
+
+  const vol = [], sev = [];
+  for (let i = 0; i < n; i++) {
+    const x = (i * w).toFixed(2);
+    const hAll = (logChartBg.vol[i] / volMax) * LOG_TL_H_VOL;
+    const hFil = (fg.vol[i] / volMax) * LOG_TL_H_VOL;
+    if (hAll > 0) vol.push('<rect x="' + x + '" y="' + (LOG_TL_H_VOL - hAll).toFixed(2) + '" width="' + bw + '" height="' + hAll.toFixed(2) + '" class="log-tl-bar-all"/>');
+    if (hFil > 0) vol.push('<rect x="' + x + '" y="' + (LOG_TL_H_VOL - hFil).toFixed(2) + '" width="' + bw + '" height="' + hFil.toFixed(2) + '" class="log-tl-bar-cur"/>');
+    // The severity lane gets the same background-and-foreground treatment as the
+    // volume lane above it. Without the background silhouette, narrowing the view
+    // made every warning and error outside it vanish from the chart while the
+    // volume bars stayed — so the chart implied the rest of the run was clean.
+    // The silhouette is one neutral bar for warnings and errors together: it says
+    // "something severe happened here" without claiming which, and the coloured
+    // foreground gives the breakdown for what is actually in view.
+    const base = LOG_TL_Y_SEV + LOG_TL_H_SEV;
+    const allSev = logSevHeights(logChartBg.warn[i], logChartBg.err[i], sevMax);
+    const hAllSev = allSev[0] + allSev[1];
+    if (hAllSev > 0) sev.push('<rect x="' + x + '" y="' + (base - hAllSev).toFixed(2) + '" width="' + bw + '" height="' + hAllSev.toFixed(2) + '" class="log-tl-bar-sev-all"/>');
+    const cur = logSevHeights(fg.warn[i], fg.err[i], sevMax);
+    const hW = cur[0], hE = cur[1];
+    if (hW > 0) sev.push('<rect x="' + x + '" y="' + (base - hW).toFixed(2) + '" width="' + bw + '" height="' + hW.toFixed(2) + '" class="log-tl-bar-warn"/>');
+    if (hE > 0) sev.push('<rect x="' + x + '" y="' + (base - hW - hE).toFixed(2) + '" width="' + bw + '" height="' + hE.toFixed(2) + '" class="log-tl-bar-err"/>');
+  }
+  document.getElementById('log-tl-vol').innerHTML = vol.join('');
+  document.getElementById('log-tl-sev').innerHTML = sev.join('');
+
+  const multiDay = logChartAxis.span > 86400000;
+  document.getElementById('log-tl-a0').textContent = logChartTimeLabel(logChartAxis.t0, multiDay);
+  document.getElementById('log-tl-a1').textContent = logChartTimeLabel(logChartAxis.t0 + logChartAxis.span / 2, multiDay);
+  document.getElementById('log-tl-a2').textContent = logChartTimeLabel(logChartAxis.t1, multiDay);
+
+  const rangeOut = document.getElementById('log-tl-range');
+  const clearBtn = document.getElementById('log-tl-clear');
+  if (logChartRange) {
+    rangeOut.textContent = logChartTimeLabel(logChartRange.from, multiDay) + ' → ' + logChartTimeLabel(logChartRange.to, multiDay);
+    clearBtn.style.display = 'inline-flex';
+  } else {
+    rangeOut.textContent = '';
+    clearBtn.style.display = 'none';
+  }
+
+  // Lines the chart cannot place are disclosed rather than dropped in silence —
+  // a chart that quietly under-reports is worse than no chart.
+  const note = document.getElementById('log-tl-note');
+  if (logChartAxis.skipped > 0) {
+    note.style.display = 'block';
+    note.textContent = logChartAxis.skipped.toLocaleString() + ' line'
+      + (logChartAxis.skipped === 1 ? ' has' : 's have') + ' no readable timestamp and '
+      + (logChartAxis.skipped === 1 ? 'is' : 'are') + ' not on this chart.';
+  } else {
+    note.style.display = 'none';
+  }
+
+  logRenderChartBookmarks();
+  logChartWire();
+  // Deferred a frame on purpose: on the first load logShowLoaded only unhides the
+  // stream *after* logApplyFilters has run, so measuring here would measure rows
+  // that are still display:none and put the band nowhere.
+  logChartScheduleBand();
+}
+
+// The scroll position is read off the first and last row actually on screen, not
+// from a scrollTop percentage: rows vary in height (stack traces, wrapping) and
+// the list pages in a batch at a time, so a proportional playhead would drift
+// and then lie outright. Binary search finds the first visible row without
+// measuring every loaded one.
+function logUpdateChartBand() {
+  const band = document.getElementById('log-tl-band');
+  if (!band) return;
+  const container = document.getElementById('log-container');
+  const list = document.getElementById('log-virtual-list');
+  if (!logChartAxis || !container || !list || !list.children.length) { band.style.display = 'none'; return; }
+
+  const cRect = container.getBoundingClientRect();
+  const kids = list.children;
+  let lo = 0, hi = kids.length - 1, first = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (kids[mid].getBoundingClientRect().bottom >= cRect.top) { first = mid; hi = mid - 1; }
+    else lo = mid + 1;
+  }
+  if (first < 0) { band.style.display = 'none'; return; }
+
+  let msFrom = null, msTo = null;
+  for (let i = first; i < kids.length; i++) {
+    if (kids[i].getBoundingClientRect().top > cRect.bottom) break;
+    const e = logFilteredEntries[i];
+    if (!e || typeof e.ms !== 'number' || isNaN(e.ms)) continue;
+    if (msFrom === null) msFrom = e.ms;
+    msTo = e.ms;
+  }
+  if (msFrom === null) { band.style.display = 'none'; return; }
+
+  const a = logChartAxis;
+  const l = ((msFrom - a.t0) / a.span) * 100;
+  const r = ((msTo - a.t0) / a.span) * 100;
+  band.style.display = 'block';
+  band.style.left = Math.max(0, Math.min(100, l)) + '%';
+  band.style.width = Math.max(0.4, Math.min(100 - l, r - l)) + '%';
+}
+
+function logChartScheduleBand() {
+  if (logChartBandRaf) return;
+  logChartBandRaf = requestAnimationFrame(function () {
+    logChartBandRaf = 0;
+    logUpdateChartBand();
+  });
+}
+
+function logChartMsAt(clientX, box) {
+  const r = box.getBoundingClientRect();
+  const f = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
+  return logChartAxis.t0 + f * logChartAxis.span;
+}
+
+function logChartWire() {
+  if (logChartWired) return;
+  const box = document.getElementById('log-tl-box');
+  const container = document.getElementById('log-container');
+  if (!box || !container) return;
+  logChartWired = true;
+
+  const dragEl = document.getElementById('log-tl-drag');
+  const tip = document.getElementById('log-tl-tip');
+  let dragging = false, x0 = 0;
+
+  box.addEventListener('pointerdown', function (ev) {
+    if (!logChartAxis) return;
+    dragging = true;
+    x0 = ev.clientX;
+    box.setPointerCapture(ev.pointerId);
+    const r = box.getBoundingClientRect();
+    dragEl.style.display = 'block';
+    dragEl.style.left = (x0 - r.left) + 'px';
+    dragEl.style.width = '0px';
+    tip.style.display = 'none';
+  });
+
+  box.addEventListener('pointermove', function (ev) {
+    if (!logChartAxis) return;
+    const r = box.getBoundingClientRect();
+    if (dragging) {
+      const a = Math.min(x0, ev.clientX) - r.left, b = Math.max(x0, ev.clientX) - r.left;
+      dragEl.style.left = a + 'px';
+      dragEl.style.width = (b - a) + 'px';
+      return;
+    }
+    const n = logChartBuckets;
+    let bIdx = Math.floor(((logChartMsAt(ev.clientX, box) - logChartAxis.t0) / logChartAxis.span) * n);
+    if (bIdx < 0) bIdx = 0; else if (bIdx >= n) bIdx = n - 1;
+    const fg = logChartFg;
+    if (!fg || !logChartBg) return;
+    const bucketMs = logChartAxis.span / n;
+    const parts = ['<strong>' + escHtml(logChartTimeLabel(logChartAxis.t0 + bIdx * bucketMs, logChartAxis.span > 86400000)) + '</strong>',
+                   fg.vol[bIdx].toLocaleString() + ' shown &middot; ' + logChartBg.vol[bIdx].toLocaleString() + ' total'];
+    if (fg.warn[bIdx]) parts.push('<span class="log-tl-tip-warn">' + fg.warn[bIdx] + ' WARN</span>');
+    if (fg.err[bIdx]) parts.push('<span class="log-tl-tip-err">' + fg.err[bIdx] + ' ERROR</span>');
+    tip.innerHTML = parts.join('<br>');
+    tip.style.display = 'block';
+    tip.style.left = Math.min(r.width - tip.offsetWidth - 4, Math.max(0, ev.clientX - r.left + 14)) + 'px';
+  });
+
+  box.addEventListener('pointerleave', function () { tip.style.display = 'none'; });
+
+  box.addEventListener('pointerup', function (ev) {
+    if (!dragging || !logChartAxis) return;
+    dragging = false;
+    dragEl.style.display = 'none';
+    // A drag narrower than a few pixels is a click, not a selection — jump to that
+    // moment in the stream instead of filtering the log down to nothing.
+    if (Math.abs(ev.clientX - x0) < 5) {
+      const t = logChartMsAt(ev.clientX, box);
+      let idx = -1;
+      for (let i = 0; i < logFilteredEntries.length; i++) {
+        const e = logFilteredEntries[i];
+        if (typeof e.ms === 'number' && !isNaN(e.ms) && e.ms >= t) { idx = i; break; }
+      }
+      if (idx < 0) idx = logFilteredEntries.length - 1;
+      const row = logRevealRow(idx);
+      if (row) {
+        row.scrollIntoView({ block: 'center', behavior: 'auto' });
+        row.classList.add('log-row-flash');
+        setTimeout(function () { row.classList.remove('log-row-flash'); }, 1500);
+      }
+      return;
+    }
+    logSetChartRange(logChartMsAt(x0, box), logChartMsAt(ev.clientX, box));
+  });
+
+  container.addEventListener('scroll', logChartScheduleBand, { passive: true });
+  window.addEventListener('resize', logChartScheduleBand);
 }
 
 // ============================================================
@@ -966,7 +1458,9 @@ function logToggleBookmark(el, file, line) {
   } else {
     const e = logAllEntries.find(x => x.line === line && (x.file || '') === (file || ''));
     if (!e) return;
-    logBookmarks.set(key, { line: e.line, file: e.file, ts: e.ts, level: e.level, node: e.node, msg: e.msg.split('\n')[0] });
+    // ms rides along so the timeline can tick the bookmark without re-scanning
+    // logAllEntries for it on every redraw.
+    logBookmarks.set(key, { line: e.line, file: e.file, ts: e.ts, ms: e.ms, level: e.level, node: e.node, msg: e.msg.split('\n')[0] });
     if (el) {
       el.classList.add('active'); el.textContent = '★'; el.title = 'Remove bookmark';
       const row = el.closest('.log-row'); if (row) row.classList.add('log-row-bookmarked');
@@ -1007,6 +1501,24 @@ function logUpdateBookmarkBar() {
   const countEl = document.getElementById('log-bm-count');
   if (countEl) countEl.textContent = n;
   if (list && list.style.display !== 'none') logRenderBookmarks();
+  logRenderChartBookmarks();
+}
+
+// Pinned lines as ticks along the top of the timeline, so the moments you marked
+// during an incident show their spacing at a glance — two bookmarks four seconds
+// apart read very differently from two an hour apart.
+function logRenderChartBookmarks() {
+  const g = document.getElementById('log-tl-bm');
+  if (!g) return;
+  if (!logChartAxis || logBookmarks.size === 0) { g.innerHTML = ''; return; }
+  const a = logChartAxis, out = [];
+  logBookmarks.forEach(function (b) {
+    if (typeof b.ms !== 'number' || isNaN(b.ms)) return;
+    const x = ((b.ms - a.t0) / a.span) * LOG_TL_W;
+    if (x < 0 || x > LOG_TL_W) return;
+    out.push('<rect x="' + Math.max(0, x - 1).toFixed(2) + '" y="0" width="2.5" height="5" class="log-tl-bm-tick"/>');
+  });
+  g.innerHTML = out.join('');
 }
 
 function logToggleBookmarksList() {
@@ -1050,6 +1562,7 @@ function logRenderBookmarks() {
 // re-applies and re-renders. The loaded log itself is untouched (that is logClear).
 function logResetStreamFilters() {
   logActiveSignatureKey = null;
+  logChartRange = null;
   const banner = document.getElementById('log-sig-filter-banner');
   if (banner) banner.style.display = 'none';
   const ids = ['log-search', 'log-time-from', 'log-time-to', 'log-node-filter', 'log-date-filter'];
@@ -1069,10 +1582,7 @@ function logJumpToBookmark(key) {
   }
   const streamTab = document.querySelector('#panel-log-viewer .tabs .tab[data-help-key="log-viewer-stream"]');
   logSetTab('stream', streamTab);
-  const list = document.getElementById('log-virtual-list');
-  let guard = 0;
-  while (logScrollState.currentLoaded <= idx && logScrollState.currentLoaded < logFilteredEntries.length && guard++ < 100000) logLoadMore();
-  const row = list && list.children[idx];
+  const row = logRevealRow(idx);
   if (row) {
     row.scrollIntoView({ block: 'center', behavior: 'smooth' });
     row.classList.add('log-row-flash');
@@ -1982,7 +2492,7 @@ function logInsightFilter(node, levels, search) {
 
   const streamTab = document.querySelector('#panel-log-viewer .tabs .tab[data-help-key="log-viewer-stream"]');
   logSetTab('stream', streamTab);
-  logApplyFilters();
+  logApplyProgrammaticSearch();
 }
 
 // ── Correlation IDs you can discover, not ones you must already know (C5) ──
@@ -2276,24 +2786,44 @@ function logGenerateSequence() {
 // the chart: anchoring every entry to a fixed 1970-01-01 threw the date away, so a
 // log crossing midnight sorted backwards and reported "logs have same timestamp".
 // Carrying a day offset forward when the clock jumps back keeps the axis monotonic.
-function logGanttAxis(entries) {
+// Writes e.ms onto every entry, in place, once per loaded log. The day-offset
+// carry is why this has to run over the whole list in order rather than per
+// entry: a time-only log has no date to anchor to, so midnight is only visible
+// as the clock jumping backwards. An unreadable timestamp gets NaN — never 0 —
+// so time-based views can leave it out instead of parking it at the epoch.
+function logAssignMs(entries) {
   let dayOffset = 0;
   let prevTimeOnly = -1;
-  return entries.map(e => {
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
     let ms = logTsToMs(e.ts);
     if (isNaN(ms) && window.mftTsToMs) ms = window.mftTsToMs(e.ts);
     if (isNaN(ms)) {
       const m = String(e.ts).match(/^\[?(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?/);
-      if (!m) return null;
-      const hh = parseInt(m[1], 10), mm = parseInt(m[2], 10), ss = parseInt(m[3], 10);
-      const t = ((hh * 60 + mm) * 60 + ss) * 1000 +
-                (m[4] ? parseInt(m[4].padEnd(3, '0').slice(0, 3), 10) : 0);
-      if (prevTimeOnly >= 0 && t < prevTimeOnly) dayOffset += 86400000;
-      prevTimeOnly = t;
-      ms = t + dayOffset;
+      if (m) {
+        const hh = parseInt(m[1], 10), mm = parseInt(m[2], 10), ss = parseInt(m[3], 10);
+        const t = ((hh * 60 + mm) * 60 + ss) * 1000 +
+                  (m[4] ? parseInt(m[4].padEnd(3, '0').slice(0, 3), 10) : 0);
+        if (prevTimeOnly >= 0 && t < prevTimeOnly) dayOffset += 86400000;
+        prevTimeOnly = t;
+        ms = t + dayOffset;
+      } else {
+        ms = NaN;
+      }
     }
-    return { ...e, ms: ms };
-  }).filter(e => e !== null);
+    e.ms = ms;
+  }
+  return entries;
+}
+
+// The Gantt's own view of the axis: the entries whose time could be read.
+// In the app ms is already assigned for the whole log (logShowLoaded), and this
+// leaves it alone — re-deriving it for a 500-entry slice would restart the
+// day-offset carry and could disagree with the timeline and the stream. Entries
+// that arrive without ms get it here, so the function still stands on its own.
+function logGanttAxis(entries) {
+  if (entries.length && typeof entries[0].ms !== 'number') logAssignMs(entries);
+  return entries.filter(e => typeof e.ms === 'number' && !isNaN(e.ms));
 }
 
 function logGenerateGantt() {
@@ -2436,6 +2966,13 @@ window.logBuildDateFilter = logBuildDateFilter;
 window.logToggleLevel = logToggleLevel;
 window.logToggleAllLevels = logToggleAllLevels;
 window.logApplyFilters = logApplyFilters;
+window.logSetSearchMode = logSetSearchMode;
+window.logSearchKey = logSearchKey;
+window.logGotoHit = logGotoHit;
+window.logAssignMs = logAssignMs;
+window.logClearChartRange = logClearChartRange;
+window.logBuildChart = logBuildChart;
+window.logRenderChart = logRenderChart;
 window.logResetStreamFilters = logResetStreamFilters;
 window.logRender = logRender;
 window.logToggleStack = logToggleStack;

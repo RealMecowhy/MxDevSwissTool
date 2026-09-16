@@ -1257,6 +1257,39 @@ ok('gantt: time-only log crossing midnight stays monotonic',
 eq('gantt: unparseable stamps are dropped rather than plotted at zero',
   ganttAxis([{ ts: 'not a time' }, { ts: '' }]).length, 0);
 
+// ── Timeline axis (public/js/tools/log-viewer.js) ────────────────────────────
+// logAssignMs writes e.ms once per loaded log and is now the single time source
+// behind the timeline chart, its drag-selected range and the Gantt. Three things
+// must hold: it mutates in place (the chart buckets the very objects the stream
+// renders), an unreadable stamp becomes NaN rather than 0 (so it can be excluded
+// and disclosed instead of piling up at the start of the axis), and the day carry
+// still runs across the list for date-less logs.
+console.log('\nTimeline axis');
+const assignMs = global.logAssignMs;
+
+const inPlace = [{ ts: '2026-07-18T09:00:00.000000' }, { ts: '2026-07-18T09:00:02.000000' }];
+assignMs(inPlace);
+ok('timeline: ms is written onto the entries themselves, not onto copies',
+  inPlace[0].ms > 0 && inPlace[1].ms - inPlace[0].ms === 2000);
+
+const withGaps = [{ ts: '2026-07-18T09:00:00.000000' }, { ts: 'no stamp at all' }, { ts: '2026-07-18T09:00:05.000000' }];
+assignMs(withGaps);
+ok('timeline: an unreadable stamp becomes NaN, never 0', Number.isNaN(withGaps[1].ms));
+ok('timeline: …and its neighbours are unaffected', withGaps[2].ms - withGaps[0].ms === 5000);
+
+const wrap = [{ ts: '23:59:58' }, { ts: '00:00:01' }];
+assignMs(wrap);
+ok('timeline: a date-less log crossing midnight still moves forward',
+  wrap[1].ms - wrap[0].ms === 3000);
+
+// Re-running must be idempotent: logShowLoaded calls it after every parse, and a
+// second file appended to an open log re-runs it over entries that already have ms.
+const rerun = [{ ts: '2026-07-18T09:00:00.000000' }, { ts: '2026-07-18T09:00:07.000000' }];
+assignMs(rerun);
+const firstPass = rerun[0].ms;
+assignMs(rerun);
+ok('timeline: assigning twice yields the same axis', rerun[0].ms === firstPass && rerun[1].ms - rerun[0].ms === 7000);
+
 // ── Level matrix pivot (public/js/tools/log-viewer.js) ───────────────────────
 // logBuildLevelMatrix attaches to window (pointed at global above) when the
 // log-viewer module was compiled for the Insights tests. It pivots parsed records

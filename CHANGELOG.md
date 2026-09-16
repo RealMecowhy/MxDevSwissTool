@@ -14,6 +14,65 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.64.0 — 2026-09-16
+
+**The Log Viewer gets a time axis, and search stops lying about what it found.**
+
+- **Search highlighted only part of what it matched.** The filter tests the whole
+  raw line — timestamp, level, logger and every stack frame — but the highlighter
+  marked only the first line of the message. Searching a logger name or a class
+  from a stack trace left rows on screen with nothing marked in them, which read
+  as "highlighting is broken" when every one of those rows was a genuine hit.
+  Matches are now marked wherever the filter found them, and a collapsed stack
+  says how many of its frames matched (*Show 12 frames · 3 matching*) instead of
+  hiding the evidence. A second defect fell out of the same fix: the old code
+  searched for a raw `<` inside text that had already been escaped to `&lt;`, so
+  a phrase containing `<`, `>` or `&` could never be highlighted at all. The
+  two-character minimum is gone — a one-character search now highlights, as it
+  always filtered.
+- **Search works two ways now.** The switch beside the box picks between
+  **Filter** (the previous behaviour — non-matching lines disappear) and
+  **Highlight**, which keeps every line, dims the misses, marks the hits and adds
+  a `3 / 47` counter with arrows, Enter and Shift+Enter to step between them. The
+  point is reading what happened *around* an error, which filtering makes
+  impossible. Stepping only appears in Highlight mode, because under Filter the
+  next hit is always the next row. Highlight mode deliberately does not narrow
+  **Export Filtered**, the **Incident Report** or the counts — a notice above the
+  stream says so while it applies, rather than leaving it to be discovered from
+  an export that is bigger than expected. Actions that mean "narrow to this" —
+  the Insights cards, *Filter by correlation ID* — force Filter mode, since they
+  drive the same box and would otherwise set a phrase and narrow nothing.
+- **Records over time.** A strip above the stream plots the whole log's volume on
+  a time axis, so a burst — a restart, a retry storm, a runaway loop — is visible
+  before you read a single line. Two lanes, not one stack: WARN and ERROR get
+  their own lane and their own scale, because under tens of thousands of INFO
+  lines a handful of errors is not a visible fraction of anything. Within that
+  lane, a slice holding at least one warning or error keeps a minimum height, so
+  a single error beside a burst of a hundred does not round away either; exact
+  counts are in the hover tooltip. Both lanes are drawn twice — dark bars for the
+  whole file, brighter bars for the current filter — so narrowing to ERROR still
+  shows where the rest of the run's activity and trouble sit.
+- **The chart is a control, not a picture.** Drag across it to filter to that
+  window, click to jump the stream to that moment, hover for the counts in a
+  slice. Bookmarked lines appear as ticks along the top, so the moments you
+  pinned during an incident show their spacing in *time* rather than in rows.
+- **Where you are, shown as a band.** An orange band marks which part of the
+  timeline is on screen and follows you as you scroll. It is computed from the
+  timestamps of the first and last visible rows, not from a scroll percentage:
+  rows vary in height and the list pages in a batch at a time, so a proportional
+  playhead drifts and then misreports outright.
+- **A range dragged off the chart filters on real time, not clock text.** The
+  From / To fields compare `HH:MM:SS` as text, which is date-blind by design —
+  they answer "every day between 09:00 and 10:00". Borrowing them for a dragged
+  range would have silently selected that hour on every day of a multi-day log,
+  so the chart's range filters on the parsed timestamp instead. The typed fields
+  are unchanged.
+- **One time axis for the whole tool.** Timestamps are resolved once per loaded
+  log instead of per view, which is also what makes the chart affordable on a
+  large file. A line whose timestamp cannot be read is marked unreadable rather
+  than placed at zero — it is left off the chart and counted underneath it, so
+  the chart never quietly under-reports.
+
 ## v1.63.0 — 2026-09-11
 
 **The Log Viewer stops mixing and losing your data, and points at the answer.**

@@ -103,7 +103,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.63.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.64.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -289,7 +289,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.63.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.64.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -362,7 +362,16 @@
         <div id="log-tab-stream" style="display:flex;flex-direction:column;flex:1;height:calc(100% - 40px)">
       <div class="log-toolbar" id="log-filter-toolbar" style="display:none">
         <div class="log-toolbar-row1">
-          <input class="input input-mono" id="log-search" placeholder="Search messages, nodes, text..." oninput="logApplyFilters()">
+          <input class="input input-mono" id="log-search" placeholder="Search messages, nodes, text..." oninput="logApplyFilters()" onkeydown="logSearchKey(event)">
+          <div class="log-search-mode" role="group" aria-label="Search mode">
+            <button type="button" class="log-mode-btn active" id="log-mode-filter" aria-pressed="true" onclick="logSetSearchMode('filter')" title="Hide the lines that do not match. Export Filtered, the Incident Report and the counts all narrow to the matches.">Filter</button>
+            <button type="button" class="log-mode-btn" id="log-mode-highlight" aria-pressed="false" onclick="logSetSearchMode('highlight')" title="Keep every line and mark the matches, so you can read what happened around them. Step between matches with the arrows or Enter / Shift+Enter.">Highlight</button>
+          </div>
+          <span class="log-hit-nav" id="log-hit-nav" style="display:none">
+            <span id="log-hit-count">0 / 0</span>
+            <button type="button" onclick="logGotoHit(-1)" title="Previous match (Shift+Enter)" aria-label="Previous match">&#9650;</button>
+            <button type="button" onclick="logGotoHit(1)" title="Next match (Enter)" aria-label="Next match">&#9660;</button>
+          </span>
           <div class="log-level-filters">
             <span class="level-filter-btn lf-trace active" onclick="logToggleLevel('TRACE',this,event)" title="Show only TRACE · Shift/Ctrl+click adds or removes it">TRACE</span>
             <span class="level-filter-btn lf-debug active" onclick="logToggleLevel('DEBUG',this,event)" title="Show only DEBUG · Shift/Ctrl+click adds or removes it">DEBUG</span>
@@ -398,6 +407,28 @@
         </div>
         <div id="log-bookmarks-list" style="display:none; max-height:220px; overflow:auto; border-top:1px solid var(--border); padding-top:var(--sp-2)"></div>
       </div>
+      <div id="log-timeline" style="display:none">
+        <div class="log-tl-head">
+          <span class="log-tl-title">Records over time</span>
+          <span class="log-tl-hint">drag to select a time range &bull; click to jump there</span>
+          <span class="log-tl-range" id="log-tl-range"></span>
+          <button type="button" class="btn btn-ghost btn-sm" id="log-tl-clear" style="display:none" onclick="logClearChartRange()">Clear range</button>
+        </div>
+        <div id="log-tl-box">
+          <svg id="log-tl-svg" viewBox="0 0 1000 66" preserveAspectRatio="none" role="img" aria-label="Log records over time: an upper lane for total volume and a lower lane for warnings and errors">
+            <g id="log-tl-vol"></g>
+            <g id="log-tl-sev"></g>
+            <g id="log-tl-bm"></g>
+          </svg>
+          <div id="log-tl-band"></div>
+          <div id="log-tl-drag"></div>
+          <div id="log-tl-tip"></div>
+        </div>
+        <div class="log-tl-axis">
+          <span id="log-tl-a0"></span><span id="log-tl-a1"></span><span id="log-tl-a2"></span>
+        </div>
+        <div class="log-tl-note" id="log-tl-note" style="display:none"></div>
+      </div>
       <div id="log-stats" style="display:none">
         <span class="log-stat">Total: <strong id="ls-total">0</strong></span>
         <span class="log-stat">Shown: <strong id="ls-shown">0</strong></span>
@@ -407,6 +438,7 @@
         <span class="log-stat" style="margin-left:auto;cursor:pointer;user-select:none" onclick="logScrollTo('top')">&#8593; Top</span>
         <span class="log-stat" style="cursor:pointer;user-select:none" onclick="logScrollTo('bottom')">&#8595; Bottom</span>
       </div>
+      <div class="notice notice-info" id="log-search-scope-note" style="display:none;margin:var(--sp-2) var(--sp-5) 0"></div>
       <div id="log-container" class="drag-drop-zone" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="logHandleDrop(event)">
         <div id="log-empty-state">
           <div class="empty-state">
