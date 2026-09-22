@@ -523,7 +523,7 @@ async function nginxAggregateAndRender() {
   const dateSelect = document.getElementById('nx-access-date-filter');
   if (dateSelect && dateSelect.options.length <= 1) {
     const currVal = dateSelect.value;
-    dateSelect.innerHTML = '<option value="">All dates</option>' + uniqueDates.map(d => `<option value="${d}">${d}</option>`).join('');
+    dateSelect.innerHTML = '<option value="">All dates</option>' + uniqueDates.map(d => `<option value="${window.escHtml(d)}">${window.escHtml(d)}</option>`).join('');
     dateSelect.value = currVal || '';
   }
 
@@ -542,7 +542,7 @@ async function nginxAggregateAndRender() {
     if (window.nginxFilter[key]) {
       hasFilters = true;
       activeFiltersDiv.innerHTML += `<div style="background:var(--info);color:white;padding:4px 10px;border-radius:12px;font-size:0.75rem;display:flex;align-items:center;gap:6px">
-        <strong style="text-transform:uppercase">${key}</strong>: ${window.nginxFilter[key]}
+        <strong style="text-transform:uppercase">${key}</strong>: ${window.escHtml(window.nginxFilter[key])}
         <span style="cursor:pointer;font-weight:bold;font-size:1rem;line-height:1" title="Remove filter" onclick="nginxSetFilter('${key}', null)">&times;</span>
       </div>`;
     }
@@ -665,13 +665,18 @@ async function nginxAggregateAndRender() {
 
   // isUrl dropped with the old 404 table — the 404 card now renders its own rows
   // so it can carry the classification tag, and no caller passes a URL any more.
+  // Log fields are attacker-controlled (Referer, request path and User-Agent come
+  // straight off the wire), so every one is escaped before it touches markup.
+  // An onclick argument needs two layers: a JS string literal, then HTML.
+  const esc = window.escHtml;
+  const jsArg = (v) => esc("'" + String(v).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'");
   const toRows = (arr, total, isIp = false) => arr.map(([k, c], i) => {
     let trHtml = `<tr>`;
     let keyStyle = `padding:4px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`;
     if (isIp) keyStyle += `cursor:pointer;color:var(--info);text-decoration:underline`;
-    let clickAttr = isIp ? `onclick="nginxSetFilter('ip', '${k}')"` : '';
+    let clickAttr = isIp ? `onclick="nginxSetFilter('ip', ${jsArg(k)})"` : '';
 
-    trHtml += `<td style="${keyStyle}" title="${k}" ${clickAttr}>${k}</td>`;
+    trHtml += `<td style="${keyStyle}" title="${esc(k)}" ${clickAttr}>${esc(k)}</td>`;
     if (isIp) trHtml += `<td style="padding:4px 8px" id="nx-geo-${i}">Loading...</td>`;
     trHtml += `<td style="padding:4px 8px">${c.toLocaleString('pl-PL')}</td>`;
     if (total) trHtml += `<td style="padding:4px 8px">${((c/total)*100).toFixed(1)}%</td>`;
@@ -711,13 +716,13 @@ async function nginxAggregateAndRender() {
   const urlUniqueIps = nginxUniqueIpsPerUrl(filteredLogs);
   document.getElementById('nx-url-table').querySelector('tbody').innerHTML = topUrls.map(([url, c]) => {
     const uniqueIps = urlUniqueIps[url] || 0;
-    return `<tr><td style="padding:4px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--info);text-decoration:underline" title="${url}" onclick="nginxSetFilter('url', '${url.replace(/'/g, "\\'")}')">${url}</td><td style="padding:4px 8px">${c.toLocaleString('pl-PL')}</td><td style="padding:4px 8px">${((c / stats.total) * 100).toFixed(1)}%</td><td style="padding:4px 8px">${uniqueIps.toLocaleString('pl-PL')}</td></tr>`;
+    return `<tr><td style="padding:4px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--info);text-decoration:underline" title="${esc(url)}" onclick="nginxSetFilter('url', ${jsArg(url)})">${esc(url)}</td><td style="padding:4px 8px">${c.toLocaleString('pl-PL')}</td><td style="padding:4px 8px">${((c / stats.total) * 100).toFixed(1)}%</td><td style="padding:4px 8px">${uniqueIps.toLocaleString('pl-PL')}</td></tr>`;
   }).join('');
   // 404s, split by whose fault they are. The app-owned ones come first: they are
   // the only bucket the developer can fix, and on a public app they are heavily
   // outnumbered by scanner probes, which is exactly how they used to get missed.
   const n404Row = (p, tag, tagColor) =>
-    `<tr><td style="padding:4px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--info);text-decoration:underline" title="${window.escHtml(p.path)} — ${window.escHtml(p.reason)}" onclick="nginxSetFilter('url', '${p.path.replace(/'/g, "\\'")}')">${window.escHtml(p.path)}</td>` +
+    `<tr><td style="padding:4px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--info);text-decoration:underline" title="${window.escHtml(p.path)} — ${window.escHtml(p.reason)}" onclick="nginxSetFilter('url', ${jsArg(p.path)})">${window.escHtml(p.path)}</td>` +
     `<td style="padding:4px 8px"><span style="color:${tagColor};font-size:0.7rem;text-transform:uppercase;letter-spacing:0.03em">${tag}</span> ${p.hits.toLocaleString('pl-PL')}</td></tr>`;
   const appPaths = traffic.app.paths.slice(0, 10);
   const fillPaths = traffic.scanner.paths.slice(0, Math.max(0, 10 - appPaths.length));
@@ -740,16 +745,16 @@ async function nginxAggregateAndRender() {
   document.getElementById('nx-ip-table').querySelector('tbody').innerHTML = toRows(topIps, stats.total, true);
 
   document.getElementById('nx-slow-table').querySelector('tbody').innerHTML = slowestUrls.map(u =>
-    `<tr><td style="padding:4px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--info);text-decoration:underline" title="${u[0]}" onclick="nginxSetFilter('url', '${u[0].replace(/'/g, "\\\\'")}')">${u[0]}</td><td style="padding:4px 8px">${u[1].toFixed(3)}</td><td style="padding:4px 8px">${u[2].toFixed(3)}</td><td style="padding:4px 8px">${u[3].toFixed(3)}</td><td style="padding:4px 8px">${u[4].toLocaleString('pl-PL')}</td></tr>`
+    `<tr><td style="padding:4px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--info);text-decoration:underline" title="${esc(u[0])}" onclick="nginxSetFilter('url', ${jsArg(u[0])})">${esc(u[0])}</td><td style="padding:4px 8px">${u[1].toFixed(3)}</td><td style="padding:4px 8px">${u[2].toFixed(3)}</td><td style="padding:4px 8px">${u[3].toFixed(3)}</td><td style="padding:4px 8px">${u[4].toLocaleString('pl-PL')}</td></tr>`
   ).join('');
 
   document.getElementById('nx-bw-table').querySelector('tbody').innerHTML = bwHogs.map(u =>
-    `<tr><td style="padding:4px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--info);text-decoration:underline" title="${u[0]}" onclick="nginxSetFilter('url', '${u[0].replace(/'/g, "\\\\'")}')">${u[0]}</td><td style="padding:4px 8px">${nginxFormatBytes(u[1])}</td><td style="padding:4px 8px">${u[2].toLocaleString('pl-PL')}</td></tr>`
+    `<tr><td style="padding:4px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--info);text-decoration:underline" title="${esc(u[0])}" onclick="nginxSetFilter('url', ${jsArg(u[0])})">${esc(u[0])}</td><td style="padding:4px 8px">${nginxFormatBytes(u[1])}</td><td style="padding:4px 8px">${u[2].toLocaleString('pl-PL')}</td></tr>`
   ).join('');
 
   document.getElementById('nx-bots-table').querySelector('tbody').innerHTML = topBots.length
     ? topBots.map(b =>
-        `<tr><td style="padding:4px 8px;cursor:pointer;color:var(--info);text-decoration:underline" title="${window.escHtml(b.ip)}" onclick="nginxSetFilter('ip', '${b.ip.replace(/'/g, "\\'")}')">${window.escHtml(b.ip)}</td><td style="padding:4px 8px;color:var(--danger)">${window.escHtml(b.reason)}<span style="color:var(--text-muted)"> &middot; ${b.distinctPaths.toLocaleString('pl-PL')} distinct path${b.distinctPaths === 1 ? '' : 's'}</span></td><td style="padding:4px 8px">${b.hits.toLocaleString('pl-PL')}</td></tr>`
+        `<tr><td style="padding:4px 8px;cursor:pointer;color:var(--info);text-decoration:underline" title="${window.escHtml(b.ip)}" onclick="nginxSetFilter('ip', ${jsArg(b.ip)})">${window.escHtml(b.ip)}</td><td style="padding:4px 8px;color:var(--danger)">${window.escHtml(b.reason)}<span style="color:var(--text-muted)"> &middot; ${b.distinctPaths.toLocaleString('pl-PL')} distinct path${b.distinctPaths === 1 ? '' : 's'}</span></td><td style="padding:4px 8px">${b.hits.toLocaleString('pl-PL')}</td></tr>`
       ).join('')
     : '<tr><td colspan="3" style="padding:var(--sp-3);color:var(--text-muted)">No scanner traffic in this selection — every 404 here looks like a browser convention or a reference in your own app.</td></tr>';
 
@@ -770,7 +775,7 @@ async function nginxAggregateAndRender() {
     } else {
       try {
         const results = await Promise.all(ipsToFetch.map(ip =>
-          fetch(`https://get.geojs.io/v1/ip/geo/${ip}.json`)
+          fetch(`https://get.geojs.io/v1/ip/geo/${encodeURIComponent(ip)}.json`)
             .then(r => r.ok ? r.json() : null)
             .catch(() => null)
         ));
@@ -936,7 +941,7 @@ async function nginxAggregateAndRenderErrorLog() {
   const dateSelect = document.getElementById('nx-error-date-filter');
   if (dateSelect && dateSelect.options.length <= 1) {
     const currVal = dateSelect.value;
-    dateSelect.innerHTML = '<option value="">All dates</option>' + uniqueDates.map(d => `<option value="${d}">${d}</option>`).join('');
+    dateSelect.innerHTML = '<option value="">All dates</option>' + uniqueDates.map(d => `<option value="${window.escHtml(d)}">${window.escHtml(d)}</option>`).join('');
     dateSelect.value = currVal || '';
   }
 
@@ -1015,7 +1020,7 @@ async function nginxAggregateAndRenderErrorLog() {
   const ipsToFetch = [];
   document.querySelector('#nx-err-ip-table tbody').innerHTML = topIps.map((entry, i) => {
     ipsToFetch.push(entry[0]);
-    return `<tr><td style="padding:var(--sp-2);border-bottom:1px solid var(--border)">${entry[0]}</td><td style="padding:var(--sp-2);border-bottom:1px solid var(--border)" id="nx-err-geo-${i}">...</td><td style="padding:var(--sp-2);border-bottom:1px solid var(--border)">${entry[1].toLocaleString('pl-PL')}</td></tr>`;
+    return `<tr><td style="padding:var(--sp-2);border-bottom:1px solid var(--border)">${window.escHtml(entry[0])}</td><td style="padding:var(--sp-2);border-bottom:1px solid var(--border)" id="nx-err-geo-${i}">...</td><td style="padding:var(--sp-2);border-bottom:1px solid var(--border)">${entry[1].toLocaleString('pl-PL')}</td></tr>`;
   }).join('');
   
   const geoToggle = document.getElementById('nx-err-geoip-toggle');
@@ -1027,7 +1032,7 @@ async function nginxAggregateAndRenderErrorLog() {
   } else {
     try {
       const results = await Promise.all(ipsToFetch.map(ip =>
-        fetch(`https://get.geojs.io/v1/ip/geo/${ip}.json`)
+        fetch(`https://get.geojs.io/v1/ip/geo/${encodeURIComponent(ip)}.json`)
           .then(r => r.ok ? r.json() : null)
           .catch(() => null)
       ));

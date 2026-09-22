@@ -17,8 +17,14 @@ async function msStart() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ payload, status, delay, chaos })
     });
+    if (res.status === 400) {
+      const data = await res.json().catch(() => ({}));
+      msActive = false;
+      out.innerHTML = `<div style="color:var(--danger)">The Bridge rejected this configuration: ${window.escHtml(data.message || 'invalid value')}</div>`;
+      return;
+    }
     if (!res.ok) throw new Error('Failed to configure mock server');
-    
+
     msActive = true;
     out.innerHTML = `<div style="color:var(--success)">Mock Server activated on <b>http://localhost:9999/mock</b><br><br>Configure your Mendix Call REST action to use this URL.</div>`;
   } catch (err) {

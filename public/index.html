@@ -29,7 +29,11 @@
   const originalFetch = window.fetch;
   window.fetch = async function(resource, options) {
     const url = typeof resource === 'string' ? resource : resource.url;
-    if (url && (url.includes('localhost:9999') || url.startsWith('/'))) {
+    // The token goes to the Bridge and nowhere else: not to a URL that merely
+    // mentions localhost:9999, and not to "//host/…", which is another host.
+    const toBridge = url && (/^http:\/\/(localhost|127\.0\.0\.1):9999\//.test(url) ||
+      (url.startsWith('/') && !url.startsWith('//')));
+    if (toBridge) {
       if (window.BRIDGE_TOKEN) {
         options = options || {};
         options.headers = options.headers || {};
@@ -103,7 +107,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.64.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.65.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -289,7 +293,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.64.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.65.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">

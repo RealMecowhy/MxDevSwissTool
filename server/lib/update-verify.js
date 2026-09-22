@@ -3,9 +3,7 @@ const crypto = require('crypto');
 
 // The Ed25519 public key that release signatures must verify against. The
 // matching private key is held only as the MXDEV_RELEASE_PRIVATE_KEY GitHub
-// Actions secret (see scripts/gen-release-key.js). An empty string means "no
-// signed release has been published yet" — verifyReleasePackage() then returns
-// { ok: true, verified: false } so the updater still works for existing users.
+// Actions secret (see scripts/gen-release-key.js).
 const RELEASE_PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEAHgpWd1LU7HXO6LSAZiZ0fIwkRUXCKGoAuHB+ItNkQ5A=
 -----END PUBLIC KEY-----
@@ -26,11 +24,14 @@ function isSafeZipEntryName(name) {
 // Returns { ok, verified, reason }:
 //   ok:false                 -> refuse the update, show `reason`
 //   ok:true, verified:true    -> signature checked out, proceed
-//   ok:true, verified:false   -> no key configured yet OR no .sig asset; proceed but caller warns
+// Every release since v1.59.0 is signed, so a missing key or a missing .sig is
+// refused like a bad signature: letting it through would let anyone who can
+// swap the ZIP also drop the .sig and skip the check entirely.
+const MANUAL = ' Automatic update refused; download the ZIP manually from the Releases page.';
 function verifyReleasePackage(data, sigBase64, pubKeyPem) {
   const pem = pubKeyPem == null ? RELEASE_PUBLIC_KEY_PEM : pubKeyPem;
-  if (!pem) return { ok: true, verified: false, reason: 'No release public key is configured in this build.' };
-  if (!sigBase64) return { ok: true, verified: false, reason: 'This release has no signature asset (.sig).' };
+  if (!pem) return { ok: false, reason: 'No release public key is configured in this build.' + MANUAL };
+  if (!sigBase64) return { ok: false, reason: 'This release is not signed (no .sig asset).' + MANUAL };
   if (!Buffer.isBuffer(data) || data.length === 0) return { ok: false, reason: 'The downloaded package is empty.' };
   let sig;
   try { sig = Buffer.from(String(sigBase64).trim(), 'base64'); }

@@ -6450,7 +6450,6 @@ const uv = require('../server/lib/update-verify.js');
   // The public key baked into the shipped build must be a real Ed25519 key —
   // a mangled paste would make every signed update fail with "malformed key".
   ok('uv: the bundled RELEASE_PUBLIC_KEY_PEM is a valid Ed25519 key', (function () {
-    if (!uv.RELEASE_PUBLIC_KEY_PEM) return true; // not configured yet — allowed
     try {
       const k = crypto.createPublicKey(uv.RELEASE_PUBLIC_KEY_PEM);
       return k.asymmetricKeyType === 'ed25519';
@@ -6462,12 +6461,14 @@ const uv = require('../server/lib/update-verify.js');
   const pkg = Buffer.from('pretend-zip-bytes');
   const goodSig = crypto.sign(null, pkg, privateKey).toString('base64');
 
-  eq('uv: no key configured -> proceed unverified',
-    uv.verifyReleasePackage(pkg, goodSig, '').verified, false);
-  ok('uv: no key configured is still ok:true',
-    uv.verifyReleasePackage(pkg, goodSig, '').ok === true);
-  eq('uv: key set, no signature -> proceed unverified',
-    uv.verifyReleasePackage(pkg, '', pub).verified, false);
+  // Every release since v1.59.0 is signed, so an unsigned package is no longer
+  // a transition case to wave through — it is refused (review BUG-12).
+  eq('uv: no key configured -> refused',
+    uv.verifyReleasePackage(pkg, goodSig, '').ok, false);
+  eq('uv: key set, no signature -> refused',
+    uv.verifyReleasePackage(pkg, '', pub).ok, false);
+  ok('uv: the refusal says to download the ZIP manually',
+    /download the ZIP manually/i.test(uv.verifyReleasePackage(pkg, '', pub).reason));
   ok('uv: a valid signature verifies',
     uv.verifyReleasePackage(pkg, goodSig, pub).verified === true);
   ok('uv: a signature over different bytes is refused',

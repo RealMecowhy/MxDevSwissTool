@@ -51,6 +51,24 @@ const ALLOWED_ORIGINS = [
   'http://127.0.0.1:5173'
 ];
 
+// Both servers listen on loopback only, but a browser still reaches them from a
+// foreign page through DNS rebinding: evil.example resolves to 127.0.0.1, the
+// page is same-origin with itself, and the request arrives here carrying
+// `Host: evil.example:9999`. A request whose Host is not one of our own names
+// is refused before anything else runs — including /status, which hands out
+// the token.
+const ALLOWED_HOSTNAMES = ['localhost', '127.0.0.1', '[::1]'];
+
+function hostAllowed(req, port) {
+  const host = String((req.headers && req.headers.host) || '').toLowerCase();
+  return ALLOWED_HOSTNAMES.some(name => host === `${name}:${port}`);
+}
+
+function refuseForeignHost(res) {
+  res.writeHead(403, { 'Content-Type': 'text/plain' });
+  res.end('Forbidden host');
+}
+
 function corsHeaders(req) {
   const origin = req.headers ? (req.headers.origin || '') : '';
   const allowOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
@@ -261,8 +279,7 @@ async function applyUpdate() {
 
   // Verify the signature BEFORE extraction — a re-signing TLS proxy or a
   // compromised release asset cannot forge an Ed25519 signature over the key
-  // whose public half is baked into this build. Soft until the first signed
-  // release exists (verified:false, ok:true).
+  // whose public half is baked into this build. An unsigned package is refused.
   let sigB64 = null;
   if (info.sigUrl) {
     try {
@@ -276,11 +293,7 @@ async function applyUpdate() {
     fs.rmSync(UPDATE_DIR, { recursive: true, force: true });
     throw new Error(verdict.reason);
   }
-  if (verdict.verified) {
-    console.log('[Bridge Update] Package signature verified.');
-  } else {
-    console.log(`[Bridge Update] WARNING: package NOT signature-verified (${verdict.reason}) — proceeding.`);
-  }
+  console.log('[Bridge Update] Package signature verified.');
 
   console.log('[Bridge Update] Extracting package...');
   await extractZip(zipPath, pkgDir);
@@ -637,6 +650,8 @@ function handleOtlpRequest(req, res, buffer) {
 }
 
 const otlpServer = http.createServer((req, res) => {
+  if (!hostAllowed(req, OTLP_PORT)) return refuseForeignHost(res);
+
   // CORS Preflight
   if (req.method === 'OPTIONS') {
     res.writeHead(204, corsHeaders(req));
@@ -1071,7 +1086,43 @@ function modelPrep(loaded) {
 
 const MODEL_REF_QUERIES = ['elements', 'callers', 'callees', 'impact', 'context', 'loops'];
 
-const server = http.createServer((req, res) => {
+// config.json holds the project's database password in plain text. It never
+// leaves this process: /detect-project answers with it masked, and /postgres
+// reads it back from the file itself when given { projectRoot }.
+function readProjectConfig(deploymentPath) {
+  const configPath = path.join(deploymentPath, 'model', 'config.json');
+  return fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, 'utf8')) : null;
+}
+
+function maskProjectConfig(config) {
+  if (!config || !config.Configuration || !config.Configuration.DatabasePassword) return config;
+  return { ...config, Configuration: { ...config.Configuration, DatabasePassword: '***' } };
+}
+
+// The connection Developer Studio opens for a detected project, built from its
+// config.json here so the password is never sent to the browser and back.
+function projectDbConfig(projectRoot) {
+  if (typeof projectRoot !== 'string' || !path.isAbsolute(projectRoot)) throw new Error('projectRoot must be an absolute path');
+  const config = readProjectConfig(path.join(projectRoot, 'deployment'));
+  const c = (config && config.Configuration) || {};
+  const [host, port] = String(c.DatabaseHost || 'localhost:5432').split(':');
+  return {
+    host: host || 'localhost',
+    port: parseInt(port, 10) || 5432,
+    database: c.DatabaseName || '',
+    user: c.DatabaseUserName || '',
+    password: c.DatabasePassword || ''
+  };
+}
+
+// GET /detect-project spawns PowerShell for a WMI query: ~1 s and ~80 MB each
+// time (measured). Callers that ask again within a few seconds get the last answer.
+const DETECT_CACHE_MS = 10000;
+let detectCache = { at: 0, data: null };
+
+function handleRequest(req, res) {
+  if (!hostAllowed(req, PORT)) return refuseForeignHost(res);
+
   // CORS Preflight
   if (req.method === 'OPTIONS') {
     res.writeHead(204, corsHeaders(req));
@@ -1183,14 +1234,12 @@ const server = http.createServer((req, res) => {
           if (!payload.projectRoot) throw new Error("Missing projectRoot");
           const deploymentPath = path.join(payload.projectRoot, 'deployment');
           const metadataPath = path.join(deploymentPath, 'model', 'metadata.json');
-          const configPath = path.join(deploymentPath, 'model', 'config.json');
-          
+
           let metadata = null;
-          let config = null;
-          
+
           if (fs.existsSync(metadataPath)) metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
-          if (fs.existsSync(configPath)) config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-          
+          const config = maskProjectConfig(readProjectConfig(deploymentPath));
+
           const proj = { deploymentPath, projectRoot: payload.projectRoot, metadata, config };
           sendJson(req, res, { success: true, projects: [proj], deploymentPath, projectRoot: payload.projectRoot, metadata, config });
         } catch (e) {
@@ -1217,6 +1266,14 @@ const server = http.createServer((req, res) => {
       return null;
     };
 
+    if (detectCache.data && Date.now() - detectCache.at < DETECT_CACHE_MS) {
+      return sendJson(req, res, detectCache.data);
+    }
+    const answer = (data) => {
+      detectCache = { at: Date.now(), data };
+      sendJson(req, res, data);
+    };
+
     const cmd = `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"Name='javaw.exe'\\" | Select-Object -ExpandProperty CommandLine"`;
     exec(cmd, { maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
       if (error) {
@@ -1231,7 +1288,6 @@ const server = http.createServer((req, res) => {
           const deploymentPath = extractDeploymentPath(line);
           if (deploymentPath && !projects.find(p => p.deploymentPath === deploymentPath)) {
             const metadataPath = path.join(deploymentPath, 'model', 'metadata.json');
-            const configPath = path.join(deploymentPath, 'model', 'config.json');
             let metadata = null;
             let config = null;
             
@@ -1244,9 +1300,7 @@ const server = http.createServer((req, res) => {
             }
             
             try {
-              if (fs.existsSync(configPath)) {
-                config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-              }
+              config = maskProjectConfig(readProjectConfig(deploymentPath));
             } catch (e) {
               console.error("Failed to read config.json:", e);
             }
@@ -1262,10 +1316,10 @@ const server = http.createServer((req, res) => {
       }
       
       if (projects.length === 0) {
-        return sendJson(req, res, { success: false, reason: "No running Mendix runtime process found. Make sure the app is running in Studio Pro." });
+        return answer({ success: false, reason: "No running Mendix runtime process found. Make sure the app is running in Studio Pro." });
       }
-      
-      sendJson(req, res, {
+
+      answer({
         success: true,
         projects: projects,
         // Keep top-level fields for backwards compatibility
@@ -1582,7 +1636,8 @@ const server = http.createServer((req, res) => {
       if (req.method === 'POST') {
         readBody(req, res, 5 * 1024 * 1024, (rawBody) => {
           try {
-            const dbConfig = JSON.parse(rawBody.toString('utf8'));
+            const body = JSON.parse(rawBody.toString('utf8'));
+            const dbConfig = body.projectRoot ? projectDbConfig(body.projectRoot) : body;
             fetchPostgresMetrics(req, res, dbConfig);
           } catch (e) {
             sendError(req, res, `Invalid JSON body: ${e.message}`, 400);
@@ -1768,9 +1823,22 @@ const server = http.createServer((req, res) => {
       readBody(req, res, 5 * 1024 * 1024, (rawBody) => {
         try {
           const config = JSON.parse(rawBody.toString('utf8'));
+          // Validated before anything is stored: the responder reads these on
+          // every request, so one bad value (status: null) used to crash the
+          // whole Bridge on the next /mock call.
+          if (config.status !== undefined && !(typeof config.status === 'string' && /^\d{3}( .*)?$/.test(config.status))) {
+            return sendError(req, res, 'status must be a string such as "200" or "404 Not Found"', 400);
+          }
+          if (config.payload !== undefined && typeof config.payload !== 'string') {
+            return sendError(req, res, 'payload must be a string', 400);
+          }
+          const delay = config.delay === undefined ? undefined : Number(config.delay);
+          if (delay !== undefined && !(Number.isInteger(delay) && delay >= 0 && delay <= 60000)) {
+            return sendError(req, res, 'delay must be a whole number of milliseconds between 0 and 60000', 400);
+          }
           if (config.status !== undefined) mockConfig.status = config.status;
           if (config.payload !== undefined) mockConfig.payload = config.payload;
-          if (config.delay !== undefined) mockConfig.delay = parseInt(config.delay, 10);
+          if (delay !== undefined) mockConfig.delay = delay;
           if (config.chaos !== undefined) mockConfig.chaos = !!config.chaos;
           sendJson(req, res, { success: true, mockConfig });
         } catch (e) {
@@ -1855,7 +1923,31 @@ const server = http.createServer((req, res) => {
     const targetAuth = req.headers['x-target-authorization'];
     const fetchHeaders = targetAuth ? { Authorization: String(targetAuth) } : undefined;
 
-    fetch(specUrl, { redirect: 'follow', headers: fetchHeaders, signal: AbortSignal.timeout(15000) })
+    // This route makes the Bridge fetch a URL it is given, so it must not become
+    // a way to read what only this machine can reach. Link-local addresses (the
+    // cloud metadata endpoint lives at 169.254.169.254) are refused outright;
+    // redirects are followed only within the host the user typed; and what comes
+    // back is handed over only if it actually is an OpenAPI/Swagger document.
+    let startHost;
+    try { startHost = new URL(specUrl).hostname.toLowerCase(); } catch (e) {
+      return sendError(req, res, 'That is not a valid URL.', 400);
+    }
+    const linkLocal = (h) => /^169\.254\./.test(h) || /^\[?fe[89ab][0-9a-f]:/i.test(h);
+    if (linkLocal(startHost)) return sendError(req, res, 'Link-local addresses are not allowed.', 400);
+
+    const fetchSpec = async (target, hopsLeft) => {
+      const r = await fetch(target, { redirect: 'manual', headers: fetchHeaders, signal: AbortSignal.timeout(15000) });
+      if (r.status >= 300 && r.status < 400 && r.headers.get('location')) {
+        const next = new URL(r.headers.get('location'), target);
+        if (next.hostname.toLowerCase() !== startHost || hopsLeft <= 0) {
+          throw Object.assign(new Error(`The spec URL redirects to another host (${next.host}); open that URL directly.`), { redirectRefused: true });
+        }
+        return fetchSpec(next.href, hopsLeft - 1);
+      }
+      return r;
+    };
+
+    fetchSpec(specUrl, 3)
       .then(async (r) => {
         const text = await r.text();
         if (text.length > 8 * 1024 * 1024) {
@@ -1868,9 +1960,15 @@ const server = http.createServer((req, res) => {
           const hint = needsAuth ? ' If the document is protected, fill in Authentication and fetch again — the Bridge will send it.' : '';
           return sendError(req, res, `The spec URL answered ${r.status} ${r.statusText}.${hint}`, 502);
         }
+        let doc = null;
+        try { doc = JSON.parse(text); } catch (e) { /* not JSON — refused below */ }
+        if (!doc || typeof doc !== 'object' || !(doc.openapi || doc.swagger)) {
+          return sendError(req, res, 'The URL did not return an OpenAPI or Swagger JSON document.', 502);
+        }
         sendJson(req, res, { success: true, url: specUrl, body: text });
       })
       .catch((e) => {
+        if (e && e.redirectRefused) return sendError(req, res, e.message, 502);
         const why = e && e.name === 'TimeoutError' ? 'timed out after 15 s' : (e && e.message) || 'unknown error';
         sendError(req, res, `Could not fetch the spec: ${why}`, 502);
       });
@@ -1918,6 +2016,23 @@ const server = http.createServer((req, res) => {
 
   // Fallback
   return sendError(req, res, 'Not Found', 404);
+}
+
+// A route that throws synchronously answers 500 instead of taking the Bridge
+// down with it. Throws inside async callbacks are each route's own business;
+// the uncaughtException logger below only records what slips past them.
+const server = http.createServer((req, res) => {
+  try {
+    handleRequest(req, res);
+  } catch (e) {
+    console.error(`[Bridge] ${req.method} ${req.url} failed:`, e);
+    if (!res.headersSent) sendError(req, res, `Internal error: ${e.message}`, 500);
+    else res.end();
+  }
+});
+
+process.on('uncaughtException', (e) => {
+  console.error('[Bridge] Uncaught exception:', e);
 });
 
 // Initialize bridge

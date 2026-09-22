@@ -1469,20 +1469,13 @@ async function dsFetchDbDetails() {
   const dbType = (config.Configuration?.DatabaseType || 'HSQLDB').toUpperCase();
   if (dbType !== 'POSTGRESQL') return;
 
-  const hostParts = (config.Configuration?.DatabaseHost || 'localhost:5432').split(':');
-  const dbConfig = {
-    host: hostParts[0] || 'localhost',
-    port: hostParts[1] || '5432',
-    database: config.Configuration?.DatabaseName || '',
-    user: config.Configuration?.DatabaseUserName || '',
-    password: config.Configuration?.DatabasePassword || ''
-  };
-
   try {
+    // The Bridge reads the connection, password included, from the project's
+    // config.json itself — the password never reaches the browser.
     const res = await fetch('http://localhost:9999/postgres', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(dbConfig)
+      body: JSON.stringify({ projectRoot: dsProjectData.projectRoot })
     });
     if (!res.ok) throw new Error("DB Query failed");
     const data = await res.json();

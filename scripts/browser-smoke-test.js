@@ -116,7 +116,12 @@ const NGINX_LOG = [
   '9.9.9.9 - - [20/Jul/2026:10:00:05 +0000] "GET /admin/index.php HTTP/1.1" 404 64 "-" "Mozilla/5.0" 0.001',
   '9.9.9.9 - - [20/Jul/2026:10:00:06 +0000] "GET /qZk3xT.htm HTTP/1.1" 404 64 "-" "Mozilla/5.0" 0.001',
   '10.0.0.3 - - [20/Jul/2026:10:00:07 +0000] "GET /apple-touch-icon.png HTTP/1.1" 404 64 "-" "Mozilla/5.0" 0.001',
-  '10.0.0.4 - - [20/Jul/2026:10:00:08 +0000] "GET /ui/theme/images/logo.png HTTP/1.1" 404 64 "-" "Mozilla/5.0" 0.001'
+  '10.0.0.4 - - [20/Jul/2026:10:00:08 +0000] "GET /ui/theme/images/logo.png HTTP/1.1" 404 64 "-" "Mozilla/5.0" 0.001',
+  // Attacker-controlled fields (review BUG-06). `img onerror`, not `svg onload`:
+  // an <svg onload> inserted through innerHTML never fires, so a fixture built on
+  // it passes before the fix too.
+  '10.0.0.5 - - [20/Jul/2026:10:00:09 +0000] "GET /xas/ HTTP/1.1" 200 64 "https://ref.example/<img src=x onerror=window.__xssRef=1>" "Mozilla/5.0" 0.010',
+  '10.0.0.6 - - [20/Jul/2026:10:00:10 +0000] "GET /a<img/src/onerror=window.__xssUrl=1> HTTP/1.1" 200 64 "-" "Mozilla/5.0" 0.010'
 ].join('\n');
 
 async function run() {
@@ -266,6 +271,25 @@ async function run() {
       const r = document.getElementById('nginx-results');
       return r && getComputedStyle(r).display !== 'none';
     }, { timeout: 20000 });
+
+    // Log fields are text, never markup: the payloads must be on screen as text
+    // and must not have run. Settled first — onerror fires asynchronously.
+    await sleep(300);
+    ok('nginx shows an attacker-controlled referrer as text',
+      await page.evaluate(() => document.getElementById('nx-ref-table').textContent.includes('<img src=x onerror=')));
+    // Compared in the page: undefined does not survive serialisation back to Node.
+    const nxXss = await page.evaluate(() => ('__xssRef' in window) + ',' + ('__xssUrl' in window));
+    eq('nginx does not execute markup from the Referer or the request path', nxXss, 'false,false');
+    // The escaped onclick must still hand the exact value back to the filter.
+    const nxFiltered = await page.evaluate(() => {
+      const cell = [...document.querySelectorAll('#nx-url-table td[onclick]')].find(td => td.title.includes('onerror'));
+      if (!cell) return 'no-cell';
+      cell.click();
+      const v = window.nginxFilter.url;
+      window.nginxClearFilters();
+      return v;
+    });
+    eq('nginx URL filter receives the raw path through the escaped onclick', nxFiltered, '/a<img/src/onerror=window.__xssUrl=1>');
 
     // 404 classification must reach the DOM, not just pass in Node: the summary
     // row, the "yours" tag on the app-owned path, and the scanner source table.

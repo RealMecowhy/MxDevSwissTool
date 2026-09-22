@@ -185,7 +185,7 @@ async function navigate(toolId, navEl, initialTab) {
     iconEl.style.color = tool.color || 'var(--accent)';
   }
   document.getElementById('topbar-title').textContent = tool.label;
-  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.64.0' : (tool.desc || '');
+  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.65.0' : (tool.desc || '');
   const previousTool = currentTool;
   currentTool = toolId;
   window.currentTool = currentTool;
@@ -822,12 +822,17 @@ async function checkBridgeStatus() {
   if (!dot || !txt) return;
 
   try {
-    // Attempting to fetch from the Mendix Observability Bridge
-    const res = await fetch('http://localhost:9999/detect-project', { 
-      method: 'GET', 
-      cache: 'no-store' 
+    // /status, not /detect-project: the latter spawns PowerShell for a WMI
+    // process query (~1 s, ~80 MB each), which every 5 s kept ~12% of a core busy.
+    // The token is picked up here too, so a Bridge started or restarted after the
+    // page loaded is usable without a reload.
+    const res = await fetch('http://localhost:9999/status', {
+      method: 'GET',
+      cache: 'no-store'
     });
     if (res.ok) {
+      const status = await res.json();
+      if (status && status.token) window.BRIDGE_TOKEN = status.token;
       dot.style.background = 'var(--success)';
       dot.style.boxShadow = '0 0 5px var(--success)';
       setBridgeText(txt, 'Bridge Online');

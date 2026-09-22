@@ -48,7 +48,19 @@ exit /b 1
 
 :node_found
 echo Closing old Agent processes...
-for /f "tokens=5" %%a in ('netstat -aon ^| find "9999" ^| find "LISTENING"') do taskkill /f /pid %%a >nul 2>&1
+rem Only a process that LISTENS on port 9999 exactly (":9999 ", so not 19999 or a
+rem PID containing 9999), and only if it is node.exe - an earlier bridge. Anything
+rem else on the port is somebody else's program and is left alone.
+for /f "tokens=5" %%a in ('netstat -aon ^| find ":9999 " ^| find "LISTENING"') do (
+  for /f "tokens=1 delims=," %%n in ('tasklist /fi "PID eq %%a" /fo csv /nh') do (
+    if /i "%%~n"=="node.exe" (
+      taskkill /f /pid %%a >nul 2>&1
+    ) else (
+      echo [!] Port 9999 is used by %%~n ^(PID %%a^), not by an earlier bridge - leaving it alone.
+      echo     Close that program, then start this launcher again.
+    )
+  )
+)
 echo.
 echo Starting Mendix Observability Bridge...
 rem /c (not /k) so the window closes itself when the bridge stops - for example

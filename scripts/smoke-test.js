@@ -177,6 +177,71 @@ setTimeout(async () => {
     // NOT happen is a hang or a 400.
     if (okPort.status !== 200) return fail('/prometheus with a valid port should answer 200 (even if it is a proxy error)', 'status=' + okPort.status);
 
+    // ── Wave 32: security hardening ──────────────────────────────────────────
+    // DNS rebinding: a foreign page reaches loopback under its own name, so the
+    // request carries a foreign Host. Refused on both ports, /status included —
+    // /status is what hands out the token.
+    console.log('Checking a foreign Host header is refused...');
+    const evil = await request({ path: '/status', headers: { Host: 'evil.example:9999' } });
+    if (evil.status !== 403) return fail('/status must refuse a foreign Host', 'status=' + evil.status);
+    if (evil.body.indexOf(parsed.token) !== -1) return fail('the 403 must not carry the token');
+    const evilTok = await request({ path: '/logs', headers: { Host: 'evil.example:9999', 'X-Bridge-Token': parsed.token } });
+    if (evilTok.status !== 403) return fail('a token does not make a foreign Host acceptable', 'status=' + evilTok.status);
+    const localName = await request({ path: '/status', headers: { Host: 'localhost:9999' } });
+    if (localName.status !== 200) return fail('Host localhost:9999 must be accepted', 'status=' + localName.status);
+    const otlpEvil = await request({ port: 4318, path: '/v1/traces', method: 'POST', headers: { Host: 'evil.example:4318', 'Content-Type': 'application/json' } }, '{}');
+    if (otlpEvil.status !== 403) return fail('the OTLP port must refuse a foreign Host', 'status=' + otlpEvil.status);
+    const otlpLocal = await request({ port: 4318, path: '/v1/traces', method: 'POST', headers: { 'Content-Type': 'application/json' } }, '{}');
+    if (otlpLocal.status === 403) return fail('the OTLP port must accept 127.0.0.1');
+
+    // A bad mock-config value used to be stored and crash the Bridge on the
+    // next /mock call (status: null → null.toString()).
+    console.log('Checking /mock-config validates its input...');
+    const tokenJson = { 'Content-Type': 'application/json', 'X-Bridge-Token': parsed.token };
+    const nullStatus = await request({ path: '/mock-config', method: 'POST', headers: tokenJson }, JSON.stringify({ status: null }));
+    if (nullStatus.status !== 400) return fail('/mock-config must reject status:null', 'status=' + nullStatus.status);
+    const hugeDelay = await request({ path: '/mock-config', method: 'POST', headers: tokenJson }, JSON.stringify({ delay: 600000 }));
+    if (hugeDelay.status !== 400) return fail('/mock-config must reject a delay over 60 s', 'status=' + hugeDelay.status);
+    const stillMocking = await request({ path: '/mock' });
+    if (stillMocking.status !== 200) return fail('/mock must keep answering after a rejected config', 'status=' + stillMocking.status);
+
+    // /openapi/fetch makes the Bridge fetch a URL it is handed. A local server
+    // plays the target: a real spec, an HTML page, and a redirect to another host.
+    console.log('Checking /openapi/fetch refuses what is not a spec...');
+    const target = http.createServer((q, r) => {
+      const port = target.address().port;
+      if (q.url === '/spec') { r.writeHead(200, { 'Content-Type': 'application/json' }); return r.end('{"openapi":"3.0.0","paths":{}}'); }
+      if (q.url === '/page') { r.writeHead(200, { 'Content-Type': 'text/html' }); return r.end('<html>internal admin page</html>'); }
+      if (q.url === '/away') { r.writeHead(302, { Location: 'http://localhost:' + port + '/spec' }); return r.end(); }
+      r.writeHead(404); r.end();
+    });
+    await new Promise(resolve => target.listen(0, '127.0.0.1', resolve));
+    const base = 'http://127.0.0.1:' + target.address().port;
+    const openapi = (u) => request({ path: '/openapi/fetch?url=' + encodeURIComponent(u), headers: { 'X-Bridge-Token': parsed.token } });
+    const spec = await openapi(base + '/spec');
+    if (spec.status !== 200 || JSON.parse(spec.body).body.indexOf('openapi') === -1) return fail('/openapi/fetch must return a real spec', 'status=' + spec.status + ' body=' + spec.body);
+    const page = await openapi(base + '/page');
+    if (page.status !== 502) return fail('/openapi/fetch must refuse a non-spec page', 'status=' + page.status);
+    if (page.body.indexOf('internal admin page') !== -1) return fail('/openapi/fetch must not hand back a non-spec body', page.body);
+    const away = await openapi(base + '/away');
+    if (away.status !== 502) return fail('/openapi/fetch must not follow a redirect to another host', 'status=' + away.status + ' body=' + away.body);
+    const metadata = await openapi('http://169.254.169.254/latest/meta-data/');
+    if (metadata.status !== 400) return fail('/openapi/fetch must refuse a link-local address', 'status=' + metadata.status);
+    target.close();
+
+    // config.json holds the database password in plain text; the browser gets it masked.
+    console.log('Checking /detect-project never returns the database password...');
+    const fs = require('fs');
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mxdev-smoke-project-'));
+    fs.mkdirSync(path.join(projectRoot, 'deployment', 'model'), { recursive: true });
+    fs.writeFileSync(path.join(projectRoot, 'deployment', 'model', 'config.json'),
+      JSON.stringify({ Configuration: { DatabaseType: 'POSTGRESQL', DatabaseUserName: 'mendix', DatabasePassword: 'smoke-secret-pw' } }));
+    const detected = await request({ path: '/detect-project', method: 'POST', headers: tokenJson }, JSON.stringify({ projectRoot: projectRoot }));
+    fs.rmSync(projectRoot, { recursive: true, force: true });
+    if (detected.status !== 200) return fail('/detect-project POST must answer 200', 'status=' + detected.status + ' body=' + detected.body);
+    if (detected.body.indexOf('smoke-secret-pw') !== -1) return fail('/detect-project leaked the database password');
+    if (JSON.parse(detected.body).config.Configuration.DatabaseUserName !== 'mendix') return fail('/detect-project must still return the rest of config.json');
+
     console.log('Smoke test passed successfully.');
     server.kill();
     process.exit(0);
@@ -185,9 +250,9 @@ setTimeout(async () => {
   }
 }, 2000);
 
-// Timeout test after 10 seconds
+// Timeout test after 20 seconds
 setTimeout(() => {
   console.error('Smoke test timed out.');
   server.kill();
   process.exit(1);
-}, 10000);
+}, 20000);

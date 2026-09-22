@@ -109,6 +109,8 @@ This application is built with a strict **local-first** philosophy:
 * All formatters, generators, decoders, and parsers execute completely within your browser.
 * No data is uploaded to external servers.
 * The local Node.js bridge server only acts as a read-only reader for local log files and database details on your machine.
+* The bridge listens on `localhost` only and answers only requests addressed to `localhost`, `127.0.0.1` or `[::1]` — a web page that tricks your browser into reaching it under another name (DNS rebinding) is refused before anything runs. Everything except `/status` and the Mock Server also requires a per-session token.
+* Your project's database password stays inside the bridge: Developer Studio shows the configuration with it masked, and the bridge reads it from `config.json` itself when it connects.
 
 ---
 
@@ -152,7 +154,7 @@ Shortly after startup the tool checks [GitHub Releases](https://github.com/RealM
 
 You can also snooze the reminder for a day or skip a version entirely.
 
-**Automatic updates are signature-checked.** Every release ZIP is signed with an Ed25519 key whose public half ships inside the tool. Before *Update now* replaces anything, the bridge verifies the download against that key and aborts on a mismatch — so a tampered package (for example from a TLS-intercepting corporate proxy) cannot be installed automatically. The *Download ZIP* fallback is unaffected.
+**Automatic updates are signature-checked.** Every release ZIP is signed with an Ed25519 key whose public half ships inside the tool. Before *Update now* replaces anything, the bridge verifies the download against that key and aborts on a mismatch — so a tampered package (for example from a TLS-intercepting corporate proxy) cannot be installed automatically. A release that arrives **without** a signature is refused the same way, since dropping the `.sig` would otherwise skip the check; use *Download ZIP* for it. The *Download ZIP* fallback is unaffected.
 
 The full history is in [CHANGELOG.md](CHANGELOG.md) — including the 21 versions that shipped as commits and were never published as releases, which the Releases page cannot show you.
 

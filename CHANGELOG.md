@@ -14,6 +14,68 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.65.0 — 2026-09-22
+
+**Security hardening of the local bridge and the Nginx Analyzer.** Nothing new to
+learn; everything here closes a way in.
+
+### Security
+
+- **The Nginx Analyzer executed markup from the log.** A `Referer` header or a
+  request path is whatever the client sent, and the dashboard tables wrote them
+  into the page unescaped — an access log line carrying
+  `Referer: <img src=x onerror=…>` ran that script in the tool's page, which holds
+  the bridge token. Reproduced before the fix through both fields. Every
+  log-derived value in the dashboard, the active-filter chips, the error-log IP
+  table and the date filter is now escaped, and the click-to-filter handlers pass
+  values through a JS-then-HTML escape instead of a bare quote replacement. The
+  browser smoke test loads such a log and fails if the payload runs.
+- **The bridge now refuses requests addressed to any other name.** It listened on
+  `127.0.0.1` only, but a page on the internet can reach loopback through DNS
+  rebinding, and the bridge answered it — `/status` included, which hands out the
+  session token. Both ports (9999 and the OTLP collector on 4318) now answer
+  **403** unless the `Host` is `localhost`, `127.0.0.1` or `[::1]`. Measured
+  before the fix: current Chrome (153) blocks a public page from reaching
+  localhost and Firefox (156) asks for permission, so this is hardening for
+  older browsers and for anyone who clicked *Allow* — not an open door on an
+  up-to-date one.
+- **The database password no longer reaches the browser.** `/detect-project`
+  returned the project's `config.json` verbatim, password included, and Developer
+  Studio sent it back to `/postgres`. The password is now masked (`***`) in that
+  answer, and the bridge reads it from `config.json` itself when Developer Studio
+  asks for the database metrics.
+- **Unsigned updates are refused.** Every release since v1.59.0 is signed, but a
+  release with no `.sig` asset was still installed with a warning — so removing
+  the signature skipped the check. *Update now* now refuses it and points to the
+  manual ZIP.
+- **`/openapi/fetch` is no longer a general-purpose fetcher.** It refuses
+  link-local addresses (the cloud metadata endpoint), follows redirects only
+  within the host you typed, and hands back only a document that is actually an
+  OpenAPI/Swagger JSON — anything else is a 502 without the body.
+- **The session token is sent only to the bridge.** The page's `fetch` wrapper
+  attached it to any URL that merely contained `localhost:9999`, and to
+  protocol-relative `//host/…` URLs, which point at another host.
+
+### Fixed
+
+- **The topbar kept a CPU core ~12% busy.** Its 5-second bridge check called
+  `/detect-project`, which spawns PowerShell for a WMI process query — measured at
+  ~1 s, 81 MB and 0.6 s of CPU per call. It now calls `/status`, and
+  `/detect-project` caches its answer for 10 s. The same check now also picks up
+  the token, so a bridge started or restarted after the page opened works without
+  a reload.
+- **One bad Mock Server setting crashed the bridge.** `/mock-config` stored any
+  value, and `status: null` took the whole bridge down on the next `/mock` call.
+  Values are validated (status like `200` or `404 Not Found`, payload a string,
+  delay 0–60 000 ms) and rejected with a 400 the Mock Server tab now shows; a
+  route that throws answers 500 instead of stopping the process.
+- **The launcher could kill an unrelated program.** It closed every process whose
+  `netstat` line contained `9999` — a port like 19999, or a PID with those digits.
+  It now matches port 9999 exactly and closes the process only if it is
+  `node.exe`; anything else is named and left alone.
+
+---
+
 ## v1.64.0 — 2026-09-16
 
 **The Log Viewer gets a time axis, and search stops lying about what it found.**
