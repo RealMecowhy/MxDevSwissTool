@@ -195,7 +195,7 @@ function miAnalyze() {
     html += `<tr>
       <td style="font-family:var(--font-mono);font-size:0.82rem;word-break:break-all">${escHtml(c.className)}</td>
       <td style="text-align:right;white-space:nowrap">${formatBytes(c.bytes)}</td>
-      <td style="text-align:right">${c.instances.toLocaleString()}</td>
+      <td style="text-align:right">${window.mtFmtInt(c.instances)}</td>
     </tr>`;
   });
   

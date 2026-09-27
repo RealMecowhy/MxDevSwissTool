@@ -44,10 +44,36 @@ function irFmtInput(ms) {
 function irParseMs(str) {
   str = (str || '').trim();
   if (!str) return null;
-  const m = str.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?/);
+  // Anchored at both ends: "…10:00:002026-09-20 9:00" once parsed as its first
+  // 19 characters and silently set the window. A trailing " UTC"/"Z" is accepted.
+  const m = str.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(?:\s*(?:UTC|Z))?$/);
   if (!m) return NaN;
   const base = Date.parse(m[1] + 'T' + m[2] + ':' + m[3] + ':' + m[4] + 'Z');
   return base + (m[5] ? parseFloat('0.' + m[5]) * 1000 : 0);
+}
+
+// Marks the window fields (review UX-07): a malformed bound or an end before the
+// start used to surface only as a toast at Generate, or not at all — a reversed
+// window just produced an empty report. The mark appears when the user leaves the
+// field (not at "2026-0", halfway through typing) and clears on the keystroke that
+// makes it right: `clearOnly` is the as-you-type call. Returns true when usable.
+function irCheckWindow(clearOnly) {
+  const fromEl = document.getElementById('ir-from');
+  const toEl = document.getElementById('ir-to');
+  const hint = document.getElementById('ir-window-hint');
+  if (!fromEl || !toEl) return true;
+  const fromMs = irParseMs(fromEl.value), toMs = irParseMs(toEl.value);
+  let bad = null, msg = '';
+  if (Number.isNaN(fromMs)) { bad = fromEl; msg = 'Start: use YYYY-MM-DD HH:MM:SS (UTC), e.g. 2026-09-20 09:00:00, or leave it blank.'; }
+  else if (Number.isNaN(toMs)) { bad = toEl; msg = 'End: use YYYY-MM-DD HH:MM:SS (UTC), e.g. 2026-09-20 10:00:00, or leave it blank.'; }
+  else if (fromMs != null && toMs != null && fromMs > toMs) { bad = toEl; msg = 'The end is before the start — the report would be empty.'; }
+  if (clearOnly && bad) return false;
+  [fromEl, toEl].forEach(function (el) {
+    el.classList.toggle('is-invalid', el === bad);
+    if (el === bad) el.setAttribute('aria-invalid', 'true'); else el.removeAttribute('aria-invalid');
+  });
+  if (hint) { hint.textContent = msg; hint.style.display = bad ? '' : 'none'; }
+  return !bad;
 }
 
 let irProbed = []; // [{ src, section|null }]
@@ -89,6 +115,7 @@ function irRefresh() {
     toEl.value = irFmtInput(maxMs);
   }
 
+  irCheckWindow();
   irUpdateCounts();
 
   const status = document.getElementById('ir-status');
@@ -137,8 +164,10 @@ function irUpdateCounts() {
 function irGenerate() {
   const fromMs = irParseMs(document.getElementById('ir-from').value);
   const toMs = irParseMs(document.getElementById('ir-to').value);
-  if (isNaN(fromMs) || isNaN(toMs)) {
-    window.mtToast('Time window must be blank or "YYYY-MM-DD HH:MM:SS" (UTC). Leave a field empty for an open-ended bound.', 'warning');
+  if (!irCheckWindow()) {
+    const bad = document.querySelector('#ir-from.is-invalid, #ir-to.is-invalid');
+    if (bad) bad.focus();
+    window.mtToast('Fix the time window first — the problem is described under the field.', 'warning');
     return;
   }
 
@@ -208,6 +237,7 @@ window.irRefresh = irRefresh;
 window.irUpdateCounts = irUpdateCounts;
 window.irGenerate = irGenerate;
 window.irResetWindow = irResetWindow;
+window.irCheckWindow = irCheckWindow;
 
 // navigate() calls init() on every open, so the source checklist always reflects
 // the current state of the other tools.

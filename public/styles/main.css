@@ -5,6 +5,9 @@
      the next entry. Had anyone installed it locally (it is a common Google font)
      every log row, code area and aligned column would have lost its grid. */
   --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, "Fira Code", monospace;
+  /* The smallest text size anywhere (review UX-03): badges, eyebrows, axis ticks.
+     Below ~11px text is unreadable at 100% scaling on a 1080p laptop. */
+  --fs-xs: 0.72rem;
   --sp-1: 4px;
   --sp-2: 8px;
   --sp-3: 12px;
@@ -338,7 +341,7 @@ pre,
   flex-shrink: 0;
   margin-left: auto;
   padding: 1px 5px;
-  font-size: 0.68rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
 }
 .collapsed .nav-label,
@@ -459,6 +462,7 @@ pre,
 #topbar-title {
   font-size: 0.9rem;
   font-weight: 600;
+  margin: 0;
 }
 #topbar-subtitle {
   color: var(--text-muted);
@@ -469,6 +473,65 @@ pre,
 }
 #topbar-spacer {
   flex: 1;
+}
+/* The bridge indicator is a button (review UX-08): it opens a popover saying what
+   the bridge is for and how to start it, or — online — what it is doing. */
+.bridge-wrap {
+  margin-right: 16px;
+  position: relative;
+}
+#global-bridge-status {
+  align-items: center;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  gap: 8px;
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+#global-bridge-status:hover,
+#global-bridge-status[aria-expanded="true"] {
+  border-color: var(--border-strong, var(--text-muted));
+  color: var(--text);
+}
+.bridge-popover {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  padding: var(--sp-3) var(--sp-4);
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  width: 360px;
+  z-index: 200;
+}
+.bridge-popover h4 {
+  font-size: 0.85rem;
+  margin: 0 0 var(--sp-2);
+}
+.bridge-popover p {
+  margin: 0 0 var(--sp-2);
+}
+.bridge-popover dl {
+  display: grid;
+  gap: 4px var(--sp-3);
+  grid-template-columns: auto 1fr;
+  margin: 0 0 var(--sp-2);
+}
+.bridge-popover dt {
+  color: var(--text-muted);
+}
+.bridge-popover dd {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 .topbar-btn {
   align-items: center;
@@ -735,6 +798,16 @@ select.select.select-sm {
   border-color: var(--danger);
   box-shadow: 0 0 0 3px var(--danger-subtle);
 }
+/* The message under a field marked .is-invalid, saying what it expects. */
+.field-hint-error {
+  color: var(--danger);
+  font-size: var(--fs-xs);
+  margin-top: 4px;
+}
+/* Native time fields draw their clock icon and picker from the page's color
+   scheme, which the app never declared — so the icon was black on the dark panel. */
+input[type="time"] { color-scheme: dark; }
+[data-theme="light"] input[type="time"] { color-scheme: light; }
 .textarea {
   resize: vertical;
   min-height: 120px;
@@ -1476,7 +1549,7 @@ kbd {
   margin-bottom: var(--sp-1);
 }
 .log-tl-title {
-  font-size: 0.68rem;
+  font-size: var(--fs-xs);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-muted);
@@ -1549,7 +1622,7 @@ kbd {
   border-radius: var(--r-sm);
   padding: var(--sp-1) var(--sp-2);
   font-family: var(--font-mono);
-  font-size: 0.68rem;
+  font-size: var(--fs-xs);
   line-height: 1.5;
   white-space: nowrap;
   pointer-events: none;
@@ -1563,12 +1636,12 @@ kbd {
   display: flex;
   justify-content: space-between;
   font-family: var(--font-mono);
-  font-size: 0.64rem;
+  font-size: var(--fs-xs);
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
 .log-tl-note {
-  font-size: 0.68rem;
+  font-size: var(--fs-xs);
   color: var(--text-muted);
   padding-top: 2px;
 }
@@ -1707,7 +1780,7 @@ kbd {
 /* ── File-origin badge (multi-file merge) ── */
 .log-row-file-badge {
   flex-shrink: 0;
-  font-size: 0.65rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
   padding: 1px 5px;
   border-radius: var(--r-sm);
@@ -2044,7 +2117,8 @@ kbd {
 }
 #json-split,
 #xml-split,
-#sql-split {
+#sql-split,
+#sqlf-split {
   flex: 1;
   grid-template-columns: 1fr 1fr;
   display: grid;
@@ -3859,7 +3933,7 @@ kbd {
   margin-bottom: var(--sp-2);
 }
 .edx-cat {
-  font-size: 0.68rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -3890,7 +3964,7 @@ kbd {
 .edx-matched-label {
   display: block;
   font-family: var(--font-sans, inherit);
-  font-size: 0.66rem;
+  font-size: var(--fs-xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-muted);
@@ -4071,7 +4145,7 @@ kbd {
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  font-size: 0.66rem;
+  font-size: var(--fs-xs);
   margin-bottom: 3px;
 }
 
@@ -4080,7 +4154,7 @@ kbd {
   flex-shrink: 0;
   align-self: center;
   margin-left: var(--sp-2);
-  font-size: 0.68rem;
+  font-size: var(--fs-xs);
   font-weight: 600;
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
@@ -4139,7 +4213,7 @@ kbd {
   display: inline-block;
   margin-top: 2px;
   margin-right: 4px;
-  font-size: 0.65rem;
+  font-size: var(--fs-xs);
   font-weight: 600;
   color: var(--text-secondary);
   background: var(--bg-sunken);
@@ -4158,7 +4232,7 @@ kbd {
 .xls-type-badge {
   display: inline-block;
   margin-left: 4px;
-  font-size: 0.62rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
   text-transform: uppercase;
   color: var(--accent);
@@ -4506,7 +4580,7 @@ button.mx-stat:hover { border-color: var(--accent-muted); }
 .mx-table .sub { display: block; margin-top: 2px; font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted); overflow-wrap: anywhere; }
 .mx-method {
   display: inline-block; min-width: 3.6em; padding: 0 4px; text-align: center;
-  border-radius: var(--r-sm); font-family: var(--font-mono); font-size: 0.66rem; font-weight: 700;
+  border-radius: var(--r-sm); font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 700;
   background: var(--bg-hover); color: var(--text-secondary);
 }
 .mx-method.m-get { background: var(--success-subtle); color: var(--success); }

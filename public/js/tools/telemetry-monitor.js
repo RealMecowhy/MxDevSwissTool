@@ -84,4 +84,14 @@ export function init() {
   }
   // 8.7: restore configured alert thresholds (defaults if never customized)
   mod_alerts.tmLoadThresholds();
+  // A successful Connect in the shared Live DB bar loads the stats straight away
+  // when the Local Agent is connected; the bar only tests the connection.
+  // Registered once — init() runs on every visit.
+  if (!tmDbListening && window.mtDb) {
+    tmDbListening = true;
+    window.mtDb.onChange(status => {
+      if (status === 'connected' && state.tmAgentStatus === 'connected') window.tmRefreshPostgres();
+    });
+  }
 }
+let tmDbListening = false;

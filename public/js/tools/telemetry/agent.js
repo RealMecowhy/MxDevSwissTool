@@ -20,9 +20,27 @@ export function tmConnectAgent() {
       if (!res.ok) throw new Error(`Agent returned status ${res.status}`);
       return res.json();
     })
-    .then(data => {
+    .then(async data => {
       state.tmAgentStatus = 'connected';
       state.tmLastLogTimestamp = Date.now() - 1000; // start capturing logs from now
+
+      // The path field used to be read and then ignored. Now it is what the
+      // Bridge tails; left empty, the Bridge says plainly that nothing is tailed.
+      let logFile = data.logFile;
+      let logNote = '';
+      if (logPath) {
+        const resp = await fetch(`${agentUrl}/logs/watch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: logPath })
+        });
+        const watched = await resp.json().catch(() => ({}));
+        if (resp.ok && watched.success) logFile = watched.logFile;
+        else logNote = `<br/><span style="color:var(--danger)">Could not tail that file: ${escHtml(watched.message || 'HTTP ' + resp.status)}</span>`;
+      } else if (!logFile || logFile === 'Not found') {
+        logFile = 'none';
+        logNote = '<br/><span style="color:var(--text-muted)">No log file is being tailed &mdash; enter the path of a Mendix log file above (an on-premises runtime log, or a log copied from a server). A local run in Studio Pro writes its log to the Console, not to a file.</span>';
+      }
 
       // UI Updates
       document.getElementById('tm-agent-status-dot').style.background = 'var(--success)';
@@ -31,7 +49,7 @@ export function tmConnectAgent() {
       statusText.style.color = 'var(--success)';
 
       document.getElementById('tm-agent-info-text').innerHTML = `
-        Log File: <code style="color:var(--accent);background:rgba(0,0,0,0.2);padding:2px 4px;border-radius:3px">${escHtml(data.logFile)}</code>
+        Log File: <code style="color:var(--accent);background:rgba(0,0,0,0.2);padding:2px 4px;border-radius:3px">${escHtml(logFile)}</code>${logNote}
         ${data.otel ? `| OTLP Collector: <code style="color:var(--info);background:rgba(0,0,0,0.2);padding:2px 4px;border-radius:3px">:${data.otel.port}</code> (Traces/Logs: <strong style="color:var(--success)">${data.otel.tracesReceived}/${data.otel.logsReceived}</strong>)` : ''}
       `;
 
@@ -56,7 +74,7 @@ export function tmConnectAgent() {
       statusText.textContent = 'Connection Failed';
       statusText.style.color = 'var(--danger)';
       
-      document.getElementById('tm-agent-info-text').innerHTML = `Could not reach Agent at <strong>${escHtml(agentUrl)}</strong>. <br/><span style="color:var(--danger)">Error: ${escHtml(err.message)}</span><br/>Ensure you ran <code>node server/mendix-observability-bridge.js</code> in your Mendix project directory.`;
+      document.getElementById('tm-agent-info-text').innerHTML = `Could not reach Agent at <strong>${escHtml(agentUrl)}</strong>. <br/><span style="color:var(--danger)">Error: ${escHtml(err.message)}</span><br/>${escHtml(window.mtBridgeOfflineHint())}`;
       
       btn.classList.remove('btn-success');
       btn.classList.add('btn-primary');
@@ -230,13 +248,9 @@ export function tmFetchAgentOtel(agentUrl) {
 }
 
 export function tmFetchAgentPostgres(agentUrl, isAutoPoll = false) {
-  const dbConfig = {
-    host: document.getElementById('tm-pg-host').value.trim(),
-    port: parseInt(document.getElementById('tm-pg-port').value.trim()),
-    database: document.getElementById('tm-pg-dbname').value.trim(),
-    user: document.getElementById('tm-pg-user').value.trim(),
-    password: document.getElementById('tm-pg-pass').value
-  };
+  // The shared Live DB connection (components/db-connection.js), not fields of
+  // this tool's own: one set of credentials for every tool (review UX-09).
+  const dbConfig = window.mtDb.getConfig();
 
   const statusIndicator = document.getElementById('tm-pg-status-indicator');
   const connBtn = document.getElementById('tm-pg-btn-connect');
@@ -251,6 +265,14 @@ export function tmFetchAgentPostgres(agentUrl, isAutoPoll = false) {
     }
   }
 
+  // A background poll that failed stops polling: it would retry a dead database
+  // every 8 s (and, now that a failure is a 502, log each attempt in the console).
+  // A successful Refresh stats starts it again.
+  const pausedNote = ' &mdash; automatic refresh paused; press <em>Refresh stats</em> to retry.';
+  const pauseAutoPoll = () => {
+    if (isAutoPoll && state.tmAgentTimerPg) { clearInterval(state.tmAgentTimerPg); state.tmAgentTimerPg = null; }
+  };
+
   fetch(`${agentUrl}/postgres`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -261,13 +283,14 @@ export function tmFetchAgentPostgres(agentUrl, isAutoPoll = false) {
       if (!isAutoPoll) {
         if (connBtn) {
           connBtn.disabled = false;
-          connBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M12 2v10M18.36 6.64a9 9 0 1 1-12.73 0"/></svg> Connect &amp; Refresh';
+          connBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M12 2v10M18.36 6.64a9 9 0 1 1-12.73 0"/></svg> Refresh stats';
         }
       }
       if (data.error) {
+         pauseAutoPoll();
          const sessionsTbody = document.getElementById('tm-pg-sessions-tbody');
          if (sessionsTbody) {
-           sessionsTbody.innerHTML = `<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--danger)">Database Connection Error: ${data.message}</td></tr>`;
+           sessionsTbody.innerHTML = `<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--danger)">Database Connection Error: ${escHtml(data.message)}${isAutoPoll ? pausedNote : ''}</td></tr>`;
          }
          if (statusIndicator) {
            statusIndicator.innerHTML = '<span style="color:var(--danger);font-weight:600">● Connection Error</span>';
@@ -283,13 +306,17 @@ export function tmFetchAgentPostgres(agentUrl, isAutoPoll = false) {
       tmRenderPostgresStats(data);
       if (!isAutoPoll) {
         tmTogglePgConfigCard(true); // auto-collapse on manual success
+        if (!state.tmAgentTimerPg && state.tmAgentStatus === 'connected') {
+          state.tmAgentTimerPg = setInterval(() => tmFetchAgentPostgres(agentUrl, true), 8000);
+        }
       }
     })
     .catch(err => {
+      pauseAutoPoll();
       if (!isAutoPoll) {
         if (connBtn) {
           connBtn.disabled = false;
-          connBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M12 2v10M18.36 6.64a9 9 0 1 1-12.73 0"/></svg> Connect &amp; Refresh';
+          connBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M12 2v10M18.36 6.64a9 9 0 1 1-12.73 0"/></svg> Refresh stats';
         }
       }
       if (statusIndicator) {
@@ -297,7 +324,7 @@ export function tmFetchAgentPostgres(agentUrl, isAutoPoll = false) {
       }
       const sessionsTbody = document.getElementById('tm-pg-sessions-tbody');
       if (sessionsTbody) {
-        sessionsTbody.innerHTML = `<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--danger)">Connection Error: ${err.message || err}</td></tr>`;
+        sessionsTbody.innerHTML = `<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--danger)">Connection Error: ${escHtml(err.message || String(err))}${isAutoPoll ? pausedNote : ''}</td></tr>`;
       }
       if (!isAutoPoll) {
         tmTogglePgConfigCard(false); // auto-expand on manual error
@@ -430,10 +457,10 @@ export function tmRenderPostgresStats(data) {
 
   // 1.5 Update Global Stats
   const globalStats = data.global_stats || {};
-  document.getElementById('tm-pg-global-alloc').textContent = (globalStats.buffers_alloc || 0).toLocaleString();
-  document.getElementById('tm-pg-global-clean').textContent = (globalStats.buffers_clean || 0).toLocaleString();
-  document.getElementById('tm-pg-global-maxclean').textContent = (globalStats.maxwritten_clean || 0).toLocaleString();
-  document.getElementById('tm-pg-global-backend').textContent = (globalStats.buffers_backend || 0).toLocaleString();
+  document.getElementById('tm-pg-global-alloc').textContent = window.mtFmtInt(globalStats.buffers_alloc || 0);
+  document.getElementById('tm-pg-global-clean').textContent = window.mtFmtInt(globalStats.buffers_clean || 0);
+  document.getElementById('tm-pg-global-maxclean').textContent = window.mtFmtInt(globalStats.maxwritten_clean || 0);
+  document.getElementById('tm-pg-global-backend').textContent = window.mtFmtInt(globalStats.buffers_backend || 0);
 
   // 2. Active Sessions Table
   const sessionsTbody = document.getElementById('tm-pg-sessions-tbody');

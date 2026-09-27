@@ -829,7 +829,7 @@ function mftRenderExecList(list) {
   if (capped) {
     const note = document.createElement('div');
     note.style.cssText = 'padding:var(--sp-3); text-align:center; color:var(--text-muted); font-size:0.78rem;';
-    note.textContent = 'Showing first ' + MFT_RENDER_CAP.toLocaleString() + ' of ' + list.length.toLocaleString() + ' executions — narrow down with the filters above.';
+    note.textContent = 'Showing first ' + window.mtFmtInt(MFT_RENDER_CAP) + ' of ' + window.mtFmtInt(list.length) + ' executions — narrow down with the filters above.';
     container.appendChild(note);
   }
 }
@@ -906,7 +906,7 @@ function mftRenderBackgroundList(view, events) {
 
   if (events.length === 0) {
     const why = view.runs === 0
-      ? 'No background work in this log — all ' + view.requestRuns.toLocaleString() + ' execution(s) ran on request correlation IDs. Scheduled events and queue workers use a UUID correlation ID; none appear here.'
+      ? 'No background work in this log — all ' + window.mtFmtInt(view.requestRuns) + ' execution(s) ran on request correlation IDs. Scheduled events and queue workers use a UUID correlation ID; none appear here.'
       : 'No background events match the criteria.';
     container.innerHTML = '<div style="padding:var(--sp-5); text-align:center; color:var(--text-muted); font-size:0.85rem;">' + why + '</div>' +
       (view.errors.length ? mftRenderBackgroundErrors(view.errors) : '');
@@ -915,10 +915,10 @@ function mftRenderBackgroundList(view, events) {
 
   // Summary strip — only the facts that exist in this log
   const bits = [
-    '<strong>' + view.runs.toLocaleString() + '</strong> background run' + (view.runs === 1 ? '' : 's'),
+    '<strong>' + window.mtFmtInt(view.runs) + '</strong> background run' + (view.runs === 1 ? '' : 's'),
     '<strong>' + view.events.length + '</strong> event' + (view.events.length === 1 ? '' : 's')
   ];
-  if (view.requestRuns) bits.push(view.requestRuns.toLocaleString() + ' request-driven (not shown)');
+  if (view.requestRuns) bits.push(window.mtFmtInt(view.requestRuns) + ' request-driven (not shown)');
   if (view.overlapCount) bits.push('<strong style="color:var(--warning)">' + view.overlapCount + '</strong> overlapping');
   if (view.unfinished) bits.push('<strong style="color:var(--danger)">' + view.unfinished + '</strong> unfinished');
   const summary = document.createElement('div');

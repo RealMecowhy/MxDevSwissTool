@@ -107,7 +107,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.65.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.68.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -181,6 +181,10 @@
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></span>
       <span class="nav-label">JSON Formatter</span>
     </button>
+    <button type="button" class="nav-item" data-tool="api-economics" onclick="navigate('api-economics',this)">
+      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></span>
+      <span class="nav-label">API Economics</span>
+    </button>
     <button type="button" class="nav-item" data-tool="xml-formatter" onclick="navigate('xml-formatter',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#icon-doc-edit"></use></svg></span>
       <span class="nav-label">XML Formatter</span>
@@ -241,12 +245,6 @@
       <span class="nav-label">Developer Studio</span>
     </button>
 
-    <div class="nav-section-label">Analytics &amp; Estimation</div>
-    <button type="button" class="nav-item" data-tool="api-economics" onclick="navigate('api-economics',this)">
-      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></span>
-      <span class="nav-label">API Economics</span>
-    </button>
-
     <div class="nav-section-label">Security &amp; Tokens</div>
     <button type="button" class="nav-item" data-tool="jwt-decoder" onclick="navigate('jwt-decoder',this)">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#icon-shield"></use></svg></span>
@@ -292,8 +290,8 @@
   <div id="topbar">
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
-      <div id="topbar-titlebar"><div id="topbar-title">Home</div></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.65.0</div>
+      <div id="topbar-titlebar"><h1 id="topbar-title">Home</h1></div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.68.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -301,9 +299,12 @@
       <span>Search</span>
       <kbd style="font-size:0.7rem;padding:1px 5px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg-elevated);color:var(--text-muted)">Ctrl+K</kbd>
     </button>
-    <div id="global-bridge-status" title="Mendix Observability Bridge" style="display:flex;align-items:center;gap:8px;margin-right:16px;font-size:0.75rem;color:var(--text-muted);font-family:var(--font-mono);background:var(--bg-elevated);padding:4px 10px;border-radius:12px;border:1px solid var(--border);cursor:default;">
-      <div id="global-bridge-dot" style="width:8px;height:8px;border-radius:50%;background:var(--danger);box-shadow:0 0 5px var(--danger);"></div>
+    <div class="bridge-wrap">
+    <button type="button" id="global-bridge-status" aria-expanded="false" aria-controls="bridge-popover" title="Mendix Observability Bridge — click for details" onclick="window.mtToggleBridgePopover()">
+      <span id="global-bridge-dot" style="display:inline-block;flex-shrink:0;width:8px;height:8px;border-radius:50%;background:var(--danger);box-shadow:0 0 5px var(--danger);"></span>
       <span id="global-bridge-text" aria-live="polite">Bridge Offline</span>
+    </button>
+    <div id="bridge-popover" class="bridge-popover" role="region" aria-label="Bridge status" style="display:none"></div>
     </div>
     <button class="topbar-btn" id="topbar-help-btn" onclick="showActiveToolHelp()" style="display:none">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
@@ -389,9 +390,9 @@
         </div>
         <div class="log-toolbar-row2">
           <span style="font-size:.75rem;color:var(--text-muted)">Time:</span>
-          <input class="input input-mono" id="log-time-from" placeholder="09:00:00" oninput="logApplyFilters()" style="width:90px">
+          <input class="input input-mono" id="log-time-from" type="time" step="1" aria-label="From time" oninput="logApplyFilters()" style="width:120px">
           <span style="color:var(--text-muted)">&#8594;</span>
-          <input class="input input-mono" id="log-time-to" placeholder="10:00:00" oninput="logApplyFilters()" style="width:90px">
+          <input class="input input-mono" id="log-time-to" type="time" step="1" aria-label="To time" oninput="logApplyFilters()" style="width:120px">
           <input class="input" id="log-node-filter" placeholder="Node filter (e.g. Core, MyModule)" oninput="logApplyFilters()" style="width:200px">
           <select class="select" id="log-date-filter" onchange="logApplyFilters()" style="width:140px"><option value="">All dates</option></select>
           <button id="log-clear-filters-btn" class="btn btn-ghost btn-sm" style="display:none;margin-left:auto" onclick="logResetStreamFilters()" title="Reset search, levels, time range, node, date and the signature filter">Clear all filters</button>
@@ -549,7 +550,7 @@
                 <button type="button" class="tab" data-view="stmt" style="padding:2px 10px; font-size:0.75rem;" onclick="window.lqeSetView('stmt', this)" title="One row per distinct statement — total time, average and execution count, so a cheap query run thousands of times stops hiding behind a single slow one">By statement</button>
               </div>
               <input class="input input-sm" id="lqe-search" placeholder="Search queries..." oninput="window.lqeFilter()" style="flex:1; min-width:120px;">
-              <select class="select select-sm" id="lqe-type-filter" onchange="window.lqeFilter()" style="width:140px;">
+              <select class="select select-sm" id="lqe-type-filter" aria-label="Query type" onchange="window.lqeFilter()" style="width:140px;">
                 <option value="ALL">All Types</option>
                 <option value="SELECT">SELECT</option>
                 <option value="UPDATE">UPDATE</option>
@@ -697,7 +698,7 @@
                 <button type="button" class="tab" data-view="endpoint" style="padding:2px 10px; font-size:0.75rem;" onclick="window.wsreSetView('endpoint', this)" title="One row per endpoint — calls, total and average duration, errors. An integration incident is &quot;endpoint X fires 300× per page open&quot;, not &quot;call #4172 took 900 ms&quot;.">By endpoint</button>
               </div>
               <input class="input input-sm" id="wsre-search" placeholder="Search URL, service, microflow..." oninput="window.wsreFilter()" style="flex:1; min-width:120px;">
-              <select class="select select-sm" id="wsre-type-filter" onchange="window.wsreFilter()" style="width:150px;">
+              <select class="select select-sm" id="wsre-type-filter" aria-label="Call type" onchange="window.wsreFilter()" style="width:150px;">
                 <option value="ALL">All calls</option>
                 <option value="OUT">Outgoing (consume)</option>
                 <option value="IN">Incoming (publish)</option>
@@ -857,11 +858,12 @@
           <div>
             <label class="form-label">Time window (UTC) &mdash; leave blank for all loaded data</label>
             <div style="display:flex; gap:var(--sp-2); align-items:center; flex-wrap:wrap;">
-              <input id="ir-from" class="input" placeholder="YYYY-MM-DD HH:MM:SS" style="flex:1; min-width:180px;" onchange="window.irUpdateCounts()">
+              <input id="ir-from" class="input" placeholder="YYYY-MM-DD HH:MM:SS" aria-label="Window start (UTC)" aria-describedby="ir-window-hint" style="flex:1; min-width:180px;" oninput="window.irCheckWindow(true)" onchange="window.irCheckWindow(); window.irUpdateCounts()">
               <span style="color:var(--text-muted)">&rarr;</span>
-              <input id="ir-to" class="input" placeholder="YYYY-MM-DD HH:MM:SS" style="flex:1; min-width:180px;" onchange="window.irUpdateCounts()">
+              <input id="ir-to" class="input" placeholder="YYYY-MM-DD HH:MM:SS" aria-label="Window end (UTC)" aria-describedby="ir-window-hint" style="flex:1; min-width:180px;" oninput="window.irCheckWindow(true)" onchange="window.irCheckWindow(); window.irUpdateCounts()">
               <button class="btn btn-ghost btn-sm" onclick="window.irResetWindow()" title="Clear the window and re-read the full span of loaded data">Clear</button>
             </div>
+            <div id="ir-window-hint" class="field-hint-error" role="alert" style="display:none"></div>
             <div style="font-size:0.72rem; color:var(--text-muted); margin-top:4px;">Pre-filled from the span of loaded data. Narrow it to focus the report on the incident.</div>
           </div>
 
@@ -1108,7 +1110,7 @@
         <div class="json-pane">
           <div class="json-pane-header"><h4>Input</h4><button class="btn btn-ghost btn-sm" onclick="jsonFormat()">Format <kbd>Ctrl+Enter</kbd></button><button class="btn btn-ghost btn-sm" onclick="jsonMinify()">Minify</button><button class="btn btn-ghost btn-sm" onclick="document.getElementById('json-input').value='';jsonFormat()">Clear</button></div>
           <div class="json-pane-body" style="position:relative;" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="handleTextFileDrop(event, 'json-input', 'jsonFormat')">
-            <textarea class="json-input-area" id="json-input" placeholder=" " oninput="jsonFormat()"></textarea>
+            <textarea class="json-input-area" id="json-input" aria-label="JSON input" placeholder=" " oninput="jsonFormat()"></textarea>
             <div class="empty-state-overlay">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><use href="#icon-doc-edit"></use></svg>
               <p>Paste JSON or Drop a file here</p>
@@ -1142,7 +1144,7 @@
         <div class="json-pane">
           <div class="json-pane-header"><h4>Input XML</h4><button class="btn btn-ghost btn-sm" onclick="xmlFormat()">Format <kbd>Ctrl+Enter</kbd></button><button class="btn btn-ghost btn-sm" onclick="xmlMinify()">Minify</button><button class="btn btn-ghost btn-sm" onclick="document.getElementById('xml-input').value='';xmlFormat()">Clear</button></div>
           <div class="json-pane-body" style="position:relative;" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="handleTextFileDrop(event, 'xml-input', 'xmlFormat')">
-            <textarea class="json-input-area" id="xml-input" placeholder=" " oninput="xmlFormat()"></textarea>
+            <textarea class="json-input-area" id="xml-input" aria-label="XML input" placeholder=" " oninput="xmlFormat()"></textarea>
             <div class="empty-state-overlay">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><use href="#icon-doc-edit"></use></svg>
               <p>Paste XML or Drop a file here</p>
@@ -1542,7 +1544,7 @@
             </div>
           </div>
           <div class="form-row" style="align-items:center;gap:var(--sp-2)">
-            <select class="select select-sm" id="regex-preset" style="flex:1" onchange="if(this.value) regexApplyPreset(this.value); this.selectedIndex=0;">
+            <select class="select select-sm" id="regex-preset" aria-label="Insert a Mendix/NL preset" style="flex:1" onchange="if(this.value) regexApplyPreset(this.value); this.selectedIndex=0;">
               <option value="">Mendix/NL preset…</option>
               <option value="email">Email (practical)</option>
               <option value="nl-phone">Dutch phone</option>
@@ -1555,7 +1557,7 @@
             <span class="regex-delimiter">/</span>
             <input class="regex-input" id="regex-input" placeholder="your pattern here" oninput="regexTestMendixMode()">
             <span class="regex-delimiter">/</span>
-            <input class="regex-flags-input" id="regex-flags" value="gm" oninput="regexTestMendixMode()" maxlength="6">
+            <input class="regex-flags-input" id="regex-flags" aria-label="Regex flags" value="gm" oninput="regexTestMendixMode()" maxlength="6">
           </div>
           <div class="form-group" style="flex:1;display:flex;flex-direction:column">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--sp-2)">
@@ -1680,9 +1682,9 @@
     <div class="tool-panel" id="panel-sql-formatter">
       <div class="tool-actions">
           <div class="btn-group">
-            <button class="btn btn-secondary btn-sm active" onclick="uiSetView('sql-split', 'split', this)">Split</button>
-            <button class="btn btn-secondary btn-sm" onclick="uiSetView('sql-split', 'raw', this)">Raw</button>
-            <button class="btn btn-secondary btn-sm" onclick="uiSetView('sql-split', 'result', this)">Result</button>
+            <button class="btn btn-secondary btn-sm active" onclick="uiSetView('sqlf-split', 'split', this)">Split</button>
+            <button class="btn btn-secondary btn-sm" onclick="uiSetView('sqlf-split', 'raw', this)">Raw</button>
+            <button class="btn btn-secondary btn-sm" onclick="uiSetView('sqlf-split', 'result', this)">Result</button>
           </div>
           <label style="display:flex;align-items:center;gap:6px;font-size:0.76rem;color:var(--text-secondary);margin-left:var(--sp-3)">Indent
             <select class="select select-sm" style="width:64px" onchange="sqlSetIndentSize(this.value)">
@@ -1699,7 +1701,7 @@
           </label>
           <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="sqlAnalyzeInQI()" title="Copy an EXPLAIN ANALYZE for this query and jump to Query Intelligence &rarr; Explain">Analyze in Query Intelligence</button>
         </div>
-      <div id="sql-split" style="display:grid;grid-template-columns:1fr 1fr;flex:1;overflow:hidden">
+      <div id="sqlf-split" style="display:grid;grid-template-columns:1fr 1fr;flex:1;overflow:hidden">
         <div class="json-pane">
           <div class="json-pane-header"><h4>Input SQL</h4><button class="btn btn-ghost btn-sm" onclick="sqlFormat()">Format <kbd>Ctrl+Enter</kbd></button><button class="btn btn-ghost btn-sm" onclick="sqlMinify()">Minify</button><button class="btn btn-ghost btn-sm" onclick="document.getElementById('sql-input').value='';sqlFormat()">Clear</button></div>
           <div class="json-pane-body"><textarea class="json-input-area" id="sql-input" placeholder="Paste SQL here..." oninput="sqlFormat()"></textarea></div>
@@ -1737,7 +1739,6 @@
     <div class="tool-panel" id="panel-odata-builder">
       <div class="tool-actions">
         <select class="select select-sm" id="odata-history" style="display:none;max-width:280px" onchange="if(this.value)window.odataLoadFromHistory(this.value);this.value=''"></select>
-        <button class="btn btn-secondary btn-sm" onclick="window.odataTest(this)" title="Send one GET request via the Observability Bridge (localhost/private targets by default — see notice on refusal)">Test</button>
         <button class="btn btn-secondary btn-sm" onclick="odataCopyUrl()">Copy URL</button>
       </div>
       <div class="tool-body tool-body-narrow">
@@ -1771,7 +1772,6 @@
         </div>
         <div class="form-label" style="margin-bottom:var(--sp-2)">Generated URL</div>
         <div class="odata-url-display" id="odata-url-display"><span style="color:var(--text-muted)">Fill in the fields above...</span></div>
-        <div id="odata-test-result" style="display:none;margin-top:var(--sp-3)"></div>
       </div>
     </div>
 
@@ -1791,7 +1791,7 @@
           #dfw-root .dfw-stp-num { width:26px; height:26px; border-radius:50%; flex-shrink:0; display:grid; place-items:center; font-size:0.78rem; font-weight:600; background:var(--bg-base); border:1.5px solid var(--border); color:var(--text-muted); transition:all .2s; }
           #dfw-root .dfw-stp.done .dfw-stp-num { background:var(--accent-subtle); border-color:var(--accent); color:var(--accent); }
           #dfw-root .dfw-stp.active .dfw-stp-num { background:var(--accent); border-color:var(--accent); color:#fff; box-shadow:0 0 0 4px var(--accent-subtle); }
-          #dfw-root .dfw-stp-eyebrow { font-size:0.58rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); font-weight:700; display:block; }
+          #dfw-root .dfw-stp-eyebrow { font-size:var(--fs-xs); text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); font-weight:700; display:block; }
           #dfw-root .dfw-stp-label { font-size:0.8rem; color:var(--text-muted); font-weight:500; white-space:nowrap; }
           #dfw-root .dfw-stp.active .dfw-stp-label { color:var(--text); font-weight:600; }
           #dfw-root .dfw-stp-line { flex:1; height:1.5px; background:var(--border); margin:0 var(--sp-3); min-width:12px; }
@@ -1809,9 +1809,9 @@
           #dfw-root .dfw-sc-icon svg { width:20px; height:20px; }
           #dfw-root .dfw-sc-title { font-weight:620; font-size:0.9rem; }
           #dfw-root .dfw-sc-desc { font-size:0.78rem; color:var(--text-secondary); line-height:1.45; }
-          #dfw-root .dfw-sc-tag { font-size:0.6rem; text-transform:uppercase; letter-spacing:0.06em; font-weight:700; color:var(--accent); background:var(--accent-subtle); padding:2px 7px; border-radius:999px; align-self:flex-start; }
+          #dfw-root .dfw-sc-tag { font-size:var(--fs-xs); text-transform:uppercase; letter-spacing:0.06em; font-weight:700; color:var(--accent); background:var(--accent-subtle); padding:2px 7px; border-radius:999px; align-self:flex-start; }
           #dfw-root .dfw-usecases { margin-top:var(--sp-4); border:1px solid var(--border); border-radius:var(--r-md); padding:var(--sp-3) var(--sp-4); background:var(--bg-base); }
-          #dfw-root .dfw-uc-label { font-size:0.6rem; text-transform:uppercase; letter-spacing:0.08em; font-weight:700; color:var(--accent); }
+          #dfw-root .dfw-uc-label { font-size:var(--fs-xs); text-transform:uppercase; letter-spacing:0.08em; font-weight:700; color:var(--accent); }
           #dfw-root .dfw-uc-items { display:grid; grid-template-columns:1fr 1fr; gap:8px 18px; margin-top:10px; }
           @media (max-width:640px){ #dfw-root .dfw-uc-items{ grid-template-columns:1fr; } }
           #dfw-root .dfw-uc-items span { font-size:0.8rem; color:var(--text); }
@@ -1822,8 +1822,8 @@
           #dfw-root .dfw-notice.dfw-info { border-left-color:var(--accent); }
           #dfw-root .dfw-notice.dfw-warn { border-left-color:var(--warning,#e0a800); }
           #dfw-root .dfw-notice code { font-family:var(--font-mono); font-size:0.72rem; }
-          #dfw-root .dfw-subhead { font-size:0.66rem; text-transform:uppercase; letter-spacing:0.07em; color:var(--text-muted); font-weight:700; margin:0 0 var(--sp-2); }
-          #dfw-root .dfw-minilabel { display:flex; flex-direction:column; gap:2px; font-size:0.64rem; color:var(--text-secondary); }
+          #dfw-root .dfw-subhead { font-size:var(--fs-xs); text-transform:uppercase; letter-spacing:0.07em; color:var(--text-muted); font-weight:700; margin:0 0 var(--sp-2); }
+          #dfw-root .dfw-minilabel { display:flex; flex-direction:column; gap:2px; font-size:var(--fs-xs); color:var(--text-secondary); }
           #dfw-root .dfw-mini2 { display:inline-flex; align-items:center; gap:6px; font-size:0.76rem; color:var(--text-muted); }
           #dfw-root .dfw-two-col { display:grid; grid-template-columns:1fr 1fr; gap:var(--sp-4); align-items:start; }
           @media (max-width:820px){ #dfw-root .dfw-two-col{ grid-template-columns:1fr; } }
@@ -1834,13 +1834,13 @@
           #dfw-root .dfw-ent-name { font-weight:550; }
           #dfw-root .dfw-ent-attr { color:var(--text-muted); font-size:0.7rem; margin-left:auto; }
           #dfw-root .dfw-tray-head { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-2); margin-bottom:var(--sp-2); flex-wrap:wrap; }
-          #dfw-root .dfw-badge-num { display:inline-grid; place-items:center; min-width:20px; height:18px; padding:0 6px; border-radius:999px; background:var(--accent-subtle); color:var(--accent); font-size:0.68rem; font-weight:700; }
+          #dfw-root .dfw-badge-num { display:inline-grid; place-items:center; min-width:20px; height:18px; padding:0 6px; border-radius:999px; background:var(--accent-subtle); color:var(--accent); font-size:var(--fs-xs); font-weight:700; }
           #dfw-root .dfw-tray { border:1px solid var(--border); border-radius:var(--r-md); background:var(--bg-base); }
           #dfw-root .dfw-tray-empty { padding:16px; color:var(--text-muted); font-size:0.76rem; text-align:center; }
           #dfw-root .dfw-tray-row { display:flex; align-items:center; gap:8px; padding:6px 11px; border-bottom:1px solid var(--border); font-size:0.8rem; }
           #dfw-root .dfw-tray-row:last-child { border-bottom:none; }
           #dfw-root .dfw-tr-name { font-weight:550; }
-          #dfw-root .dfw-tr-mod { color:var(--text-muted); font-size:0.68rem; }
+          #dfw-root .dfw-tr-mod { color:var(--text-muted); font-size:var(--fs-xs); }
           #dfw-root .dfw-tr-x { color:var(--text-muted); cursor:pointer; font-size:1rem; padding:0 2px; }
           #dfw-root .dfw-tr-x:hover { color:var(--danger); }
           #dfw-root .dfw-assoc { border:1px solid var(--border); border-radius:var(--r-md); padding:var(--sp-3); margin-bottom:var(--sp-2); background:var(--bg-base); }
@@ -1850,20 +1850,20 @@
           #dfw-root .dfw-check-inline { display:inline-flex; align-items:center; gap:6px; font-size:0.72rem; font-weight:600; color:var(--text-secondary); white-space:nowrap; }
           #dfw-root .dfw-table-scroll { overflow-x:auto; border:1px solid var(--border); border-radius:var(--r-md); }
           #dfw-root table.dfw-review { width:100%; border-collapse:collapse; font-size:0.8rem; min-width:640px; }
-          #dfw-root .dfw-review th { text-align:left; font-size:0.66rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-secondary); font-weight:700; padding:10px 14px; background:var(--bg-base); border-bottom:1px solid var(--border); }
+          #dfw-root .dfw-review th { text-align:left; font-size:var(--fs-xs); text-transform:uppercase; letter-spacing:0.06em; color:var(--text-secondary); font-weight:700; padding:10px 14px; background:var(--bg-base); border-bottom:1px solid var(--border); }
           #dfw-root .dfw-review td { padding:12px 14px; border-bottom:1px solid var(--border); vertical-align:middle; }
           #dfw-root .dfw-review tr:last-child td { border-bottom:none; }
           #dfw-root .dfw-review tbody tr:hover td { background:color-mix(in srgb, var(--accent-subtle) 35%, transparent); }
           #dfw-root .dfw-fld { font-weight:600; }
           #dfw-root .dfw-src { font-family:var(--font-mono); font-size:0.72rem; color:var(--text-secondary); }
           #dfw-root .dfw-gen { min-width:140px; }
-          #dfw-root .dfw-badge { font-size:0.58rem; text-transform:uppercase; letter-spacing:0.05em; font-weight:700; padding:1px 6px; border-radius:999px; margin-left:6px; white-space:nowrap; }
+          #dfw-root .dfw-badge { font-size:var(--fs-xs); text-transform:uppercase; letter-spacing:0.05em; font-weight:700; padding:1px 6px; border-radius:999px; margin-left:6px; white-space:nowrap; }
           #dfw-root .dfw-badge-enum { color:var(--accent); background:var(--accent-subtle); }
           #dfw-root .dfw-badge-fk { color:var(--accent); background:var(--accent-subtle); }
           /* One baseline row: inline labels (not stacked) keep every Options cell
              the same height so empty%/unique/Remove line up across rows. */
           #dfw-root .dfw-opts { display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; }
-          #dfw-root .dfw-opt { display:inline-flex; align-items:center; gap:6px; font-size:0.68rem; color:var(--text-secondary); font-weight:600; }
+          #dfw-root .dfw-opt { display:inline-flex; align-items:center; gap:6px; font-size:var(--fs-xs); color:var(--text-secondary); font-weight:600; }
           #dfw-root .dfw-opt > span { white-space:nowrap; }
           #dfw-root .dfw-opt-group { display:inline-flex; align-items:center; gap:14px; margin-left:auto; padding-left:14px; border-left:1px solid var(--border); }
           #dfw-root .dfw-rmcol { color:var(--danger); }
@@ -1881,7 +1881,7 @@
           #dfw-root .dfw-fmt:hover { border-color:var(--accent); }
           #dfw-root .dfw-fmt.sel { border-color:var(--accent); background:var(--accent-subtle); }
           #dfw-root .dfw-fmt-name { font-weight:620; font-size:0.86rem; }
-          #dfw-root .dfw-fmt-desc { font-size:0.66rem; color:var(--text-muted); margin-top:2px; }
+          #dfw-root .dfw-fmt-desc { font-size:var(--fs-xs); color:var(--text-muted); margin-top:2px; }
           #dfw-root .dfw-preview { background:var(--bg-base); border:1px solid var(--border); border-radius:var(--r-md); padding:var(--sp-3); font-family:var(--font-mono); font-size:0.72rem; line-height:1.55; white-space:pre; overflow:auto; max-height:260px; margin:0; color:var(--text-secondary); }
         </style>
         <div id="dfw-root"></div>
@@ -2097,7 +2097,7 @@
                    <option value="continuous">Continuous (until stopped)</option>
                  </select>
                </div>
-               <div class="form-group" id="pl-count-group"><div class="form-label">Total Reqs</div><input type="number" class="input" id="pl-count" value="50"></div>
+               <div class="form-group" id="pl-count-group"><div class="form-label">Total Reqs</div><input type="number" class="input" id="pl-count" value="50" aria-label="Total requests"></div>
                <div class="form-group">
                  <div class="form-label">Engine</div>
                  <select class="select" id="pl-engine">
@@ -2116,7 +2116,7 @@
              </div>
              <label id="pl-confirm-row" style="display:none;align-items:flex-start;gap:8px;font-size:0.82rem;color:var(--text-primary);cursor:pointer">
                <input type="checkbox" id="pl-confirm-external" style="margin-top:2px">
-               <span>I am authorized to load-test this target. It is not a local or private address, so threads stay capped at 25.</span>
+               <span id="pl-confirm-text">I am authorized to load-test this target. It is not a local or private address, so threads stay capped at 25.</span>
              </label>
            </div>
 
@@ -2244,25 +2244,6 @@
            <div class="form-label">Server Console</div>
            <div id="ms-output" style="flex:1;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-4);display:flex;flex-direction:column">
               <div style="color:var(--text-muted)">Responder inactive...</div>
-           </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- WASM PROFILER -->
-    <div class="tool-panel" id="panel-wasm-profiler">
-      <div class="tool-actions">
-          <button class="btn btn-primary btn-sm" onclick="wpAnalyze()">Analyze Trace</button>
-        </div>
-      <div class="tool-body" style="display:flex;gap:var(--sp-4)">
-        <div style="flex:1;display:flex;flex-direction:column">
-           <div class="form-label">Paste WASM Call Trace</div>
-           <textarea class="code-area" id="wp-input" style="flex:1" placeholder="WASM Instruction Trace..."></textarea>
-        </div>
-        <div style="flex:1;display:flex;flex-direction:column;overflow-y:auto">
-           <div class="form-label">Profiler Output</div>
-           <div id="wp-results" style="flex:1;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-4);display:flex;flex-direction:column">
-              <div class="empty-output">Analysis will appear here…</div>
            </div>
         </div>
       </div>
@@ -2929,7 +2910,7 @@ EntityName -> OtherEntity : Association"></textarea>
             </div>
 
             <label style="display:flex;align-items:center;gap:8px;margin-top:var(--sp-3);font-size:.85rem">Generate
-              <input type="number" id="pwd-count" value="1" min="1" max="50" class="input input-mono" style="width:60px" onchange="generatePassword()">
+              <input type="number" id="pwd-count" aria-label="Number of passwords" value="1" min="1" max="50" class="input input-mono" style="width:60px" onchange="generatePassword()">
               password(s)
             </label>
 
@@ -2942,7 +2923,7 @@ EntityName -> OtherEntity : Association"></textarea>
           <div style="flex:1;min-width:300px;display:flex;flex-direction:column;justify-content:center">
             <div class="form-label">Generated Password</div>
             <div style="display:flex;gap:var(--sp-2);align-items:flex-start">
-              <textarea class="input input-mono" id="pwd-result" rows="1" style="flex:1;font-size:1.1rem;padding:var(--sp-3);background:var(--bg-elevated);resize:vertical" readonly></textarea>
+              <textarea class="input input-mono" id="pwd-result" aria-label="Generated password" rows="1" style="flex:1;font-size:1.1rem;padding:var(--sp-3);background:var(--bg-elevated);resize:vertical" readonly></textarea>
               <button class="btn btn-secondary" onclick="copyToClipboard(document.getElementById('pwd-result').value)">Copy</button>
             </div>
             <div id="pwd-strength" style="margin-top:var(--sp-3)"></div>
@@ -3044,7 +3025,7 @@ EntityName -> OtherEntity : Association"></textarea>
           <div id="md-split" style="display:grid;grid-template-columns:1fr 1fr;flex:1;overflow:hidden">
             <div class="json-pane" id="md-editor-pane">
               <div class="json-pane-header"><h4>Markdown</h4>
-                <select class="select select-sm" style="width:auto" onchange="if(this.value){mdInsertSnippet(this.value);this.value='';}">
+                <select class="select select-sm" aria-label="Insert Mendix snippet" style="width:auto" onchange="if(this.value){mdInsertSnippet(this.value);this.value='';}">
                   <option value="">Insert Mendix snippet...</option>
                   <option value="entity">Entity description</option>
                   <option value="microflow">Microflow documentation</option>
@@ -3100,7 +3081,7 @@ EntityName -> OtherEntity : Association"></textarea>
         <div class="card" id="nginx-input-card" ondragover="event.preventDefault(); this.classList.add('drag-over');" ondragleave="this.classList.remove('drag-over');" ondrop="event.preventDefault(); this.classList.remove('drag-over'); if(typeof nginxHandleDrop === 'function') nginxHandleDrop(event)" style="transition:all 0.2s">
           <div class="card-body">
             <div style="position:relative; height:150px; margin-bottom:var(--sp-2);">
-              <textarea class="textarea" id="nginx-log-input" style="height:100%; width:100%; resize:none;" placeholder=" "></textarea>
+              <textarea class="textarea" id="nginx-log-input" aria-label="Nginx access log" style="height:100%; width:100%; resize:none;" placeholder=" "></textarea>
               <div class="empty-state-overlay">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><use href="#icon-doc-plain"></use></svg>
                 <p style="margin:0">Paste text or drag &amp; drop a log file here</p>
@@ -3420,7 +3401,7 @@ EntityName -> OtherEntity : Association"></textarea>
               </div>
               <div style="display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap">
                 <label style="font-size:0.75rem;color:var(--text-muted);display:flex;align-items:center;gap:4px">Match window:
-                  <input class="input input-mono" id="nx-corr-window-ms" type="number" min="100" step="100" value="3000" style="width:80px">ms
+                  <input class="input input-mono" id="nx-corr-window-ms" aria-label="Match window (ms)" type="number" min="100" step="100" value="3000" style="width:80px">ms
                 </label>
                 <button class="btn btn-primary btn-sm" onclick="if(window.nxCorrRun) window.nxCorrRun()">Correlate</button>
                 <button class="btn btn-secondary btn-sm" onclick="if(window.nxCorrClear) window.nxCorrClear()">Clear</button>
@@ -3526,8 +3507,8 @@ EntityName -> OtherEntity : Association"></textarea>
                   <input type="text" class="input" id="tm-agent-url" value="http://localhost:9999" placeholder="e.g. http://localhost:9999">
                 </div>
                 <div class="form-group" id="tm-agent-logpath-group" style="flex:2;min-width:250px">
-                  <span class="form-label">Mendix Log File Path (Auto-detected if left empty)</span>
-                  <input type="text" class="input" id="tm-agent-logpath" placeholder="e.g. C:/Mendix/MyApp/deployment/log/node1.log">
+                  <span class="form-label">Log file to tail live (optional &mdash; on-premises or a copied server log)</span>
+                  <input type="text" class="input" id="tm-agent-logpath" placeholder="e.g. D:/mendix/myapp/log/app.log">
                 </div>
                 <div class="form-group" id="tm-agent-prom-port-group" style="flex:1;min-width:140px">
                   <span class="form-label">Mendix Admin Port</span>
@@ -3818,33 +3799,14 @@ EntityName -> OtherEntity : Association"></textarea>
               </div>
             </div>
             <div class="card-body" id="tm-pg-config-card-body" style="display:flex;flex-direction:column;gap:var(--sp-3)">
-              <div style="display:flex;flex-wrap:wrap;gap:var(--sp-3);align-items:flex-end">
-                <div class="form-group" style="flex:1;min-width:140px">
-                  <span class="form-label">Host</span>
-                  <input type="text" class="input" id="tm-pg-host" value="localhost">
-                </div>
-                <div class="form-group" style="width:80px">
-                  <span class="form-label">Port</span>
-                  <input type="number" class="input" id="tm-pg-port" value="5432">
-                </div>
-                <div class="form-group" style="flex:1;min-width:140px">
-                  <span class="form-label">Database name</span>
-                  <input type="text" class="input" id="tm-pg-dbname" value="">
-                </div>
-                <div class="form-group" style="flex:1;min-width:140px">
-                  <span class="form-label">Username</span>
-                  <input type="text" class="input" id="tm-pg-user" value="postgres">
-                </div>
-                <div class="form-group" style="flex:1;min-width:140px">
-                  <span class="form-label">Password</span>
-                  <input type="password" class="input" id="tm-pg-pass" value="">
-                </div>
-                <div class="form-group" style="min-width:160px">
-                  <button class="btn btn-primary" id="tm-pg-btn-connect" onclick="tmRefreshPostgres()" style="width:100%;height:32px;justify-content:center">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M12 2v10M18.36 6.64a9 9 0 1 1-12.73 0"/></svg>
-                    Connect &amp; Refresh
-                  </button>
-                </div>
+              <!-- The shared Live DB connection (review UX-09): the same credentials the
+                   Query Extractor, Index Advisor, Architecture and Data Factory use. -->
+              <div id="tm-livedb-bar" data-mt-db-connection></div>
+              <div>
+                <button class="btn btn-secondary btn-sm" id="tm-pg-btn-connect" onclick="tmRefreshPostgres()">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M12 2v10M18.36 6.64a9 9 0 1 1-12.73 0"/></svg>
+                  Refresh stats
+                </button>
               </div>
             </div>
           </div>

@@ -40,7 +40,7 @@ function statusPill() {
 }
 
 function field(key, label, type, width) {
-  return `<label style="display:flex;flex-direction:column;gap:2px;font-size:0.68rem;color:var(--text-secondary)">${label}
+  return `<label style="display:flex;flex-direction:column;gap:2px;font-size:var(--fs-xs);color:var(--text-secondary)">${label}
     <input class="input input-sm" type="${type}" data-f="${key}" value="${esc(state.config[key])}"
       ${key === 'password' ? 'autocomplete="off"' : ''} style="width:${width}"></label>`;
 }
@@ -70,7 +70,19 @@ function renderBar(el) {
     </div>`;
 
   el.querySelectorAll('input[data-f]').forEach(input => {
-    input.addEventListener('input', () => { state.config[input.getAttribute('data-f')] = input.value; });
+    input.addEventListener('input', () => {
+      const key = input.getAttribute('data-f');
+      state.config[key] = input.value;
+      // The other bars are only re-rendered on a status change, so without this a
+      // host typed in one tool showed the old value in the next — the "type it
+      // twice" this shared state exists to prevent. The field being typed in is
+      // left alone so its caret does not jump.
+      mounts.forEach(other => {
+        if (other === el) return;
+        const twin = other.querySelector('input[data-f="' + key + '"]');
+        if (twin) twin.value = input.value;
+      });
+    });
   });
   const btn = el.querySelector('[data-connect]');
   if (btn) btn.addEventListener('click', () => mtDb.test());
@@ -121,7 +133,7 @@ const mtDb = {
       }
     } catch (e) {
       state.status = 'error';
-      state.message = 'Observability Bridge not reachable on ' + AGENT_URL + '. Start it (npm run bridge) — Live DB needs the Bridge to reach PostgreSQL.';
+      state.message = window.mtBridgeOfflineHint() + ' Live DB needs the Bridge to reach PostgreSQL.';
     }
     notify();
     return mtDb.isConnected();

@@ -415,11 +415,12 @@ window.archApplyModules = function () {
 // tab rather than render something merely large — worth a confirm before "All".
 const ARCH_LARGE_MODEL_ENTITIES = 150;
 
-window.archToggleModules = function (all) {
+window.archToggleModules = async function (all) {
   if (all && archLiveModel && archLiveModel.stats && archLiveModel.stats.entityCount > ARCH_LARGE_MODEL_ENTITIES) {
-    const proceed = confirm(
+    const proceed = await window.mtConfirm(
       `This draws all ${archLiveModel.stats.entityCount} entities on one diagram, which can be slow or unreadable ` +
-      'in the browser. Pick a smaller set of modules instead, or continue anyway?'
+      'in the browser. Pick a smaller set of modules instead, or continue anyway?',
+      { title: 'Draw the whole model?', confirmLabel: 'Draw all', cancelLabel: 'Pick modules' }
     );
     if (!proceed) return;
   }
@@ -450,9 +451,10 @@ window.archExploreFrom = async function (query, radius) {
 
   const neighborhood = archEntityNeighborhood(archLiveModel, start.name, hops);
   if (neighborhood.size > ARCH_LARGE_MODEL_ENTITIES) {
-    const proceed = confirm(
+    const proceed = await window.mtConfirm(
       `${start.shortName} has ${neighborhood.size} entities within ${hops} hop(s), which can be slow or unreadable ` +
-      'in the browser. Try 1 hop instead, or continue anyway?'
+      'in the browser. Try 1 hop instead, or continue anyway?',
+      { title: 'Draw a large neighbourhood?', confirmLabel: 'Draw anyway', cancelLabel: 'Cancel' }
     );
     if (!proceed) return;
   }
@@ -943,7 +945,7 @@ window.archLoadFromDb = async function (btn) {
     await window.archApplyModules();
     // Explore (the canvas) is the working view now — default to the biggest
     // hub so it opens with something meaningful rather than an empty prompt.
-    // archExploreFrom's own >150-entity confirm() guard still applies, same
+    // archExploreFrom's own >150-entity confirmation still applies, same
     // as a manual Explore — no separate, stricter cutoff here: on a real
     // 277-entity application the actual top hub had 60 direct neighbours,
     // comfortably under 150 but well past an over-cautious lower cap that
@@ -961,7 +963,7 @@ window.archLoadFromDb = async function (btn) {
     window.archSetPaneView('result', diagramBtn);
   } catch (e) {
     if (box) {
-      box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">Observability Bridge not reachable on http://localhost:9999. Start it with "npm run bridge" — Live DB needs the Bridge to reach PostgreSQL.</div>`;
+      box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">${window.mtBridgeOfflineHint()} Live DB needs the Bridge to reach PostgreSQL.</div>`;
     }
   } finally {
     if (btn && old !== null) { btn.disabled = false; btn.innerHTML = old; }

@@ -43,7 +43,7 @@ function pwdFormatDuration(seconds) {
       const v = seconds / secs;
       if (v > 1e6) return '> 1,000,000 ' + name + 's';
       const r = Math.round(v);
-      return '~' + r.toLocaleString() + ' ' + name + (r === 1 ? '' : 's');
+      return '~' + window.mtFmtInt(r) + ' ' + name + (r === 1 ? '' : 's');
     }
   }
   return '< 1 second';

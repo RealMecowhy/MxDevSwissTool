@@ -1,9 +1,10 @@
 // =========================================================================
 // MENDIX OBSERVABILITY BRIDGE (Zero-Dependency Local Agent)
 // =========================================================================
-// This script runs locally in your Mendix project root directory.
-// It watches the Mendix application log file and starts with zero npm
-// dependencies. The optional PostgreSQL metrics feature uses the 'pg'
+// This script runs locally, started by Start-MxDevSwissTool.bat from the tool
+// folder. It can tail a Mendix log file the user points it at (POST
+// /logs/watch) — a local run in Studio Pro logs to the console, not to a file —
+// and starts with zero npm dependencies. The optional PostgreSQL metrics feature uses the 'pg'
 // module, loaded on demand (enable it with: npm install pg).
 //
 // Run it with: node mendix-observability-bridge.js
@@ -95,17 +96,17 @@ function requireToken(req, res) {
   return true;
 }
 
-const MAX_BODY_BYTES = 5 * 1024 * 1024; // 5 MB
-
 function readBody(req, res, maxBytes, onComplete) {
   let size = 0;
   const chunks = [];
   req.on('data', chunk => {
+    if (size > maxBytes) return; // already answered 413
     size += chunk.length;
     if (size > maxBytes) {
-      req.destroy();
-      res.writeHead(413, { 'Content-Type': 'application/json', ...corsHeaders(req) });
-      res.end(JSON.stringify({ error: true, message: `Payload too large (max ${maxBytes} bytes)` }));
+      // Answer first, then drop the connection: destroying the request first
+      // tore down the socket the 413 was meant to travel on.
+      res.writeHead(413, { 'Content-Type': 'application/json', 'Connection': 'close', ...corsHeaders(req) });
+      res.end(JSON.stringify({ error: true, message: `Payload too large (max ${maxBytes} bytes)` }), () => req.destroy());
       return;
     }
     chunks.push(chunk);
@@ -716,21 +717,28 @@ function initializeLogWatcher() {
     const stats = fs.statSync(logFilePath);
     lastLogSize = stats.size;
     
-    // Read the last 50 lines to populate initial buffer
-    const stream = fs.createReadStream(logFilePath, {
+    // Read the last 50 lines to populate initial buffer. `end` is inclusive, so
+    // it stops at the last byte that existed at the stat above — one further and
+    // the first character of a line appended meanwhile came back as a fragment.
+    // Lines the watcher below pushes while this read is in flight are kept: the
+    // history used to REPLACE the buffer when it finished, silently dropping a
+    // line appended right after the watch started.
+    const bufferLenAtStart = logBuffer.length;
+    const stream = lastLogSize > 0 ? fs.createReadStream(logFilePath, {
       start: Math.max(0, lastLogSize - 15000), // grab roughly the last 15KB
-      end: lastLogSize
-    });
+      end: lastLogSize - 1
+    }) : null;
 
     let data = '';
-    stream.on('data', chunk => data += chunk);
-    stream.on('end', () => {
+    if (stream) stream.on('data', chunk => data += chunk);
+    if (stream) stream.on('end', () => {
       const lines = data.split(/\r?\n/).filter(Boolean);
+      const arrivedMeanwhile = logBuffer.slice(bufferLenAtStart);
       logBuffer = lines.slice(-200).map(line => ({
         timestamp: Date.now(),
         text: line
-      }));
-      console.log(`[Bridge] Initialized log buffer with ${logBuffer.length} historical lines.`);
+      })).concat(arrivedMeanwhile);
+      console.log(`[Bridge] Initialized log buffer with ${lines.slice(-200).length} historical lines.`);
     });
 
     // Set up file change listener
@@ -842,7 +850,7 @@ function readNewLogLines() {
 async function fetchPostgresMetrics(req, res, dbConfig) {
   const Client = loadPgClient();
   if (!Client) {
-    return sendError(req, res, "PostgreSQL metrics require the 'pg' module. Run 'npm install pg' in the tool directory and restart the Bridge (the rest of the tool works without it).");
+    return sendError(req, res, "PostgreSQL metrics require the 'pg' module. Run 'npm install pg' in the tool directory and restart the Bridge (the rest of the tool works without it).", 503);
   }
   const client = new Client({
     host: dbConfig.host || 'localhost',
@@ -1006,7 +1014,7 @@ async function fetchPostgresMetrics(req, res, dbConfig) {
       slow_queries_error
     });
   } catch (e) {
-    sendError(req, res, `Database Query Error: ${e.message}`);
+    sendError(req, res, `Database Query Error: ${e.message}`, 502);
   } finally {
     await client.end().catch(console.error);
   }
@@ -1025,7 +1033,11 @@ function sendJson(req, res, data) {
   res.end(JSON.stringify(data));
 }
 
-function sendError(req, res, message, code = 200) {
+// An error is an error status. The default used to be 200, so a failed query
+// looked like success to anything that checks res.ok; the few routes that must
+// stay 200 on failure (/update/check, /prometheus — background polls meant to
+// stay silent) pass it explicitly.
+function sendError(req, res, message, code = 500) {
   res.writeHead(code, {
     'Content-Type': 'application/json',
     ...corsHeaders(req)
@@ -1208,6 +1220,33 @@ function handleRequest(req, res) {
     });
   }
   
+  // Point the live tail at a log file. A local run in Studio Pro writes its log
+  // to the console, not to a file (measured: 0 of 13 local projects have one),
+  // so the tail is for a file the user names — an on-premises runtime log, a
+  // file log subscriber, a log copied from a server.
+  if (url.pathname === '/logs/watch') {
+    if (req.method !== 'POST') return sendError(req, res, 'Method Not Allowed', 405);
+    readBody(req, res, 64 * 1024, (rawBody) => {
+      let target;
+      try {
+        const body = JSON.parse(rawBody.toString('utf8'));
+        target = String(body.path || '').trim().replace(/^"(.*)"$/, '$1').trim();
+      } catch (e) {
+        return sendError(req, res, `Invalid JSON body: ${e.message}`, 400);
+      }
+      if (!target || !path.isAbsolute(target)) return sendError(req, res, 'The log file path must be absolute.', 400);
+      if (!/\.(log|txt)$/i.test(target)) return sendError(req, res, 'Only .log and .txt files can be tailed.', 400);
+      let st;
+      try { st = fs.statSync(target); } catch (e) { return sendError(req, res, `No such file: ${target}`, 400); }
+      if (!st.isFile()) return sendError(req, res, `Not a file: ${target}`, 400);
+      logFilePath = path.resolve(target);
+      logBuffer = [];
+      initializeLogWatcher();
+      sendJson(req, res, { success: true, logFile: logFilePath });
+    });
+    return;
+  }
+
   if (url.pathname === '/otel/traces') {
     const since = parseInt(url.searchParams.get('since') || '0');
     const filtered = otelTraceBuffer.filter(t => t.timestamp > since);
@@ -1655,10 +1694,10 @@ function handleRequest(req, res) {
         try {
           const cfg = JSON.parse(rawBody.toString('utf8'));
           const Client = loadPgClient();
-          if (!Client) return sendError(req, res, "PostgreSQL features require the 'pg' module. Run 'npm install pg' in the tool directory and restart the Bridge.");
+          if (!Client) return sendError(req, res, "PostgreSQL features require the 'pg' module. Run 'npm install pg' in the tool directory and restart the Bridge.", 503);
           livedb.runPing(Client, cfg)
             .then(r => sendJson(req, res, r))
-            .catch(e => sendError(req, res, `Live DB ping error: ${e.message}`));
+            .catch(e => sendError(req, res, `Live DB ping error: ${e.message}`, 502));
         } catch (e) {
           sendError(req, res, `Invalid JSON body: ${e.message}`, 400);
         }
@@ -1674,12 +1713,12 @@ function handleRequest(req, res) {
         try {
           const body = JSON.parse(rawBody.toString('utf8'));
           const Client = loadPgClient();
-          if (!Client) return sendError(req, res, "PostgreSQL features require the 'pg' module. Run 'npm install pg' in the tool directory and restart the Bridge.");
+          if (!Client) return sendError(req, res, "PostgreSQL features require the 'pg' module. Run 'npm install pg' in the tool directory and restart the Bridge.", 503);
           const sql = body.sql;
           const cfg = { host: body.host, port: body.port, user: body.user, password: body.password, database: body.database };
           livedb.runExplain(Client, cfg, sql, { timeoutMs: 5000, params: Array.isArray(body.params) ? body.params : null })
             .then(r => sendJson(req, res, r))
-            .catch(e => sendError(req, res, `Live DB explain error: ${e.message}`));
+            .catch(e => sendError(req, res, `Live DB explain error: ${e.message}`, 502));
         } catch (e) {
           sendError(req, res, `Invalid JSON body: ${e.message}`, 400);
         }
@@ -1695,13 +1734,13 @@ function handleRequest(req, res) {
         try {
           const body = JSON.parse(rawBody.toString('utf8'));
           const Client = loadPgClient();
-          if (!Client) return sendError(req, res, "PostgreSQL features require the 'pg' module. Run 'npm install pg' in the tool directory and restart the Bridge.");
+          if (!Client) return sendError(req, res, "PostgreSQL features require the 'pg' module. Run 'npm install pg' in the tool directory and restart the Bridge.", 503);
           const cfg = { host: body.host, port: body.port, user: body.user, password: body.password, database: body.database };
           // Catalog scans on a large schema are slower than a single EXPLAIN —
           // the reference app has ~1900 indexes and takes ~1.5 s.
           livedb.runIndexAdvisor(Client, cfg, { timeoutMs: 30000 })
             .then(r => sendJson(req, res, r))
-            .catch(e => sendError(req, res, `Live DB index advisor error: ${e.message}`));
+            .catch(e => sendError(req, res, `Live DB index advisor error: ${e.message}`, 502));
         } catch (e) {
           sendError(req, res, `Invalid JSON body: ${e.message}`, 400);
         }
@@ -1717,11 +1756,11 @@ function handleRequest(req, res) {
         try {
           const body = JSON.parse(rawBody.toString('utf8'));
           const Client = loadPgClient();
-          if (!Client) return sendError(req, res, "PostgreSQL features require the 'pg' module. Run 'npm install pg' in the tool directory and restart the Bridge.");
+          if (!Client) return sendError(req, res, "PostgreSQL features require the 'pg' module. Run 'npm install pg' in the tool directory and restart the Bridge.", 503);
           const cfg = { host: body.host, port: body.port, user: body.user, password: body.password, database: body.database };
           livedb.runDomainModel(Client, cfg, { timeoutMs: 20000 })
             .then(r => sendJson(req, res, r))
-            .catch(e => sendError(req, res, `Live DB model error: ${e.message}`));
+            .catch(e => sendError(req, res, `Live DB model error: ${e.message}`, 502));
         } catch (e) {
           sendError(req, res, `Invalid JSON body: ${e.message}`, 400);
         }
@@ -1740,11 +1779,11 @@ function handleRequest(req, res) {
         try {
           const body = JSON.parse(rawBody.toString('utf8'));
           const Client = loadPgClient();
-          if (!Client) return sendError(req, res, "PostgreSQL features require the 'pg' module. Run 'npm install pg' in the tool directory and restart the Bridge.");
+          if (!Client) return sendError(req, res, "PostgreSQL features require the 'pg' module. Run 'npm install pg' in the tool directory and restart the Bridge.", 503);
           const cfg = { host: body.host, port: body.port, user: body.user, password: body.password, database: body.database };
           livedb.runSeedSchema(Client, cfg, { tables: body.tables, sampleExisting: body.sampleExisting, timeoutMs: 20000 })
             .then(r => sendJson(req, res, r))
-            .catch(e => sendError(req, res, `Live DB seed-schema error: ${e.message}`));
+            .catch(e => sendError(req, res, `Live DB seed-schema error: ${e.message}`, 502));
         } catch (e) {
           sendError(req, res, `Invalid JSON body: ${e.message}`, 400);
         }
@@ -1761,11 +1800,11 @@ function handleRequest(req, res) {
         try {
           const body = JSON.parse(rawBody.toString('utf8'));
           const Client = loadPgClient();
-          if (!Client) return sendError(req, res, "PostgreSQL features require the 'pg' module. Run 'npm install pg' in the tool directory and restart the Bridge.");
+          if (!Client) return sendError(req, res, "PostgreSQL features require the 'pg' module. Run 'npm install pg' in the tool directory and restart the Bridge.", 503);
           const cfg = { host: body.host, port: body.port, user: body.user, password: body.password, database: body.database };
           livedb.runDistinctValues(Client, cfg, { table: body.table, column: body.column, limit: body.limit, timeoutMs: 8000 })
             .then(r => sendJson(req, res, r))
-            .catch(e => sendError(req, res, `Live DB distinct error: ${e.message}`));
+            .catch(e => sendError(req, res, `Live DB distinct error: ${e.message}`, 502));
         } catch (e) {
           sendError(req, res, `Invalid JSON body: ${e.message}`, 400);
         }

@@ -35,7 +35,7 @@ const CARDS = [
     color: 'var(--success)',
     icon: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
     title: 'Jump anywhere with Ctrl+K',
-    text: 'Press <kbd>Ctrl</kbd>+<kbd>K</kbd> anywhere to open the command palette and jump straight to any of the 25+ tools by typing a few letters of its name.'
+    text: 'Press <kbd>Ctrl</kbd>+<kbd>K</kbd> anywhere to open the command palette and jump straight to {ANY_TOOL} by typing a few letters of its name.'
   },
   {
     color: 'var(--danger)',
@@ -54,7 +54,7 @@ function buildModal() {
     <div class="welcome-card">
       <div class="welcome-card-icon" style="color:${c.color};border-color:${c.color}44;background:linear-gradient(160deg, transparent, ${c.color === 'var(--accent)' ? 'var(--accent-subtle)' : 'transparent'})">${c.icon}</div>
       <div class="welcome-card-title">${c.title}</div>
-      <div class="welcome-card-text">${c.text}</div>
+      <div class="welcome-card-text">${c.text.replace('{ANY_TOOL}', toolCount ? 'any of the ' + toolCount + ' tools' : 'any tool')}</div>
     </div>`).join('');
 
   overlay.innerHTML = `
@@ -102,7 +102,11 @@ function openWelcome() {
   });
 }
 
-export function initWelcome() {
+// The count comes from the tool registry, so it cannot drift from the sidebar
+// the way the hard-coded "25+" did.
+let toolCount = 0;
+export function initWelcome(count) {
+  if (count) toolCount = count;
   window.showWelcomeTour = openWelcome;
   if (hasSeen()) return Promise.resolve();
   return openWelcome();

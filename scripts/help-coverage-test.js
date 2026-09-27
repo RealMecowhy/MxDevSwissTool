@@ -75,5 +75,18 @@ for (const t of TAB_RESOLVED) {
   ok(t + ' has per-tab help keys', hasTabs);
 }
 
+// The Bridge is started by the launcher or `npm start`. package.json has no
+// "bridge" script, yet six messages told users to run one (review UX-04).
+console.log('\nStart instructions name commands that exist');
+const staleHint = [];
+(function walk(dir) {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const f = path.join(dir, e.name);
+    if (e.isDirectory()) { if (e.name !== 'vendor') walk(f); }
+    else if (e.name.endsWith('.js') && fs.readFileSync(f, 'utf8').indexOf('npm run bridge') !== -1) staleHint.push(path.relative(root, f));
+  }
+})(path.join(root, 'public', 'js'));
+ok('no file in public/js tells users to run "npm run bridge"', staleHint.length === 0, staleHint.join(', '));
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);

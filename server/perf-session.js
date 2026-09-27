@@ -134,6 +134,12 @@ function isPrivateOrLocalHost(host) {
   return h.length > 0 && h.indexOf('.') === -1;
 }
 
+// This machine only: the one target a load test may hit without confirmation.
+function isLoopbackHost(host) {
+  const h = String(host == null ? '' : host).toLowerCase().replace(/^\[|\]$/g, '');
+  return h === 'localhost' || h === '::1' || h.endsWith('.localhost') || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h);
+}
+
 // Throws Error with .statusCode so the route can answer with the right status.
 function fail(message, statusCode) {
   const e = new Error(message);
@@ -160,13 +166,17 @@ function startSession(config) {
     throw fail(`Not a valid URL: ${targetUrl}`, 400);
   }
 
-  // The external-target gate. Confirmation is explicit and per-run, and it
-  // still cannot lift the external thread ceiling — a confirmed run is an
-  // authorized one, not an unbounded one.
+  // The target gate. Only this machine runs without asking: a private address
+  // is somebody's server too (a 10.x test system shared with a team), and 200
+  // threads at it by mistake is an outage there. Confirmation is explicit and
+  // per-run, and it still cannot lift the external thread ceiling — a confirmed
+  // run is an authorized one, not an unbounded one.
   const local = isPrivateOrLocalHost(host);
+  const loopback = isLoopbackHost(host);
   const envAllowed = process.env.MXDEV_ALLOW_EXTERNAL_PERFTEST === 'true';
-  if (!local && !config.confirmExternal && !envAllowed) {
-    throw fail(`${host} is not a local or private address. Tick "I am authorized to load-test this target" to run it, or start the Bridge with MXDEV_ALLOW_EXTERNAL_PERFTEST=true.`, 403);
+  if (!loopback && !config.confirmExternal && !envAllowed) {
+    const where = local ? 'is on your network, not this machine' : 'is not a local or private address';
+    throw fail(`${host} ${where}. Tick "I am authorized to load-test this target" to run it, or start the Bridge with MXDEV_ALLOW_EXTERNAL_PERFTEST=true.`, 403);
   }
 
   const maxConc = local ? MAX_CONCURRENCY_LOCAL : MAX_CONCURRENCY_EXTERNAL;
@@ -521,5 +531,6 @@ module.exports = {
   histIndex,
   histRange,
   histPercentile,
-  isPrivateOrLocalHost
+  isPrivateOrLocalHost,
+  isLoopbackHost
 };

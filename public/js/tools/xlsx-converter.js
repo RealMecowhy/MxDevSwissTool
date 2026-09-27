@@ -475,9 +475,35 @@ function xlsRowsToCsv(rows, opts) {
 const XLS_SIG_EOCD = 0x06054b50;
 const XLS_SIG_CDIR = 0x02014b50;
 
-function xlsInflateRaw(bytes) {
-  const stream = new Response(bytes).body.pipeThrough(new DecompressionStream('deflate-raw'));
-  return new Response(stream).arrayBuffer().then(function (buf) { return new Uint8Array(buf); });
+// A ZIP entry states its own uncompressed size, and a hostile or broken file can
+// lie: a few kilobytes that inflate to gigabytes would take the tab down. The
+// bytes are counted as they come out and the read stops at the cap.
+const XLS_MAX_INFLATED = 512 * 1024 * 1024;
+function xlsInflateRaw(bytes, maxBytes) {
+  const cap = maxBytes || XLS_MAX_INFLATED;
+  // Read by hand: an error raised inside a pipe comes out of Response.arrayBuffer()
+  // in a browser as a bare "Failed to fetch", which would lose the advice.
+  const reader = new Response(bytes).body.pipeThrough(new DecompressionStream('deflate-raw')).getReader();
+  const chunks = [];
+  let seen = 0;
+  function pump() {
+    return reader.read().then(function (r) {
+      if (r.done) {
+        const out = new Uint8Array(seen);
+        let at = 0;
+        chunks.forEach(function (c) { out.set(c, at); at += c.length; });
+        return out;
+      }
+      seen += r.value.length;
+      if (seen > cap) {
+        reader.cancel().catch(function () {});
+        throw new Error('A part of this workbook expands to more than ' + Math.round(cap / 1048576) + ' MB — too large to open in the browser. Save a smaller copy (fewer rows or sheets) and try again.');
+      }
+      chunks.push(r.value);
+      return pump();
+    });
+  }
+  return pump();
 }
 
 // Reads the central directory of a ZIP and returns an accessor over its
@@ -614,6 +640,7 @@ XLS_GLOBAL.xlsHeaderNames = xlsHeaderNames;
 XLS_GLOBAL.xlsRowsToJson = xlsRowsToJson;
 XLS_GLOBAL.xlsRowsToCsv = xlsRowsToCsv;
 XLS_GLOBAL.xlsOpenZip = xlsOpenZip;
+XLS_GLOBAL.xlsInflateRaw = xlsInflateRaw;
 XLS_GLOBAL.xlsReadWorkbook = xlsReadWorkbook;
 
 // =========================================================================

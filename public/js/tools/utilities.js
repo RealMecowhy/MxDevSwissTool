@@ -240,7 +240,23 @@ document.addEventListener('keydown', e => {
 
 // ============================================================
 
+// One wording for "the Bridge is not running", used by every tool that needs it.
+// It used to be six variants, most naming an npm "bridge" script that
+// package.json never had. Plain text, safe in textContent and innerHTML.
+function mtBridgeOfflineHint() {
+  return 'The Observability Bridge is offline. Start it with Start-MxDevSwissTool.bat (or npm start from the tool folder).';
+}
+
+// Every count in the UI: "48,499" for every user. The app is English-only, and
+// toLocaleString() without a locale follows the machine, so the same report read
+// "48 499" on one laptop and "48,499" on the next (review UX-02, decision Q5).
+function mtFmtInt(n) {
+  return (Number(n) || 0).toLocaleString('en-US');
+}
+
 // --- AUTO-GENERATED ESM EXPORTS ---
+window.mtBridgeOfflineHint = mtBridgeOfflineHint;
+window.mtFmtInt = mtFmtInt;
 window.escHtml = escHtml;
 window.escRegex = escRegex;
 window.mxEntityForTable = mxEntityForTable;

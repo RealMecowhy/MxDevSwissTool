@@ -1477,9 +1477,10 @@ async function dsFetchDbDetails() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ projectRoot: dsProjectData.projectRoot })
     });
-    if (!res.ok) throw new Error("DB Query failed");
-    const data = await res.json();
-    if (data.error) throw new Error(data.message);
+    // Errors arrive as a non-2xx status WITH a JSON message — read it before
+    // giving up, or "DB Query failed" hides why.
+    const data = await res.json().catch(() => null);
+    if (!data || data.error || !res.ok) throw new Error((data && data.message) || 'DB Query failed');
 
     // Render metrics
     const sizeBytes = data.stats?.size_bytes || 0;
@@ -1980,7 +1981,7 @@ function dsSecRowEl(entry) {
   el.onclick = function () { dsSecShowMembers(entry.i); };
   if (entry.i === dsSecMemberIdx) el.style.background = 'color-mix(in srgb, var(--primary) 12%, transparent)';
   const pill = function (on, txt) {
-    return '<span style="flex:0 0 auto; padding:1px 6px; border-radius:4px; font-size:0.68rem; background:' +
+    return '<span style="flex:0 0 auto; padding:1px 6px; border-radius:4px; font-size:var(--fs-xs); background:' +
       (on ? 'color-mix(in srgb, var(--warning) 25%, transparent)' : 'var(--bg-surface)') +
       '; color:' + (on ? 'var(--text-primary)' : 'var(--text-muted)') + '">' + txt + '</span>';
   };

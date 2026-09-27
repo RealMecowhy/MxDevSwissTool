@@ -36,7 +36,7 @@ explaining that decision.
   `navigate()`, the global loader and the bridge status poll.
 - `js/tools/` — 49 tool modules (plus `tools/telemetry/` for the one tool large
   enough to split). 35 of them export an `init()`; the rest need no setup.
-- `js/components/` — the pieces more than one tool uses: `toast`, `tool-state`,
+- `js/components/` — the pieces more than one tool uses: `toast`, `confirm`, `tool-state`,
   `data-hub`, `exporters`, `virtual-list`, `virtual-viewer`, `command-palette`,
   `welcome`, `update-checker`, `db-connection`, `a11y`.
 - `js/tools-help.js` — one entry per tool (or per tab, for the three multi-tab
@@ -129,7 +129,10 @@ building a new one.
 
 `components/a11y.js` decorates the control families, delegates Enter/Space
 activation, and drives focus trapping and dialog state from a `MutationObserver`
-on the `active` class. A new dialog or filter chip is covered automatically. Do
+on the `active` class. A new dialog or filter chip is covered automatically. Form
+fields get an `aria-label` from the `.form-label` before them (or their
+placeholder) — also when rendered later; a field with no visible caption needs
+an explicit `aria-label`, and the browser smoke test fails without one. Do
 not add `tabindex` to rows rendered into a virtual list — a list of 450 000 rows
 in the tab order is worse than not being there; that needs a roving tabindex.
 
@@ -142,7 +145,7 @@ in the tab order is worse than not being there; that needs a roving tabindex.
    `.tool-header-actions`. An action stays scoped to the pane it affects.
 2. **Manual "run analysis" tools** (nothing happens until the user clicks —
    Memory Inspector, Mock Server & Chaos, Performance Lab, API Economics,
-   Architecture, Thread Dump Analyzer, WASM Profiler, Query Intelligence, OData
+   Architecture, Thread Dump Analyzer, Query Intelligence, OData
    Builder): exactly one `btn-primary` in `.tool-header-actions`, positioned
    last. Never bury the primary action in the panel body.
    - **Exception:** Data Factory keeps "Generate Data" attached to step 2 of its

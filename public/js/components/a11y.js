@@ -86,6 +86,53 @@ function mtA11yDecorate(root) {
     el.setAttribute('role', 'button');
     el.setAttribute('tabindex', '0');
   });
+
+  // Tab strips: most switchers already keep aria-selected, but without the roles
+  // a screen reader ignores it. The class observer below keeps it in step.
+  scope.querySelectorAll('.tabs').forEach(function (list) {
+    const tabs = list.querySelectorAll(':scope > .tab');
+    if (!tabs.length) return;
+    list.setAttribute('role', 'tablist');
+    tabs.forEach(function (t) {
+      t.setAttribute('role', 'tab');
+      t.setAttribute('aria-selected', t.classList.contains('active') ? 'true' : 'false');
+    });
+  });
+
+  a11yNameFields(scope);
+}
+
+const A11Y_FIELDS = 'input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=file])' +
+  ':not([type=range]):not([type=button]):not([type=submit]), select, textarea';
+
+// The visible caption of a field, when the markup shows one but never ties it to
+// the field: the `.form-label` (or bare <label>) just before it, as in every
+// `.form-group`, or the <label> wrapping it.
+function a11yCaption(el) {
+  for (let p = el.previousElementSibling; p; p = p.previousElementSibling) {
+    if (p.matches(A11Y_FIELDS) || p.querySelector(A11Y_FIELDS)) break; // that caption belongs to another field
+    if (p.classList.contains('form-label') || (p.tagName === 'LABEL' && !p.htmlFor)) return p.textContent;
+  }
+  const wrap = el.closest('label');
+  if (wrap) return Array.prototype.map.call(wrap.childNodes, function (n) {
+    return n === el ? '' : n.textContent;
+  }).join(' ');
+  return '';
+}
+
+// Review UX-01: most fields are captioned by a nearby <div> or by their
+// placeholder alone. A placeholder vanishes as soon as something is typed, so it
+// is copied into aria-label; a caption wins over it. A field that already has a
+// real label, aria-label or title is left alone.
+function a11yNameFields(scope) {
+  scope.querySelectorAll(A11Y_FIELDS).forEach(function (el) {
+    if (el.getAttribute('aria-label') || el.getAttribute('aria-labelledby') || el.title) return;
+    if (el.labels && Array.prototype.some.call(el.labels, function (l) {
+      return l.htmlFor === el.id && l.textContent.trim();
+    })) return;
+    const name = (a11yCaption(el) || el.getAttribute('placeholder') || '').replace(/\s+/g, ' ').trim();
+    if (name) el.setAttribute('aria-label', name);
+  });
 }
 
 // Enter/Space on anything we marked as a button. Space is prevented so the page
@@ -178,8 +225,8 @@ export function initA11y() {
   document.addEventListener('keydown', a11yKeyEscape);
   document.addEventListener('keydown', a11yKeyTrap);
 
-  // One observer covers the dialogs (open/close) and the filter chips
-  // (pressed state), because both are expressed the same way: a class change.
+  // One observer covers the dialogs (open/close), the filter chips (pressed)
+  // and the tabs (selected), because all are expressed the same way: a class change.
   const obs = new MutationObserver(function (records) {
     records.forEach(function (rec) {
       const el = rec.target;
@@ -190,6 +237,8 @@ export function initA11y() {
         else if (!open && was) a11yModalClosed(el);
       } else if (el.classList.contains('level-filter-btn')) {
         el.setAttribute('aria-pressed', el.classList.contains('active') ? 'true' : 'false');
+      } else if (el.getAttribute('role') === 'tab') {
+        el.setAttribute('aria-selected', el.classList.contains('active') ? 'true' : 'false');
       }
     });
   });
@@ -207,4 +256,15 @@ export function initA11y() {
     });
   });
   added.observe(document.body, { childList: true });
+
+  // Fields rendered after startup (Architecture's explorer, Perf Lab's rows)
+  // need a name too. Renders can be large, so the pass is coalesced to one per
+  // frame; it only touches fields, which number in the hundreds.
+  let namePending = false;
+  const fields = new MutationObserver(function () {
+    if (namePending) return;
+    namePending = true;
+    requestAnimationFrame(function () { namePending = false; a11yNameFields(document); });
+  });
+  fields.observe(document.body, { childList: true, subtree: true });
 }

@@ -105,7 +105,7 @@ function odataRenderFilterRows() {
   box.innerHTML = odataFilterRows.map((r, i) => `
     <div style="display:flex;gap:6px;margin-bottom:4px;align-items:center">
       <input class="input input-mono input-sm" style="flex:1" placeholder="Attribute" value="${escHtml(r.attr)}" oninput="window.odataUpdateFilterRow(${i},'attr',this.value)">
-      <select class="select select-sm" style="width:110px" onchange="window.odataUpdateFilterRow(${i},'op',this.value)">
+      <select aria-label="Filter operator" class="select select-sm" style="width:110px" onchange="window.odataUpdateFilterRow(${i},'op',this.value)">
         ${opts.map(o => `<option value="${o}"${r.op === o ? ' selected' : ''}>${o}</option>`).join('')}
       </select>
       <input class="input input-mono input-sm" style="flex:1" placeholder="Value" value="${escHtml(r.value)}" oninput="window.odataUpdateFilterRow(${i},'value',this.value)">
@@ -225,47 +225,6 @@ function odataRenderHistory() {
     hist.map(u => `<option value="${escHtml(u)}">${escHtml(u.length > 90 ? u.slice(0, 90) + '…' : u)}</option>`).join('');
   sel.style.display = hist.length ? '' : 'none';
 }
-
-// ── Test button (12.5) — via the Bridge, same one-shot proxy Perf Lab uses ──
-// Reuses /api/perf-test with count=1/concurrency=1 rather than a new endpoint —
-// one less network-facing surface to secure. That endpoint only proxies
-// localhost/private-IP targets by default (SSRF guard), which covers the real
-// "test my local Studio Pro app" case; a public Mendix Cloud URL gets the same
-// honest refusal (with the MXDEV_ALLOW_EXTERNAL_PERFTEST unlock) Perf Lab
-// already shows — not a silent failure, and not a new security decision.
-window.odataTest = async function (btn) {
-  const url = odataBuildUrl(odataFields());
-  odataSaveToHistory(url);
-  const resultEl = document.getElementById('odata-test-result');
-  if (!resultEl) return;
-  const old = btn ? btn.innerHTML : null;
-  if (btn) { btn.disabled = true; btn.innerHTML = 'Testing…'; }
-  resultEl.style.display = 'block';
-  resultEl.innerHTML = '<span style="color:var(--text-muted)">Requesting…</span>';
-  try {
-    const resp = await fetch('http://localhost:9999/api/perf-test', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, method: 'GET', concurrency: 1, count: 1 })
-    });
-    const data = await resp.json();
-    if (!data.success) {
-      resultEl.innerHTML = `<div class="notice notice-warning" style="margin:0">${escHtml(data.message || data.error || 'Request failed.')}</div>`;
-    } else {
-      const r = data.results && data.results[0];
-      if (!r) { resultEl.innerHTML = '<div class="notice notice-warning" style="margin:0">No response.</div>'; }
-      else if (r.status === 'Error') { resultEl.innerHTML = `<div class="notice notice-warning" style="margin:0">Request failed after ${r.time} ms.</div>`; }
-      else {
-        const ok = typeof r.status === 'number' && r.status >= 200 && r.status < 300;
-        resultEl.innerHTML = `<div class="notice ${ok ? 'notice-success' : 'notice-warning'}" style="margin:0">HTTP <strong>${r.status}</strong> in ${r.time} ms</div>`;
-      }
-    }
-  } catch (e) {
-    resultEl.innerHTML = `<div class="notice notice-warning" style="margin:0">Observability Bridge not reachable on http://localhost:9999. Start it with "npm run bridge" to use Test.</div>`;
-  } finally {
-    if (btn && old !== null) { btn.disabled = false; btn.innerHTML = old; }
-  }
-};
 
 // ============================================================
 

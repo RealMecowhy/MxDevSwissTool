@@ -315,6 +315,9 @@ if (fs.existsSync(refLive)) {
 // so pointing `window` at the global makes it requireable in Node too.
 console.log('\nMicroflow Tracer extraction');
 global.window = global;
+// The browser gets this from utilities.js, which touches `document` at load and
+// so cannot be required here; the one line is kept identical to the original.
+global.mtFmtInt = n => (Number(n) || 0).toLocaleString('en-US');
 require('../public/js/tools/microflow-tracer.js');
 const mftExtract = global.mftExtractExecutions;
 const mftTs = global.mftTsToMs;
@@ -2698,6 +2701,14 @@ async function runXlsxAsyncTests() {
   ];
   const buf = toArrayBuffer(buildZip(parts));
 
+  // An entry that inflates past the cap is refused mid-stream (review BUG-19).
+  // A small cap stands in for the real 512 MB one, so the test stays fast.
+  const bomb = require('zlib').deflateRawSync(Buffer.alloc(64 * 1024));
+  let bombErr = null;
+  try { await global.xlsInflateRaw(new Uint8Array(bomb), 1024); } catch (e) { bombErr = e; }
+  ok('zip: an entry that expands past the cap is refused', !!bombErr && /too large/.test(bombErr.message), bombErr && bombErr.message);
+  eq('zip: under the cap the same entry inflates in full', (await global.xlsInflateRaw(new Uint8Array(bomb), 1024 * 1024)).length, 64 * 1024);
+
   const zip = global.xlsOpenZip(buf);
   eq('zip: every entry is listed', zip.names.length, parts.length);
   eq('zip: an entry is found by name', zip.has('xl/workbook.xml'), true);
@@ -5043,6 +5054,19 @@ ok('target gate: 172.16.x is private', perfSession.isPrivateOrLocalHost('172.16.
 ok('target gate: 172.32.x is NOT private (outside the /12)', !perfSession.isPrivateOrLocalHost('172.32.0.9'));
 ok('target gate: a Mendix Cloud host is external', !perfSession.isPrivateOrLocalHost('myapp.mendixcloud.com'));
 ok('target gate: 10.evil.com is external, not private (prefix match would be wrong)', !perfSession.isPrivateOrLocalHost('10.evil.com'));
+// Only this machine runs without confirmation (review BUG-11): a private
+// address is still somebody's server.
+ok('target gate: 127.0.0.1 is loopback', perfSession.isLoopbackHost('127.0.0.1'));
+ok('target gate: localhost and [::1] are loopback', perfSession.isLoopbackHost('localhost') && perfSession.isLoopbackHost('[::1]'));
+ok('target gate: 10.x is NOT loopback', !perfSession.isLoopbackHost('10.20.30.40'));
+ok('target gate: 127.evil.com is NOT loopback', !perfSession.isLoopbackHost('127.evil.com'));
+(function () {
+  let err = null;
+  try { perfSession.startSession({ url: 'http://10.20.30.40:8080/rest/x', method: 'GET', concurrency: 1, count: 1 }); }
+  catch (e) { err = e; }
+  eq('target gate: an unconfirmed run against 10.x is refused with 403', err && err.statusCode, 403);
+  ok('...and the refusal says the host is on your network', !!err && /on your network/.test(err.message), err && err.message);
+})();
 ok('target gate: 172.320.0.1 is not a valid address, so not private', !perfSession.isPrivateOrLocalHost('172.320.0.1'));
 ok('target gate: a single-label intranet host counts as local', perfSession.isPrivateOrLocalHost('mxapp-test'));
 ok('target gate: a .local host counts as local', perfSession.isPrivateOrLocalHost('mendix-dev.local'));

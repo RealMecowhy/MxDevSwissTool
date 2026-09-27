@@ -24,7 +24,8 @@
   // `hasData` is an optional global predicate ("does this tool currently show
   // something?") used to warn before a hand-off silently replaces it.
   var HUB_TARGETS = [
-    { id: 'log-viewer',          label: 'Log Viewer',           fn: 'logLoadText', hasData: 'logHasData' },
+    // undo: the tool offers its own Undo after a replace, so it is not asked first.
+    { id: 'log-viewer',          label: 'Log Viewer',           fn: 'logLoadText', hasData: 'logHasData', undo: true },
     { id: 'log-query-extractor', label: 'Query Extractor',      fn: 'lqeLoadText', hasData: 'lqeHasData' },
     { id: 'microflow-tracer',    label: 'Microflow Tracer',     fn: 'mftLoadText', hasData: 'mftHasData' },
     { id: 'ws-rest-extractor',   label: 'REST & WS Extractor',  fn: 'wsreLoadText', hasData: 'wsreHasData' }
@@ -151,6 +152,23 @@
     if (clearBtn) clearBtn.addEventListener('click', function () { mtHub.clear(); });
   }
 
+  function mtHubLoadInto(target, fn) {
+    if (!source) return false;
+    if (source.loadedIn.indexOf(target.id) === -1) source.loadedIn.push(target.id);
+    // Navigate first so the target panel exists and is visible before it
+    // renders parse results into it.
+    if (typeof root.navigateWithReturn === 'function') root.navigateWithReturn(target.id);
+    else if (typeof root.navigate === 'function') root.navigate(target.id, null);
+    try {
+      fn(source.text, source.name);
+    } catch (e) {
+      console.error('Data Hub: ' + target.fn + ' failed', e);
+      return false;
+    }
+    notify();
+    return true;
+  }
+
   function notify() {
     mounts.forEach(render);
     listeners.forEach(function (cb) { try { cb(source); } catch (e) {} });
@@ -203,6 +221,7 @@
     },
     // Pushes the active source into another tool and navigates there. The target
     // parses it exactly as if the user had dropped the file in themselves.
+    // Returns a boolean, or a Promise of one when the user is asked first.
     openIn: function (toolId) {
       if (!source) return false;
       var target = HUB_TARGETS.filter(function (t) { return t.id === toolId; })[0];
@@ -210,30 +229,20 @@
       var fn = root[target.fn];
       if (typeof fn !== 'function') return false;
       // The target already has THIS source — no risk, no need to ask. Otherwise,
-      // if it currently shows unrelated data of its own, a silent one-click
-      // replace is exactly the kind of thing that should be confirmed first.
-      if (source.loadedIn.indexOf(toolId) === -1 && target.hasData) {
+      // if it currently shows unrelated data of its own and has no Undo, a silent
+      // one-click replace is exactly the kind of thing that should be confirmed
+      // first. A target with Undo is not asked: that would be asking twice.
+      if (source.loadedIn.indexOf(toolId) === -1 && target.hasData && !target.undo &&
+          typeof root.mtConfirm === 'function') {
         var hasDataFn = root[target.hasData];
         if (typeof hasDataFn === 'function' && hasDataFn()) {
-          var proceed = root.confirm
-            ? root.confirm('This replaces whatever is currently loaded in ' + target.label + '. Continue?')
-            : true;
-          if (!proceed) return false;
+          return root.mtConfirm('This replaces what is currently loaded in ' + target.label +
+            ' with ' + source.name + '. ' + target.label + ' has no Undo.',
+            { title: 'Replace the data in ' + target.label + '?', confirmLabel: 'Replace' })
+            .then(function (ok) { return ok ? mtHubLoadInto(target, fn) : false; });
         }
       }
-      if (source.loadedIn.indexOf(toolId) === -1) source.loadedIn.push(toolId);
-      // Navigate first so the target panel exists and is visible before it
-      // renders parse results into it.
-      if (typeof root.navigateWithReturn === 'function') root.navigateWithReturn(toolId);
-      else if (typeof root.navigate === 'function') root.navigate(toolId, null);
-      try {
-        fn(source.text, source.name);
-      } catch (e) {
-        console.error('Data Hub: ' + target.fn + ' failed', e);
-        return false;
-      }
-      notify();
-      return true;
+      return mtHubLoadInto(target, fn);
     },
     // Re-scans for mount points; safe to call repeatedly.
     mountAll: function () {

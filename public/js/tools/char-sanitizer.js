@@ -498,7 +498,7 @@ function sanitizeAnalyze() {
 
   // Handle preview cap warning
   if (isCapped) {
-    htmlPreview += `\n\n<div class="jt-error" style="display:block;margin-top:var(--sp-3)">Preview truncated to 50,000 characters. The whole text (${raw.length.toLocaleString()} characters) was analyzed.</div>`;
+    htmlPreview += `\n\n<div class="jt-error" style="display:block;margin-top:var(--sp-3)">Preview truncated to 50,000 characters. The whole text (${window.mtFmtInt(raw.length)} characters) was analyzed.</div>`;
   }
 
   // Render Visual Preview

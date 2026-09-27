@@ -105,7 +105,7 @@ function ixaFindingCard(f) {
   // wants — the bulk CSV/Markdown export is for the list, not for one statement.
   const candidate = f.candidate
     ? `<div style="margin-top:var(--sp-2)">
-         <div style="font-size:0.68rem;text-transform:uppercase;color:var(--text-muted);margin-bottom:2px;display:flex;align-items:center;gap:var(--sp-2)">
+         <div style="font-size:var(--fs-xs);text-transform:uppercase;color:var(--text-muted);margin-bottom:2px;display:flex;align-items:center;gap:var(--sp-2)">
            <span>Candidate statement — review before running</span>
            <button type="button" class="btn btn-ghost btn-xs" style="margin-left:auto;text-transform:none" onclick="window.ixaCopyCandidate(this)" data-sql="${esc(f.candidate)}">Copy</button>
          </div>
@@ -115,16 +115,16 @@ function ixaFindingCard(f) {
 
   return `<div style="border:1px solid var(--border);border-left:3px solid ${color};border-radius:var(--r-md);padding:var(--sp-3);margin-bottom:var(--sp-3);background:var(--bg-elevated)">
       <div style="display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;margin-bottom:var(--sp-2)">
-        <span style="font-size:0.68rem;font-weight:700;color:${color};background:${bg};padding:1px 8px;border-radius:999px">${label}</span>
-        <span style="font-size:0.68rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em">${esc(KIND_LABEL[f.kind] || f.kind)}</span>
-        ${f.structural ? '<span style="font-size:0.66rem;color:var(--text-muted)" title="Read from the catalog shape — independent of usage statistics">structural</span>' : ''}
+        <span style="font-size:var(--fs-xs);font-weight:700;color:${color};background:${bg};padding:1px 8px;border-radius:999px">${label}</span>
+        <span style="font-size:var(--fs-xs);color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em">${esc(KIND_LABEL[f.kind] || f.kind)}</span>
+        ${f.structural ? '<span style="font-size:var(--fs-xs);color:var(--text-muted)" title="Read from the catalog shape — independent of usage statistics">structural</span>' : ''}
         ${ixaTableLabel(f.table)}
       </div>
       <div style="font-weight:600;font-size:0.85rem;margin-bottom:4px">${esc(f.title)}</div>
       <div style="font-size:0.8rem;color:var(--text-secondary);line-height:1.55">${esc(f.detail)}</div>
       ${mendix}
-      ${evidence ? `<div style="margin-top:var(--sp-2)"><div style="font-size:0.68rem;text-transform:uppercase;color:var(--text-muted);margin-bottom:2px">Evidence</div><ul style="margin:0;padding-left:1.1rem">${evidence}</ul></div>` : ''}
-      ${verify ? `<div style="margin-top:var(--sp-2)"><div style="font-size:0.68rem;text-transform:uppercase;color:var(--text-muted);margin-bottom:2px">How to check</div><ul style="margin:0;padding-left:1.1rem">${verify}</ul></div>` : ''}
+      ${evidence ? `<div style="margin-top:var(--sp-2)"><div style="font-size:var(--fs-xs);text-transform:uppercase;color:var(--text-muted);margin-bottom:2px">Evidence</div><ul style="margin:0;padding-left:1.1rem">${evidence}</ul></div>` : ''}
+      ${verify ? `<div style="margin-top:var(--sp-2)"><div style="font-size:var(--fs-xs);text-transform:uppercase;color:var(--text-muted);margin-bottom:2px">How to check</div><ul style="margin:0;padding-left:1.1rem">${verify}</ul></div>` : ''}
       ${candidate}
       ${ixaAttribution(f)}
     </div>`;
@@ -248,7 +248,7 @@ window.ixaAnalyze = async function (btn) {
     ixaLast = data;
     ixaRender(data);
   } catch (e) {
-    ixaRender({ error: true, message: 'Observability Bridge not reachable on ' + AGENT_URL + '. Start it with "npm run bridge".' });
+    ixaRender({ error: true, message: window.mtBridgeOfflineHint() });
   } finally {
     if (btn && oldHtml !== null) { btn.disabled = false; btn.innerHTML = oldHtml; }
   }

@@ -337,7 +337,7 @@ DFW.dfwLoadModel = async function (btn) {
     dfwRenderSelectArea();
   } catch (e) {
     dfwEl('dfw-select-area').innerHTML = dfwNote(
-      'Observability Bridge not reachable on ' + DFW_AGENT_URL + '. Start it with <code>npm run bridge</code>.', 'warn');
+      window.mtBridgeOfflineHint(), 'warn');
   } finally {
     if (btn && old !== null) { btn.disabled = false; btn.innerHTML = old; }
   }
@@ -522,7 +522,7 @@ function dfwRenderLinks() {
         '<label class="dfw-check-inline"><input type="checkbox"' + (cfg.useExisting || existingForced ? ' checked' : '') + (existingForced ? ' disabled' : '') +
           ' onchange="dfwSetAssoc(' + i + ',\'useExisting\',this.checked)"> link to existing ' + dfwEsc(dfwShort(a.one)) + ' rows</label>' +
       '</div>' +
-      (existingForced ? '<div style="font-size:0.68rem;color:var(--text-muted);margin-top:4px">' + dfwEsc(dfwShort(a.one)) + ' is not selected, so children link to rows already in the database.</div>' : '') +
+      (existingForced ? '<div style="font-size:var(--fs-xs);color:var(--text-muted);margin-top:4px">' + dfwEsc(dfwShort(a.one)) + ' is not selected, so children link to rows already in the database.</div>' : '') +
     '</div>';
   }).join('');
   box.innerHTML = '<div class="dfw-subhead">How to link them</div>' + rows;

@@ -41,6 +41,7 @@ const TOOLS = [
   {id:'thread-dump',  label:'JVM Health Analyzer',   desc:'Thread dumps, GC logs and heap histograms — find blocked threads and memory leaks',         color:'var(--danger)',   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>', section:'Diagnostics & Logs'},
   {id:'incident-report', label:'Incident Report',   desc:'Combine the data loaded across the diagnostics tools into one self-contained HTML report for a time window', color:'#6c5ce7', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>', section:'Diagnostics & Logs'},
   {id:'json-formatter',label:'JSON Formatter',             desc:'Format, validate and explore JSON with interactive tree view',                    color:'var(--success)',  icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',          section:'Data & Format'},
+  {id:'api-economics', label:'API Economics',              desc:'Analyze JSON payloads to optimize size and identify redundant fields',          color:'#2ecc71',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>', section:'Data & Format'},
   {id:'xml-formatter', label:'XML Formatter',              desc:'Format, validate and explore XML with interactive tree view',                     color:'var(--info)',     icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13l3 3-3 3M16 19h-4"/></svg>',    section:'Data & Format'},
   {id:'char-sanitizer',label:'XML & Text Sanitizer',       desc:'Detect and fix hidden control characters, zero-width spaces, invalid XML tokens, and Mojibake', color:'#e67e22', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>', section:'Data & Format'},
   {id:'sql-formatter', label:'SQL Formatter',              desc:'Format and syntax-highlight SQL queries from Mendix ORM',                        color:'#7c85f3',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>', section:'Data & Format'},
@@ -62,10 +63,6 @@ const TOOLS = [
   {id:'data-factory',  label:'Data Factory',               desc:'High-Volume Mock Data Generator for performance testing and mock servers',      color:'#f39c12',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h16"/><path d="M18 20V6l-4 2V6l-4 2V6l-4 2v12"/><path d="M4 20v-6h4"/><path d="M4 14v-3a1 1 0 0 1 1-1h3"/></svg>', section:'Data & Format'},
 
   {id:'xlsx-converter',label:'Excel Converter',            desc:'Convert an .xlsx workbook — or one selected sheet — to JSON or CSV, entirely in the browser', color:'#217346', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="9" x2="9" y2="21"/></svg>', section:'Data & Format'},
-
-  {id:'api-economics', label:'API Economics',              desc:'Analyze JSON payloads to optimize size and identify redundant fields',          color:'#2ecc71',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>', section:'Analytics & Estimation'},
-  // WASM Profiler is a niche tool: hidden from sidebar/home, still reachable via Ctrl+K search
-  {id:'wasm-profiler', label:'WASM Profiler',              desc:'Analyze WebAssembly traces and memory usage in Mendix Client',                  color:'#f1c40f',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg>', section:'Analytics & Estimation', hidden:true},
 
   {id:'jwt-decoder',   label:'JWT Decoder',                desc:'Decode JWT tokens locally \u2013 private, nothing sent externally',             color:'#c792ea',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>', section:'Security & Tokens'},
   {id:'saml-debugger', label:'SAML / OIDC Debugger',       desc:'Decode SAML responses and OIDC id_tokens \u2013 inspect assertions, claims and validity locally', color:'#9b59b6', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><path d="M12 3l7 4v5c0 4.5-3 8-7 9-4-1-7-4.5-7-9V7z"/></svg>', section:'Security & Tokens'},
@@ -185,7 +182,9 @@ async function navigate(toolId, navEl, initialTab) {
     iconEl.style.color = tool.color || 'var(--accent)';
   }
   document.getElementById('topbar-title').textContent = tool.label;
-  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.65.0' : (tool.desc || '');
+  // The browser tab and history carry the tool too, and a screen reader hears the switch.
+  document.title = (toolId === 'home') ? 'MxDev Swiss Tool — Developer Toolkit' : tool.label + ' — MxDev Swiss Tool';
+  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.68.0' : (tool.desc || '');
   const previousTool = currentTool;
   currentTool = toolId;
   window.currentTool = currentTool;
@@ -386,7 +385,8 @@ function mtOpenSettingsBackup() {
         '<p style="margin-top:0">Your favourites, theme, sidebar state and every per-tool setting live in this browser only. ' +
         'Clearing site data, switching browser or moving to another machine loses them. Save them to a file here and restore them there.</p>' +
         '<p style="color:var(--text-muted)"><strong>Settings only.</strong> No log, HAR or database content is ever stored, so none of it is in the file — ' +
-        'it holds preferences plus the <em>name</em> and size of the last file each tool opened.</p>' +
+        'it holds preferences plus the <em>name</em> and size of the last file each tool opened, and the REST Load Tester&rsquo;s saved request ' +
+        '(URL, headers and body &mdash; secret header values are stored as <code>***</code>, passwords and tokens from Authentication never).</p>' +
         '<div style="display:flex; gap:var(--sp-2); margin-top:var(--sp-4); flex-wrap:wrap;">' +
           '<button class="btn btn-primary btn-sm" type="button" onclick="window.mtDownloadSettings()">Save to file</button>' +
           '<button class="btn btn-ghost btn-sm" type="button" onclick="document.getElementById(\'mt-settings-file\').click()">Restore from file…</button>' +
@@ -496,7 +496,7 @@ function buildHomeGrid() {
   }
 
   // Fixed section order — must match the sidebar so both build the same mental map
-  const SECTION_ORDER = ['Diagnostics & Logs', 'Performance & Testing', 'Data & Format', 'Mendix Platform', 'Analytics & Estimation', 'Security & Tokens', 'Utilities'];
+  const SECTION_ORDER = ['Diagnostics & Logs', 'Performance & Testing', 'Data & Format', 'Mendix Platform', 'Security & Tokens', 'Utilities'];
   const sections = [];
   const bySection = {};
   TOOLS.filter(t => t.id !== 'home' && !t.hidden).forEach(tool => {
@@ -610,7 +610,6 @@ import * as sql from './tools/sql.js';
 import * as telemetryMonitor from './tools/telemetry-monitor.js';
 import * as timestamp from './tools/timestamp.js';
 
-import * as wasmProfiler from './tools/wasm-profiler.js';
 // Side-effect import: attaches the xls* globals — the Excel Converter reads
 // .xlsx with the native DecompressionStream, no library, and exposes its pure
 // parsing layer for scripts/parser-test.js.
@@ -663,7 +662,6 @@ const toolModules = {
   'telemetry-monitor': telemetryMonitor,
   'timestamp': timestamp,
 
-  'wasm-profiler': wasmProfiler,
   'xml': xml,
   'xml-formatter': xml,
   'xpath': xpath,
@@ -695,6 +693,9 @@ import './components/tool-state.js';
 // replacing alert() across the app, and the surface the global error handler and
 // the settings import/export report through.
 import './components/toast.js';
+// Side-effect import: attaches window.mtConfirm — the in-app yes/no dialog that
+// replaced the browser's confirm().
+import './components/confirm.js';
 
 // Last resort for anything no local try/catch caught. The app previously had no
 // global handler at all, so a render path that threw halfway left a stale or
@@ -781,7 +782,7 @@ function initCore() {
 
   // First-run welcome tour; resolves immediately when already seen. The
   // update check waits for it so the two modals never stack on first launch.
-  initWelcome().then(() => {
+  initWelcome(TOOLS.filter(t => t.id !== 'home' && !t.hidden).length).then(() => {
     // Check for a newer release once the UI has settled; stays silent when
     // offline, snoozed or already up to date.
     setTimeout(initUpdateChecker, 4000);
@@ -816,6 +817,78 @@ function setBridgeText(txt, label) {
   if (txt.textContent !== label) txt.textContent = label;
 }
 
+// ── Bridge popover (review UX-08) ────────────────────────────────────────────
+// The indicator used to be a label with a tooltip. Offline, the popover says
+// what still works, what needs the bridge and how to start it — one place instead
+// of each tool's own "is the bridge running?". Online, it says what the bridge
+// is doing: version, the OTLP receiver and the log file being tailed.
+let mtBridgeLastStatus = null;
+
+function mtBridgePopoverHtml(status) {
+  const esc = window.escHtml;
+  if (!status) {
+    return '<h4>Bridge offline</h4>' +
+      '<p>Everything that works on a pasted or dropped file works without it. The bridge is needed for what reads ' +
+      'your machine or the network: live logs, Developer Studio, Live DB features, the Mock Server, the REST Load ' +
+      'Tester&rsquo;s server engine and the update check.</p>' +
+      '<p>' + esc(window.mtBridgeOfflineHint()) + '</p>' +
+      '<button type="button" class="btn btn-secondary btn-sm" onclick="window.mtCheckBridgeNow()">Check again</button>';
+  }
+  const otel = status.otel || {};
+  const tailed = status.logFile && status.logFile !== 'Not found';
+  const counts = [otel.tracesReceived, otel.logsReceived, otel.metricsReceived].map(n => window.mtFmtInt(n || 0));
+  return '<h4>Bridge online</h4>' +
+    '<dl>' +
+      '<dt>Version</dt><dd>' + esc(status.version || 'unknown') + '</dd>' +
+      '<dt>Address</dt><dd>http://localhost:9999</dd>' +
+      '<dt>OTLP receiver</dt><dd>port ' + esc(String(otel.port || '')) + ' &middot; ' + counts[0] + ' traces, ' +
+        counts[1] + ' logs, ' + counts[2] + ' metrics</dd>' +
+      '<dt>Log tail</dt><dd>' + (tailed
+        ? esc(status.logFile) + ' &middot; ' + window.mtFmtInt(status.logLinesCount || 0) + ' lines buffered'
+        : 'no file &mdash; <button type="button" class="btn btn-ghost btn-xs" onclick="window.mtCloseBridgePopover(); window.navigate(\'telemetry-monitor\', null)">set one in Metrics &amp; Telemetry</button>') +
+      '</dd>' +
+    '</dl>';
+}
+
+function mtRenderBridgePopover() {
+  const pop = document.getElementById('bridge-popover');
+  if (pop && pop.style.display !== 'none') pop.innerHTML = mtBridgePopoverHtml(mtBridgeLastStatus);
+}
+
+function mtCloseBridgePopover(returnFocus) {
+  const pop = document.getElementById('bridge-popover');
+  const btn = document.getElementById('global-bridge-status');
+  if (!pop || pop.style.display === 'none') return;
+  pop.style.display = 'none';
+  if (btn) {
+    btn.setAttribute('aria-expanded', 'false');
+    if (returnFocus) btn.focus();
+  }
+}
+
+function mtToggleBridgePopover() {
+  const pop = document.getElementById('bridge-popover');
+  const btn = document.getElementById('global-bridge-status');
+  if (!pop || !btn) return;
+  if (pop.style.display !== 'none') { mtCloseBridgePopover(false); return; }
+  pop.style.display = '';
+  btn.setAttribute('aria-expanded', 'true');
+  mtRenderBridgePopover();
+}
+
+// Escape and a press anywhere outside close it. Registered once; both are no-ops
+// while it is closed.
+document.addEventListener('keydown', e => { if (e.key === 'Escape') mtCloseBridgePopover(true); });
+document.addEventListener('mousedown', e => {
+  const wrap = document.querySelector('.bridge-wrap');
+  if (wrap && !wrap.contains(e.target)) mtCloseBridgePopover(false);
+});
+
+window.mtBridgePopoverHtml = mtBridgePopoverHtml;
+window.mtToggleBridgePopover = mtToggleBridgePopover;
+window.mtCloseBridgePopover = mtCloseBridgePopover;
+window.mtCheckBridgeNow = () => checkBridgeStatus();
+
 async function checkBridgeStatus() {
   const dot = document.getElementById('global-bridge-dot');
   const txt = document.getElementById('global-bridge-text');
@@ -833,6 +906,8 @@ async function checkBridgeStatus() {
     if (res.ok) {
       const status = await res.json();
       if (status && status.token) window.BRIDGE_TOKEN = status.token;
+      mtBridgeLastStatus = status;
+      mtRenderBridgePopover();
       dot.style.background = 'var(--success)';
       dot.style.boxShadow = '0 0 5px var(--success)';
       setBridgeText(txt, 'Bridge Online');
@@ -845,6 +920,8 @@ async function checkBridgeStatus() {
     dot.style.background = 'var(--danger)';
     dot.style.boxShadow = '0 0 5px var(--danger)';
     setBridgeText(txt, 'Bridge Offline');
+    mtBridgeLastStatus = null;
+    mtRenderBridgePopover();
     const dsBridgeInstruction = document.getElementById('ds-troubleshoot-bridge');
     if (dsBridgeInstruction) dsBridgeInstruction.style.display = 'list-item';
   }

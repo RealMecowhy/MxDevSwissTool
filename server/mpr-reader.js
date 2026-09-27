@@ -440,7 +440,16 @@ async function mprLoad(mprPath) {
   loadCache.clear();
   loadCache.set(mprPath, entry);
   entry.promise.then(
-    function () { entry.doneAt = Date.now(); },
+    function () {
+      entry.doneAt = Date.now();
+      // The TTL used to be checked only on the next read, so a project opened
+      // once stayed in memory for the life of the Bridge — ~340 MB of heap for
+      // a 175 MB .mpr (measured). Dropped when the TTL runs out instead; unref'd
+      // so the timer never keeps the process alive.
+      setTimeout(function () {
+        if (loadCache.get(mprPath) === entry) loadCache.delete(mprPath);
+      }, LOAD_CACHE_TTL_MS).unref();
+    },
     function () { if (loadCache.get(mprPath) === entry) loadCache.delete(mprPath); }
   );
   return entry.promise;

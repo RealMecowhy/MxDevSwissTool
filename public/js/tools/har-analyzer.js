@@ -273,8 +273,8 @@ function harRender(d) {
   document.getElementById('har-results').style.display = 'flex';
 
   // Stat cards
-  document.getElementById('har-stat-total').textContent = d.total.toLocaleString();
-  document.getElementById('har-stat-xas').textContent = d.xasCount.toLocaleString();
+  document.getElementById('har-stat-total').textContent = window.mtFmtInt(d.total);
+  document.getElementById('har-stat-xas').textContent = window.mtFmtInt(d.xasCount);
   document.getElementById('har-stat-time').textContent = (d.xasTime / 1000).toFixed(1) + ' s';
   document.getElementById('har-stat-bytes').textContent = harFormatBytes(d.xasBytes);
 

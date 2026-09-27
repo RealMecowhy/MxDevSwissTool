@@ -66,6 +66,29 @@ function isNoise(text) {
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// Visible text fields whose accessible name is missing or comes only from the
+// placeholder. Each is looked up through a marker attribute because the CDP
+// session is not the page's own, so element handles cannot be passed across.
+async function fieldsWithoutName(page, cdp) {
+  const bad = [];
+  const handles = await page.$$('input:not([type=hidden]):not([type=checkbox]):not([type=radio])' +
+    ':not([type=file]):not([type=range]):not([type=button]), select, textarea');
+  for (const h of handles) {
+    const info = await h.evaluate(e => ({ id: e.id, tag: e.tagName.toLowerCase(),
+      visible: e.checkVisibility({ visibilityProperty: true }) }));
+    if (!info.visible) continue;
+    await h.evaluate(e => e.setAttribute('data-ax-probe', ''));
+    const { root } = await cdp.send('DOM.getDocument', { depth: 0 });
+    const { nodeId } = await cdp.send('DOM.querySelector', { nodeId: root.nodeId, selector: '[data-ax-probe]' });
+    const ax = await cdp.send('Accessibility.getPartialAXTree', { nodeId, fetchRelatives: false });
+    await h.evaluate(e => e.removeAttribute('data-ax-probe'));
+    const name = (ax.nodes[0] || {}).name;
+    const src = name && name.sources ? name.sources.find(s => s.value && s.value.value && !s.superseded) : null;
+    if (!name || !name.value || (src && src.attribute === 'placeholder')) bad.push(info.tag + '#' + (info.id || '?'));
+  }
+  return bad;
+}
+
 // One synthetic log that feeds four tools, so the cross-links have something to
 // jump with: a microflow execution, the SQL inside it, a REST call, and an ERROR
 // the decoder recognizes — all sharing one correlation ID.
@@ -154,6 +177,10 @@ async function run() {
       try { localStorage.setItem('mt-welcome-seen', '1'); } catch (e) {}
     });
     page.on('pageerror', e => errors.push('[' + currentTool + '] ' + e.message));
+    // A native confirm()/alert() would block the page; recorded and dismissed so
+    // the run continues and the assertion below can name it.
+    const nativeDialogs = [];
+    page.on('dialog', d => { nativeDialogs.push(d.type() + ': ' + d.message()); d.dismiss(); });
     page.on('console', m => {
       if (m.type() === 'error' && !isNoise(m.text())) errors.push('[' + currentTool + '] console: ' + m.text());
     });
@@ -175,6 +202,9 @@ async function run() {
     ok('the sidebar lists the full tool set (' + tools.length + ')', tools.length >= 30, tools.length);
 
     const emptyPanels = [];
+    const unnamedFields = [];
+    const axSession = await page.target().createCDPSession();
+    await axSession.send('DOM.enable'); await axSession.send('Accessibility.enable');
     for (const id of tools) {
       currentTool = id;
       await page.evaluate(t => {
@@ -193,9 +223,73 @@ async function run() {
         };
       }, id);
       if (state.missing || !state.visible || state.text < 20) emptyPanels.push(id + ' ' + JSON.stringify(state));
+      (await fieldsWithoutName(page, axSession)).forEach(f => unnamedFields.push(id + ' ' + f));
     }
     currentTool = 'after tool sweep';
     ok('every tool renders a non-empty panel', emptyPanels.length === 0, emptyPanels.join(' · '));
+    // Review UX-01: a field named only by its placeholder loses that name the
+    // moment something is typed, and one with no name at all is read as "edit
+    // text". The name is taken from Chromium's accessibility tree, not guessed.
+    ok('every visible form field has an accessible name that is not just its placeholder',
+      unnamedFields.length === 0, unnamedFields.length + ': ' + unnamedFields.slice(0, 40).join(' · '));
+
+    // Review UX-06: the tool name is the page's one heading and the tab title, so
+    // a switch of tool is announced and heading navigation has somewhere to land.
+    await page.evaluate(() => window.navigate('log-viewer', null));
+    await sleep(200);
+    const heading = await page.evaluate(() => {
+      const h = document.querySelectorAll('h1');
+      return { count: h.length, text: h[0] ? h[0].textContent.trim() : '', title: document.title };
+    });
+    eq('exactly one <h1> on a tool page', heading.count, 1);
+    eq('the <h1> is the tool name', heading.text, 'Mendix Log Viewer');
+    ok('the browser tab title names the tool', /^Mendix Log Viewer — /.test(heading.title), heading.title);
+    // Every tab strip is exposed as tabs, and the selected one follows the click
+    // even in tools that never set aria-selected themselves.
+    const tabsA11y = await page.evaluate(() => {
+      const bad = [];
+      document.querySelectorAll('.tabs').forEach(list => {
+        const tabs = list.querySelectorAll(':scope > .tab');
+        if (!tabs.length) return;
+        if (list.getAttribute('role') !== 'tablist') bad.push('tablist ' + (list.id || list.parentElement.id || '?'));
+        tabs.forEach(t => {
+          if (t.getAttribute('role') !== 'tab') bad.push('tab ' + t.textContent.trim());
+          if (t.getAttribute('aria-selected') !== String(t.classList.contains('active'))) bad.push('selected ' + t.textContent.trim());
+        });
+      });
+      return bad;
+    });
+    ok('every tab strip is a tablist with role=tab and aria-selected', tabsA11y.length === 0, tabsA11y.slice(0, 15).join(' · '));
+    const csSelected = await page.evaluate(async () => {
+      window.navigate('char-sanitizer', null);
+      document.getElementById('cs-tab-stats').click();
+      await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+      return document.getElementById('cs-tab-stats').getAttribute('aria-selected') + '/' +
+             document.getElementById('cs-tab-inspector').getAttribute('aria-selected');
+    });
+    eq('aria-selected follows a tab click', csSelected, 'true/false');
+    // Review UX-02 / Q5: counts read en-US whatever the machine's locale.
+    eq('mtFmtInt groups digits the en-US way', await page.evaluate(() => window.mtFmtInt(48499)), '48,499');
+
+    // Duplicate ids (review BUG-08): getElementById returns the first, so the
+    // second panel's controls silently drive the first — the SQL Formatter's
+    // Split/Raw/Result toggled the OQL Translator's panes instead of its own.
+    const dupIds = await page.evaluate(() => {
+      const seen = {}, dup = [];
+      document.querySelectorAll('[id]').forEach(el => { if (seen[el.id]) dup.push(el.id); seen[el.id] = true; });
+      return [...new Set(dup)];
+    });
+    ok('no element id is used twice', dupIds.length === 0, dupIds.join(', '));
+    const sqlfRaw = await page.evaluate(() => {
+      window.navigate('sql-formatter', null);
+      const btn = [...document.querySelectorAll('#panel-sql-formatter .btn-group .btn')].find(b => b.textContent.trim() === 'Raw');
+      btn.click();
+      const panes = document.getElementById('sqlf-split').children;
+      const shown = [...panes].filter(p => getComputedStyle(p).display !== 'none').length;
+      [...document.querySelectorAll('#panel-sql-formatter .btn-group .btn')].find(b => b.textContent.trim() === 'Split').click();
+      return shown;
+    });
+    eq('SQL Formatter Raw view shows one pane of its own split', sqlfRaw, 1);
 
     // ── The heavy vendors arrive only when a tool that needs them is opened ──
     console.log('\nVendors load on demand');
@@ -223,6 +317,177 @@ async function run() {
     // parsers hand off to a worker above 2 MB and finish whenever they finish.
     await page.evaluate(t => { window.navigate('log-viewer', null); window.logLoadText(t, 'smoke.log'); }, LOG);
     await page.waitForFunction(() => document.querySelectorAll('#log-container .log-row').length > 0, { timeout: 20000 });
+
+    // Review UX-07: the time range is a native time field, so "9:00" can no longer
+    // be typed and silently filter everything out; and an "HH:MM" bound (what the
+    // field reports when the seconds are zero) still includes that minute's first
+    // second rather than cutting it off as a plain text comparison would.
+    const lvTime = await page.evaluate(async () => {
+      const from = document.getElementById('log-time-from'), to = document.getElementById('log-time-to');
+      const rowsUpTo = async v => {
+        to.value = v; to.dispatchEvent(new Event('input', { bubbles: true }));
+        await new Promise(r => setTimeout(r, 50));
+        return document.querySelectorAll('#log-container .log-row').length;
+      };
+      const full = await rowsUpTo('10:00:00'), short = await rowsUpTo('10:00');
+      await rowsUpTo('');
+      return { type: from.type + '/' + to.type, step: from.step, full: full, short: short };
+    });
+    eq('Log Viewer time bounds are native time fields with seconds', lvTime.type + ' ' + lvTime.step, 'time/time 1');
+    ok('an HH:MM upper bound means HH:MM:00, not "before the minute"', lvTime.full > 0 && lvTime.short === lvTime.full,
+      '10:00 → ' + lvTime.short + ' rows, 10:00:00 → ' + lvTime.full);
+
+    // Incident Report: a malformed window is flagged on the field when the user
+    // leaves it, with the expected format under it — not only by a toast at
+    // Generate — and not while it is still being typed.
+    const irCheck = await page.evaluate(async () => {
+      window.navigate('incident-report', null);
+      const from = document.getElementById('ir-from'), to = document.getElementById('ir-to');
+      const hint = document.getElementById('ir-window-hint');
+      const shown = () => !!hint && getComputedStyle(hint).display !== 'none' && hint.textContent.trim().length > 0;
+      const typing = (el, v) => { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
+      const type = (el, v) => { typing(el, v); el.dispatchEvent(new Event('change', { bubbles: true })); };
+      type(to, ''); typing(from, '2026-0');
+      const midway = from.classList.contains('is-invalid') || shown();
+      type(from, '2026-09-20 9:00');
+      const bad = { invalid: from.classList.contains('is-invalid'), aria: from.getAttribute('aria-invalid'), hint: shown() };
+      // Trailing junk used to pass: the pattern only anchored the start.
+      type(from, '2026-09-20 10:00:002026-09-20 9:00');
+      bad.trailing = from.classList.contains('is-invalid');
+      type(from, '2026-09-20 11:00:00'); type(to, '2026-09-20 10:00:00');
+      const reversed = { invalid: to.classList.contains('is-invalid'), hint: shown() };
+      typing(from, '2026-09-20 09:00:00'); // fixed by a keystroke, before leaving the field
+      const good = { invalid: from.classList.contains('is-invalid') || to.classList.contains('is-invalid'), hint: shown() };
+      type(from, ''); type(to, '');
+      return { midway: midway, bad: bad, reversed: reversed, good: good };
+    });
+    eq('no error while the value is still being typed', irCheck.midway, false);
+    eq('Incident Report marks a malformed start on leaving the field', JSON.stringify(irCheck.bad), '{"invalid":true,"aria":"true","hint":true,"trailing":true}');
+    eq('Incident Report marks an end before the start', JSON.stringify(irCheck.reversed), '{"invalid":true,"hint":true}');
+    eq('a corrected window clears the mark and the hint', JSON.stringify(irCheck.good), '{"invalid":false,"hint":false}');
+    await page.evaluate(() => window.navigate('log-viewer', null));
+
+    // Review UX-05: no native confirm() anywhere — it blocks the page and ignores
+    // the theme. The Data Hub asks before replacing data only in a tool that has
+    // no Undo; the Log Viewer offers Undo itself, so it is not asked twice.
+    await page.evaluate(t => { window.navigate('log-query-extractor', null); window.lqeLoadText(t); }, LOG);
+    await page.waitForFunction(() => window.lqeHasData(), { timeout: 20000 });
+    await page.evaluate(() => window.navigate('microflow-tracer', null));
+    const hubCheck = await page.evaluate(async t => {
+      const dialogOpen = () => !!document.querySelector('#mt-confirm.modal-overlay.active');
+      window.mtHub.setSource({ name: 'other.log', size: t.length, text: t, origin: 'microflow-tracer' });
+      const r = { lqeHasData: window.lqeHasData() };
+      window.mtHub.openIn('log-viewer');
+      await new Promise(res => setTimeout(res, 50));
+      r.askedForLogViewer = dialogOpen();
+      const pending = window.mtHub.openIn('log-query-extractor');
+      await new Promise(res => setTimeout(res, 50));
+      r.askedForLqe = dialogOpen();
+      const cancel = document.querySelector('#mt-confirm [data-mt-confirm="cancel"]');
+      if (cancel) cancel.click();
+      r.result = await pending;
+      r.stayed = window.currentTool;
+      return r;
+    }, LOG);
+    eq('Data Hub: the query extractor has data to protect', hubCheck.lqeHasData, true);
+    eq('Data Hub: no question before loading into the Log Viewer (it offers Undo)', hubCheck.askedForLogViewer, false);
+    eq('Data Hub: an in-app question before replacing data in a tool without Undo', hubCheck.askedForLqe, true);
+    eq('Data Hub: Cancel keeps the user where they were', hubCheck.result + ' ' + hubCheck.stayed, 'false log-viewer');
+    const escResult = await page.evaluate(async () => {
+      const p = window.mtConfirm('Proceed?', { confirmLabel: 'Go' });
+      await new Promise(r => setTimeout(r, 50));
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      return [await p, !!document.querySelector('#mt-confirm.modal-overlay.active')];
+    });
+    eq('mtConfirm: Escape answers no and closes the dialog', JSON.stringify(escResult), '[false,false]');
+    eq('no native browser dialog was opened', nativeDialogs.join(' | '), '');
+
+    // Review UX-08: the bridge indicator is a control. Offline it says what the
+    // bridge is for and how to start it; online, what it is doing.
+    const bridgePop = await page.evaluate(async () => {
+      const btn = document.getElementById('global-bridge-status');
+      const pop = () => document.getElementById('bridge-popover');
+      const open = () => !!pop() && getComputedStyle(pop()).display !== 'none';
+      const tick = () => new Promise(r => setTimeout(r, 30));
+      const r = { tag: btn.tagName, expanded0: btn.getAttribute('aria-expanded'), controls: btn.getAttribute('aria-controls') };
+      btn.click(); await tick();
+      r.opened = open(); r.expanded1 = btn.getAttribute('aria-expanded');
+      r.offlineText = open() ? pop().textContent : '';
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await tick();
+      r.escClosed = !open(); r.focusBack = document.activeElement === btn;
+      btn.click(); await tick();
+      document.getElementById('main').dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); await tick();
+      r.outsideClosed = !open();
+      const base = { status: 'online', version: '9.9.9', logLinesCount: 12,
+        otel: { port: 4318, tracesReceived: 1, logsReceived: 2, metricsReceived: 3 } };
+      r.online = window.mtBridgePopoverHtml(Object.assign({ logFile: 'C:/logs/app.log' }, base));
+      r.untailed = window.mtBridgePopoverHtml(Object.assign({ logFile: 'Not found' }, base));
+      r.hostile = window.mtBridgePopoverHtml(Object.assign({ logFile: 'C:/x/<img src=x onerror=alert(1)>.log' }, base));
+      return r;
+    });
+    eq('bridge indicator is a disclosure button', [bridgePop.tag, bridgePop.expanded0, bridgePop.controls].join(' '), 'BUTTON false bridge-popover');
+    eq('clicking it opens the popover', bridgePop.opened + ' ' + bridgePop.expanded1, 'true true');
+    ok('offline: says how to start the bridge and what needs it',
+      /Start-MxDevSwissTool\.bat/.test(bridgePop.offlineText) && /Developer Studio/.test(bridgePop.offlineText) && /Check again/.test(bridgePop.offlineText),
+      bridgePop.offlineText.slice(0, 200));
+    eq('Escape closes it and returns focus to the indicator', bridgePop.escClosed + ' ' + bridgePop.focusBack, 'true true');
+    eq('a click elsewhere closes it', bridgePop.outsideClosed, true);
+    ok('online: version, port and the tailed file', /9\.9\.9/.test(bridgePop.online) && /4318/.test(bridgePop.online) && /app\.log/.test(bridgePop.online), bridgePop.online.slice(0, 300));
+    ok('online, nothing tailed: points to where a file is set', /Metrics &amp; Telemetry|Metrics & Telemetry/.test(bridgePop.untailed), bridgePop.untailed.slice(0, 300));
+    ok('the tailed path is escaped', !/<img/.test(bridgePop.hostile), bridgePop.hostile.slice(0, 300));
+
+    // Review UX-09: one database connection for the whole app. Metrics & Telemetry
+    // had its own five fields, so the same credentials were typed twice and the
+    // tool never knew Live DB was already set up elsewhere.
+    const dbShared = await page.evaluate(async () => {
+      const r = {};
+      window.navigate('log-query-extractor', null);
+      const lqeHost = document.querySelector('#lqe-livedb-bar input[data-f="host"]');
+      lqeHost.value = 'db.example.test'; lqeHost.dispatchEvent(new Event('input', { bubbles: true }));
+      window.navigate('telemetry-monitor', null);
+      await new Promise(res => setTimeout(res, 100));
+      const panel = document.getElementById('panel-telemetry-monitor');
+      r.ownFields = ['tm-pg-host', 'tm-pg-port', 'tm-pg-dbname', 'tm-pg-user', 'tm-pg-pass'].filter(id => document.getElementById(id)).length;
+      const tmHost = panel.querySelector('[data-mt-db-connection] input[data-f="host"]');
+      r.sharedBar = !!tmHost;
+      r.tmHost = tmHost ? tmHost.value : null;
+      // What the stats request actually sends.
+      const realFetch = window.fetch;
+      let sent = null;
+      window.fetch = (url, opts) => { if (/\/postgres$/.test(url)) sent = JSON.parse(opts.body); return Promise.reject(new Error('stubbed')); };
+      try { window.tmFetchAgentPostgres('http://localhost:9999', true); } finally { window.fetch = realFetch; }
+      r.sentHost = sent && sent.host;
+      lqeHost.value = 'localhost'; lqeHost.dispatchEvent(new Event('input', { bubbles: true }));
+      return r;
+    });
+    eq('Telemetry has no connection fields of its own', dbShared.ownFields, 0);
+    eq('Telemetry mounts the shared Live DB bar', dbShared.sharedBar, true);
+    eq('a host typed in one Live DB bar shows in the others', dbShared.tmHost, 'db.example.test');
+    eq('Telemetry\'s PostgreSQL stats use the shared connection', dbShared.sentHost, 'db.example.test');
+
+    // Review UX-10 / decision Q9: WASM Profiler is gone, and API Economics sits in
+    // Data & Format next to the JSON Formatter instead of a section of its own.
+    const ia = await page.evaluate(async () => {
+      const r = { wasmPanel: !!document.getElementById('panel-wasm-profiler') };
+      window.navigate('wasm-profiler', null);
+      await new Promise(res => setTimeout(res, 50));
+      r.wasmFallsBackHome = window.currentTool;
+      const api = document.querySelector('.nav-item[data-tool="api-economics"]');
+      let label = api.previousElementSibling;
+      while (label && !label.classList.contains('nav-section-label')) label = label.previousElementSibling;
+      r.apiSection = label && label.textContent.trim();
+      const prev = api.previousElementSibling;
+      r.apiAfter = prev && prev.getAttribute('data-tool');
+      r.sidebarLabels = Array.from(document.querySelectorAll('.nav-section-label')).map(e => e.textContent.trim());
+      r.homeHeaders = Array.from(document.querySelectorAll('#home-view .home-section-header, #panel-home .home-section-header')).map(e => e.textContent.trim());
+      return r;
+    });
+    eq('WASM Profiler has no panel', ia.wasmPanel, false);
+    eq('a stale link to WASM Profiler lands on Home', ia.wasmFallsBackHome, 'home');
+    eq('API Economics is in Data & Format', ia.apiSection, 'Data & Format');
+    eq('API Economics follows the JSON Formatter', ia.apiAfter, 'json-formatter');
+    ok('no one-tool "Analytics & Estimation" section in the sidebar or on Home',
+      !ia.sidebarLabels.concat(ia.homeHeaders).some(t => /Analytics/.test(t)), ia.sidebarLabels.concat(ia.homeHeaders).join(' · '));
 
     await page.evaluate(t => { window.navigate('microflow-tracer', null); window.mftLoadText(t); }, LOG);
     await page.waitForFunction(() => document.querySelectorAll('#mft-list .mft-list-item').length > 0, { timeout: 20000 });
@@ -465,6 +730,44 @@ async function run() {
       foreignRows[1].indexOf('2026-08-11T02:06:59.500000') !== -1, foreignRows[1]);
     ok('the java.util.logging line lands under External as a WARN',
       /External/.test(foreignRows[2]) && /WARN/.test(foreignRows[2]), foreignRows[2]);
+
+    // A .gz that inflates past the cap stops with advice instead of taking the
+    // tab down (review BUG-19). Built in the page; a small cap stands in for 512 MB.
+    console.log('\nLog Viewer .gz cap');
+    const gzCap = await page.evaluate(async () => {
+      const gz = await new Response(new Blob([new Uint8Array(64 * 1024)]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
+      const file = new File([gz], 'huge.log.gz');
+      let refused = null, full = null;
+      try { await window.logReadFileText(file, 1024); } catch (e) { refused = e.message; }
+      full = (await window.logReadFileText(file, 1024 * 1024)).length;
+      return { refused, full };
+    });
+    ok('a .gz that expands past the cap is refused with advice', /too large for one browser tab/.test(gzCap.refused || ''), gzCap.refused);
+    eq('...and under the cap it reads in full', gzCap.full, 64 * 1024);
+    // The same cap in the Excel Converter, checked in a browser because that is
+    // where an error inside a stream pipe used to lose its message.
+    const xlsCap = await page.evaluate(async () => {
+      const raw = new Uint8Array(await new Response(new Blob([new Uint8Array(64 * 1024)]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer());
+      try { await window.xlsInflateRaw(raw, 1024); return 'not refused'; } catch (e) { return e.message; }
+    });
+    ok('an .xlsx part that expands past the cap is refused with advice', /too large to open/.test(xlsCap), xlsCap);
+
+    // REST Load Tester preset (review BUG-13): it is stored in localStorage and
+    // exported by Backup Settings, so a credential typed into Headers must not be.
+    console.log('\nLoad Tester preset');
+    currentTool = 'perf-lab';
+    const preset = await page.evaluate(() => {
+      window.navigate('perf-lab', null);
+      document.getElementById('pl-url').value = 'http://localhost:8080/rest/orders/v1';
+      document.getElementById('pl-headers').value = '{"Authorization": "Bearer smoke-secret", "X-Api-Key": "k-smoke", "Content-Type": "application/json"}';
+      window.plSavePreset();
+      const stored = localStorage.getItem('perfLabPreset') || '';
+      localStorage.removeItem('perfLabPreset');
+      return { stored: stored, box: document.getElementById('pl-headers').value };
+    });
+    ok('a saved preset holds no header secret', preset.stored.indexOf('smoke-secret') === -1 && preset.stored.indexOf('k-smoke') === -1, preset.stored.slice(0, 200));
+    ok('...keeps the header names and the harmless values', /Authorization/.test(preset.stored) && /application\/json/.test(preset.stored));
+    ok('...and leaves the form itself untouched', preset.box.indexOf('smoke-secret') !== -1);
 
     // Correlation Flow: the list has to be discoverable, and picking a row has to
     // render the flow (wave 20, C5). Help promised this list for a year before it

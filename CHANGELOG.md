@@ -3,7 +3,7 @@
 Every version of MxDev Swiss Tool, newest first.
 
 This records what the [GitHub Releases](https://github.com/RealMecowhy/MxDevSwissTool/releases)
-page cannot: **21 of these versions were never published as releases.** They
+page cannot: **23 of these versions were never published as releases.** They
 shipped as commits — most of `v1.19.0`–`v1.30.0` was written offline over four
 days in late July and reached users in one batch. Those are marked *(no release
 published)*: the feature is in the tool, there is simply no ZIP carrying that
@@ -11,6 +11,154 @@ number. Anyone reading the Releases page alone sees a jump from v1.18.1 straight
 to v1.30.1 with eleven versions' worth of work unaccounted for.
 
 Dates are release dates where a release exists, commit dates otherwise.
+
+---
+
+## v1.68.0 — 2026-09-27
+
+**One wave of accessibility and consistency: every field has a name, every number
+reads the same, and no browser dialog is left.** This release also carries
+v1.66.0 and v1.67.0, which were never published on their own.
+
+### Accessibility
+
+- **Form fields had no name a screen reader could read.** Of 102 fields visible
+  across the tools, 41 had no accessible name at all ("edit text") and 51 were
+  named only by their placeholder, which disappears as soon as you type. Every
+  field now takes its name from the caption next to it; the 13 with no caption
+  got one. A browser test fails if a visible field is ever unnamed again.
+- **The tool name is the page heading** (`<h1>`), and the browser tab carries it
+  too (*Mendix Log Viewer — MxDev Swiss Tool*), so a tool switch is announced and
+  the history is readable.
+- **Tab strips are exposed as tabs.** None of the 20 strips had the roles, so the
+  selected state most tools already set was ignored by screen readers.
+- **No text below 11.5 px.** 34 places were set between 9.3 and 10.9 px — the Data
+  Factory step labels among them. The smallest size is now one token, and a test
+  fails on anything smaller.
+
+### Changed
+
+- **Numbers read the same everywhere:** `48,499`. The Nginx Analyzer wrote
+  `48 499`, the REST Load Tester grouped with spaces, and eight other tools
+  followed the machine's locale — so one report could show three formats.
+- **Log Viewer time range uses time fields** (hours, minutes, seconds). `9:00`
+  can no longer be typed and silently hide every line; an unfinished entry
+  filters nothing.
+- **Incident Report checks its time window on the field.** A value that does not
+  fit `YYYY-MM-DD HH:MM:SS`, or an end before the start, is marked when you leave
+  the field, with what it expects written underneath — not only by a message at
+  *Generate*, and a reversed window no longer produces an empty report.
+- **In-app confirmation instead of the browser's `confirm()`.** Buttons say what
+  they do (*Replace*, *Draw all*). The Data Hub now asks only before replacing
+  data in a tool that has no Undo; the Log Viewer is not asked twice — it offers
+  *Undo* after the replace.
+- **The Bridge indicator opens a panel.** Offline: what works without the bridge,
+  what needs it and how to start it. Online: version, the OTLP receiver and which
+  log file is being tailed. The label no longer wraps on narrow windows.
+- **Metrics & Telemetry uses the shared Live database connection.** Its own five
+  fields are gone: connect once — in the Query Extractor, Index Advisor,
+  Architecture, Data Factory or here — and it is filled in everywhere. A
+  successful *Connect* loads the PostgreSQL stats straight away.
+- **API Economics moved to Data & Format**, next to the JSON Formatter, instead of
+  a section of its own.
+
+### Fixed
+
+- **A host typed in one Live database bar did not show in the others** until the
+  connection status changed.
+- **Incident Report accepted trailing text in a date** —
+  `2026-09-20 10:00:002026-09-20 9:00` was read as its first 19 characters.
+- **A log line appended just after the bridge started tailing a file could be
+  lost**: the initial read of the file's last lines replaced the buffer when it
+  finished, dropping anything read in the meantime. It also read one byte past
+  the end it had measured.
+
+### Removed
+
+- **WASM Profiler.** It was hidden from the sidebar and Home and reachable only
+  through search — a tool nobody could find is not worth keeping. A saved link
+  to it opens Home.
+
+---
+
+## v1.67.0 — 2026-09-27 *(no release published)*
+
+**What the tool keeps, what it may hit, and how much it will hold.**
+
+### Security
+
+- **REST Load Tester presets stored header secrets.** *Save preset* wrote the
+  Headers box verbatim into browser storage — and *Backup Settings* exports that
+  storage to a file. Values of credential headers (`Authorization`, `Cookie`,
+  anything named like a token, secret, API key or password) are now saved as
+  `***`; the names stay, so the preset shows what to fill in again. The form itself
+  is not touched. The Backup dialog now says the saved request is in the file.
+- **A load test against your own network needed no confirmation.** Only external
+  hosts asked for the *I am authorized to load-test this target* tick, so 200
+  threads could go to a `10.x` or `192.168.x` server — typically a shared test or
+  acceptance system — with one click. Now only this machine (`localhost`,
+  `127.x`) runs without the tick. The thread ceilings are unchanged.
+
+### Fixed
+
+- **The REST Load Tester defaulted to the browser engine** even with the bridge
+  running, and a browser-engine run against another origin fails on every request,
+  because a Mendix REST service sends no CORS headers — which reads as a dead
+  server. With the bridge online the bridge engine is now the default, and a
+  browser-engine run against another origin warns first, offering *Use the Bridge*
+  or *Run in browser anyway*.
+- **A `.mpr` project stayed in memory for the life of the bridge.** The one-minute
+  cache TTL was checked only on the next read, so opening a large project once kept
+  it: ~340 MB of heap for a 175 MB `.mpr` (measured), still held a minute later. It
+  is now dropped when the TTL runs out — 4 MB of heap left after the same minute.
+- **A `.gz` log or an `.xlsx` workbook could take the tab down.** Neither checked
+  how much it inflated to; a 30 MB download of plain text can be 600 MB. Both now
+  count bytes as they decompress and stop at 512 MB with advice (split the file, or
+  export a narrower range) instead of the tab dying.
+
+---
+
+## v1.66.0 — 2026-09-22 *(no release published)*
+
+**Features that looked alive and were not, and a test that catches the next one.**
+
+### Removed
+
+- **The OData Builder's *Test* button.** It called a bridge route that had been
+  removed months earlier, so every click failed — while four test suites stayed
+  green, because each side was tested and the seam between them was not. *Copy URL*
+  plus the REST Load Tester do the same job properly. A new check in the smoke test
+  reads every bridge path the frontend calls and fails if the bridge does not serve
+  it; it was red on this button before the removal.
+
+### Fixed
+
+- **The Telemetry log path field was ignored.** It was read and then never sent, so
+  the live tail only ever looked for a log in the bridge's own folder — where none
+  exists. The path you enter is now what the bridge tails (a new `POST /logs/watch`:
+  absolute path, an existing `.log` or `.txt` file). Left empty, the tool says so
+  instead of showing *Not found*. Worth knowing: a local run in Studio Pro logs to the
+  Console, not to a file — none of the 13 local projects checked had one — so the
+  tail is for on-premises logs, file log subscribers and logs copied from a server.
+- **The SQL Formatter's *Split / Raw / Result* switched the wrong panel.** Its
+  container shared an id with the OQL Translator's, so the buttons acted on the
+  Translator. The browser smoke test now fails on any duplicated id.
+- **Bridge errors reported success.** `sendError` defaulted to HTTP 200, so a failed
+  database query looked fine to anything checking the status. Errors are now 500 by
+  default, 502 when the database or an upstream fails, 503 when the optional `pg`
+  module is missing. Developer Studio reads the message out of the error instead of
+  showing a bare *DB Query failed*. An oversized request now actually receives its
+  413 — the socket used to be torn down before the answer was written.
+- **Telemetry kept polling a database that did not answer**, every 8 seconds, for as
+  long as the tab stayed open. A failed background refresh now pauses and says so;
+  *Connect & Refresh* resumes it. Database error messages are escaped before display.
+- **"Start it with `npm run bridge`"** — six messages named a script that
+  `package.json` never had. They now share one wording: start
+  `Start-MxDevSwissTool.bat`, or `npm start` from the tool folder.
+- **The welcome tour promised "25+ tools".** The number now comes from the tool
+  registry.
+- The update checker addressed the bridge with relative URLs, which failed under the
+  Vite dev server; it now uses the bridge's address like the rest of the app.
 
 ---
 

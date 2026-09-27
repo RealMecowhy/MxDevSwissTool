@@ -584,10 +584,10 @@ async function nginxAggregateAndRender() {
   // Who the 404s belong to — scanners, browser conventions, or your own app.
   const traffic = nginxClassifyTraffic(filteredLogs);
 
-  document.getElementById('nx-total-reqs').textContent = stats.total.toLocaleString('pl-PL');
-  document.getElementById('nx-unique-ips').textContent = Object.keys(stats.ips).length.toLocaleString('pl-PL');
+  document.getElementById('nx-total-reqs').textContent = window.mtFmtInt(stats.total);
+  document.getElementById('nx-unique-ips').textContent = window.mtFmtInt(Object.keys(stats.ips).length);
   document.getElementById('nx-bandwidth').textContent = nginxFormatBytes(stats.bytes);
-  document.getElementById('nx-errors').textContent = stats.errors.toLocaleString('pl-PL');
+  document.getElementById('nx-errors').textContent = window.mtFmtInt(stats.errors);
   document.getElementById('nx-success-rate').textContent = window.nginxParsedLogs.length > 0 ? Math.round((stats.total / window.nginxParsedLogs.length) * 100) + '%' : '0%';
   
   const sortedHours = Object.entries(stats.hours).sort((a,b) => a[0].localeCompare(b[0]));
@@ -610,7 +610,7 @@ async function nginxAggregateAndRender() {
         <div style="flex:1;background:var(--bg-elevated);border-radius:2px;height:12px;overflow:hidden">
           <div style="height:100%;background:${color};width:${Math.max(1, p)}%"></div>
         </div>
-        <div style="width:35px;text-align:right">${count.toLocaleString('pl-PL')}</div>
+        <div style="width:35px;text-align:right">${window.mtFmtInt(count)}</div>
       </div>
     `;
   });
@@ -678,7 +678,7 @@ async function nginxAggregateAndRender() {
 
     trHtml += `<td style="${keyStyle}" title="${esc(k)}" ${clickAttr}>${esc(k)}</td>`;
     if (isIp) trHtml += `<td style="padding:4px 8px" id="nx-geo-${i}">Loading...</td>`;
-    trHtml += `<td style="padding:4px 8px">${c.toLocaleString('pl-PL')}</td>`;
+    trHtml += `<td style="padding:4px 8px">${window.mtFmtInt(c)}</td>`;
     if (total) trHtml += `<td style="padding:4px 8px">${((c/total)*100).toFixed(1)}%</td>`;
     trHtml += `</tr>`;
     return trHtml;
@@ -716,14 +716,14 @@ async function nginxAggregateAndRender() {
   const urlUniqueIps = nginxUniqueIpsPerUrl(filteredLogs);
   document.getElementById('nx-url-table').querySelector('tbody').innerHTML = topUrls.map(([url, c]) => {
     const uniqueIps = urlUniqueIps[url] || 0;
-    return `<tr><td style="padding:4px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--info);text-decoration:underline" title="${esc(url)}" onclick="nginxSetFilter('url', ${jsArg(url)})">${esc(url)}</td><td style="padding:4px 8px">${c.toLocaleString('pl-PL')}</td><td style="padding:4px 8px">${((c / stats.total) * 100).toFixed(1)}%</td><td style="padding:4px 8px">${uniqueIps.toLocaleString('pl-PL')}</td></tr>`;
+    return `<tr><td style="padding:4px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--info);text-decoration:underline" title="${esc(url)}" onclick="nginxSetFilter('url', ${jsArg(url)})">${esc(url)}</td><td style="padding:4px 8px">${window.mtFmtInt(c)}</td><td style="padding:4px 8px">${((c / stats.total) * 100).toFixed(1)}%</td><td style="padding:4px 8px">${window.mtFmtInt(uniqueIps)}</td></tr>`;
   }).join('');
   // 404s, split by whose fault they are. The app-owned ones come first: they are
   // the only bucket the developer can fix, and on a public app they are heavily
   // outnumbered by scanner probes, which is exactly how they used to get missed.
   const n404Row = (p, tag, tagColor) =>
     `<tr><td style="padding:4px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--info);text-decoration:underline" title="${window.escHtml(p.path)} — ${window.escHtml(p.reason)}" onclick="nginxSetFilter('url', ${jsArg(p.path)})">${window.escHtml(p.path)}</td>` +
-    `<td style="padding:4px 8px"><span style="color:${tagColor};font-size:0.7rem;text-transform:uppercase;letter-spacing:0.03em">${tag}</span> ${p.hits.toLocaleString('pl-PL')}</td></tr>`;
+    `<td style="padding:4px 8px"><span style="color:${tagColor};font-size:0.7rem;text-transform:uppercase;letter-spacing:0.03em">${tag}</span> ${window.mtFmtInt(p.hits)}</td></tr>`;
   const appPaths = traffic.app.paths.slice(0, 10);
   const fillPaths = traffic.scanner.paths.slice(0, Math.max(0, 10 - appPaths.length));
   let n404Html = '';
@@ -731,8 +731,8 @@ async function nginxAggregateAndRender() {
     n404Html = '<tr><td colspan="2" style="padding:var(--sp-3);color:var(--text-muted)">No 404s in this selection.</td></tr>';
   } else {
     n404Html += `<tr><td colspan="2" style="padding:6px 8px;background:var(--bg-elevated);font-size:0.72rem;color:var(--text-muted)">` +
-      `${traffic.total404.toLocaleString('pl-PL')} 404s: <strong style="color:var(--danger)">${traffic.app.requests.toLocaleString('pl-PL')} from your own app</strong>, ` +
-      `${traffic.scanner.requests.toLocaleString('pl-PL')} scanner probes, ${traffic.convention.requests.toLocaleString('pl-PL')} browser conventions` +
+      `${window.mtFmtInt(traffic.total404)} 404s: <strong style="color:var(--danger)">${window.mtFmtInt(traffic.app.requests)} from your own app</strong>, ` +
+      `${window.mtFmtInt(traffic.scanner.requests)} scanner probes, ${window.mtFmtInt(traffic.convention.requests)} browser conventions` +
       `</td></tr>`;
     if (!appPaths.length) {
       n404Html += '<tr><td colspan="2" style="padding:6px 8px;color:var(--text-muted)">None of them point at your own app — nothing to fix here.</td></tr>';
@@ -745,16 +745,16 @@ async function nginxAggregateAndRender() {
   document.getElementById('nx-ip-table').querySelector('tbody').innerHTML = toRows(topIps, stats.total, true);
 
   document.getElementById('nx-slow-table').querySelector('tbody').innerHTML = slowestUrls.map(u =>
-    `<tr><td style="padding:4px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--info);text-decoration:underline" title="${esc(u[0])}" onclick="nginxSetFilter('url', ${jsArg(u[0])})">${esc(u[0])}</td><td style="padding:4px 8px">${u[1].toFixed(3)}</td><td style="padding:4px 8px">${u[2].toFixed(3)}</td><td style="padding:4px 8px">${u[3].toFixed(3)}</td><td style="padding:4px 8px">${u[4].toLocaleString('pl-PL')}</td></tr>`
+    `<tr><td style="padding:4px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--info);text-decoration:underline" title="${esc(u[0])}" onclick="nginxSetFilter('url', ${jsArg(u[0])})">${esc(u[0])}</td><td style="padding:4px 8px">${u[1].toFixed(3)}</td><td style="padding:4px 8px">${u[2].toFixed(3)}</td><td style="padding:4px 8px">${u[3].toFixed(3)}</td><td style="padding:4px 8px">${window.mtFmtInt(u[4])}</td></tr>`
   ).join('');
 
   document.getElementById('nx-bw-table').querySelector('tbody').innerHTML = bwHogs.map(u =>
-    `<tr><td style="padding:4px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--info);text-decoration:underline" title="${esc(u[0])}" onclick="nginxSetFilter('url', ${jsArg(u[0])})">${esc(u[0])}</td><td style="padding:4px 8px">${nginxFormatBytes(u[1])}</td><td style="padding:4px 8px">${u[2].toLocaleString('pl-PL')}</td></tr>`
+    `<tr><td style="padding:4px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--info);text-decoration:underline" title="${esc(u[0])}" onclick="nginxSetFilter('url', ${jsArg(u[0])})">${esc(u[0])}</td><td style="padding:4px 8px">${nginxFormatBytes(u[1])}</td><td style="padding:4px 8px">${window.mtFmtInt(u[2])}</td></tr>`
   ).join('');
 
   document.getElementById('nx-bots-table').querySelector('tbody').innerHTML = topBots.length
     ? topBots.map(b =>
-        `<tr><td style="padding:4px 8px;cursor:pointer;color:var(--info);text-decoration:underline" title="${window.escHtml(b.ip)}" onclick="nginxSetFilter('ip', ${jsArg(b.ip)})">${window.escHtml(b.ip)}</td><td style="padding:4px 8px;color:var(--danger)">${window.escHtml(b.reason)}<span style="color:var(--text-muted)"> &middot; ${b.distinctPaths.toLocaleString('pl-PL')} distinct path${b.distinctPaths === 1 ? '' : 's'}</span></td><td style="padding:4px 8px">${b.hits.toLocaleString('pl-PL')}</td></tr>`
+        `<tr><td style="padding:4px 8px;cursor:pointer;color:var(--info);text-decoration:underline" title="${window.escHtml(b.ip)}" onclick="nginxSetFilter('ip', ${jsArg(b.ip)})">${window.escHtml(b.ip)}</td><td style="padding:4px 8px;color:var(--danger)">${window.escHtml(b.reason)}<span style="color:var(--text-muted)"> &middot; ${window.mtFmtInt(b.distinctPaths)} distinct path${b.distinctPaths === 1 ? '' : 's'}</span></td><td style="padding:4px 8px">${window.mtFmtInt(b.hits)}</td></tr>`
       ).join('')
     : '<tr><td colspan="3" style="padding:var(--sp-3);color:var(--text-muted)">No scanner traffic in this selection — every 404 here looks like a browser convention or a reference in your own app.</td></tr>';
 
@@ -891,13 +891,13 @@ function nginxUpdateErrorHint(matched, scanned, sample) {
   const looksLikeAccess = sample && (/request="|status="/.test(sample) || /"\s+\d{3}\s+(?:\d+|-)\s+"/.test(sample));
   let msg;
   if (matched === 0) {
-    msg = `None of the ${scanned.toLocaleString('pl-PL')} lines match the nginx <strong>error</strong>-log format ` +
+    msg = `None of the ${window.mtFmtInt(scanned)} lines match the nginx <strong>error</strong>-log format ` +
           `(<code>YYYY/MM/DD HH:MM:SS [level] …</code>). `;
     msg += looksLikeAccess
       ? `This looks like an <strong>access</strong> log — switch to the <em>Access Log</em> tab instead.`
       : `Make sure you pasted an nginx <code>error.log</code>, not an application or access log.`;
   } else {
-    msg = `${skipped.toLocaleString('pl-PL')} of ${scanned.toLocaleString('pl-PL')} lines were skipped — ` +
+    msg = `${window.mtFmtInt(skipped)} of ${window.mtFmtInt(scanned)} lines were skipped — ` +
           `they don't match the nginx error-log format and were ignored.`;
   }
   el.innerHTML = msg;
@@ -955,7 +955,7 @@ async function nginxAggregateAndRenderErrorLog() {
     return;
   }
   
-  document.getElementById('nx-err-total').innerText = logs.length.toLocaleString();
+  document.getElementById('nx-err-total').innerText = window.mtFmtInt(logs.length);
   
   let levelsMap = {};
   let ipsMap = {};
@@ -972,8 +972,8 @@ async function nginxAggregateAndRenderErrorLog() {
     if (log.request !== '-') requestsMap[log.request] = (requestsMap[log.request] || 0) + 1;
   }
   
-  document.getElementById('nx-err-levels').innerText = Object.keys(levelsMap).length.toLocaleString();
-  document.getElementById('nx-err-clients').innerText = Object.keys(ipsMap).length.toLocaleString();
+  document.getElementById('nx-err-levels').innerText = window.mtFmtInt(Object.keys(levelsMap).length);
+  document.getElementById('nx-err-clients').innerText = window.mtFmtInt(Object.keys(ipsMap).length);
   
   let maxHour = '-';
   let maxHourCount = 0;
@@ -1020,7 +1020,7 @@ async function nginxAggregateAndRenderErrorLog() {
   const ipsToFetch = [];
   document.querySelector('#nx-err-ip-table tbody').innerHTML = topIps.map((entry, i) => {
     ipsToFetch.push(entry[0]);
-    return `<tr><td style="padding:var(--sp-2);border-bottom:1px solid var(--border)">${window.escHtml(entry[0])}</td><td style="padding:var(--sp-2);border-bottom:1px solid var(--border)" id="nx-err-geo-${i}">...</td><td style="padding:var(--sp-2);border-bottom:1px solid var(--border)">${entry[1].toLocaleString('pl-PL')}</td></tr>`;
+    return `<tr><td style="padding:var(--sp-2);border-bottom:1px solid var(--border)">${window.escHtml(entry[0])}</td><td style="padding:var(--sp-2);border-bottom:1px solid var(--border)" id="nx-err-geo-${i}">...</td><td style="padding:var(--sp-2);border-bottom:1px solid var(--border)">${window.mtFmtInt(entry[1])}</td></tr>`;
   }).join('');
   
   const geoToggle = document.getElementById('nx-err-geoip-toggle');
@@ -1055,13 +1055,13 @@ async function nginxAggregateAndRenderErrorLog() {
   const topMsgs = Object.entries(messagesMap).sort((a,b) => b[1]-a[1]).slice(0, 10);
   document.querySelector('#nx-err-msg-table tbody').innerHTML = topMsgs.map(entry => {
     const msg = entry[0].replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    return `<tr><td style="padding:var(--sp-2);border-bottom:1px solid var(--border);word-break:break-all">${msg}</td><td style="padding:var(--sp-2);border-bottom:1px solid var(--border)">${entry[1].toLocaleString('pl-PL')}</td></tr>`;
+    return `<tr><td style="padding:var(--sp-2);border-bottom:1px solid var(--border);word-break:break-all">${msg}</td><td style="padding:var(--sp-2);border-bottom:1px solid var(--border)">${window.mtFmtInt(entry[1])}</td></tr>`;
   }).join('');
   
   const topReqs = Object.entries(requestsMap).sort((a,b) => b[1]-a[1]).slice(0, 10);
   document.querySelector('#nx-err-req-table tbody').innerHTML = topReqs.map(entry => {
     const req = entry[0].replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    return `<tr><td style="padding:var(--sp-2);border-bottom:1px solid var(--border);word-break:break-all">${req}</td><td style="padding:var(--sp-2);border-bottom:1px solid var(--border)">${entry[1].toLocaleString('pl-PL')}</td></tr>`;
+    return `<tr><td style="padding:var(--sp-2);border-bottom:1px solid var(--border);word-break:break-all">${req}</td><td style="padding:var(--sp-2);border-bottom:1px solid var(--border)">${window.mtFmtInt(entry[1])}</td></tr>`;
   }).join('');
   
   if (document.getElementById('nx-error-tab-stream') && document.getElementById('nx-error-tab-stream').classList.contains('active')) {

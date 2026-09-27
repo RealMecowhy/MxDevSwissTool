@@ -70,17 +70,41 @@ function logDetectSourceFormat(name, text) {
   return name.toLowerCase().endsWith('.csv') ? 'csv' : 'live';
 }
 
-// Reads a file as text, transparently gunzipping .gz archives (Mendix Cloud log downloads)
-async function logReadFileText(f) {
+// Reads a file as text, transparently gunzipping .gz archives (Mendix Cloud log downloads).
+// A .gz carries no trustworthy size, and text compresses ~20:1, so a 30 MB download
+// can be 600 MB of log — past what one tab can hold as a string. The bytes are
+// counted as they are inflated and the read stops at the cap with advice, instead
+// of the tab dying silently.
+const LOG_MAX_TEXT_BYTES = 512 * 1024 * 1024;
+async function logReadFileText(f, maxBytes) {
   if (f.name.toLowerCase().endsWith('.gz')) {
     if (typeof DecompressionStream === 'undefined') {
       throw new Error('This browser does not support gzip decompression (DecompressionStream)');
     }
-    const stream = f.stream().pipeThrough(new DecompressionStream('gzip'));
-    return await new Response(stream).text();
+    const cap = maxBytes || LOG_MAX_TEXT_BYTES;
+    // Read by hand rather than through Response.text(): an error raised inside the
+    // pipe comes out of Response as a bare "Failed to fetch", losing the advice.
+    const reader = f.stream().pipeThrough(new DecompressionStream('gzip')).getReader();
+    const decoder = new TextDecoder('utf-8');
+    const parts = [];
+    let seen = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      seen += value.length;
+      if (seen > cap) {
+        reader.cancel().catch(() => {});
+        throw new Error(f.name + ' expands to more than ' + Math.round(cap / 1048576) + ' MB of text — too large for one browser tab. ' +
+          'Split the file, or download a narrower time range (in Grafana or the Mendix Portal) and open that.');
+      }
+      parts.push(decoder.decode(value, { stream: true }));
+    }
+    parts.push(decoder.decode());
+    return parts.join('');
   }
   return await f.text();
 }
+window.logReadFileText = logReadFileText;
 function logLoadFiles(files) {
   showLoader('Reading files...');
   (async () => {
@@ -591,10 +615,18 @@ function logSearchKey(ev) {
   logGotoHit(ev.shiftKey ? -1 : 1);
 }
 
+// A time field reports "HH:MM" when the seconds are zero, and the bounds are
+// compared as text against the line's HH:MM:SS — where "10:00:00" > "10:00" would
+// drop the first second of an upper bound. Padded here so both sides agree.
+function logTimeBound(v) {
+  v = (v || '').trim();
+  return /^\d{2}:\d{2}$/.test(v) ? v + ':00' : v;
+}
+
 function logApplyFilters() {
   const search = document.getElementById('log-search').value.toLowerCase();
-  const from = document.getElementById('log-time-from').value.trim();
-  const to = document.getElementById('log-time-to').value.trim();
+  const from = logTimeBound(document.getElementById('log-time-from').value);
+  const to = logTimeBound(document.getElementById('log-time-to').value);
   const node = document.getElementById('log-node-filter').value.toLowerCase();
   const date = document.getElementById('log-date-filter').value;
   const narrowBySearch = search && logSearchMode === 'filter';
@@ -676,8 +708,8 @@ function logUpdateSearchScopeNotice() {
   note.style.display = 'block';
   note.innerHTML = 'Highlight mode keeps every line, so <strong>Export Filtered</strong>, the '
     + '<strong>Incident Report</strong> and the counts above cover all '
-    + logFilteredEntries.length.toLocaleString() + ' line' + (logFilteredEntries.length === 1 ? '' : 's')
-    + ' — not just the ' + logHitIndices.length.toLocaleString() + ' match'
+    + window.mtFmtInt(logFilteredEntries.length) + ' line' + (logFilteredEntries.length === 1 ? '' : 's')
+    + ' — not just the ' + window.mtFmtInt(logHitIndices.length) + ' match'
     + (logHitIndices.length === 1 ? '' : 'es') + '. Switch to <strong>Filter</strong> to narrow them.';
 }
 
@@ -1292,7 +1324,7 @@ function logRenderChart() {
   const note = document.getElementById('log-tl-note');
   if (logChartAxis.skipped > 0) {
     note.style.display = 'block';
-    note.textContent = logChartAxis.skipped.toLocaleString() + ' line'
+    note.textContent = window.mtFmtInt(logChartAxis.skipped) + ' line'
       + (logChartAxis.skipped === 1 ? ' has' : 's have') + ' no readable timestamp and '
       + (logChartAxis.skipped === 1 ? 'is' : 'are') + ' not on this chart.';
   } else {
@@ -1400,7 +1432,7 @@ function logChartWire() {
     if (!fg || !logChartBg) return;
     const bucketMs = logChartAxis.span / n;
     const parts = ['<strong>' + escHtml(logChartTimeLabel(logChartAxis.t0 + bIdx * bucketMs, logChartAxis.span > 86400000)) + '</strong>',
-                   fg.vol[bIdx].toLocaleString() + ' shown &middot; ' + logChartBg.vol[bIdx].toLocaleString() + ' total'];
+                   window.mtFmtInt(fg.vol[bIdx]) + ' shown &middot; ' + window.mtFmtInt(logChartBg.vol[bIdx]) + ' total'];
     if (fg.warn[bIdx]) parts.push('<span class="log-tl-tip-warn">' + fg.warn[bIdx] + ' WARN</span>');
     if (fg.err[bIdx]) parts.push('<span class="log-tl-tip-err">' + fg.err[bIdx] + ' ERROR</span>');
     tip.innerHTML = parts.join('<br>');

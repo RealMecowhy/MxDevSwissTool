@@ -48,9 +48,139 @@ function request(options, body) {
   });
 }
 
+// Route contract (review BUG-05): every bridge path the frontend calls must be
+// served by the bridge. The OData "Test" button called /api/perf-test for months
+// after the route was removed, through four green test suites — each side was
+// tested, the seam between them was not. Static: read both sides as text.
+function checkRouteContract() {
+  const fs = require('fs');
+  const bridgeSrc = fs.readFileSync(path.join(__dirname, '..', 'server', 'mendix-observability-bridge.js'), 'utf8');
+  const exact = new Set(), prefixes = [];
+  bridgeSrc.replace(/(?:pathname|pathOnly) === '([^']+)'/g, (_, p) => exact.add(p));
+  bridgeSrc.replace(/(?:pathname|pathOnly)\.startsWith\('([^']+)'\)/g, (_, p) => prefixes.push(p));
+
+  const files = [path.join(__dirname, '..', 'public', 'index.html')];
+  (function walk(dir) {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const f = path.join(dir, e.name);
+      if (e.isDirectory()) { if (e.name !== 'vendor') walk(f); } else if (e.name.endsWith('.js')) files.push(f);
+    }
+  })(path.join(__dirname, '..', 'public', 'js'));
+
+  // The four ways the frontend addresses the bridge: an absolute URL, a URL
+  // constant joined to a literal, a URL variable in a template, a relative fetch.
+  const forms = [
+    /localhost:9999(\/[A-Za-z][\w\/.-]*)/g,
+    /_URL\s*\+\s*['"`](\/[A-Za-z][\w\/.-]*)/g,
+    /\$\{\s*\w*(?:URL|Url)\s*\}(\/[A-Za-z][\w\/.-]*)/g,
+    /fetch\(\s*['"`](\/[A-Za-z][\w\/.-]*)/g
+  ];
+  const called = new Map();
+  for (const f of files) {
+    const src = fs.readFileSync(f, 'utf8');
+    for (const re of forms) src.replace(re, (_, p) => { if (!called.has(p)) called.set(p, path.relative(path.join(__dirname, '..'), f)); });
+  }
+  const missing = [...called].filter(([p]) => !exact.has(p) && !prefixes.some(x => p.startsWith(x)));
+  if (called.size < 20) return 'found only ' + called.size + ' bridge calls in public/ — the extractor has gone blind';
+  return missing.length ? missing.map(([p, f]) => p + ' (' + f + ')').join(', ') : null;
+}
+
+// Review UX-03: nothing is set below 0.7rem (11.2px). The smallest size is the
+// --fs-xs token; a literal under it in CSS, the page or a render template is how
+// 9px eyebrows crept in, one "just this badge" at a time.
+function checkMinFontSize() {
+  const fs = require('fs');
+  const root = path.join(__dirname, '..', 'public');
+  const files = [path.join(root, 'index.html'), path.join(root, 'styles', 'main.css')];
+  (function walk(dir) {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const f = path.join(dir, e.name);
+      if (e.isDirectory()) { if (e.name !== 'vendor') walk(f); } else if (e.name.endsWith('.js')) files.push(f);
+    }
+  })(path.join(root, 'js'));
+  const small = [];
+  for (const f of files) {
+    fs.readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
+      const re = /font-size:\s*(\d*\.?\d+)(rem|px)/g;
+      let m;
+      while ((m = re.exec(line))) {
+        const px = m[2] === 'px' ? parseFloat(m[1]) : parseFloat(m[1]) * 16;
+        if (px < 11.2) small.push(path.relative(root, f) + ':' + (i + 1) + ' ' + m[0]);
+      }
+    });
+  }
+  return small.length ? small.join(', ') : null;
+}
+
+// Review UX-02 / decision Q5: numbers read the same for every user — "48,499",
+// never "48 499" on one screen and "48,499" on the next. toLocaleString() on a
+// number follows the machine's locale, so it is left to dates; counts go through
+// mtFmtInt (utilities.js), which pins en-US. A module that must also run under
+// Node without utilities.js (data-hub.js) pins 'en-US' itself.
+function checkNumberFormat() {
+  const fs = require('fs');
+  const root = path.join(__dirname, '..', 'public', 'js');
+  const files = [];
+  (function walk(dir) {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const f = path.join(dir, e.name);
+      if (e.isDirectory()) { if (e.name !== 'vendor') walk(f); } else if (e.name.endsWith('.js')) files.push(f);
+    }
+  })(root);
+  const bad = [];
+  for (const f of files) {
+    if (path.basename(f) === 'utilities.js') continue; // home of mtFmtInt
+    fs.readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
+      if (/\.toLocaleString\((?!'en-US')/.test(line) && !/Date/.test(line)) bad.push(path.relative(root, f) + ':' + (i + 1));
+    });
+  }
+  return bad.length ? bad.join(', ') : null;
+}
+
+// Review UX-05: the browser's confirm()/alert()/prompt() block the page and ignore
+// the theme; the app has mtConfirm and mtToast instead. Comment lines are skipped
+// — they name confirm() when explaining why it is gone.
+function checkNativeDialogs() {
+  const fs = require('fs');
+  const root = path.join(__dirname, '..', 'public');
+  const files = [path.join(root, 'index.html')];
+  (function walk(dir) {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const f = path.join(dir, e.name);
+      if (e.isDirectory()) { if (e.name !== 'vendor') walk(f); } else if (e.name.endsWith('.js')) files.push(f);
+    }
+  })(path.join(root, 'js'));
+  const bad = [];
+  for (const f of files) {
+    fs.readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
+      if (/^\s*(\/\/|\*|\/\*)/.test(line)) return;
+      if (/(^|[^.\w'"])(confirm|alert|prompt)\(|\b(window|root|self)\.(confirm|alert|prompt)\(/.test(line)) {
+        bad.push(path.relative(root, f) + ':' + (i + 1));
+      }
+    });
+  }
+  return bad.length ? bad.join(', ') : null;
+}
+
 // Wait 2 seconds for server to start
 setTimeout(async () => {
   try {
+    console.log('Checking every bridge route the frontend calls exists...');
+    const contract = checkRouteContract();
+    if (contract) return fail('frontend calls routes the bridge does not serve', contract);
+
+    console.log('Checking no text is set below the --fs-xs minimum...');
+    const tiny = checkMinFontSize();
+    if (tiny) return fail('font sizes below 0.7rem (use var(--fs-xs))', tiny);
+
+    console.log('Checking numbers are formatted through mtFmtInt...');
+    const localeNums = checkNumberFormat();
+    if (localeNums) return fail('number formatted with the machine locale (use window.mtFmtInt)', localeNums);
+
+    console.log('Checking no native confirm/alert/prompt is used...');
+    const dialogs = checkNativeDialogs();
+    if (dialogs) return fail('native browser dialog (use window.mtConfirm / window.mtToast)', dialogs);
+
     console.log('Sending request to /status...');
     const status = await request({ path: '/status' });
     let parsed;
@@ -241,6 +371,45 @@ setTimeout(async () => {
     if (detected.status !== 200) return fail('/detect-project POST must answer 200', 'status=' + detected.status + ' body=' + detected.body);
     if (detected.body.indexOf('smoke-secret-pw') !== -1) return fail('/detect-project leaked the database password');
     if (JSON.parse(detected.body).config.Configuration.DatabaseUserName !== 'mendix') return fail('/detect-project must still return the rest of config.json');
+
+    // ── Wave 33: error statuses (review BUG-16) ──────────────────────────────
+    // A failure is not a 200: `pg` missing is 503, an unreachable database 502.
+    console.log('Checking a failed database call is an error status...');
+    const deadDb = await request({ path: '/postgres', method: 'POST', headers: tokenJson },
+      JSON.stringify({ host: '127.0.0.1', port: 1, database: 'x', user: 'x', password: 'x' }));
+    if (deadDb.status !== 502 && deadDb.status !== 503) return fail('/postgres on a dead database must be 502 (or 503 without pg)', 'status=' + deadDb.status + ' body=' + deadDb.body);
+    if (!JSON.parse(deadDb.body).message) return fail('the error status must still carry a message', deadDb.body);
+
+    // An oversized body used to destroy the socket before the 413 was written.
+    console.log('Checking an oversized body gets a 413 answer...');
+    const tooBig = await request({ path: '/livedb/ping', method: 'POST', headers: tokenJson }, 'x'.repeat(1024 * 1024 + 10))
+      .catch(e => ({ status: 'connection error: ' + e.message }));
+    if (tooBig.status !== 413) return fail('an oversized body must be answered with 413', 'status=' + tooBig.status);
+
+    // Live tail of a named file (review BUG-07): the Telemetry path field used
+    // to be ignored, so the tail only ever looked in the bridge's own folder.
+    console.log('Checking /logs/watch tails the file it is given...');
+    const relLog = await request({ path: '/logs/watch', method: 'POST', headers: tokenJson }, JSON.stringify({ path: 'app.log' }));
+    if (relLog.status !== 400) return fail('/logs/watch must reject a relative path', 'status=' + relLog.status);
+    const exeLog = await request({ path: '/logs/watch', method: 'POST', headers: tokenJson }, JSON.stringify({ path: path.join(os.tmpdir(), 'x.exe') }));
+    if (exeLog.status !== 400) return fail('/logs/watch must reject a non-log file', 'status=' + exeLog.status);
+    const logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mxdev-smoke-log-'));
+    const logFile = path.join(logDir, 'app.log');
+    fs.writeFileSync(logFile, '2026-09-22 10:00:00.000 INFO - Core: started\n');
+    const watch = await request({ path: '/logs/watch', method: 'POST', headers: tokenJson }, JSON.stringify({ path: logFile }));
+    if (watch.status !== 200) return fail('/logs/watch must accept an existing .log file', 'status=' + watch.status + ' body=' + watch.body);
+    const since = Date.now() - 1;
+    fs.appendFileSync(logFile, '2026-09-22 10:00:01.000 ERROR - Core: smoke-tail-marker\n');
+    let tailed = false;
+    for (let i = 0; i < 20 && !tailed; i++) {
+      await new Promise(r => setTimeout(r, 250));
+      const lines = await request({ path: '/logs?since=' + since, headers: { 'X-Bridge-Token': parsed.token } });
+      tailed = lines.body.indexOf('smoke-tail-marker') !== -1;
+    }
+    const statusAfter = JSON.parse((await request({ path: '/status' })).body);
+    try { fs.rmSync(logDir, { recursive: true, force: true }); } catch (e) { /* still watched on Windows — tmp is cleaned later */ }
+    if (!tailed) return fail('/logs did not deliver a line appended to the watched file');
+    if (path.resolve(statusAfter.logFile) !== path.resolve(logFile)) return fail('/status must report the watched file', statusAfter.logFile);
 
     console.log('Smoke test passed successfully.');
     server.kill();

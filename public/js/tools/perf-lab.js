@@ -386,10 +386,10 @@ function plFmtDur(ms) {
   return s >= 90 ? (s / 60).toFixed(1) + ' min' : s.toFixed(1) + ' s';
 }
 
-// Grouped by hand rather than through toLocaleString(), whose separator depends
-// on the machine's locale — the same run would then read differently per user.
+// Not toLocaleString(), whose separator depends on the machine's locale — the
+// same run would then read differently per user. mtFmtInt pins en-US app-wide.
 function plFmtCount(n) {
-  return String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  return window.mtFmtInt(Math.round(Number(n) || 0));
 }
 
 function plStatusFailed(key) {
@@ -665,6 +665,19 @@ function plIsExternalTarget(rawUrl) {
   return host.indexOf('.') !== -1;
 }
 
+// Mirrors isLoopbackHost in server/perf-session.js: this machine is the only
+// target that runs without the confirmation tick.
+function plIsLoopbackTarget(rawUrl) {
+  let host;
+  try {
+    host = new URL(rawUrl.replace(/\{[^{}\s]+\}/g, '1')).hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  } catch (e) {
+    return true;
+  }
+  return host === 'localhost' || host === '::1' || host.endsWith('.localhost') || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
+}
+window.plIsLoopbackTarget = plIsLoopbackTarget;
+
 // The credentials live in the form and nowhere else: not in a preset, not in
 // localStorage. They travel with the run — to the target directly on the
 // browser engine, through the Bridge on the server engine.
@@ -798,9 +811,34 @@ function plClearError() {
 // RUN CONTROL
 // =========================================================================
 
+// A browser-engine run against another origin only works if the target sends
+// CORS headers, which a Mendix REST service does not by default — so the whole
+// run would come back as network errors that look like a dead server. Asked
+// once per target origin, before the run instead of after it.
+let plCorsAckOrigin = null;
+function plCrossOriginTarget(url) {
+  try { return new URL(url.replace(/\{[^{}\s]+\}/g, '1')).origin !== window.location.origin; }
+  catch (e) { return false; }
+}
+
 function plStart() {
   const cfg = plReadConfig();
   if (!cfg) return;
+
+  const engineEl = plEl('pl-engine');
+  if (engineEl && engineEl.value === 'browser' && plCrossOriginTarget(cfg.url)) {
+    const origin = new URL(cfg.url.replace(/\{[^{}\s]+\}/g, '1')).origin;
+    if (plCorsAckOrigin !== origin) {
+      window.mtToast('The browser engine can only read ' + origin + ' if it sends CORS headers, which a Mendix REST service does not by default — every request would fail as a network error. The Bridge engine has no such limit.', 'warning', {
+        duration: 15000,
+        actions: [
+          { label: 'Use the Bridge', onClick: () => { engineEl.value = 'server'; plEngineChanged(); plStart(); } },
+          { label: 'Run in browser anyway', onClick: () => { plCorsAckOrigin = origin; plStart(); } }
+        ]
+      });
+      return;
+    }
+  }
 
   plClearError();
   plStopFlag = false;
@@ -1074,7 +1112,12 @@ function plSyncSliderRange() {
   if (parseInt(slider.value, 10) > max) plSetConcurrency(max);
 
   const confirmRow = plEl('pl-confirm-row');
-  if (confirmRow) confirmRow.style.display = (engine === 'server' && external) ? 'flex' : 'none';
+  const needsConfirm = engine === 'server' && !plIsLoopbackTarget(plEl('pl-url').value.trim());
+  if (confirmRow) confirmRow.style.display = needsConfirm ? 'flex' : 'none';
+  const confirmText = plEl('pl-confirm-text');
+  if (confirmText) confirmText.textContent = external
+    ? 'I am authorized to load-test this target. It is not a local or private address, so threads stay capped at 25.'
+    : 'I am authorized to load-test this target. It is on my network, not this machine — someone else may be using that server.';
 }
 
 window.plMethodChanged = function () {
@@ -1411,11 +1454,36 @@ function plMfSpec() {
 // PRESETS & EXPORT
 // =========================================================================
 
+// A preset lives in localStorage and travels in a settings backup file, so a
+// secret typed into the Headers box must not ride along. Values of credential
+// headers become "***"; names stay, so the preset still shows what to refill.
+// Headers are JSON here; anything that does not parse is masked line by line.
+const PL_SECRET_HEADER = /^(authorization|proxy-authorization|cookie|set-cookie)$|token|secret|api[-_]?key|password|passwd/i;
+function plMaskPresetHeaders(text) {
+  if (!text || !text.trim()) return { text: text || '', masked: 0 };
+  let masked = 0;
+  try {
+    const obj = JSON.parse(text);
+    if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+      Object.keys(obj).forEach(k => { if (PL_SECRET_HEADER.test(k) && obj[k] !== '***') { obj[k] = '***'; masked++; } });
+      return { text: JSON.stringify(obj, null, 2), masked };
+    }
+  } catch (e) { /* not JSON — fall through to "Name: value" lines */ }
+  const out = text.split(/\r?\n/).map(line => {
+    const m = /^(\s*"?([^":]+)"?\s*:\s*)(.*)$/.exec(line);
+    if (m && PL_SECRET_HEADER.test(m[2].trim()) && m[3].trim() !== '***') { masked++; return m[1] + '***'; }
+    return line;
+  }).join('\n');
+  return { text: out, masked };
+}
+window.plMaskPresetHeaders = plMaskPresetHeaders;
+
 window.plSavePreset = function () {
+  const headers = plMaskPresetHeaders(plEl('pl-headers').value);
   const preset = {
     url: plEl('pl-url').value,
     method: plEl('pl-method').value,
-    headers: plEl('pl-headers').value,
+    headers: headers.text,
     body: plEl('pl-body').value,
     conc: plTargetConcurrency(),
     count: plEl('pl-count').value,
@@ -1433,7 +1501,9 @@ window.plSavePreset = function () {
     mfSeed: plEl('pl-mf-seed') ? plEl('pl-mf-seed').value : 1
   };
   localStorage.setItem('perfLabPreset', JSON.stringify(preset));
-  window.mtToast('Preset saved to browser memory.', 'success');
+  window.mtToast(headers.masked
+    ? 'Preset saved. ' + headers.masked + ' secret header value' + (headers.masked === 1 ? ' was' : 's were') + ' stored as *** — fill ' + (headers.masked === 1 ? 'it' : 'them') + ' in again after loading.'
+    : 'Preset saved to browser memory.', 'success');
 };
 
 window.plLoadPreset = function () {
@@ -1502,7 +1572,22 @@ window.plApplyAuth = plApplyAuth;
 window.plSummarize = plSummarize;
 window.plSummaryMarkdown = plSummaryMarkdown;
 
+// With the Bridge running, it is the better default engine: no CORS limit, no
+// 6-connections-per-host ceiling, continuous runs. Decided once, on first open,
+// and never over a choice the user (or a loaded preset) already made.
+let plEngineDefaulted = false;
+function plDefaultEngine() {
+  if (plEngineDefaulted) return;
+  plEngineDefaulted = true;
+  const engine = plEl('pl-engine');
+  if (!engine || engine.value !== 'browser') return;
+  fetch(PL_AGENT_URL + '/status', { cache: 'no-store' })
+    .then(r => { if (r.ok && engine.value === 'browser' && !engine.dataset.plTouched) { engine.value = 'server'; plEngineChanged(); } })
+    .catch(() => { /* Bridge offline — the browser engine stays */ });
+}
+
 export function init() {
+  plDefaultEngine();
   const slider = plEl('pl-concurrency');
   if (slider && !slider.dataset.plBound) {
     slider.dataset.plBound = '1';
@@ -1516,7 +1601,7 @@ export function init() {
   const engine = plEl('pl-engine');
   if (engine && !engine.dataset.plBound) {
     engine.dataset.plBound = '1';
-    engine.addEventListener('change', plEngineChanged);
+    engine.addEventListener('change', () => { engine.dataset.plTouched = '1'; plEngineChanged(); });
   }
   const urlInput = plEl('pl-url');
   if (urlInput && !urlInput.dataset.plBound) {

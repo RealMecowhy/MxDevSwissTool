@@ -120,7 +120,7 @@ function setProgress(text) {
 }
 
 async function fetchStatus() {
-  const res = await fetch('/status', { cache: 'no-store' });
+  const res = await fetch('http://localhost:9999/status', { cache: 'no-store' });
   if (!res.ok) throw new Error('Bridge unreachable');
   return res.json();
 }
@@ -138,7 +138,7 @@ async function startAutoUpdate(info, overlay) {
     // a changed token in /status is definitive proof the new bridge is up
     // (the restart can be faster than one polling interval).
     const before = await fetchStatus();
-    const data = await (await fetch('/update/apply', {
+    const data = await (await fetch('http://localhost:9999/update/apply', {
       method: 'POST',
       headers: { 'X-Bridge-Token': before.token }
     })).json();
@@ -208,7 +208,7 @@ export async function initUpdateChecker() {
   try {
     const status = await fetchStatus();
     if (!status || !status.token) return;
-    const res = await fetch('/update/check', {
+    const res = await fetch('http://localhost:9999/update/check', {
       headers: { 'X-Bridge-Token': status.token },
       cache: 'no-store'
     });

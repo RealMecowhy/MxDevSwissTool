@@ -86,7 +86,7 @@ function tsRenderTokenPreview() {
   const rows=tsMendixTokenPreview(new Date());
   el.innerHTML=rows.map(r=>{
     const iso=r.date.toISOString();
-    const note=r.note?'<div style="font-size:.68rem;color:var(--text-muted);margin-top:2px">'+window.escHtml(r.note)+'</div>':'';
+    const note=r.note?'<div style="font-size:var(--fs-xs);color:var(--text-muted);margin-top:2px">'+window.escHtml(r.note)+'</div>':'';
     return '<div class="ts-card"><div class="ts-card-label">'+r.token+'</div><div class="ts-value" onclick="window.copyToClipboard(\''+iso+'\')" title="Click to copy">'+iso+'</div>'+note+'</div>';
   }).join('');
 }
@@ -95,7 +95,7 @@ function tsDiff() {
   if (!a||!b) return;
   const ms=Math.abs(b-a), s=Math.floor(ms/1000), m=Math.floor(s/60), h=Math.floor(m/60), days=Math.floor(h/24);
   const el=document.getElementById('ts-diff-result'); el.style.display='grid';
-  el.innerHTML=[{label:'Milliseconds',value:ms.toLocaleString()},{label:'Seconds',value:s.toLocaleString()},{label:'Minutes',value:m.toLocaleString()},{label:'Hours',value:h.toLocaleString()},{label:'Days',value:days.toLocaleString()},{label:'Weeks',value:(days/7).toFixed(2)}].map(it=>'<div class="ts-card"><div class="ts-card-label">'+it.label+'</div><div class="ts-value">'+it.value+'</div></div>').join('');
+  el.innerHTML=[{label:'Milliseconds',value:window.mtFmtInt(ms)},{label:'Seconds',value:window.mtFmtInt(s)},{label:'Minutes',value:window.mtFmtInt(m)},{label:'Hours',value:window.mtFmtInt(h)},{label:'Days',value:window.mtFmtInt(days)},{label:'Weeks',value:(days/7).toFixed(2)}].map(it=>'<div class="ts-card"><div class="ts-card-label">'+it.label+'</div><div class="ts-value">'+it.value+'</div></div>').join('');
 }
 function getWeekNumber(d) { const dt=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())); dt.setUTCDate(dt.getUTCDate()+4-(dt.getUTCDay()||7)); return Math.ceil((((dt-new Date(Date.UTC(dt.getUTCFullYear(),0,1)))/86400000)+1)/7); }
 function getTimezoneStr() { const o=-new Date().getTimezoneOffset(), s=o>=0?'+':'-', h=String(Math.floor(Math.abs(o)/60)).padStart(2,'0'), m=String(Math.abs(o)%60).padStart(2,'0'); return s+h+':'+m; }
