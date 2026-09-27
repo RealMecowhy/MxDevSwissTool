@@ -2220,6 +2220,46 @@ eq('errdec/model: most specific table first',
     edxMap(decoded.input.text, EDX_TBL)[0].entity, 'eShop.Order');
 })();
 
+// ── Insights "Error mechanisms" card (wave 40) ───────────────────────────────
+// Needs the decoder, so it lives here rather than with the other Insights tests
+// (which run before error-decoder.js is loaded and therefore never see it).
+(function () {
+  const recs = parser.parse(insLog + '\n' +
+    // Same text as the session-bloat card, but at ERROR: no card takes it, and
+    // its mechanism owns a card — so it must not reach this one either.
+    '2026-07-18T09:00:20.000000 ' + P + '   ERROR - RequestStatistics: Request state size of 999 objects exceeds the threshold of 300 objects.').records;
+  const mc = logInsights(recs).categories.find(function (c) { return c.key === 'error-mechanisms'; });
+  ok('mechanisms: card appears when the decoder recognizes a record', !!mc);
+  if (!mc) return;
+  const byMech = {};
+  mc.items.forEach(function (it) { byMech[it.filter.mech] = it; });
+  eq('mechanisms: SAML_SSO null grouped under its rule', byMech['saml-empty-error'] && byMech['saml-empty-error'].count, 3);
+  eq('mechanisms: unmatched Core warnings kept as one row', byMech['(unrecognized)'] && byMech['(unrecognized)'].count, 2);
+  ok('mechanisms: unrecognized row is pinned (always listed)', byMech['(unrecognized)'].pinned === true);
+  eq('mechanisms: card counts mechanism + unrecognized only', mc.count, 5);
+  eq('mechanisms: an ERROR among them → error severity', mc.severity, 'error');
+  ok('mechanisms: records another card took are left out (Access denied, TaskQueue …)',
+    recs.filter(function (r) { return /attempted to execute|Failed to execute task/.test(r.message || r.msg); })
+      .every(function (r) { return r._edxMech === null; }));
+  const own = ['mx-request-state-size', 'mx-widget-missing-parameter', 'mx-taskqueue-failed', 'mx-slow-query-warning'];
+  ok('mechanisms: the four skipped ids still exist in the ruleset',
+    own.every(function (id) { return global.EDX_RULES.some(function (r) { return r.id === id; }); }));
+  ok('mechanisms: mechanisms with their own card never listed',
+    own.every(function (id) { return !byMech[id]; }));
+  // The stream filter reads the cached id: the card's filter must select
+  // exactly the records the card counted — no more, no fewer.
+  const set = new Set(mc.filter.mech.split(','));
+  eq('mechanisms: card filter selects exactly the counted records',
+    recs.filter(function (r) { return set.has(r._edxMech); }).length, mc.count);
+
+  const plain = parser.parse([
+    '2026-07-18T09:00:00.000000 ' + P + '   ERROR - Core: something nobody wrote a rule for',
+    '2026-07-18T09:00:01.000000 ' + P + '   ERROR - Core: something nobody wrote a rule for'
+  ].join('\n')).records;
+  ok('mechanisms: no card when nothing is recognized (hotspot card already lists these)',
+    !logInsights(plain).categories.some(function (c) { return c.key === 'error-mechanisms'; }));
+})();
+
 // ── Live DB — Domain Model from database (Wave 6 R3, server/livedb.js) ──────
 // Two facts decide whether the generated diagram is right or merely plausible:
 // where the FK column lives (parent's table, NOT association.table_name — they

@@ -14,6 +14,25 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.72.0 — 2026-09-27
+
+**Log Viewer Insights: warnings and errors grouped by what caused them.**
+
+### Added
+
+- **Error mechanisms card.** Warnings and errors that no other Insights card
+  took are grouped by the Mendix Error Decoder's rule, not by their text, so a
+  404 for every file name or a null-ID retrieve for every object is one row.
+  Measured on ten apps' logs: a median of 44% fewer rows than grouping by
+  message. Each row filters the stream to exactly that mechanism (a banner says
+  so) and has *Decode*, which opens its first entry in the Error Decoder.
+  Entries no rule explains are one *unrecognized* row that is always listed.
+  Request-state bloat, missing parameters, TaskQueue failures and slow queries
+  keep their own cards and are not repeated. The card appears only when the
+  decoder recognizes at least one entry.
+
+---
+
 ## v1.71.0 — 2026-09-27
 
 **Developer Studio: analyse a project file with no app running, and no more

@@ -2115,6 +2115,11 @@ kbd {
   font-size: 0.74rem;
   word-break: break-word;
 }
+.log-insights-decode {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 0 6px;
+}
 #json-split,
 #xml-split,
 #sql-split,

@@ -452,6 +452,7 @@ function logApplyFilters() {
       const entrySig = logGetSignature(e);
       if (entrySig.key !== logActiveSignatureKey) return false;
     }
+    if (logActiveMechanisms && !logActiveMechanisms.has(logMechanismOf(e))) return false;
     if (!logActiveLevels.has(e.level)) return false;
     if (logChartRange) {
       if (typeof e.ms !== 'number' || isNaN(e.ms)) return false;
@@ -473,7 +474,7 @@ function logApplyFilters() {
 // clear. Every filter mutation routes through logApplyFilters, so checking here
 // keeps the button in sync with no extra wiring on the individual controls.
 function logAnyFilterActive() {
-  if (logActiveSignatureKey) return true;
+  if (logActiveSignatureKey || logActiveMechanisms) return true;
   if (logChartRange) return true;
   if (logActiveLevels.size !== LOG_LEVEL_ORDER.length) return true;
   return ['log-search', 'log-time-from', 'log-time-to', 'log-node-filter', 'log-date-filter']
@@ -874,7 +875,10 @@ function logDecoderText(e) {
 
 function logExplainError(idx) {
   const e = logFilteredEntries[idx];
-  if (!e) return;
+  if (e) logExplainEntry(e);
+}
+
+function logExplainEntry(e) {
   if (window.navigateWithReturn) window.navigateWithReturn('error-decoder');
   else if (window.navigate) window.navigate('error-decoder', null);
   // The decoder's checklist says things like "look for two commits around this
@@ -1399,6 +1403,7 @@ function logRenderBookmarks() {
 // re-applies and re-renders. The loaded log itself is untouched (that is logClear).
 function logResetStreamFilters() {
   logActiveSignatureKey = null;
+  logActiveMechanisms = null;
   logChartRange = null;
   const banner = document.getElementById('log-sig-filter-banner');
   if (banner) banner.style.display = 'none';
@@ -1432,6 +1437,10 @@ function logJumpToBookmark(key) {
 // ============================================================
 let logSignatures = [];
 let logActiveSignatureKey = null;
+// Error-mechanism filter from the Insights "Error mechanisms" card: a Set of
+// decoder rule ids (LOG_MECH_UNRECOGNIZED for records no rule explains), or null.
+// Shares the signature filter's banner — one "filtering by" banner, one Clear.
+let logActiveMechanisms = null;
 
 function logOpenAggregator() {
   const modal = document.getElementById('log-aggregator-modal');
@@ -1655,8 +1664,8 @@ function logFilterToSignature(index) {
   if (!group) return;
   
   logActiveSignatureKey = group.key;
-  document.getElementById('log-sig-filter-name').textContent = group.header;
-  document.getElementById('log-sig-filter-banner').style.display = 'flex';
+  logActiveMechanisms = null;
+  logShowFilterBanner('Filtering by Signature:', group.header);
   
   logCloseAggregator();
   logApplyFilters();
@@ -1664,8 +1673,15 @@ function logFilterToSignature(index) {
 
 function logClearSignatureFilter() {
   logActiveSignatureKey = null;
+  logActiveMechanisms = null;
   document.getElementById('log-sig-filter-banner').style.display = 'none';
   logApplyFilters();
+}
+
+function logShowFilterBanner(label, name) {
+  document.getElementById('log-sig-filter-label').textContent = label;
+  document.getElementById('log-sig-filter-name').textContent = name;
+  document.getElementById('log-sig-filter-banner').style.display = 'flex';
 }
 
 // ============================================================
@@ -1720,6 +1736,44 @@ function logCommonPrefix(a, b) {
   let i = 0;
   while (i < n && a[i] === b[i]) i++;
   return a.slice(0, i);
+}
+
+// Error mechanisms (Insights card 7). A mechanism is the id of the Error
+// Decoder's first — most specific — match for a record, given the same text the
+// Explain chip hands over (logDecoderText). These four already have a card of
+// their own above, with detail the mechanism card could not show.
+const LOG_MECH_UNRECOGNIZED = '(unrecognized)';
+const LOG_MECH_OWN_CARD = new Set([
+  'mx-request-state-size',       // Request state bloat
+  'mx-widget-missing-parameter', // Runtime operation missing parameters
+  'mx-taskqueue-failed',         // TaskQueue — failed background tasks
+  'mx-slow-query-warning'        // Slow queries
+]);
+const logMechTitles = new Map();
+
+// Mechanism id of one WARN/ERROR/CRITICAL record, LOG_MECH_UNRECOGNIZED when no
+// rule explains it, null for other levels, for records another Insights card
+// took, or when the decoder is not loaded.
+// Cached on the record like _edxHasMatch, so the stream's mechanism filter reads
+// what the card counted. The decoder runs every rule over message and stack, and
+// a log repeats a few hundred signatures tens of thousands of times — so within
+// one pass it runs once per node + Aggregate Errors signature (`memo`).
+function logMechanismOf(rec, row, memo) {
+  if (rec._edxMech !== undefined) return rec._edxMech;
+  row = row || rec;
+  const level = logInsightsLevel(row.level);
+  if (level !== 'WARN' && level !== 'ERROR' && level !== 'CRITICAL') return null;
+  if (typeof window === 'undefined' || typeof window.edxDecode !== 'function') return null;
+  const key = memo ? row.node + '|' + logGetSignature(row).key : null;
+  let id = key != null ? memo.get(key) : undefined;
+  if (id === undefined) {
+    const top = window.edxDecode(logDecoderText(row)).matches[0];
+    id = top ? top.id : LOG_MECH_UNRECOGNIZED;
+    if (top) logMechTitles.set(top.id, top.title);
+    if (key != null) memo.set(key, id);
+  }
+  rec._edxMech = id;
+  return id;
 }
 
 function logExtractInsights(records, opts) {
@@ -1958,7 +2012,55 @@ function logExtractInsights(records, opts) {
     }
   }
 
-  // ── 7. Generic per-node hotspots for everything not captured above ──
+  // ── 7. Error mechanisms — WARN/ERROR grouped by what the Error Decoder says ──
+  // Text signatures split one mechanism into hundreds of variants (a 404 per
+  // file name, a null-id per object); the decoder's rule is the cause they
+  // share. Measured on NewLogs: median 44% fewer rows than Insights signatures.
+  // Records a card above already took, and mechanisms that own a card above,
+  // are left out, so nothing is shown twice (Access denied has no decoder rule
+  // and would otherwise sit under "unrecognized"). Records no rule explains
+  // stay in, as one visible "unrecognized" row.
+  // Only offered when the decoder is loaded and recognizes at least one record.
+  {
+    const byMech = new Map(); const cat = agg();
+    const memo = new Map(); let hasErr = false;
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (r.level !== 'WARN' && r.level !== 'ERROR' && r.level !== 'CRITICAL') continue;
+      // Marked, not just skipped: the stream's mechanism filter reads this
+      // cache, and a record left undecided would be decoded there and land
+      // under "unrecognized" — more rows than the card counted.
+      if (consumed[i]) { records[i]._edxMech = null; continue; }
+      const id = logMechanismOf(records[i], r, memo);
+      if (id == null || LOG_MECH_OWN_CARD.has(id)) continue;
+      bump(cat, r);
+      if (r.level !== 'WARN') hasErr = true;
+      if (!byMech.has(id)) byMech.set(id, agg());
+      bump(byMech.get(id), r);
+    }
+    const unrec = byMech.get(LOG_MECH_UNRECOGNIZED);
+    const known = byMech.size - (unrec ? 1 : 0);
+    if (known > 0) {
+      const items = Array.from(byMech.entries())
+        .filter(function (e) { return e[0] !== LOG_MECH_UNRECOGNIZED; })
+        .map(function (e) {
+          return { label: logMechTitles.get(e[0]) || e[0], count: e[1].count, sample: e[1].sample,
+            distinct: e[1].sigs.size, mechanism: e[0],
+            filter: { node: '', levels: 'WARN,ERROR,CRITICAL', search: '', mech: e[0] } };
+        }).sort(function (x, y) { return y.count - x.count; });
+      if (unrec) {
+        items.push({ label: 'unrecognized', count: unrec.count, sample: unrec.sample,
+          distinct: unrec.sigs.size, pinned: true,
+          filter: { node: '', levels: 'WARN,ERROR,CRITICAL', search: '', mech: LOG_MECH_UNRECOGNIZED } });
+      }
+      categories.push(finishCat('error-mechanisms', 'Error mechanisms', hasErr ? 'error' : 'warning', cat,
+        { node: '', levels: 'WARN,ERROR,CRITICAL', search: '', mech: Array.from(byMech.keys()).join(',') }, items,
+        cat.count + ' entr' + (cat.count === 1 ? 'y' : 'ies') + ' · ' + known + ' mechanism(s) · ' +
+        (unrec ? unrec.count : 0) + ' unrecognized'));
+    }
+  }
+
+  // ── 8. Generic per-node hotspots for everything not captured above ──
   const buckets = new Map();
   for (let i = 0; i < rows.length; i++) {
     if (consumed[i]) continue;
@@ -2188,7 +2290,7 @@ function logRenderInsights() {
   if (!logAllEntries.length) {
     out.innerHTML = '<div class="log-insights-empty">'
       + '<p style="font-weight:600;margin-bottom:6px">No log loaded yet</p>'
-      + '<p style="font-size:0.8rem;color:var(--text-muted)">Insights scans WARNING/ERROR patterns (permission violations, session-state bloat, TaskQueue failures, slow-query warnings, per-node error hotspots) and shows a card for each problem that actually appears — nothing more. It also states one fact about the log itself: which log nodes are running at TRACE/DEBUG.</p></div>';
+      + '<p style="font-size:0.8rem;color:var(--text-muted)">Insights scans WARNING/ERROR patterns (permission violations, session-state bloat, TaskQueue failures, slow-query warnings, error mechanisms the Error Decoder recognizes, per-node error hotspots) and shows a card for each problem that actually appears — nothing more. It also states one fact about the log itself: which log nodes are running at TRACE/DEBUG.</p></div>';
     return;
   }
 
@@ -2222,13 +2324,20 @@ function logRenderInsights() {
       : (c.severity === 'info' ? 'var(--info)' : 'var(--log-warning)');
     const span = (c.firstTs && c.lastTs && c.firstTs !== c.lastTs)
       ? '<span class="log-insights-span" title="First → last occurrence">' + escHtml(logInsightsShortTs(c.firstTs)) + ' → ' + escHtml(logInsightsShortTs(c.lastTs)) + '</span>' : '';
+    // A pinned item (the mechanism card's "unrecognized" row) is always listed,
+    // however far down the count order puts it — hiding it would overstate
+    // how much of the log the rules explain.
+    const shown = (c.items || []).slice(0, 12);
+    (c.items || []).slice(12).forEach(function (it) { if (it.pinned) shown.push(it); });
     const itemsHtml = (c.items && c.items.length) ? '<div class="log-insights-items" id="log-insights-items-' + i + '" style="display:none">'
-      + c.items.slice(0, 12).map(function (it) {
+      + shown.map(function (it) {
+          const decode = it.mechanism
+            ? '<button class="btn btn-ghost btn-sm log-insights-decode" onclick="event.stopPropagation();logInsightsDecode(' + logJsStr(it.mechanism) + ')" title="Open the first of these entries in the Mendix Error Decoder">Decode</button>' : '';
           return '<div class="log-insights-item" onclick="logInsightFilter(' + logInsightsAttr(it.filter) + ')" title="Filter the stream to these entries">'
             + '<span class="log-insights-item-count" title="' + it.count + ' entries">' + logInsightsCount(it.count) + '×</span>'
-            + '<span class="log-insights-item-label">' + escHtml(it.label) + '</span></div>';
+            + '<span class="log-insights-item-label">' + escHtml(it.label) + '</span>' + decode + '</div>';
         }).join('')
-      + (c.items.length > 12 ? '<div style="font-size:0.72rem;color:var(--text-muted);padding:4px 8px">…and ' + (c.items.length - 12) + ' more</div>' : '')
+      + (c.items.length > shown.length ? '<div style="font-size:0.72rem;color:var(--text-muted);padding:4px 8px">…and ' + (c.items.length - shown.length) + ' more</div>' : '')
       + '</div>' : '';
     const toggle = (c.items && c.items.length)
       ? '<button class="btn btn-ghost btn-sm log-insights-toggle" onclick="event.stopPropagation();logInsightsToggle(' + i + ')">Breakdown (' + c.items.length + ')</button>' : '';
@@ -2304,7 +2413,14 @@ function logInsightsAttr(f) {
       .replace(/\\/g, '\\\\').replace(/'/g, "\\'")
       .replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;') + "'";
   };
-  return q(f.node) + ',' + q(f.levels) + ',' + q(f.search);
+  return q(f.node) + ',' + q(f.levels) + ',' + q(f.search) + (f.mech ? ',' + q(f.mech) : '');
+}
+
+// "Decode" on a mechanism row: the first entry of that mechanism goes to the
+// Error Decoder exactly as the stream's Explain chip would send it.
+function logInsightsDecode(id) {
+  const e = logAllEntries.find(function (x) { return x._edxMech === id; });
+  if (e) logExplainEntry(e);
 }
 
 function logInsightsToggle(i) {
@@ -2313,7 +2429,21 @@ function logInsightsToggle(i) {
 }
 
 // Card/item click → jump to the Log Stream tab with matching filters applied.
-function logInsightFilter(node, levels, search) {
+// `mech` (comma-separated decoder rule ids) comes only from the mechanism card;
+// every other card clears a mechanism filter left over from an earlier click.
+function logInsightFilter(node, levels, search, mech) {
+  if (mech) {
+    const ids = mech.split(',');
+    logActiveSignatureKey = null;
+    logActiveMechanisms = new Set(ids);
+    logShowFilterBanner('Filtering by mechanism:', ids.length === 1
+      ? (ids[0] === LOG_MECH_UNRECOGNIZED ? 'unrecognized by the Error Decoder' : (logMechTitles.get(ids[0]) || ids[0]))
+      : 'all ' + ids.length + ' on the Error mechanisms card');
+  } else if (logActiveMechanisms) {
+    logActiveMechanisms = null;
+    if (!logActiveSignatureKey) document.getElementById('log-sig-filter-banner').style.display = 'none';
+  }
+
   const levelSet = (levels || '').split(',').map(function (s) { return s.trim().toUpperCase(); }).filter(Boolean)
     .map(function (l) { return l === 'WARNING' ? 'WARN' : l; });
 
@@ -2845,6 +2975,7 @@ window.logRenderInsights = logRenderInsights;
 window.logInsightFilter = logInsightFilter;
 window.logInsightsToggle = logInsightsToggle;
 window.logInsightsOpenTool = logInsightsOpenTool;
+window.logInsightsDecode = logInsightsDecode;
 window.logSetTab = logSetTab;
 window.logGenerateCorrelation = logGenerateCorrelation;
 window.logExtractCorrelations = logExtractCorrelations;
