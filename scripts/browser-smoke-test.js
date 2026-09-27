@@ -400,6 +400,53 @@ async function run() {
       return [await p, !!document.querySelector('#mt-confirm.modal-overlay.active')];
     });
     eq('mtConfirm: Escape answers no and closes the dialog', JSON.stringify(escResult), '[false,false]');
+
+    // Review PROC-01: the Data Hub carries the parsed records, not only the text, so
+    // the next tool builds its view without parsing the file again — and the Incident
+    // Report fills a source it would have skipped straight from the Hub.
+    const proc01 = await page.evaluate(async t => {
+      const tick = ms => new Promise(r => setTimeout(r, ms));
+      window.mftClear(); window.wsreClear();
+      window.navigate('log-viewer', null);
+      window.logLoadFiles([new File([t], 'hub.log', { type: 'text/plain' })]);
+      for (let i = 0; i < 100 && !(window.mtHub.getSource() && window.mtHub.getSource().name === 'hub.log'); i++) await tick(20);
+      const src = window.mtHub.getSource();
+      const r = { hubRecords: src.records, parsedRecords: src.parsed && src.parsed.records.length };
+      const factory = window.createMendixLogParser;
+      let parses = 0;
+      window.createMendixLogParser = function () { const p = factory(); const parse = p.parse; p.parse = function () { parses++; return parse.apply(p, arguments); }; return p; };
+      try {
+        window.navigate('incident-report', null);
+        const btn = id => [...document.querySelectorAll('#ir-sources .ir-source-off')]
+          .filter(el => el.querySelector('button[onclick*="' + id + '"]'))
+          .map(el => el.querySelector('button').textContent)[0] || null;
+        r.offered = btn('microflow-tracer') + ' / ' + btn('ws-rest-extractor');
+        await window.irLoadFromHub('microflow-tracer');
+        r.mftSection = !!window.mftReportSection(null, null);
+        r.stayed = window.currentTool;
+        r.mftRowOn = !!document.querySelector('#ir-sources input.ir-source-cb[value="microflow-tracer"]');
+        r.wsreStillOffered = btn('ws-rest-extractor');
+        // A pre-filled window is widened by a new source; one the user typed is kept.
+        const from = document.getElementById('ir-from'), to = document.getElementById('ir-to');
+        from.value = '2026-07-20 10:00:00'; to.value = '2026-07-20 10:00:01';
+        await window.irLoadFromHub('ws-rest-extractor');
+        r.typedWindowKept = from.value + ' / ' + to.value;
+        from.value = ''; to.value = '';
+      } finally {
+        window.createMendixLogParser = factory;
+      }
+      r.parses = parses;
+      return r;
+    }, LOG);
+    ok('PROC-01: the Hub holds the records the Log Viewer parsed', proc01.parsedRecords > 0 && proc01.parsedRecords === proc01.hubRecords,
+      proc01.parsedRecords + ' parsed vs ' + proc01.hubRecords + ' reported');
+    eq('PROC-01: Incident Report offers the Hub file for the empty log tools', proc01.offered, 'Load from Data Hub / Load from Data Hub');
+    eq('PROC-01: loading from the Hub fills the Microflow Tracer section', proc01.mftSection + ' ' + proc01.mftRowOn, 'true true');
+    eq('PROC-01: ...without leaving the report', proc01.stayed, 'incident-report');
+    eq('PROC-01: ...and without parsing the file again', proc01.parses, 0);
+    eq('PROC-01: the other empty tool is still offered', proc01.wsreStillOffered, 'Load from Data Hub');
+    eq('PROC-01: a window the user typed survives loading a source', proc01.typedWindowKept, '2026-07-20 10:00:00 / 2026-07-20 10:00:01');
+    await page.evaluate(() => window.navigate('log-viewer', null));
     eq('no native browser dialog was opened', nativeDialogs.join(' | '), '');
 
     // Review UX-08: the bridge indicator is a control. Offline it says what the

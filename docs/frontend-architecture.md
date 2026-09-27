@@ -41,8 +41,15 @@ explaining that decision.
   `welcome`, `update-checker`, `db-connection`, `a11y`.
 - `js/tools-help.js` — one entry per tool (or per tab, for the three multi-tab
   tools), rendered by the Help button.
-- `js/tools/mendix-log-parser.js` — the single parser for both Mendix log
-  formats, shared by the four log tools so they cannot disagree about a record.
+- `js/tools/mendix-log-parser.js` — the single parser for every Mendix log
+  shape the app reads: the Mendix Cloud live log, the Studio Pro console and
+  on-premises runtime logs, the Studio Pro CSV export and Grafana's three
+  exports. The Log Viewer, Log Query Extractor, Microflow Tracer, REST & WS
+  Extractor and the Nginx correlator all read records from it, so they cannot
+  disagree about a record. The Log Viewer only maps them onto its rows
+  (`logRecordsToEntries`), cutting each row's raw text out of the file with the
+  record's `offset`. `parser-test.js` holds the pre-v1.69 Log Viewer parser
+  verbatim as the reference the shared parser must match record for record.
 
 Modules are ES modules, but **the wiring between markup and behaviour is
 `window`**: 513 `window.x = x` assignments backing 376 inline `onclick`

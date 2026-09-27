@@ -25,38 +25,6 @@ function logBookmarkKey(e) { return (e.file || '') + '#' + e.line; }
 // Quotes a value for safe embedding in an inline-handler argument (mirrors
 // logInsightsAttr — file names could in theory carry quotes/backslashes).
 function logJsStr(s) { return "'" + String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'"; }
-// ── Log format patterns ────────────────────────────────────
-// Pattern 1 (Mendix Cloud):
-//   2026-07-01T14:51:09.591808 [runtime-container/v7f5t]  ERROR - Connector: message
-// Pattern 2 (Studio Pro local):
-//   2024-01-15 09:12:34.567  INFO - Core: message
-// Pattern 3 (plain):
-//   09:12:34  ERROR  Core  message
-// ───────────────────────────────────────────────────────────
-const LOG_PAT_CLOUD   = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+\[[^\]]+\]\s+(TRACE|DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL)\s+-\s+([^:\n]+?):\s*(.*)$/i;
-const LOG_PAT_STUDIO  = /^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:\d{2}|Z)?)\s+(TRACE|DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL)\s+-\s+([^:\n]+?):\s*(.*)$/i;
-const LOG_PAT_SIMPLE  = /^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:\d{2}|Z)?)\s+(TRACE|DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL)\s+([^:\n]{1,80}):\s*(.*)$/i;
-const LOG_PAT_TIME    = /^\[?(\d{2}:\d{2}:\d{2}(?:\.\d+)?)\]?\s+(TRACE|DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL)\s+([^:\n]{1,60}):\s*(.*)$/i;
-const LOG_PATTERNS    = [LOG_PAT_CLOUD, LOG_PAT_STUDIO, LOG_PAT_SIMPLE, LOG_PAT_TIME];
-
-// The foreign-log-line rule lives in the shared parser so both parsers stay in step.
-// Resolved lazily: core.js imports this module before mendix-log-parser.js, so the
-// factory is not on window yet while this file is being evaluated.
-let logForeignParser;
-function logForeign(line, inheritedTs) {
-  if (logForeignParser === undefined) {
-    logForeignParser = window.createMendixLogParser ? window.createMendixLogParser() : null;
-  }
-  return logForeignParser ? logForeignParser.foreignRecord(line, inheritedTs) : null;
-}
-
-// Lines that are continuation/stack-trace lines (not new log entries)
-function logIsContinuation(line) {
-  return /^\s/.test(line)                // starts with whitespace (tab indent)
-    || /^(at |java\.|scala\.|com\.|org\.|sun\.|javax\.|net\.)/i.test(line.trim())  // Java stack frame
-    || /^Caused by:/i.test(line.trim())  // nested cause
-    || /^\.\.\. \d+ more/.test(line.trim()); // truncated stack
-}
 
 // What the Data Hub bar tells the other tools this file is. The extension only ever
 // distinguished Studio Pro CSV from a live log; a Grafana export is recognized by
@@ -122,18 +90,19 @@ function logLoadFiles(files) {
     for (const f of list) {
       try {
         showLoader('Parsing ' + f.name + '...');
-        const text = await logReadFileText(f);
+        const text = logLf(await logReadFileText(f));
         const before = logAllEntries.length;
-        logParseContent(text, f.name);
+        const parsed = logParseContent(text, f.name);
         const added = logAllEntries.length - before;
         if (added > 0) {
-          loaded.push({ text: text, name: f.name });
+          loaded.push({ text: text, name: f.name, parsed: parsed });
           shareable = {
             name: f.name,
             // .gz reports its compressed size, which would misdescribe the text
             // the other tools receive, so measure the decompressed string.
             size: f.name.toLowerCase().endsWith('.gz') ? text.length : f.size,
             text: text,
+            parsed: parsed,
             records: added,
             format: logDetectSourceFormat(f.name, text)
           };
@@ -158,10 +127,10 @@ function logLoadFiles(files) {
 // file, mirroring lqeLoadText / mftLoadText / wsreLoadText. It replaces what is on
 // screen: appending made the Data Hub's "re-parse the same file" double every
 // record (55,248 → 110,496), although its own prompt promises a replace.
-function logLoadText(text, filename) {
+function logLoadText(text, filename, parsed) {
   const prev = logAllEntries.length ? logSnapshot() : null;
   if (prev) logClearState();
-  logParseContent(text, filename || 'shared.log');
+  logParseContent(text, filename || 'shared.log', parsed);
   hideLoader();
   if (prev) logOfferUndo(prev, logReplacedMessage(prev.entries, filename || 'shared.log'), null);
 }
@@ -227,7 +196,7 @@ function logOfferUndo(snap, message, loaded) {
     actions.push({ label: 'Merge instead', onClick: () => {
       if (stale()) return expired();
       logRestore(snap);
-      loaded.forEach(l => logParseContent(l.text, l.name));
+      loaded.forEach(l => logParseContent(l.text, l.name, l.parsed));
       logShareMerged(loaded[loaded.length - 1]);
     } });
   }
@@ -239,7 +208,7 @@ function logShareMerged(last) {
   if (!window.mtHub) return;
   const files = new Set(logAllEntries.map(e => e.file));
   window.mtHub.setSource({
-    origin: 'log-viewer', name: last.name, size: last.text.length, text: last.text,
+    origin: 'log-viewer', name: last.name, size: last.text.length, text: last.text, parsed: last.parsed,
     records: logAllEntries.filter(e => e.file === last.name).length,
     format: logDetectSourceFormat(last.name, last.text), siblings: files.size - 1
   });
@@ -253,215 +222,58 @@ function logHandleDrop(e) {
   });
   if (files.length) logLoadFiles(files);
 }
-// Grafana's three log exports (TXT / JSON / CSV) wrap the Mendix line in Grafana's own
-// timestamp columns. The shared parser knows how to unwrap them; this maps its records
-// onto viewer entries. Detection is by CONTENT, never by file name — Grafana's CSV
-// download carries a .csv name but Grafana's columns, so the Studio Pro branch below
-// would have read the whole log line as a LogNode and called it a success.
-function logParseGrafana(text, filename) {
-  const parser = window.createMendixLogParser ? window.createMendixLogParser() : null;
-  if (!parser) return null;
-  const fmt = parser.detectFormat(text);
-  if (fmt.indexOf('grafana-') !== 0) return null;
-  return parser.parse(text).records.map((r, i) => ({
-    // One export row is one record, so the record number is the only position there is;
-    // the export dropped the app's own line numbering long before we saw the file.
-    line: i + 1,
-    ts: r.timestamp,
-    level: r.level || 'INFO',
-    node: r.logNode || 'Runtime',
-    msg: r.message,
-    // The true raw line is Grafana's envelope, which is noise to anyone reading a log.
-    // Show the record rebuilt in the shape the rest of the app speaks instead.
-    raw: (r.timestamp ? r.timestamp + '  ' : '') + (r.level || 'INFO') + ' - ' + (r.logNode || 'Runtime') + ': ' + r.message,
-    file: filename,
-    stackLines: (r.message.match(/\n/g) || []).length
-  }));
+
+// Line endings as the shared parser counts them. Its record offsets point into this
+// text, so the viewer has to hold the same string it cut the rows from.
+function logLf(text) {
+  return text.indexOf('\r') === -1 ? text : text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 }
 
-function logParseContent(text, filename) {
-  const entries = [];
-  let prev = null, lineNum = 0;
-
-  const grafanaEntries = logParseGrafana(text, filename);
-
-  if (grafanaEntries) {
-    // Pushed one by one, not spread: a spread of a few hundred thousand records is a
-    // few hundred thousand call arguments, which is where the engine's argument limit
-    // lives. Mendix logs reach that size.
-    for (const e of grafanaEntries) entries.push(e);
-  } else if (filename && filename.toLowerCase().endsWith('.csv')) {
-    const rawLines = text.split(/\r?\n/);
-    const csvRows = [];
-    let currentLine = '';
-    let insideQuotes = false;
-    
-    for (let i = 0; i < rawLines.length; i++) {
-      let line = rawLines[i];
-      currentLine += (currentLine ? '\n' : '') + line;
-      let quoteCount = 0;
-      for (let j = 0; j < line.length; j++) {
-        if (line[j] === '"') quoteCount++;
-      }
-      if (quoteCount % 2 !== 0) insideQuotes = !insideQuotes;
-      if (!insideQuotes) {
-        csvRows.push(currentLine);
-        currentLine = '';
-      }
+// One parser for every log tool (wave 36): the shared parser reads the file, this only
+// maps its records onto viewer rows. `raw` — what search, export and the correlation-id
+// lookup read — is cut out of the text between one record's offset and the next.
+// Grafana exports carry no offsets: one export row is one record, so the record number
+// is the only position there is, and the true raw line is Grafana's envelope, which is
+// noise to a reader — the row is rebuilt in the shape the rest of the app speaks.
+function logRecordsToEntries(records, text, filename) {
+  const entries = new Array(records.length);
+  for (let i = 0; i < records.length; i++) {
+    const r = records[i];
+    let msg = r.cause ? r.message + '\n' + r.cause : r.message;
+    // Continuation lines lose their indentation, as they always did in the viewer.
+    msg = msg.indexOf('\n') === -1 ? msg.trim() : msg.split('\n').map(s => s.trim()).join('\n').trim();
+    const level = r.level || 'INFO';
+    const node = r.logNode || 'Runtime';
+    let raw;
+    if (r.offset === undefined) {
+      raw = (r.timestamp ? r.timestamp + '  ' : '') + level + ' - ' + node + ': ' + r.message;
+    } else {
+      raw = text.slice(r.offset, i + 1 < records.length && records[i + 1].offset !== undefined ? records[i + 1].offset : text.length).trimEnd();
+      // Blank lines inside a record are dropped by the parser; drop them from raw too.
+      if (raw.indexOf('\n') !== -1) raw = raw.replace(/\n[ \t]*(?=\n)/g, '');
     }
-    if (currentLine) csvRows.push(currentLine);
-
-    const parseCSVRow = function(row) {
-      const fields = [];
-      let i = 0;
-      while (i < row.length) {
-        if (row[i] === '"') {
-          let field = '';
-          i++;
-          while (i < row.length) {
-            if (row[i] === '"' && i + 1 < row.length && row[i + 1] === '"') {
-              field += '"';
-              i += 2;
-            } else if (row[i] === '"') {
-              i++;
-              break;
-            } else {
-              field += row[i];
-              i++;
-            }
-          }
-          fields.push(field);
-          if (i < row.length && row[i] === ',') i++;
-        } else {
-          let end = row.indexOf(',', i);
-          if (end === -1) end = row.length;
-          fields.push(row.substring(i, end));
-          i = end + 1;
-        }
-      }
-      return fields;
+    entries[i] = {
+      line: r.line === undefined ? i + 1 : r.line,
+      ts: r.timestamp || '', level: level, node: node, msg: msg, raw: raw, file: filename,
+      stackLines: (msg.match(/\n/g) || []).length
     };
-
-    for (const row of csvRows) {
-      lineNum++;
-      if (!row.trim()) continue;
-      if (row.startsWith('Type,TimeStamp,LogNode,Message') || row.startsWith('"Type","TimeStamp","LogNode","Message"')) continue;
-      const fields = parseCSVRow(row);
-      if (fields.length < 4) continue;
-      let level = fields[0].toUpperCase();
-      if (level === 'WARNING') level = 'WARN';
-      if (level === 'ERR' || level === 'FATAL') level = 'ERROR';
-      let ts = fields[1] ? fields[1].trim() : '';
-      let node = fields[2] ? fields[2].trim() : 'Runtime';
-      let msg = fields[3] || '';
-      if (fields[4]) msg += '\n' + fields[4];
-      entries.push({ line: lineNum, ts: ts, level: level, node: node, msg: msg.trim(), raw: row, file: filename, stackLines: 0 });
-    }
-  } else {
-    const lines = text.split(/\r?\n/);
-    for (const raw of lines) {
-    lineNum++;
-    const line = raw.trimEnd();
-
-    // blank line — skip but don't break continuation
-    if (!line.trim()) continue;
-
-    // Check if this is a continuation line (stack trace, indented text, etc.)
-    if (prev && logIsContinuation(line)) {
-      prev.msg += '\n' + line.trim();
-      prev.raw += '\n' + line;
-      prev.stackLines = (prev.stackLines || 0) + 1;
-      continue;
-    }
-
-    // Try to match a new log entry
-    let matched = false;
-    for (const pat of LOG_PATTERNS) {
-      const m = line.match(pat);
-      if (m) {
-        let ts, level, node, msg;
-        if (m.length === 5) {
-          [, ts, level, node, msg] = m;
-        } else {
-          [, ts, level, msg] = m;
-          node = 'Runtime';
-        }
-        level = level.toUpperCase();
-        if (level === 'WARNING') level = 'WARN';
-        node = (node || 'Runtime').trim();
-        msg  = (msg  || '').trim();
-        prev = { line: lineNum, ts: ts.trim(), level, node, msg, raw: line, file: filename, stackLines: 0 };
-        entries.push(prev);
-        matched = true;
-        break;
-      }
-    }
-
-    if (!matched) {
-      // Fallback: Check if it's a platform log or standard timestamped line that didn't match the strict format
-      // Pattern: YYYY-MM-DDTHH:mm:ss... [SOURCE] Message OR YYYY-MM-DD... Message
-      const fallbackPat = /^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:\d{2}|Z)?)\s+(.*)$/;
-      const m = line.match(fallbackPat);
-      
-      if (m) {
-        let ts = m[1];
-        let rest = m[2];
-        let level = 'INFO'; // default
-        let node = 'Platform';
-        
-        // Try to extract [APP/PROC/WEB/0] or [CELL/0] as node
-        const sourceMatch = rest.match(/^\[([^\]]+)\]\s+(.*)$/);
-        if (sourceMatch) {
-            node = sourceMatch[1];
-            rest = sourceMatch[2];
-        }
-        
-        // Try to extract pseudo-level like "INFO:" or "WARNING:" or "ERROR:" or "ERR"
-        const levelMatch = rest.match(/^(TRACE|DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL|ERR|FATAL)[\s:-]+(.*)$/i);
-        if (levelMatch) {
-            level = levelMatch[1].toUpperCase();
-            if (level === 'WARNING') level = 'WARN';
-            if (level === 'ERR' || level === 'FATAL') level = 'ERROR';
-            rest = levelMatch[2].trim();
-        } else if (/error|exception|fail|crashed|unhealthy|oom|out of memory/i.test(rest)) {
-            level = 'ERROR';
-        }
-
-        prev = { line: lineNum, ts: ts.trim(), level, node, msg: rest, raw: line, file: filename, stackLines: 0 };
-        entries.push(prev);
-        matched = true;
-      }
-    }
-
-    // Not matched and not a continuation → treat as continuation of previous or standalone
-    if (!matched) {
-      // …unless it is a foreign log line: a library bundled with the app (opensaml, the AWS
-      // SDK, Xerces) logging through its own framework straight to stdout, so the line has no
-      // Mendix prefix. It is not a continuation, and gluing it onto the previous entry
-      // corrupted that entry's message.
-      const foreign = logForeign(line, prev ? prev.ts : '');
-      if (foreign) {
-        prev = { line: lineNum, ts: foreign.timestamp, level: foreign.level, node: foreign.logNode,
-                 msg: foreign.message, raw: raw, file: filename, stackLines: 0 };
-        entries.push(prev);
-      } else if (prev) {
-        prev.msg += '\n' + line;
-        prev.raw += '\n' + line;
-      } else {
-        // No previous entry — create a plain INFO entry
-        prev = { line: lineNum, ts: '', level: 'INFO', node: 'Raw', msg: line.trim(), raw: line, file: filename, stackLines: 0 };
-        entries.push(prev);
-      }
-    }
   }
-  }
+  return entries;
+}
+window.logRecordsToEntries = logRecordsToEntries;
+
+// Returns the shared parser's result, which the Data Hub hands to the other log tools.
+// `parsed` — records the Hub already holds for this very text — skips the parse; their
+// offsets still fit, because the parser normalizes line endings exactly as logLf does.
+function logParseContent(text, filename, parsed) {
+  text = logLf(text);
+  const res = parsed || window.createMendixLogParser().parse(text);
+  const entries = logRecordsToEntries(res.records, text, filename);
 
   // An unrecognized format used to land as ONE entry with every other line folded into it
   // as a stack frame — a 1581-line Grafana export shown as a single INFO row, reported as
   // a clean parse. The silence was the real bug: a format we cannot read has to say so.
-  // Counted from the message, not from `stackLines`: the branch that glues an unmatched
-  // line onto the previous entry never touches that counter, so it reads 0 in exactly the
-  // case this guard exists for. The row's own "Show N frames" toggle counts the same way.
+  // Counted from the message, the same way the row's own "Show N frames" toggle counts.
   if (entries.length === 1) {
     const folded = (entries[0].msg.match(/\n/g) || []).length;
     if (folded >= 20) {
@@ -477,7 +289,7 @@ function logParseContent(text, filename) {
       'Ensure the file is a plain text Mendix log.</div>';
     document.getElementById('log-virtual-list').style.display = 'block';
     document.getElementById('log-empty-state').style.display  = 'none';
-    return;
+    return res;
   }
 
   logAllEntries = [...logAllEntries, ...entries];
@@ -499,6 +311,7 @@ function logParseContent(text, filename) {
 
   logBuildDateFilter();
   logShowLoaded();
+  return res;
 }
 
 // Everything the view needs once logAllEntries holds a log — after a parse, and
@@ -1201,7 +1014,7 @@ function logBuildChart() {
   if (timed < 2 || t1 <= t0) return;
   logChartAxis = {
     t0: t0, t1: t1, span: t1 - t0,
-    // Time-only logs (LOG_PAT_TIME) carry ms since midnight plus a day carry, so
+    // Time-only logs carry ms since midnight plus a day carry, so
     // they stay far below any real epoch value. Anything larger came from a date.
     epoch: t0 > 86400000 * 400,
     timed: timed, skipped: logAllEntries.length - timed
@@ -2812,8 +2625,8 @@ function logGenerateSequence() {
 }
 
 // Resolves the entries onto one monotonic epoch axis for the Gantt. Entries can
-// carry three timestamp shapes: full ISO (LOG_PAT_CLOUD/STUDIO/SIMPLE), the Studio
-// Pro CSV export the shared parser emits, or a time-only stamp from LOG_PAT_TIME.
+// carry three timestamp shapes: full ISO (cloud, Studio Pro console, on-premises), the Studio
+// Pro CSV export the shared parser emits, or a time-only stamp from a time-only line.
 // Only the last one has to be synthesised — and it is the one that used to break
 // the chart: anchoring every entry to a fixed 1970-01-01 threw the date away, so a
 // log crossing midnight sorted backwards and reported "logs have same timestamp".
@@ -2988,7 +2801,6 @@ function logSubmitPaste() {
 function logHasData() { return logAllEntries.length > 0; }
 
 // --- AUTO-GENERATED ESM EXPORTS ---
-window.logIsContinuation = logIsContinuation;
 window.logHasData = logHasData;
 window.logLoadFiles = logLoadFiles;
 window.logLoadText = logLoadText;

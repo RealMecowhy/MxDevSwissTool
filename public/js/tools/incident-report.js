@@ -78,6 +78,35 @@ function irCheckWindow(clearOnly) {
 
 let irProbed = []; // [{ src, section|null }]
 
+// A log tool with nothing loaded does not have to be skipped when the Data Hub holds a
+// log it has not seen: the Hub carries the parsed records, so filling that source is a
+// click, without leaving the report. A tool the Hub file already went into and that
+// still has no section simply found nothing of its kind — offering it again would not help.
+const IR_HUB_TOOLS = ['log-viewer', 'log-query-extractor', 'microflow-tracer', 'ws-rest-extractor'];
+function irHubOffer(id) {
+  const src = window.mtHub && window.mtHub.getSource();
+  if (!src || IR_HUB_TOOLS.indexOf(id) === -1 || src.loadedIn.indexOf(id) !== -1) return null;
+  return src;
+}
+// The window the report filled in by itself, so a new source can widen it. A window the
+// user typed is theirs and stays; left as it was, the pre-filled one would cut the new
+// source down to the span of whatever was loaded before it.
+let irAutoWindow = null;
+async function irLoadFromHub(id, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
+  try {
+    await window.mtHub.loadInto(id);
+  } catch (e) {
+    console.error('Incident Report: loading from the Data Hub failed', e);
+    window.mtToast('Could not load the Data Hub file: ' + e.message, 'error');
+  }
+  const fromEl = document.getElementById('ir-from'), toEl = document.getElementById('ir-to');
+  if (fromEl && toEl && irAutoWindow && fromEl.value === irAutoWindow.from && toEl.value === irAutoWindow.to) {
+    fromEl.value = ''; toEl.value = '';
+  }
+  irRefresh();
+}
+
 // Probe every source, render the checklist, and pre-fill the window inputs from
 // the combined data span (only when the user has not already typed a window).
 function irRefresh() {
@@ -101,10 +130,14 @@ function irRefresh() {
         + '<span class="ir-source-count" data-ir-count="' + p.src.id + '"></span>'
         + '</label>';
     }
+    const hub = irHubOffer(p.src.id);
+    const action = hub
+      ? '<button type="button" class="btn btn-secondary btn-sm" title="' + escHtml('Load ' + hub.name + ' — already parsed — without leaving the report') + '" onclick="irLoadFromHub(\'' + p.src.id + '\', this)">Load from Data Hub</button>'
+      : '<button type="button" class="btn btn-ghost btn-sm" onclick="window.navigate(\'' + p.src.id + '\', null)">Open &amp; load data</button>';
     return '<div class="ir-source ir-source-off">'
       + '<span class="ir-source-dot"></span>'
       + '<span class="ir-source-label">' + escHtml(p.src.label) + '</span>'
-      + '<button type="button" class="btn btn-ghost btn-sm" onclick="window.navigate(\'' + p.src.id + '\', null)">Open &amp; load data</button>'
+      + action
       + '</div>';
   }).join('');
 
@@ -113,6 +146,7 @@ function irRefresh() {
   if (fromEl && toEl && !fromEl.value && !toEl.value && minMs !== Infinity) {
     fromEl.value = irFmtInput(minMs);
     toEl.value = irFmtInput(maxMs);
+    irAutoWindow = { from: fromEl.value, to: toEl.value };
   }
 
   irCheckWindow();
@@ -234,6 +268,7 @@ function irResetWindow() {
 }
 
 window.irRefresh = irRefresh;
+window.irLoadFromHub = irLoadFromHub;
 window.irUpdateCounts = irUpdateCounts;
 window.irGenerate = irGenerate;
 window.irResetWindow = irResetWindow;

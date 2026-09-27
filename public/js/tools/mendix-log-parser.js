@@ -1,7 +1,10 @@
 // Shared Mendix log parser (wave 2).
 //
-// Normalizes the two on-disk log formats to ONE record model:
-//   { level, timestamp, logNode, message }
+// Normalizes the on-disk log formats to ONE record model:
+//   { level, timestamp, logNode, message, cause, line, offset }
+//   line/offset: where the record starts — its 1-based physical line, and its position in
+//   the text with line endings normalized to \n (Grafana exports carry neither). The Log
+//   Viewer cuts each record's raw text out of the file with them.
 //   - Studio Pro CSV export:  Type,TimeStamp,LogNode,Message  (RFC4180, multiline quoted fields)
 //   - Mendix Cloud live log:  TIMESTAMP [runtime-container/pod] LEVEL - Node: message
 //                             (+ continuation lines: stack traces, multiline JSON query plans)
@@ -19,6 +22,23 @@
     // Live-log line (single line; continuations are handled separately):
     //   2026-07-01T14:51:09.591808 [runtime-container/v7f5t]  ERROR - Connector: message
     var LOG_PAT_CLOUD = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+\[[^\]]+\]\s+(TRACE|DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL)\s+-\s+([^:\n]+?):\s*(.*)$/i;
+    // The same record without the [source] bracket: the Studio Pro console and on-premises
+    // runtimes (2024-01-15 09:12:34.567  INFO - Core: …), the same without " - ", and a
+    // time-only shape (09:12:34 ERROR Core: …). The Log Viewer read these long before this
+    // parser did; since v1.69.0 every log tool reads them the same way.
+    var LOG_PAT_STUDIO = /^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:\d{2}|Z)?)\s+(TRACE|DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL)\s+-\s+([^:\n]+?):\s*(.*)$/i;
+    var LOG_PAT_SIMPLE = /^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:\d{2}|Z)?)\s+(TRACE|DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL)\s+([^:\n]{1,80}):\s*(.*)$/i;
+    var LOG_PAT_TIME = /^\[?(\d{2}:\d{2}:\d{2}(?:\.\d+)?)\]?\s+(TRACE|DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL)\s+([^:\n]{1,60}):\s*(.*)$/i;
+    var LOG_PATTERNS = [LOG_PAT_CLOUD, LOG_PAT_STUDIO, LOG_PAT_SIMPLE, LOG_PAT_TIME];
+    // A timestamped line that is not a Mendix record: the container supervisor
+    // ([runtime-container/…] "no auth required", "program exited" program=runtime), the
+    // buildpack, the JVM launcher. It carries no level, so it was glued onto the record
+    // above — 266 records on one real app went missing that way. It is a record of its own.
+    var LOG_PAT_PLATFORM = /^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:\d{2}|Z)?)\s+(.*)$/;
+    var PLATFORM_SOURCE = /^\[([^\]]+)\]\s+(.*)$/;
+    var PLATFORM_LEVEL = /^(TRACE|DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL|ERR|FATAL)[\s:-]+(.*)$/i;
+    // No level at all: a supervisor reporting a crash still has to surface as an error.
+    var PLATFORM_ERROR_WORDS = /error|exception|fail|crashed|unhealthy|oom|out of memory/i;
     // Foreign log lines: a library bundled with the app (opensaml, the AWS SDK, Xerces) logs
     // through its own framework straight to stdout, so the line lands in the middle of the
     // Mendix log WITHOUT the Mendix prefix. Two shapes occur in real cloud logs:
@@ -85,6 +105,32 @@
         };
       }
       return null;
+    }
+
+    // A line that starts a record in a live log -> the record; anything else -> null.
+    // Every shape past the cloud one starts with a digit or '[', so the common case —
+    // a stack frame or a line of SQL — is turned away without running the patterns.
+    function liveRecord(line) {
+      var m = line.match(LOG_PAT_CLOUD);
+      if (!m) {
+        var c = line.charCodeAt(0);
+        if (!((c >= 48 && c <= 57) || c === 91)) return null;
+        for (var i = 1; i < LOG_PATTERNS.length && !m; i++) m = line.match(LOG_PATTERNS[i]);
+      }
+      if (m) {
+        return { level: normLevel(m[2]), timestamp: m[1], logNode: m[3].trim(), message: m[4], cause: '' };
+      }
+      m = line.match(LOG_PAT_PLATFORM);
+      if (!m) return null;
+      var level = 'INFO';
+      var node = 'Platform';
+      var rest = m[2];
+      var s = rest.match(PLATFORM_SOURCE);
+      if (s) { node = s[1]; rest = s[2]; }
+      var l = rest.match(PLATFORM_LEVEL);
+      if (l) { level = normLevel(l[1]); rest = l[2].trim(); }
+      else if (PLATFORM_ERROR_WORDS.test(rest)) level = 'ERROR';
+      return { level: level, timestamp: m[1], logNode: node, message: rest, cause: '' };
     }
 
     // Loki stores a stack trace as one log line per frame, so each frame arrives as its
@@ -160,12 +206,14 @@
             line.indexOf('"Type","TimeStamp","LogNode","Message"') === 0) return 'csv';
         if (seen === 1 && isGrafanaCsvHeader(line)) return 'grafana-csv';
         if (GRAFANA_TXT.test(line)) return 'grafana-txt';
-        if (LOG_PAT_CLOUD.test(line)) return 'live';
+        if (liveRecord(line)) return 'live';
       }
       return 'csv';
     }
 
-    // Single-pass RFC4180 state machine. Calls onRow(fields, hasContent) for every row;
+    // Single-pass RFC4180 state machine. Calls onRow(fields, hasContent, line, offset) for
+    // every row — the 1-based physical line the row starts on, and its position in the
+    // LF-normalized text;
     // what a row MEANS is the caller's business, because two exports share this scanner
     // with different columns (Studio Pro's four, Grafana's named data-frame ones).
     // Line endings are normalized to \n so a quoted field spanning CRLF lines matches
@@ -179,14 +227,19 @@
       var rowHasContent = false;   // any non-whitespace character in the row (≈ row.trim() truthy)
       var nextProgress = PROGRESS_EVERY;
       var len = text.length;
+      var lineNo = 1;              // physical line of text[i]
+      var rowLine = 1;
+      var rowOffset = 0;
 
-      function endRow() {
+      function endRow(i) {
         fields.push(field);
         field = '';
-        if (rowStarted) onRow(fields, rowHasContent);
+        if (rowStarted) onRow(fields, rowHasContent, rowLine, rowOffset);
         fields = [];
         rowStarted = false;
         rowHasContent = false;
+        rowLine = lineNo + 1;
+        rowOffset = i + 1;
       }
 
       for (var i = 0; i < len; i++) {
@@ -210,10 +263,11 @@
           fields.push(field);
           field = '';
         } else if (c === '\n') {
-          endRow();
+          endRow(i);
         } else {
           field += c;
         }
+        if (c === '\n') lineNo++;
 
         if (onProgress && i >= nextProgress) {
           nextProgress += PROGRESS_EVERY;
@@ -221,14 +275,14 @@
         }
       }
       // Trailing row without a final newline
-      if (rowStarted || field !== '' || fields.length) endRow();
+      if (rowStarted || field !== '' || fields.length) endRow(len);
     }
 
     // Studio Pro export: fixed column order, header row skipped.
     function parseCsv(text, onProgress) {
       var records = [];
       var skipped = 0;
-      forEachCsvRow(text, onProgress, function (fields, hasContent) {
+      forEachCsvRow(text, onProgress, function (fields, hasContent, line, offset) {
         if (isHeaderRow(fields)) return;
         if (fields.length < 4) {
           if (hasContent) skipped++;
@@ -239,7 +293,9 @@
           timestamp: (fields[1] || '').trim(),
           logNode: (fields[2] || '').trim(),
           message: fields[3] || '',
-          cause: fields[4] || ''
+          cause: fields[4] || '',
+          line: line,
+          offset: offset
         });
       });
       return { records: records, skipped: skipped };
@@ -289,14 +345,15 @@
       return { records: records, skipped: skipped };
     }
 
-    // Live logs: one record per LOG_PAT_CLOUD line; any other non-blank line is a
-    // continuation (stack trace, multiline plan JSON, wrapped slow-query SQL) appended
-    // to the current record's message.
+    // Live logs: one record per line that liveRecord() or foreignRecord() recognizes; any
+    // other non-blank line is a continuation (stack trace, multiline plan JSON, wrapped
+    // slow-query SQL) appended to the current record's message.
     function parseLive(text, onProgress) {
       if (text.indexOf('\r') !== -1) text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
       var records = [];
       var skipped = 0;
       var current = null;
+      var lineNo = 0;
       var start = 0;
       var len = text.length;
       var nextProgress = PROGRESS_EVERY;
@@ -308,21 +365,20 @@
         var isLast = nl === -1;
         start = end + 1;
 
-        var m = line.match(LOG_PAT_CLOUD);
-        if (m) {
-          current = {
-            level: normLevel(m[2]),
-            timestamp: m[1],
-            logNode: m[3].trim(),
-            message: m[4],
-            cause: ''
-          };
+        lineNo++;
+        var rec = liveRecord(line);
+        if (rec) {
+          rec.line = lineNo;
+          rec.offset = end - line.length;
+          current = rec;
           records.push(current);
         } else if (line.trim()) {
           var foreign = foreignRecord(line, current ? current.timestamp : '');
           if (foreign) {
             // Own record, and it becomes the open one: a stack trace printed after a
             // foreign line belongs to that line, not to the Mendix record before it.
+            foreign.line = lineNo;
+            foreign.offset = end - line.length;
             records.push(foreign);
             current = foreign;
           } else if (current) {

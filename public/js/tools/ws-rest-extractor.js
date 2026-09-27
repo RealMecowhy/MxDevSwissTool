@@ -358,8 +358,14 @@ window.wsreLoadFile = function(files) {
   reader.readAsText(files[0]);
 };
 
-window.wsreLoadText = function(text) {
+// `parsed` — the Data Hub's records for this very text — skips the parse entirely.
+window.wsreLoadText = function(text, name, parsed) {
   wsrePendingFile = null;   // the caller (cross-link / Data Hub) owns this text
+  if (parsed) {
+    wsreRawText = text;
+    if (window.showLoader) window.showLoader('Pairing requests…', 99);
+    return new Promise(resolve => setTimeout(() => { wsreApplyParseResult(parsed); resolve(true); }, 20));
+  }
   wsreParseText(text);
 };
 
@@ -411,7 +417,7 @@ function wsreParseInWorker(text) {
       worker.terminate();
       if (wsreWorker === worker) wsreWorker = null;
       if (window.showLoader) window.showLoader('Pairing requests…', 99);
-      setTimeout(() => wsreApplyParseResult({ records: d.records }), 20);
+      setTimeout(() => wsreApplyParseResult({ format: d.format, records: d.records, skipped: d.skipped }), 20);
     }
   };
   worker.onerror = function(err) {

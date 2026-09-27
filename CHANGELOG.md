@@ -14,6 +14,50 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.69.0 — 2026-09-27
+
+**One parser for every log tool, and a log loaded once is parsed once.** The Log
+Viewer used to carry a parser of its own; the two disagreed, and the Query
+Extractor, Microflow Tracer and REST & WS Extractor could not read some logs the
+Log Viewer could.
+
+### Fixed
+
+- **Container-supervisor lines no longer vanish** in the Query Extractor,
+  Microflow Tracer, REST & WS Extractor and the Nginx correlator. Lines like
+  `[runtime-container/…] "program exited" program=runtime` carry a timestamp but
+  no level; the shared parser glued them onto the record above. On one real app
+  that was 266 records across three days. They are records of their own now, and
+  one that reports a crash or a failure is an ERROR.
+- **On-premises and local Studio Pro runtime logs** (`2024-01-15 09:12:34.567
+  INFO - Core: …`, no `[source]` bracket) are read by every log tool. The shared
+  parser took such a file for a CSV export: a 21,624-record on-premises log came
+  out as 1,175 garbled records. Only the Log Viewer read it correctly before.
+
+### Changed
+
+- **The Log Viewer reads through the shared parser.** Measured on ten production
+  apps (1,660,937 records) it shows exactly what it showed before, record for
+  record; a test keeps the old algorithm as the reference. Two visible
+  differences: a Studio Pro CSV row is numbered by its line in the file, as an
+  editor numbers it, and lines before the first log record are skipped instead
+  of being shown as one "Raw" entry.
+- **"Open in…" hands over the parsed records, not only the text.** The next tool
+  builds its view straight from them. Loading a 69 MB TRACE log in the Log
+  Viewer, passing it to the Query Extractor, Microflow Tracer and REST & WS
+  Extractor and building an Incident Report took about 16.5 s; it now takes
+  about 11 s.
+- **Incident Report: "Load from Data Hub".** A log tool with nothing loaded no
+  longer has to be skipped when the Data Hub holds a log it has not seen: one
+  click fills that source from the parsed records, without leaving the report. A
+  time window the report filled in by itself widens to take the new source in; a
+  window you typed stays as it is.
+- Parsing a log takes about 16% longer (7.4 s instead of 6.4 s for 3.1 GB), the
+  cost of recognizing the extra line shapes; it is more than repaid by parsing a
+  file once instead of once per tool.
+
+---
+
 ## v1.68.0 — 2026-09-27
 
 **One wave of accessibility and consistency: every field has a name, every number

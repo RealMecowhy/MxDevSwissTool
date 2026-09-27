@@ -9,6 +9,10 @@
 // and renders a bar saying what is loaded plus an "Open in…" button per tool
 // that can consume it. The raw text is already in memory (the tools keep it for
 // their own re-parsing), so handing it over costs a function call, not a re-read.
+// Since v1.69.0 it also carries the parsed records — a reference to the array the
+// shared parser produced, not a copy — so the next tool builds its view from them
+// instead of parsing the same file again. Every log tool reads records the same
+// way (one parser), and none of them writes to a record, so sharing is safe.
 //
 // Data-driven principle: with nothing loaded the bar renders NOTHING (no empty
 // shell, no placeholder counts) — mounts stay collapsed until a file arrives.
@@ -152,21 +156,26 @@
     if (clearBtn) clearBtn.addEventListener('click', function () { mtHub.clear(); });
   }
 
-  function mtHubLoadInto(target, fn) {
+  // `stay` loads without leaving the current tool (the Incident Report filling in a
+  // source); otherwise the target is opened first, so its panel is visible before
+  // it renders. Returns what the target's entry point returns — a Promise when it
+  // builds its view asynchronously — or false when it threw.
+  function mtHubLoadInto(target, fn, stay) {
     if (!source) return false;
     if (source.loadedIn.indexOf(target.id) === -1) source.loadedIn.push(target.id);
-    // Navigate first so the target panel exists and is visible before it
-    // renders parse results into it.
-    if (typeof root.navigateWithReturn === 'function') root.navigateWithReturn(target.id);
-    else if (typeof root.navigate === 'function') root.navigate(target.id, null);
+    if (!stay) {
+      if (typeof root.navigateWithReturn === 'function') root.navigateWithReturn(target.id);
+      else if (typeof root.navigate === 'function') root.navigate(target.id, null);
+    }
+    var out;
     try {
-      fn(source.text, source.name);
+      out = fn(source.text, source.name, source.parsed);
     } catch (e) {
       console.error('Data Hub: ' + target.fn + ' failed', e);
       return false;
     }
     notify();
-    return true;
+    return out === undefined ? true : out;
   }
 
   function notify() {
@@ -186,6 +195,8 @@
         records: typeof info.records === 'number' ? info.records : null,
         siblings: info.siblings || 0,
         text: info.text,
+        // { format, records, skipped } from the shared parser, for exactly this text.
+        parsed: info.parsed && info.parsed.records ? info.parsed : null,
         origin: info.origin || null,
         loadedIn: info.origin ? [info.origin] : [],
         loadedAt: Date.now()
@@ -216,6 +227,7 @@
         text: text,
         format: res && res.format,
         records: res && res.records ? res.records.length : null,
+        parsed: res,
         origin: origin
       });
     },
@@ -243,6 +255,15 @@
         }
       }
       return mtHubLoadInto(target, fn);
+    },
+    // Loads the active source into a tool that holds nothing yet, without leaving
+    // the current one. Used by the Incident Report for a source it would otherwise
+    // have to skip. Returns a Promise that settles once the tool has its data.
+    loadInto: function (toolId) {
+      var target = HUB_TARGETS.filter(function (t) { return t.id === toolId; })[0];
+      var fn = target && root[target.fn];
+      if (!source || typeof fn !== 'function') return Promise.resolve(false);
+      return Promise.resolve(mtHubLoadInto(target, fn, true));
     },
     // Re-scans for mount points; safe to call repeatedly.
     mountAll: function () {

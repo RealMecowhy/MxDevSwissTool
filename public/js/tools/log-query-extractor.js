@@ -63,8 +63,13 @@ window.lqeSetTimeWindow = function(from, to, label) {
   window.lqeFilter();
 };
 
-window.lqeLoadText = function(text) {
+// `parsed` — the Data Hub's records for this very text — skips the parse entirely.
+window.lqeLoadText = function(text, name, parsed) {
   lqePendingFile = null;   // the caller (cross-link / Data Hub) owns this text
+  if (parsed) {
+    if (window.showLoader) window.showLoader('Extracting queries…', 99);
+    return new Promise(resolve => setTimeout(() => { lqeApplyParseResult(parsed); resolve(true); }, 20));
+  }
   parseLogContent(text);
 };
 

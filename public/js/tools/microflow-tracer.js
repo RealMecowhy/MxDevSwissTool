@@ -479,8 +479,14 @@ window.mftLoadFile = function(files) {
 
 // Cross-link entry point (REST & WS Extractor → MFT): load raw log text directly
 // so one file load powers all the log tools, mirroring lqeLoadText.
-window.mftLoadText = function(text) {
+// `parsed` — the Data Hub's records for this very text — skips the parse entirely.
+window.mftLoadText = function(text, name, parsed) {
   mftPendingFile = null;   // the caller (cross-link / Data Hub) owns this text
+  if (parsed) {
+    mftRawText = text;
+    if (window.showLoader) window.showLoader('Rebuilding executions…', 99);
+    return new Promise(resolve => setTimeout(() => { mftApplyParseResult(parsed); resolve(true); }, 20));
+  }
   mftParseText(text);
 };
 
@@ -532,7 +538,7 @@ function mftParseInWorker(text) {
       worker.terminate();
       if (mftWorker === worker) mftWorker = null;
       if (window.showLoader) window.showLoader('Rebuilding executions…', 99);
-      setTimeout(() => mftApplyParseResult({ records: d.records }), 20);
+      setTimeout(() => mftApplyParseResult({ format: d.format, records: d.records, skipped: d.skipped }), 20);
     }
   };
   worker.onerror = function(err) {

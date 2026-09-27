@@ -6503,6 +6503,219 @@ const uv = require('../server/lib/update-verify.js');
     uv.verifyReleasePackage(pkg, goodSig, 'not a pem').ok === false);
 })();
 
+// ── One parser: the shared parser reads what the Log Viewer read (wave 36, BUG-20) ──
+// Until v1.68.0 the Log Viewer carried its own parser. Measured on the NewLogs corpus
+// the two agreed on 9 of 10 apps; on Intercom the Log Viewer made 266 records the
+// shared parser glued onto the record above: container-supervisor lines with a
+// timestamp but no level. The Log Viewer's reading is the right one, so its old
+// algorithm — reproduced verbatim below — is the reference the shared parser must
+// meet, record for record. The one deliberate difference: lines before the first
+// record. The viewer made them a "Raw" record; the shared parser counts them as
+// skipped, because a file that is not a log must not look parsed to the other tools.
+console.log('\nOne parser (shared parser vs the pre-v1.69 Log Viewer parser)');
+(function () {
+  const OLD_PATTERNS = [
+    /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+\[[^\]]+\]\s+(TRACE|DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL)\s+-\s+([^:\n]+?):\s*(.*)$/i,
+    /^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:\d{2}|Z)?)\s+(TRACE|DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL)\s+-\s+([^:\n]+?):\s*(.*)$/i,
+    /^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:\d{2}|Z)?)\s+(TRACE|DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL)\s+([^:\n]{1,80}):\s*(.*)$/i,
+    /^\[?(\d{2}:\d{2}:\d{2}(?:\.\d+)?)\]?\s+(TRACE|DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL)\s+([^:\n]{1,60}):\s*(.*)$/i
+  ];
+  function oldIsContinuation(line) {
+    return /^\s/.test(line)
+      || /^(at |java\.|scala\.|com\.|org\.|sun\.|javax\.|net\.)/i.test(line.trim())
+      || /^Caused by:/i.test(line.trim())
+      || /^\.\.\. \d+ more/.test(line.trim());
+  }
+  function oldLvParseLive(text) {
+    const entries = [];
+    let prev = null, lineNum = 0;
+    for (const raw of text.split(/\r?\n/)) {
+      lineNum++;
+      const line = raw.trimEnd();
+      if (!line.trim()) continue;
+      if (prev && oldIsContinuation(line)) {
+        prev.msg += '\n' + line.trim();
+        prev.raw += '\n' + line;
+        continue;
+      }
+      let matched = false;
+      for (const pat of OLD_PATTERNS) {
+        const m = line.match(pat);
+        if (m) {
+          let [, ts, level, node, msg] = m;
+          level = level.toUpperCase();
+          if (level === 'WARNING') level = 'WARN';
+          prev = { line: lineNum, ts: ts.trim(), level, node: (node || 'Runtime').trim(), msg: (msg || '').trim(), raw: line };
+          entries.push(prev);
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        const m = line.match(/^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:\d{2}|Z)?)\s+(.*)$/);
+        if (m) {
+          let rest = m[2], level = 'INFO', node = 'Platform';
+          const sourceMatch = rest.match(/^\[([^\]]+)\]\s+(.*)$/);
+          if (sourceMatch) { node = sourceMatch[1]; rest = sourceMatch[2]; }
+          const levelMatch = rest.match(/^(TRACE|DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL|ERR|FATAL)[\s:-]+(.*)$/i);
+          if (levelMatch) {
+            level = levelMatch[1].toUpperCase();
+            if (level === 'WARNING') level = 'WARN';
+            if (level === 'ERR' || level === 'FATAL') level = 'ERROR';
+            rest = levelMatch[2].trim();
+          } else if (/error|exception|fail|crashed|unhealthy|oom|out of memory/i.test(rest)) {
+            level = 'ERROR';
+          }
+          prev = { line: lineNum, ts: m[1].trim(), level, node, msg: rest, raw: line };
+          entries.push(prev);
+          matched = true;
+        }
+      }
+      if (!matched) {
+        const foreign = parser.foreignRecord(line, prev ? prev.ts : '');
+        if (foreign) {
+          prev = { line: lineNum, ts: foreign.timestamp, level: foreign.level, node: foreign.logNode, msg: foreign.message, raw: raw };
+          entries.push(prev);
+        } else if (prev) {
+          prev.msg += '\n' + line;
+          prev.raw += '\n' + line;
+        } else {
+          prev = { line: lineNum, ts: '', level: 'INFO', node: 'Raw', msg: line.trim(), raw: line, preamble: true };
+          entries.push(prev);
+        }
+      }
+    }
+    return entries;
+  }
+
+  // What the Log Viewer shows of the shared parser's records — its real mapping.
+  function lvEntries(text) {
+    const lf = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    return global.logRecordsToEntries(parser.parse(lf).records, lf, 'f');
+  }
+  function lvView(r) { return global.logRecordsToEntries([r], '', 'f')[0]; }
+  // Trailing blanks per line are not something anyone reads; everything else must match.
+  function tidy(s) { return s.split('\n').map(x => x.trimEnd()).join('\n'); }
+  function view(e) { return { line: e.line, ts: e.ts, level: e.level, node: e.node, msg: e.msg.split('\n').map(s => s.trim()).join('\n').trim(), raw: tidy(e.raw) }; }
+
+  // Returns '' when both sides agree, else a description of the first mismatch.
+  function diffParsers(text) {
+    const oldE = oldLvParseLive(text).filter(e => !e.preamble);
+    const newE = lvEntries(text);
+    if (oldE.length !== newE.length) {
+      for (let i = 0; i < Math.min(oldE.length, newE.length); i++) {
+        if (oldE[i].ts !== newE[i].ts || oldE[i].level !== newE[i].level) {
+          return 'count ' + newE.length + ' vs ' + oldE.length + '; first split at old line ' + oldE[i].line + ': ' + oldE[i].raw.slice(0, 120);
+        }
+      }
+      return 'count ' + newE.length + ' vs ' + oldE.length;
+    }
+    for (let i = 0; i < oldE.length; i++) {
+      const a = JSON.stringify(view(newE[i])), b = JSON.stringify(view(oldE[i]));
+      if (a !== b) return 'record ' + i + ' (old line ' + oldE[i].line + '): ' + a.slice(0, 200) + ' vs ' + b.slice(0, 200);
+    }
+    return '';
+  }
+  function agree(name, text) {
+    const d = diffParsers(text);
+    ok(name, d === '', d);
+  }
+
+  const C = '[runtime-container/4772k]';
+  agree('cloud log: records, stack traces, SQL continuation and blank lines', [
+    '2026-08-10T13:29:40.100000 ' + C + '  INFO - Core: Mendix Runtime successfully started',
+    '2026-08-10T13:29:40.200000 ' + C + '  ERROR - Connector: Something broke',
+    '\tat com.mendix.core.Core.execute(Core.java:12)',
+    'Caused by: java.lang.IllegalStateException: boom',
+    '\t... 12 more',
+    '',
+    '2026-08-10T13:29:40.300000 ' + C + '  WARNING - ConnectionBus_Queries: (1/1) Query executed in 12 seconds and 3 milliseconds: SELECT "a"',
+    'FROM "b"',
+    'WHERE "c" = 1'
+  ].join('\n'));
+  agree('cloud log: container-supervisor lines without a level are records of their own (Intercom)', [
+    '2026-08-10T13:29:40.900000 ' + C + '  INFO - Core: shutting down',
+    '2026-08-10T13:29:40.933134 ' + C + '   "no auth required"',
+    '2026-08-10T13:29:40.933268 ' + C + '   "Send signal to program" program=watchdog signal=terminated',
+    '2026-08-10T13:29:41.505978 ' + C + '   "program stopped with status:exit status 0" program=runtime',
+    '2026-08-10T13:30:21.778901 ' + C + '   Calculated JVM Memory Configuration: -Xss1M (Total Memory: 8G)',
+    '2026-08-10T13:30:21.797864 ' + C + '   Enabling Java Native Memory Tracking',
+    '2026-08-10T13:30:22.000000 ' + C + '  INFO - Core: starting'
+  ].join('\n'));
+  agree('supervisor lines: a pseudo-level (ERR:, WARNING -) is read as the level', [
+    '2026-08-10T13:30:21.000000 ' + C + '   ERR: health check timed out',
+    '2026-08-10T13:30:21.100000 ' + C + '   WARNING - disk almost full',
+    '2026-08-10T13:30:21.200000 ' + C + '   FATAL out of memory'
+  ].join('\n'));
+  agree('supervisor lines: no level but an error word -> ERROR (the viewer heuristic, now shared)', [
+    '2026-08-10T13:30:21.000000 ' + C + '   "program exited with failure" program=runtime',
+    '2026-08-10T13:30:21.100000 ' + C + '   container unhealthy, restarting',
+    '2026-08-10T13:30:21.200000 ' + C + '   "program exited" program=runtime'
+  ].join('\n'));
+  agree('a timestamped line without a [source] is a Platform record', [
+    '2026-08-10 13:30:21.000 buildpack: staging complete',
+    '2026-08-10T13:30:22Z Exception while staging'
+  ].join('\n'));
+  agree('Studio Pro console / on-premises lines: no [source], with and without " - "', [
+    '2024-01-15 09:12:34.567  INFO - Core: Mendix Runtime starting',
+    '2024-01-15 09:12:35.000  ERROR - Connector: failed',
+    '\tat com.mendix.Foo.bar(Foo.java:1)',
+    '2024-01-15T09:12:36+02:00 WARNING Core: plain shape without the dash',
+    '09:12:37 ERROR Core: time-only shape',
+    '[09:12:38] INFO Core: bracketed time-only shape'
+  ].join('\n'));
+  agree('foreign lines (opensaml, java.util.logging) are records; a PostgreSQL ERROR: detail is not', [
+    '2026-08-10T13:29:40.100000 ' + C + '  INFO - Core: before',
+    '[JettyServer-13962] INFO org.opensaml.xmlsec.algorithm.AlgorithmSupport - Mapping from x to y',
+    'WARNING: Supplied DOM uses namespaces, but is not created as namespace-aware',
+    '2026-08-10T13:29:40.200000 ' + C + '  ERROR - ConnectionBus: query failed',
+    'org.postgresql.util.PSQLException: ERROR: relation "x" does not exist',
+    'ERROR: relation "x" does not exist'
+  ].join('\n'));
+  agree('CRLF line endings read the same as LF', [
+    '2026-08-10T13:29:40.100000 ' + C + '  INFO - Core: a',
+    '2026-08-10T13:29:40.200000 ' + C + '   "no auth required"',
+    '2026-08-10T13:29:40.300000 ' + C + '  ERROR - Core: b',
+    '\tat com.x.Y.z(Y.java:1)'
+  ].join('\r\n'));
+
+  // Studio Pro CSV: a row is located by the physical line it starts on, so a quoted
+  // multi-line message moves the next row's line number by its length — and CRLF inside
+  // the quoted field reads the same as LF.
+  const csvText = [
+    'Type,TimeStamp,LogNode,Message',
+    'Info,2024-01-15 09:00:00,Core,"first"',
+    'Error,2024-01-15 09:00:01,Connector,"line one',
+    'line two',
+    'line three",java.lang.RuntimeException',
+    '',
+    'Warning,2024-01-15 09:00:02,Core,"third"'
+  ].join('\r\n');
+  const csvRes = parser.parse(csvText);
+  eq('csv: format detected by content', csvRes.format, 'csv');
+  eq('csv: record lines are physical lines (2, 3, 7)', csvRes.records.map(r => r.line).join(','), '2,3,7');
+  const csvLf = csvText.replace(/\r\n/g, '\n');
+  ok('csv: every offset points at its row in the LF-normalized text',
+    csvRes.records.every(r => csvLf.substr(r.offset, 5) === ['Info,', 'Error', 'Warni'][csvRes.records.indexOf(r)]));
+  eq('csv: CRLF inside a quoted field reads as LF', csvRes.records[1].message, 'line one\nline two\nline three');
+  eq('csv: the viewer shows the cause under the message', lvView(csvRes.records[1]).msg, 'line one\nline two\nline three\njava.lang.RuntimeException');
+  eq('csv: Warning is WARN, as the viewer always showed it', csvRes.records[2].level, 'WARN');
+
+  const pre = parser.parse('garbage before the log\n2026-08-10T13:29:40.100000 ' + C + '  INFO - Core: a');
+  eq('preamble before the first record: skipped, not turned into a record', pre.records.length, 1);
+  eq('preamble before the first record: counted as skipped', pre.skipped, 1);
+
+  // The corpus where the two parsers disagreed. Local only — it holds real user data.
+  const icDir = path.join(__dirname, '..', '_local_assets', 'FilesForTest', 'NewLogs', 'Intercom');
+  if (fs.existsSync(icDir)) {
+    fs.readdirSync(icDir).filter(f => /^logs_/.test(f)).forEach(f => {
+      agree('NewLogs Intercom ' + f.slice(-14, -4) + ': shared parser == old Log Viewer', fs.readFileSync(path.join(icDir, f), 'utf8'));
+    });
+  } else {
+    console.log('  (skipped: real corpus not present locally — _local_assets/FilesForTest/NewLogs/Intercom)');
+  }
+})();
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 runXlsxAsyncTests().then(runApiEconAsyncTests).then(runNginxAsyncTests).then(runAnonTests).then(function () {
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
