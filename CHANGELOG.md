@@ -14,6 +14,38 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.71.0 — 2026-09-27
+
+**Developer Studio: analyse a project file with no app running, and no more
+scanning in the background.**
+
+### Added
+
+- **Analyze project.** The start screen has two ways in: *Running app*, as
+  before, and *Project file (.mpr) — no app needed*. Give it the project folder
+  or its `.mpr` and it runs Project File, Dead Code, Integrations, Modules and
+  Navigate one after another behind one progress bar — the Security Matrix too,
+  if ticked (about a minute more). The result opens as a *Project*: only the
+  model views, the runtime-only cards hidden, and *Export handover summary* in
+  its header. A view that fails is listed with its reason; the rest still run.
+  Tried on a Mendix 11 project with the matrix (about 100 s) and a 175 MB
+  Mendix 9 project without it (39 s).
+
+### Changed
+
+- **Running apps are found when Developer Studio opens and on *Scan again* —
+  never on a timer.** It used to look every 3 seconds while unconnected, and
+  every look starts a PowerShell process on the bridge. Connecting is always a
+  click; the text that promised an automatic connection is gone.
+
+### Fixed
+
+- **Leaving Developer Studio and coming back dropped the connection** and the
+  Security Matrix already generated, so a handover summary exported afterwards
+  left the matrix out. The connection and the matrix now stay.
+
+---
+
 ## v1.70.0 — 2026-09-27
 
 **Studio Pro CSV exports: dates day first, and the Log Viewer reads them.**

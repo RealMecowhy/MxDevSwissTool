@@ -107,7 +107,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.70.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.71.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -291,7 +291,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><h1 id="topbar-title">Home</h1></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.70.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.71.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -2303,6 +2303,17 @@
           animation: spin 1s linear infinite;
           margin-right: 5px;
         }
+        .ds-start-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:var(--sp-4); }
+        .ds-start-card { display:flex; flex-direction:column; gap:var(--sp-2); padding:var(--sp-4); text-align:left; }
+        .ds-start-title { margin:0; font-size:1rem; color:var(--text-primary); }
+        .ds-start-lead { margin:0 0 var(--sp-2); font-size:0.85rem; line-height:1.6; color:var(--text-secondary); }
+        .ds-start-label { font-size:0.8rem; color:var(--text-secondary); margin-top:var(--sp-1); }
+        .ds-start-check { display:flex; gap:var(--sp-2); align-items:flex-start; font-size:0.8rem; color:var(--text-secondary); line-height:1.5; margin:var(--sp-1) 0 var(--sp-2); }
+        .ds-start-steps { margin:var(--sp-2) 0 0; padding-left:1.1rem; font-size:0.78rem; color:var(--text-muted); line-height:1.6; }
+        .ds-start-steps li.is-warn { color:var(--warning); }
+        /* An analysed project file has no running app: the cards that read one are hidden. */
+        #panel-dev-studio.ds-file-mode .ds-runtime-only { display:none !important; }
+        #panel-dev-studio:not(.ds-file-mode) .ds-file-only { display:none !important; }
         @keyframes radar-pulse {
           0% {
             transform: scale(0.6);
@@ -2316,41 +2327,51 @@
       </style>
       <div class="tool-body" style="display:flex; flex-direction:column; min-height:0; overflow-y:auto; padding:var(--sp-4);">
         
-        <!-- OFFLINE / WAITING VIEW -->
-        <div id="ds-offline-view" style="display:flex; flex-direction:column; align-items:center; justify-content:center; flex:1; max-width:500px; margin:0 auto; text-align:center; width:100%">
-           <div style="position:relative; width:80px; height:80px; margin-bottom:var(--sp-5); display:flex; align-items:center; justify-content:center">
-             <div style="position:absolute; inset:0; margin:auto; width:100%; height:100%; border:3px solid var(--primary); border-radius:50%; animation:radar-pulse 2s infinite ease-out; opacity:0"></div>
-             <div style="position:absolute; inset:0; margin:auto; width:60%; height:60%; border:2px solid var(--info); border-radius:50%; animation:radar-pulse 2s infinite ease-out 0.6s; opacity:0"></div>
-             <svg viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:40px; height:40px; position:relative; z-index:1"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
-           </div>
-
-           <h3 style="margin-top:0; color:var(--text-primary)">Waiting for local Mendix application...</h3>
-           <p style="color:var(--text-secondary); font-size:0.9rem; margin-bottom:var(--sp-5); line-height:1.6">
-             Start your application in <strong>Mendix Studio Pro</strong>. The tool will automatically connect and load the dashboard once the runtime is active.
-           </p>
-
-           <div style="display:flex; flex-direction:column; gap:var(--sp-3); width:100%; text-align:left; margin-bottom:var(--sp-4); background:var(--bg-elevated); padding:var(--sp-3); border-radius:var(--r-md); border:1px solid var(--border)">
-             <div style="display:flex; flex-direction:column; gap:var(--sp-1);">
-               <label style="font-size:0.85rem; color:var(--text-secondary);">Detected Mendix Projects:</label>
-               <select id="ds-detected-projects" class="select" style="width:100%;">
-                 <option value="">Searching for running apps...</option>
-               </select>
-             </div>
-               <div style="display:flex; flex-direction:column; gap:var(--sp-1);">
-               <label style="font-size:0.85rem; color:var(--text-secondary);">Or specify manual Project Root Path:</label>
+        <!-- START VIEW — a running app, or just the project file (wave 38) -->
+        <div id="ds-offline-view" style="display:flex; flex-direction:column; gap:var(--sp-4); max-width:960px; margin:0 auto; width:100%">
+           <div class="ds-start-grid">
+             <!-- Running app -->
+             <div class="card ds-start-card">
+               <h3 class="ds-start-title">Running app</h3>
+               <p class="ds-start-lead">Start your app in <strong>Mendix Studio Pro</strong>, pick it here and press Connect. The dashboard reads its configuration, database and model.</p>
+               <label for="ds-detected-projects" class="ds-start-label">Running apps on this machine</label>
+               <div style="display:flex; gap:var(--sp-2)">
+                 <select id="ds-detected-projects" class="select" style="flex:1; min-width:0">
+                   <option value="">Searching for running apps...</option>
+                 </select>
+                 <button type="button" class="btn btn-secondary btn-sm" onclick="dsScanAgain(this)" title="Look for running Mendix apps again">Scan again</button>
+               </div>
+               <label for="ds-manual-path" class="ds-start-label">Or the project root path</label>
                <input type="text" id="ds-manual-path" class="input" style="width:100%" placeholder="e.g. C:\Mendix_Projects\MyFirstApp">
-               <span style="font-size:0.78rem; color:var(--text-muted); line-height:1.5">The model views &mdash; Project File, Dead Code, Integrations, Modules, Navigate &mdash; read the <code>.mpr</code> and need no running app: enter the project folder and press Connect.</span>
+               <button class="btn btn-primary" onclick="dsConnectAction()" style="margin-top:auto">Connect to Application</button>
              </div>
-           </div>
 
-           <div style="display:flex; gap:var(--sp-2); width:100%; justify-content:center; margin-bottom:var(--sp-5)">
-             <button class="btn btn-primary" onclick="dsConnectAction()" style="flex:1">Connect to Application</button>
+             <!-- Project file -->
+             <div class="card ds-start-card">
+               <h3 class="ds-start-title">Project file (.mpr) — no app needed</h3>
+               <p class="ds-start-lead">Reads the model straight from the project file, as last saved: dead code, integrations, module dependencies and call chains — no database, no local run, Mendix 8–11.</p>
+               <label for="ds-file-path" class="ds-start-label">Project folder or .mpr file</label>
+               <input type="text" id="ds-file-path" class="input" style="width:100%" placeholder="e.g. C:\Mendix_Projects\MyFirstApp"
+                 onkeydown="if(event.key==='Enter')dsAnalyzeProject(document.getElementById('ds-analyze-btn'))">
+               <label class="ds-start-check">
+                 <input type="checkbox" id="ds-file-security">
+                 <span>Include the security matrix — adds about a minute; needs Mendix 10+ and Studio Pro 11+ on this machine</span>
+               </label>
+               <button class="btn btn-primary" id="ds-analyze-btn" onclick="dsAnalyzeProject(this)" style="margin-top:auto">Analyze project</button>
+               <div id="ds-file-progress" style="display:none" role="status" aria-live="polite">
+                 <div id="ds-file-progress-text" style="font-size:0.82rem; color:var(--text-secondary)"></div>
+                 <div style="height:6px; background:var(--bg-base); border-radius:3px; overflow:hidden; margin-top:var(--sp-2)">
+                   <div id="ds-file-progress-bar" style="height:100%; width:2%; background:var(--primary); transition:width var(--t-base)"></div>
+                 </div>
+                 <ul id="ds-file-progress-list" class="ds-start-steps"></ul>
+               </div>
+             </div>
            </div>
 
            <div class="notice notice-info" style="text-align:left; width:100%; font-size:0.85rem">
              <h5 style="margin:0 0 var(--sp-1) 0; color:var(--info)">Troubleshooting</h5>
              <ol style="margin:0; padding-left:1.2rem; color:var(--text-secondary); line-height:1.6">
-               <li>Make sure your Mendix application is running locally in Studio Pro.</li>
+               <li>No running app in the list? Make sure it is running in Studio Pro, then press <strong>Scan again</strong>.</li>
                <li id="ds-troubleshoot-bridge">Ensure the local bridge is running in your terminal: <code>node server/mendix-observability-bridge.js</code>.</li>
              </ol>
            </div>
@@ -2358,7 +2379,7 @@
 
         <!-- TABS (shown once connected) — Dashboard | Security Matrix (wave 28) -->
         <div id="ds-tabs" class="tabs" style="display:none; margin:0 calc(-1 * var(--sp-4)) var(--sp-4); flex:0 0 auto">
-          <button type="button" class="tab active" data-help-key="dev-studio-dashboard" aria-selected="true" onclick="dsSetTab('dashboard',this)">Dashboard</button>
+          <button type="button" class="tab active" id="ds-tab-dashboard" data-help-key="dev-studio-dashboard" aria-selected="true" onclick="dsSetTab('dashboard',this)">Dashboard</button>
           <button type="button" class="tab" data-help-key="dev-studio-security" aria-selected="false" onclick="dsSetTab('security',this)">Security Matrix</button>
           <button type="button" class="tab" data-help-key="dev-studio-deadcode" aria-selected="false" onclick="dsSetTab('deadcode',this)">Dead Code</button>
           <button type="button" class="tab" data-help-key="dev-studio-integrations" aria-selected="false" onclick="dsSetTab('integrations',this)">Integrations</button>
@@ -2372,7 +2393,7 @@
           <!-- TOP STATUS BAR -->
           <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:var(--sp-3); background:var(--bg-elevated); padding:var(--sp-3); border-radius:var(--r-md); border:1px solid var(--border)">
             <div style="display:flex; align-items:center; gap:var(--sp-3)">
-              <div id="ds-status-indicator" class="pulse-indicator"></div>
+              <div id="ds-status-indicator" class="pulse-indicator ds-runtime-only"></div>
               <div>
                 <div style="display:flex; align-items:center; gap:var(--sp-2)">
                   <strong id="ds-status-proj-name" style="color:var(--text-primary); font-size:1.05rem">—</strong>
@@ -2383,7 +2404,8 @@
               </div>
             </div>
             <div style="display:flex; gap:var(--sp-2)">
-              <button class="btn btn-secondary btn-sm" onclick="dsDisconnect()">Disconnect</button>
+              <button class="btn btn-primary btn-sm ds-file-only" onclick="dsExportSummary(this)" title="One self-contained HTML page: security settings, dead code, integrations, module cycles and blockers">Export handover summary</button>
+              <button class="btn btn-secondary btn-sm" id="ds-disconnect-btn" onclick="dsDisconnect()">Disconnect</button>
             </div>
           </div>
 
@@ -2391,7 +2413,7 @@
           <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(350px, 1fr)); gap:var(--sp-4)">
             
             <!-- COLUMN 1: APP & DATABASE INFO -->
-            <div style="display:flex; flex-direction:column; gap:var(--sp-4)">
+            <div class="ds-runtime-only" style="display:flex; flex-direction:column; gap:var(--sp-4)">
               
               <!-- App Info Card -->
               <div class="card" style="padding:var(--sp-4)">
@@ -2452,7 +2474,7 @@
             <div style="display:flex; flex-direction:column; gap:var(--sp-4)">
               
               <!-- Security Roles -->
-              <div class="card" style="padding:var(--sp-4)">
+              <div class="card ds-runtime-only" style="padding:var(--sp-4)">
                 <h4 style="margin:0 0 var(--sp-3) 0; color:var(--text-primary); border-bottom:1px solid var(--border); padding-bottom:var(--sp-2)">User Roles & Security</h4>
                 <div id="ds-roles-list" style="display:flex; flex-wrap:wrap; gap:var(--sp-2)">
                   <!-- Badges placed dynamically -->
@@ -2460,7 +2482,7 @@
               </div>
 
               <!-- Integrations & Request Handlers -->
-              <div class="card" style="padding:var(--sp-4)">
+              <div class="card ds-runtime-only" style="padding:var(--sp-4)">
                 <h4 style="margin:0 0 var(--sp-3) 0; color:var(--text-primary); border-bottom:1px solid var(--border); padding-bottom:var(--sp-2)">Request Handlers</h4>
                 <div id="ds-handlers-list" style="display:flex; flex-wrap:wrap; gap:var(--sp-2)">
                   <!-- Badges placed dynamically -->
@@ -2468,7 +2490,7 @@
               </div>
 
               <!-- Scheduled Events -->
-              <div class="card" style="padding:var(--sp-4)">
+              <div class="card ds-runtime-only" style="padding:var(--sp-4)">
                 <h4 style="margin:0 0 var(--sp-3) 0; color:var(--text-primary); border-bottom:1px solid var(--border); padding-bottom:var(--sp-2)">Scheduled Events</h4>
                 <div id="ds-events-list" style="display:flex; flex-direction:column; gap:var(--sp-2); font-size:0.85rem">
                   <!-- Scheduled events list -->
@@ -2476,7 +2498,7 @@
               </div>
 
               <!-- Deployment Model (wave 26) -->
-              <div class="card" style="padding:var(--sp-4)">
+              <div class="card ds-runtime-only" style="padding:var(--sp-4)">
                 <h4 style="margin:0 0 var(--sp-3) 0; color:var(--text-primary); border-bottom:1px solid var(--border); padding-bottom:var(--sp-2)">Deployment Model</h4>
                 <div id="ds-model-body" style="font-size:0.85rem">
                   <span style="color:var(--text-muted)"><span class="spinner-sm"></span>Loading...</span>
@@ -2498,7 +2520,7 @@
               </div>
 
               <!-- Java Code Quality -->
-              <div class="card" style="padding:var(--sp-4)">
+              <div class="card ds-runtime-only" style="padding:var(--sp-4)">
                 <h4 style="margin:0 0 var(--sp-3) 0; color:var(--text-primary); border-bottom:1px solid var(--border); padding-bottom:var(--sp-2)">Java Code Quality</h4>
                 <div id="ds-java-issues-list" style="display:flex; flex-direction:column; gap:var(--sp-2); font-size:0.85rem; max-height: 200px; overflow-y: auto;">
                   <span style="color:var(--text-muted)"><span class="spinner-sm"></span>Loading...</span>
@@ -2510,7 +2532,7 @@
           </div>
 
           <!-- EXPANDABLE CONSTANTS TABLE -->
-          <div class="card" style="padding:0; overflow:hidden">
+          <div class="card ds-runtime-only" style="padding:0; overflow:hidden">
             <div style="padding:var(--sp-4); border-bottom:1px solid var(--border); background:var(--bg-elevated)">
               <h4 style="margin:0; font-size:1rem; color:var(--text-primary)">Application Constants</h4>
             </div>

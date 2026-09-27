@@ -184,7 +184,7 @@ async function navigate(toolId, navEl, initialTab) {
   document.getElementById('topbar-title').textContent = tool.label;
   // The browser tab and history carry the tool too, and a screen reader hears the switch.
   document.title = (toolId === 'home') ? 'MxDev Swiss Tool — Developer Toolkit' : tool.label + ' — MxDev Swiss Tool';
-  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.70.0' : (tool.desc || '');
+  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.71.0' : (tool.desc || '');
   const previousTool = currentTool;
   currentTool = toolId;
   window.currentTool = currentTool;

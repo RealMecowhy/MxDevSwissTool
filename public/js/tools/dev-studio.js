@@ -49,6 +49,9 @@ function dsSetReconnecting(isReconnecting, attempts) {
   }
 }
 
+// Runs once when the panel opens and again only on "Scan again" (wave 38). It used
+// to run every 3 s while the panel sat unconnected, and each run starts a
+// PowerShell process on the bridge — for a list the user reads once.
 async function dsAutoDetectProject() {
   if (dsIsConnected) return;
 
@@ -78,13 +81,23 @@ async function dsAutoDetectProject() {
          selectEl.value = currentVal;
       }
     } else {
-      selectEl.innerHTML = '<option value="">No running apps detected...</option>';
+      selectEl.innerHTML = '<option value="">No running app found — start it in Studio Pro, then Scan again</option>';
       dsProjectsList = [];
     }
   } catch (e) {
     console.warn("Autodetection failed:", e);
   }
 }
+
+window.dsScanAgain = async function (btn) {
+  const label = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Scanning…'; }
+  try {
+    await dsAutoDetectProject();
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+  }
+};
 
 window.dsConnectAction = async function() {
   const manualPath = document.getElementById('ds-manual-path')?.value.trim();
@@ -359,12 +372,12 @@ function dsModelPath(inputId) {
 // the answer — or the bridge's reason — into the view's body.
 async function dsRunModelView(inputId, boxId, route, render) {
   const box = document.getElementById(boxId);
-  if (!box) return;
+  if (!box) return { ok: false, reason: 'View not found.' };
   const esc = window.escHtml;
   const raw = dsModelPath(inputId);
   if (!raw) {
     box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">Enter a path to a .mpr file or the project folder.</div>`;
-    return;
+    return { ok: false, reason: 'Enter a path to a .mpr file or the project folder.' };
   }
   box.innerHTML = `<span style="color:var(--text-muted)"><span class="spinner-sm"></span>Reading ${esc(raw)}&hellip; the first read of a large project can take up to a minute.</span>`;
   let data;
@@ -377,14 +390,15 @@ async function dsRunModelView(inputId, boxId, route, render) {
     data = await res.json();
   } catch (e) {
     box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">Bridge unreachable — the .mpr could not be read.</div>`;
-    return;
+    return { ok: false, reason: 'Bridge unreachable — the .mpr could not be read.' };
   }
   if (!data || data.error || !data.ok) {
     const reason = (data && (data.reason || data.message)) || 'Could not read the .mpr.';
     box.innerHTML = `<div class="notice notice-warning" style="font-size:0.8rem">${esc(reason)}</div>`;
-    return;
+    return { ok: false, reason: reason };
   }
   box.innerHTML = render(data);
+  return { ok: true, data: data };
 }
 
 // ── Shared result pieces ────────────────────────────────────────────────────
@@ -971,12 +985,12 @@ function dsNavNotice(html) {
 
 async function dsNavLoad() {
   const box = document.getElementById('ds-navigate-body');
-  if (!box) return;
+  if (!box) return { ok: false, reason: 'View not found.' };
   const esc = window.escHtml;
   const raw = dsModelPath('ds-navigate-path');
   if (!raw) {
     box.innerHTML = dsNavNotice('Enter a path to a .mpr file or the project folder.');
-    return;
+    return { ok: false, reason: 'Enter a path to a .mpr file or the project folder.' };
   }
   const ticket = ++dsNavSeq;
   box.innerHTML = `<span style="color:var(--text-muted)"><span class="spinner-sm"></span>Reading ${esc(raw)}&hellip; the first read of a large project can take up to a minute.</span>`;
@@ -988,13 +1002,14 @@ async function dsNavLoad() {
     ]);
   } catch (e) {
     if (ticket === dsNavSeq) box.innerHTML = dsNavNotice('Bridge unreachable — the .mpr could not be read.');
-    return;
+    return { ok: false, reason: 'Bridge unreachable — the .mpr could not be read.' };
   }
-  if (ticket !== dsNavSeq) return;
+  if (ticket !== dsNavSeq) return { ok: false, reason: 'Superseded by a newer read.' };
   const bad = answers.find(d => !d || d.error || !d.ok);
   if (bad) {
-    box.innerHTML = dsNavNotice(esc((bad && (bad.reason || bad.message)) || 'Could not read the .mpr.'));
-    return;
+    const reason = (bad && (bad.reason || bad.message)) || 'Could not read the .mpr.';
+    box.innerHTML = dsNavNotice(esc(reason));
+    return { ok: false, reason: reason };
   }
   dsNavPath = raw;
   dsNavData = answers[0];
@@ -1005,6 +1020,7 @@ async function dsNavLoad() {
     if (e.key === 'Enter' && e.target && e.target.id === 'ds-nav-element') dsNavRun(dsNavQuery);
   };
   box.innerHTML = dsNavRender();
+  return { ok: true, data: dsNavData };
 }
 
 function dsNavClick(e) {
@@ -1582,20 +1598,117 @@ function dsInitState() {
 
 function dsDisconnect() {
   dsInitState();
+  dsSetFileMode(false);
+  dsProjectData = null;
   dsShowOfflineView();
 }
+
+// ── Analyze project — the project file, no running app (wave 38) ───────────
+// The model views already read a .mpr with no app running; this runs them one
+// after another behind one progress bar and opens the result as a "project",
+// with the runtime-only dashboard cards hidden. Nothing new is analysed here.
+const DS_FILE_STEPS = [
+  ['Project file', () => dsFetchMprModel()],
+  ['Dead code', () => dsFetchDeadCode()],
+  ['Integrations', () => dsFetchIntegrations()],
+  ['Modules', () => dsFetchModules()],
+  ['Navigate — callers, callees, database calls in loops', () => dsNavLoad()]
+];
+
+// The project folder of a path to the folder itself or to the .mpr inside it.
+function dsFileRoot(raw) {
+  return /\.mpr$/i.test(raw) ? raw.replace(/[\\/][^\\/]*$/, '') : raw.replace(/[\\/]+$/, '');
+}
+
+function dsSetFileMode(on) {
+  const panel = document.getElementById('panel-dev-studio');
+  if (panel) panel.classList.toggle('ds-file-mode', on);
+  const tab = document.getElementById('ds-tab-dashboard');
+  if (tab) tab.textContent = on ? 'Project' : 'Dashboard';
+  const close = document.getElementById('ds-disconnect-btn');
+  if (close) close.textContent = on ? 'Close project' : 'Disconnect';
+}
+
+function dsFileProgress(text, percent, list) {
+  const box = document.getElementById('ds-file-progress');
+  if (!box) return;
+  box.style.display = 'block';
+  document.getElementById('ds-file-progress-text').textContent = text;
+  document.getElementById('ds-file-progress-bar').style.width = Math.max(2, percent) + '%';
+  if (list) document.getElementById('ds-file-progress-list').innerHTML = list;
+}
+
+window.dsAnalyzeProject = async function (btn) {
+  const esc = window.escHtml;
+  const input = document.getElementById('ds-file-path');
+  const raw = input ? input.value.trim().replace(/^"(.*)"$/, '$1').trim() : '';
+  if (!raw) {
+    dsFileProgress('Enter the path to the project folder or to its .mpr file.', 0, '');
+    return;
+  }
+  const withSecurity = !!(document.getElementById('ds-file-security') || {}).checked;
+  const steps = DS_FILE_STEPS.slice();
+  if (withSecurity) steps.push(['Security matrix — about a minute', null]);
+  const done = [];
+  const list = () => done.map(d => '<li class="' + (d.ok ? '' : 'is-warn') + '">' + esc(d.name) +
+    (d.ok ? '' : ' — ' + esc(d.reason)) + '</li>').join('');
+
+  // Every model field reads the same path, as when one view is run by hand.
+  const first = document.getElementById('ds-mpr-path');
+  if (first) first.value = raw;
+  dsModelPath('ds-mpr-path');
+  if (btn) btn.disabled = true;
+  try {
+    let mpr = null;
+    for (let i = 0; i < steps.length; i++) {
+      const [name, run] = steps[i];
+      dsFileProgress('Step ' + (i + 1) + ' of ' + steps.length + ': ' + name + '…', (i / steps.length) * 100, list());
+      if (!run) {
+        // The Security Matrix needs the project folder; everything before it read the file.
+        dsProjectData = { success: true, fileMode: true, projectRoot: dsFileRoot(raw), metadata: { ProjectName: mpr.projectName } };
+        await window.dsSecGenerate();
+        while (dsSecJobId && !dsSecData) {
+          await new Promise(r => setTimeout(r, 500));
+          const phase = (document.getElementById('ds-sec-progress-phase') || {}).textContent || '';
+          const note = (document.getElementById('ds-sec-progress-note') || {}).textContent || '';
+          dsFileProgress('Step ' + (i + 1) + ' of ' + steps.length + ': Security matrix — ' + phase + ' (' + note.replace(/ —.*$/, '') + ')', (i / steps.length) * 100);
+        }
+        const err = document.getElementById('ds-sec-error');
+        done.push(dsSecData ? { name: name, ok: true } : { name: name, ok: false, reason: (err && err.textContent) || 'did not finish' });
+        continue;
+      }
+      const r = await run();
+      if (i === 0 && !(r && r.ok)) {
+        // Without the project header nothing else can be read either.
+        dsFileProgress((r && r.reason) || 'Could not read the project file.', 0, '');
+        return;
+      }
+      if (i === 0) mpr = r.data;
+      done.push(r && r.ok ? { name: name, ok: true } : { name: name, ok: false, reason: (r && r.reason) || 'failed' });
+    }
+    dsFileProgress('Done — ' + mpr.projectName + ' analysed.', 100, list());
+
+    dsProjectData = { success: true, fileMode: true, projectRoot: dsFileRoot(raw), metadata: { ProjectName: mpr.projectName } };
+    dsSetFileMode(true);
+    document.getElementById('ds-status-proj-name').textContent = mpr.projectName;
+    document.getElementById('ds-status-proj-ver').textContent = 'Mendix ' + (mpr.productVersion || '—');
+    document.getElementById('ds-status-endpoint').textContent = raw + ' · project file, last saved state — no app running';
+    dsIsConnected = true;
+    dsShowDashboard();
+    dsPollData();
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+};
 
 function dsSchedulePoll(delayMs) {
   if (dsPollTimer) clearTimeout(dsPollTimer);
   dsPollTimer = setTimeout(dsPollData, delayMs);
 }
 
+// Only a connection is kept alive; finding apps to connect to is on request.
 async function dsPollData() {
-  if (!dsIsConnected) {
-    await dsAutoDetectProject();
-    dsSchedulePoll(DS_POLL_INTERVAL_MS);
-    return;
-  }
+  if (!dsIsConnected) return;
   // Connected: confirm the Bridge is still alive. A restart (rebuild, crash,
   // manual stop/start) previously left the dashboard showing stale data with
   // no indication anything was wrong — this is the fix.
@@ -2090,7 +2203,10 @@ export function cleanup() {
   if (dsSecVList) { dsSecVList.destroy(); dsSecVList = null; }
 }
 
+// Coming back to a connected app or an analysed project resumes it — resetting
+// here dropped the Security Matrix a handover summary would have included.
 export function init() {
+  if (dsIsConnected) { dsPollData(); return; }
   dsInitState();
-  dsPollData();
+  dsAutoDetectProject();
 }

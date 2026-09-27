@@ -446,6 +446,62 @@ async function run() {
     eq('PROC-01: ...and without parsing the file again', proc01.parses, 0);
     eq('PROC-01: the other empty tool is still offered', proc01.wsreStillOffered, 'Load from Data Hub');
     eq('PROC-01: a window the user typed survives loading a source', proc01.typedWindowKept, '2026-07-20 10:00:00 / 2026-07-20 10:00:01');
+
+    // Wave 38: Developer Studio finds running apps when it opens and on "Scan again"
+    // — never on a timer — and "Analyze project" runs the model views behind one
+    // progress bar, then opens the project with the runtime-only cards hidden.
+    // No bridge runs here, so its answers are stubbed.
+    const ds38 = await page.evaluate(async () => {
+      const tick = ms => new Promise(r => setTimeout(r, ms));
+      const realFetch = window.fetch;
+      let detects = 0;
+      const json = o => Promise.resolve(new Response(JSON.stringify(o), { headers: { 'Content-Type': 'application/json' } }));
+      window.fetch = function (url) {
+        const u = String(url);
+        if (u.indexOf('/detect-project') !== -1) { detects++; return json({ success: true, projects: [{ projectRoot: 'C:\\Apps\\Demo', metadata: { ProjectName: 'Demo' } }] }); }
+        if (u.indexOf('/model/mpr') !== -1) return json({ ok: true, projectName: 'Demo', productVersion: '10.24.0', formatVersion: 2, counts: { modules: 1 } });
+        if (u.indexOf('/model/') !== -1) return json({ ok: false, reason: 'stubbed' });
+        // /status is left alone: answering it would flip the app-wide bridge
+        // indicator to online for the tests after this one.
+        return realFetch.apply(this, arguments);
+      };
+      const r = {};
+      try {
+        window.navigate('dev-studio', null);
+        await tick(3500);
+        r.detectsAfterOpen = detects;
+        r.listed = document.getElementById('ds-detected-projects').options.length;
+        const scan = [...document.querySelectorAll('#ds-offline-view button')].find(b => b.textContent === 'Scan again');
+        await window.dsScanAgain(scan);
+        r.detectsAfterScan = detects;
+        document.getElementById('ds-file-path').value = '"C:\\Apps\\Demo\\Demo.mpr"';
+        await window.dsAnalyzeProject(document.getElementById('ds-analyze-btn'));
+        const panel = document.getElementById('panel-dev-studio');
+        r.fileMode = panel.classList.contains('ds-file-mode');
+        r.tab = document.getElementById('ds-tab-dashboard').textContent;
+        r.close = document.getElementById('ds-disconnect-btn').textContent;
+        r.visibleCards = [...document.querySelectorAll('#ds-dashboard-view .card')].filter(c => c.offsetParent).map(c => c.querySelector('h4').textContent).join(', ');
+        r.warned = document.querySelectorAll('#ds-file-progress-list li.is-warn').length;
+        r.endpoint = document.getElementById('ds-status-endpoint').textContent;
+        window.dsDisconnect();
+        r.closed = !panel.classList.contains('ds-file-mode') && document.getElementById('ds-offline-view').style.display === 'flex';
+        await tick(3500);
+        r.detectsAtEnd = detects;
+      } finally {
+        window.fetch = realFetch;
+        window.dsDisconnect();
+      }
+      return r;
+    });
+    eq('Dev Studio: one scan when the tool opens, none on a timer', ds38.detectsAfterOpen + ' ' + ds38.listed, '1 1');
+    eq('Dev Studio: Scan again scans once more', ds38.detectsAfterScan, 2);
+    eq('Dev Studio: Analyze project opens the file as a project', [ds38.fileMode, ds38.tab, ds38.close].join(' / '), 'true / Project / Close project');
+    eq('Dev Studio: only the model card shows for a project file', ds38.visibleCards, 'Project File (.mpr)');
+    eq('Dev Studio: a view that failed is listed with its reason, not hidden', ds38.warned, 4);
+    ok('Dev Studio: the header says there is no app running', /no app running/.test(ds38.endpoint), ds38.endpoint);
+    eq('Dev Studio: Close project returns to the start screen', ds38.closed, true);
+    eq('Dev Studio: still no background scan after closing', ds38.detectsAtEnd, 2);
+    await page.evaluate(() => window.navigate('log-viewer', null));
     await page.evaluate(() => window.navigate('log-viewer', null));
     eq('no native browser dialog was opened', nativeDialogs.join(' | '), '');
 
