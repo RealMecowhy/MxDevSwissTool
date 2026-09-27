@@ -278,6 +278,13 @@
       if (rowStarted || field !== '' || fields.length) endRow(len);
     }
 
+    // Studio Pro writes MM/dd/yyyy whatever the Windows regional settings say (checked on
+    // a pl-PL machine, whose own short date is dd.MM.yyyy). Every tool shows it day first.
+    function csvDayFirst(ts) {
+      var m = ts.match(/^(\d{2})\/(\d{2})\/(\d{4})(.*)$/);
+      return m ? m[2] + '/' + m[1] + '/' + m[3] + m[4] : ts;
+    }
+
     // Studio Pro export: fixed column order, header row skipped.
     function parseCsv(text, onProgress) {
       var records = [];
@@ -290,7 +297,7 @@
         }
         records.push({
           level: normLevel(fields[0]),
-          timestamp: (fields[1] || '').trim(),
+          timestamp: csvDayFirst((fields[1] || '').trim()),
           logNode: (fields[2] || '').trim(),
           message: fields[3] || '',
           cause: fields[4] || '',
@@ -484,7 +491,25 @@
     };
   }
 
+  // A record's timestamp -> epoch ms, for every log tool (one reader, as there is one
+  // parser). The two shapes the parser emits: ISO from live logs
+  // (2026-07-17T06:05:24.802593) and the Studio Pro CSV export as day/month/year
+  // (27/09/2026 20:43:59). Neither carries a zone; the wall clock is pinned to UTC so
+  // the number does not move with the browser's zone — within one log only the
+  // differences matter. An epoch Number passes through (the Nginx analyzer hands
+  // over windows it has already resolved). Anything else -> NaN.
+  function mtTsToMs(ts) {
+    if (typeof ts === 'number') return isFinite(ts) ? ts : NaN;
+    if (!ts) return NaN;
+    var m = String(ts).match(/^(?:(\d{4})-(\d{2})-(\d{2})|(\d{2})\/(\d{2})\/(\d{4}))[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?/);
+    if (!m) return NaN;
+    var date = m[1] ? m[1] + '-' + m[2] + '-' + m[3] : m[6] + '-' + m[5] + '-' + m[4];
+    var base = Date.parse(date + 'T' + m[7] + ':' + m[8] + ':' + m[9] + 'Z');
+    return base + (m[10] ? parseFloat('0.' + m[10]) * 1000 : 0);
+  }
+
   // Attach to the ambient global — window on the main thread, the worker global inside
   // a Worker, and (via global.self = global) the Node process during tests.
   self.createMendixLogParser = createMendixLogParser;
+  self.mtTsToMs = mtTsToMs;
 })();

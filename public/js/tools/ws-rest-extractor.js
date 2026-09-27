@@ -26,23 +26,6 @@ const WSRE_WORKER_THRESHOLD = 2 * 1024 * 1024;
 const WSRE_HEADER_RE = /^([!#$%&'*+.^_`|~0-9A-Za-z-]+):\s?(.*)$/;
 const WSRE_ANCHOR_WINDOW_MS = 10000; // CallRest fires ~2 ms before the block; 10 s drops stale anchors
 
-// Timestamp → epoch ms (same two formats the shared parser emits; local copy so
-// the extractor stays self-contained for Node tests and has no load-order dependency).
-function wsreTsToMs(ts) {
-  if (!ts) return NaN;
-  let m = ts.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?/);
-  if (m) {
-    const base = Date.parse(m[1] + 'T' + m[2] + ':' + m[3] + ':' + m[4] + 'Z');
-    const frac = m[5] ? parseFloat('0.' + m[5]) * 1000 : 0;
-    return base + frac;
-  }
-  m = ts.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/);
-  if (m) {
-    return Date.parse(m[3] + '-' + m[1] + '-' + m[2] + 'T' + m[4] + ':' + m[5] + ':' + m[6] + 'Z');
-  }
-  return NaN;
-}
-
 // Continuation lines of a Request/Response record → { status, statusText, headers, body }.
 // The live-log parser drops blank lines, so the header/body boundary is detected by
 // shape: the first line that doesn't look like `Name: value` starts the body.
@@ -86,7 +69,7 @@ function wsreNewCall(rec, ri, node, direction, kind) {
     responseBody: '',
     timeoutSec: null,
     startTs: rec.timestamp,
-    startMs: wsreTsToMs(rec.timestamp),
+    startMs: mtTsToMs(rec.timestamp),
     endTs: null,
     durationMs: null,
     uncertain: false,
@@ -118,7 +101,7 @@ function wsreExtractCalls(records) {
       if (!am) continue;
       let name = null;
       try { name = JSON.parse(am[2]).name || null; } catch (e) { /* truncated JSON */ }
-      anchors[isRest ? 'rest' : 'soap'].push({ corrId: am[1], microflow: name, ms: wsreTsToMs(rec.timestamp) });
+      anchors[isRest ? 'rest' : 'soap'].push({ corrId: am[1], microflow: name, ms: mtTsToMs(rec.timestamp) });
       continue;
     }
 
@@ -177,7 +160,7 @@ function wsreExtractCalls(records) {
         call.responseHeaders = parsed.headers;
         call.responseBody = parsed.body;
         call.endTs = rec.timestamp;
-        const endMs = wsreTsToMs(rec.timestamp);
+        const endMs = mtTsToMs(rec.timestamp);
         if (!isNaN(endMs) && !isNaN(call.startMs)) call.durationMs = endMs - call.startMs;
       }
       continue;
@@ -214,7 +197,7 @@ function wsreExtractCalls(records) {
           call.statusText = m[2].trim();
           call.responseBody = first;
           call.endTs = rec.timestamp;
-          const endMs = wsreTsToMs(rec.timestamp);
+          const endMs = mtTsToMs(rec.timestamp);
           if (!isNaN(endMs) && !isNaN(call.startMs)) call.durationMs = endMs - call.startMs;
         }
         continue;
@@ -228,7 +211,7 @@ function wsreExtractCalls(records) {
           call.responseHeaders = parsed.headers;
           call.responseBody = parsed.body;
           call.endTs = rec.timestamp;
-          const endMs = wsreTsToMs(rec.timestamp);
+          const endMs = mtTsToMs(rec.timestamp);
           if (!isNaN(endMs) && !isNaN(call.startMs)) call.durationMs = endMs - call.startMs;
         }
         continue;
@@ -276,7 +259,7 @@ function wsreExtractCalls(records) {
         if (idx !== -1) {
           const call = openWsIn.splice(idx, 1)[0];
           call.endTs = rec.timestamp;
-          const endMs = wsreTsToMs(rec.timestamp);
+          const endMs = mtTsToMs(rec.timestamp);
           if (!isNaN(endMs) && !isNaN(call.startMs)) call.durationMs = endMs - call.startMs;
           call.statusText = /:Fault>|<Fault>/i.test(call.responseBody) ? 'SOAP Fault' : 'OK';
         }

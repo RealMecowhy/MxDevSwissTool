@@ -251,6 +251,9 @@ function logRecordsToEntries(records, text, filename) {
       raw = text.slice(r.offset, i + 1 < records.length && records[i + 1].offset !== undefined ? records[i + 1].offset : text.length).trimEnd();
       // Blank lines inside a record are dropped by the parser; drop them from raw too.
       if (raw.indexOf('\n') !== -1) raw = raw.replace(/\n[ \t]*(?=\n)/g, '');
+      // A Studio Pro CSV row carries its date month first; the row shows it day first,
+      // so the line that search and export read says the same (09/27 -> 27/09).
+      raw = raw.replace(/^([A-Za-z]+,)(\d{2})\/(\d{2})\/(\d{4}) /, '$1$3/$2/$4 ');
     }
     entries[i] = {
       line: r.line === undefined ? i + 1 : r.line,
@@ -360,7 +363,8 @@ function logSetDataDependentUI(hasData) {
   }
 }
 function logBuildDateFilter() {
-  const dates = [...new Set(logAllEntries.map(e => { const m = e.ts.match(/(\d{4}-\d{2}-\d{2})/); return m ? m[1] : null; }).filter(Boolean))];
+  // ISO from live logs, day/month/year from a Studio Pro CSV export.
+  const dates = [...new Set(logAllEntries.map(e => { const m = e.ts.match(/(\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{4})/); return m ? m[1] : null; }).filter(Boolean))];
   const sel = document.getElementById('log-date-filter'), cur = sel.value;
   sel.innerHTML = '<option value="">All dates</option>';
   dates.forEach(d => { const o = document.createElement('option'); o.value = d; o.textContent = d; if (d === cur) o.selected = true; sel.appendChild(o); });
@@ -828,18 +832,6 @@ function logExportFiltered() {
   downloadText(logFilteredEntries.map(e=>e.raw).join('\n'), 'filtered-logs.txt');
 }
 
-// Parses a log timestamp to epoch ms (UTC basis), matching the convention the
-// MFT/WSRE tsToMs helpers use so the Incident Report can align windows across
-// tools. Returns NaN for time-only or unparseable stamps.
-function logTsToMs(ts) {
-  if (!ts) return NaN;
-  const m = String(ts).match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?/);
-  if (!m) return NaN;
-  const base = Date.parse(m[1] + 'T' + m[2] + ':' + m[3] + ':' + m[4] + 'Z');
-  const frac = m[5] ? parseFloat('0.' + m[5]) * 1000 : 0;
-  return base + frac;
-}
-
 // Incident Report source: the stream's current filtered entries (levels, search,
 // node, time), optionally narrowed further to [fromMs, toMs]. Returns null when
 // nothing qualifies so the report omits the section (data-driven rule).
@@ -851,7 +843,7 @@ function logReportSection(fromMs, toMs) {
   let firstMs = Infinity, lastMs = -Infinity, total = 0;
   for (let i = 0; i < logFilteredEntries.length; i++) {
     const e = logFilteredEntries[i];
-    const ms = logTsToMs(e.ts);
+    const ms = mtTsToMs(e.ts);
     if (fromMs != null && !isNaN(ms) && ms < fromMs) continue;
     if (toMs != null && !isNaN(ms) && ms > toMs) continue;
     total++;
@@ -1064,7 +1056,7 @@ function logSevHeights(warn, err, sevMax) {
 function logChartTimeLabel(ms, withDate) {
   const p = n => String(n).padStart(2, '0');
   if (logChartAxis && logChartAxis.epoch) {
-    // logTsToMs pins the log's wall clock to UTC so the number does not move with
+    // mtTsToMs pins the log's wall clock to UTC so the number does not move with
     // the viewer's timezone. Reading it back with local getters would print an
     // axis offset from the timestamps in the rows right below it, so read UTC.
     const d = new Date(ms);
@@ -1383,7 +1375,7 @@ function logRenderBookmarks() {
   }
   const items = Array.from(logBookmarks.entries()).map(function (e) { return { key: e[0], b: e[1] }; });
   items.sort(function (x, y) {
-    const mx = logTsToMs(x.b.ts), my = logTsToMs(y.b.ts);
+    const mx = mtTsToMs(x.b.ts), my = mtTsToMs(y.b.ts);
     if (!isNaN(mx) && !isNaN(my) && mx !== my) return mx - my;
     return x.b.line - y.b.line;
   });
@@ -2413,7 +2405,7 @@ function logExtractCorrelations(entries) {
       if (mf) g.flow = mf[1];
     }
 
-    const ms = logTsToMs(e.ts);
+    const ms = mtTsToMs(e.ts);
     if (!isNaN(ms)) {
       if (isNaN(g.firstMs) || ms < g.firstMs) { g.firstMs = ms; g.firstTs = e.ts; }
       if (isNaN(g.lastMs) || ms > g.lastMs) { g.lastMs = ms; g.lastTs = e.ts; }
@@ -2641,8 +2633,7 @@ function logAssignMs(entries) {
   let prevTimeOnly = -1;
   for (let i = 0; i < entries.length; i++) {
     const e = entries[i];
-    let ms = logTsToMs(e.ts);
-    if (isNaN(ms) && window.mftTsToMs) ms = window.mftTsToMs(e.ts);
+    let ms = mtTsToMs(e.ts);
     if (isNaN(ms)) {
       const m = String(e.ts).match(/^\[?(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?/);
       if (m) {

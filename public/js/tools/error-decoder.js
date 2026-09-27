@@ -1649,8 +1649,8 @@ let edxPendingContext = null;  // set by edxDecodeText, consumed by the next ana
 const EDX_WINDOW_MS = 30000;   // ±30 s around the error — wide enough for the commit pair, narrow enough to read
 
 function edxContextMs() {
-  if (!edxContext || !edxContext.ts || !window.mftTsToMs) return NaN;
-  return window.mftTsToMs(edxContext.ts);
+  if (!edxContext || !edxContext.ts) return NaN;
+  return mtTsToMs(edxContext.ts);
 }
 
 // Shown under the input so the narrowing is visible rather than magic. Hidden

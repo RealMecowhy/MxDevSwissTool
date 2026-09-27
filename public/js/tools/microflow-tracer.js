@@ -19,32 +19,6 @@ const MFT_EXEC_RE = /^\[([^\]\s]+)\]\s+(Starting|Finished) execution of microflo
 // TRACE: [corrId] Executing activity: {"current_activity":{...},"name":"Module.Name",...}
 const MFT_ACT_RE = /^\[([^\]\s]+)\]\s+Executing activity:\s*(\{[\s\S]*)$/;
 
-// Timestamp → epoch ms (fractional). Handles both formats the shared parser emits:
-// live log ISO with microseconds (2026-07-17T06:05:24.802593) and the Studio Pro
-// CSV export (07/11/2026 21:21:29). No timezone in either — deltas within one file
-// are what matters, absolute offsets are irrelevant here.
-function mftTsToMs(ts) {
-  // Cross-links may hand over a window that is already resolved to epoch ms: the
-  // Nginx analyzer parses its own `10/Aug/2026:14:32:07 +0200` format and passes
-  // numbers to lqeSetTimeWindow. Passing those through keeps this the single
-  // timestamp entry point (a number in, the same number out) instead of making
-  // every caller format an epoch back into a log-shaped string. Without it the
-  // regex below hits `.match` on a Number and throws.
-  if (typeof ts === 'number') return isFinite(ts) ? ts : NaN;
-  if (!ts) return NaN;
-  let m = ts.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?/);
-  if (m) {
-    const base = Date.parse(m[1] + 'T' + m[2] + ':' + m[3] + ':' + m[4] + 'Z');
-    const frac = m[5] ? parseFloat('0.' + m[5]) * 1000 : 0;
-    return base + frac;
-  }
-  m = ts.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/);
-  if (m) {
-    return Date.parse(m[3] + '-' + m[1] + '-' + m[2] + 'T' + m[4] + ':' + m[5] + ':' + m[6] + 'Z');
-  }
-  return NaN;
-}
-
 // `Module.Flow.nested.<guid>` is how the engine names anonymous nested flows
 function mftDisplayName(name) {
   const i = name.indexOf('.nested.');
@@ -72,7 +46,7 @@ function mftExtractExecutions(records) {
     if (m) {
       const corrId = m[1];
       const name = m[3];
-      const ms = mftTsToMs(rec.timestamp);
+      const ms = mtTsToMs(rec.timestamp);
       corrIds.add(corrId);
       let stack = stacks.get(corrId);
       if (!stack) { stack = []; stacks.set(corrId, stack); }
@@ -124,7 +98,7 @@ function mftExtractExecutions(records) {
     m = msg.match(MFT_ACT_RE);
     if (m) {
       const corrId = m[1];
-      const ms = mftTsToMs(rec.timestamp);
+      const ms = mtTsToMs(rec.timestamp);
       corrIds.add(corrId);
       activityRecords++;
 
@@ -450,7 +424,6 @@ function mftBuildBackgroundView(executions, records) {
 (typeof window !== 'undefined' ? window : self).mftExtractExecutions = mftExtractExecutions;
 (typeof window !== 'undefined' ? window : self).mftDetectNPlusOne = mftDetectNPlusOne;
 (typeof window !== 'undefined' ? window : self).mftBuildBackgroundView = mftBuildBackgroundView;
-(typeof window !== 'undefined' ? window : self).mftTsToMs = mftTsToMs;
 
 // ── UI: load / parse ─────────────────────────────────────────────────────────
 

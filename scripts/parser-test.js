@@ -320,19 +320,21 @@ global.window = global;
 global.mtFmtInt = n => (Number(n) || 0).toLocaleString('en-US');
 require('../public/js/tools/microflow-tracer.js');
 const mftExtract = global.mftExtractExecutions;
-const mftTs = global.mftTsToMs;
+const mftTs = global.mtTsToMs;
 
-ok('mftTsToMs parses live ISO with microseconds',
+ok('mtTsToMs parses live ISO with microseconds',
   Math.abs(mftTs('2026-07-17T10:00:00.500250') - mftTs('2026-07-17T10:00:00.000000') - 500.25) < 0.001);
-ok('mftTsToMs parses Studio Pro CSV format',
-  mftTs('07/11/2026 21:21:30') - mftTs('07/11/2026 21:21:29') === 1000);
+ok('mtTsToMs parses the Studio Pro CSV timestamp, day first as the parser emits it',
+  mftTs('11/07/2026 21:21:30') - mftTs('11/07/2026 21:21:29') === 1000);
+eq('mtTsToMs reads 27/09/2026 as 27 September, not month 27',
+  new Date(mftTs('27/09/2026 20:43:59')).toISOString(), '2026-09-27T20:43:59.000Z');
 // Regression: the Nginx analyzer resolves its own access-log date and passes an
 // epoch Number to lqeSetTimeWindow, whose filter routes both bounds through this
 // helper. Before the type guard that hit `.match` on a Number and threw, which
 // killed the "SQL in window" cross-link after the chip had already been drawn.
-ok('mftTsToMs passes an epoch Number through unchanged (Nginx cross-link)',
+ok('mtTsToMs passes an epoch Number through unchanged (Nginx cross-link)',
   mftTs(1784268324436) === 1784268324436);
-ok('mftTsToMs rejects a non-finite Number instead of throwing',
+ok('mtTsToMs rejects a non-finite Number instead of throwing',
   isNaN(mftTs(NaN)) && isNaN(mftTs(Infinity)));
 
 const P = '[runtime-container/x]';
@@ -1240,10 +1242,10 @@ ok('gantt: full ISO log crossing midnight moves forward, not backwards',
   isoAxis[1].ms - isoAxis[0].ms === 2000);
 
 const csvAxis = ganttAxis([
-  { ts: '07/18/2026 23:59:59' },
-  { ts: '07/19/2026 00:00:04' }
+  { ts: '18/07/2026 23:59:59' },
+  { ts: '19/07/2026 00:00:04' }
 ]);
-ok('gantt: Studio Pro CSV export resolves through mftTsToMs',
+ok('gantt: Studio Pro CSV export resolves through mtTsToMs',
   csvAxis.length === 2 && csvAxis[1].ms - csvAxis[0].ms === 5000);
 
 // LOG_PAT_TIME produces date-less stamps; they must still plot, and must carry a
@@ -6700,6 +6702,37 @@ console.log('\nOne parser (shared parser vs the pre-v1.69 Log Viewer parser)');
   eq('csv: CRLF inside a quoted field reads as LF', csvRes.records[1].message, 'line one\nline two\nline three');
   eq('csv: the viewer shows the cause under the message', lvView(csvRes.records[1]).msg, 'line one\nline two\nline three\njava.lang.RuntimeException');
   eq('csv: Warning is WARN, as the viewer always showed it', csvRes.records[2].level, 'WARN');
+
+  // Studio Pro writes MM/dd/yyyy even on a machine whose regional settings say
+  // dd.MM.yyyy (checked on pl-PL); every tool shows the date day first (wave 37).
+  const spCsv = [
+    'Type,TimeStamp,LogNode,Message,Cause',
+    'Trace,09/27/2026 20:44:00,MicroflowEngine,[a1b2c3d4] Starting execution of microflow \'Mod.Checkout\',',
+    'Trace,09/27/2026 20:44:03,MicroflowEngine,[a1b2c3d4] Finished execution of microflow \'Mod.Checkout\',',
+    'Info,2026-09-27 20:44:04,Core,an ISO stamp is left as it is,'
+  ].join('\n');
+  const spRes = parser.parse(spCsv);
+  eq('csv: the timestamp is shown day first', spRes.records[0].timestamp, '27/09/2026 20:44:00');
+  eq('csv: a timestamp that is not month-first is left alone', spRes.records[2].timestamp, '2026-09-27 20:44:04');
+  eq('csv: the day-first stamp reads as the right instant',
+    new Date(global.mtTsToMs(spRes.records[0].timestamp)).toISOString(), '2026-09-27T20:44:00.000Z');
+  // The Log Viewer read no CSV date at all until wave 37, so a Studio Pro log had no
+  // request durations in Correlation Flow and no window in the Incident Report.
+  const spCorr = global.logExtractCorrelations(spRes.records).groups.filter(g => g.id === 'a1b2c3d4')[0];
+  eq('csv: Correlation Flow measures a request from a Studio Pro export', spCorr && spCorr.spanMs, 3000);
+  const spEntries = global.logRecordsToEntries(spRes.records, spCsv, 'sp.csv');
+  ok('csv: the raw line the viewer searches carries the same day-first date',
+    spEntries[0].raw.indexOf('Trace,27/09/2026 20:44:00,') === 0, spEntries[0].raw);
+
+  const plSample = path.join(__dirname, '..', '_local_assets', 'FilesForTest', 'Studio Pro Console export pl-PL 2026-09-27.csv');
+  if (fs.existsSync(plSample)) {
+    const plRes = parser.parse(fs.readFileSync(plSample, 'utf8'));
+    eq('pl-PL export: first stamp day first', plRes.records[0].timestamp, '27/09/2026 20:43:59');
+    ok('pl-PL export: every stamp reads as a time on 27 September',
+      plRes.records.length > 50 && plRes.records.every(r => new Date(global.mtTsToMs(r.timestamp)).toISOString().slice(0, 10) === '2026-09-27'));
+  } else {
+    console.log('  (skipped: pl-PL Studio Pro sample not present locally)');
+  }
 
   const pre = parser.parse('garbage before the log\n2026-08-10T13:29:40.100000 ' + C + '  INFO - Core: a');
   eq('preamble before the first record: skipped, not turned into a record', pre.records.length, 1);

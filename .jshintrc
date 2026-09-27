@@ -21,6 +21,7 @@
     "copyToClipboard": false,
     "downloadText": false,
     "logParseContent": false,
+    "mtTsToMs": false,
     "jsonFormat": false,
     "xmlFormat": false,
     "sqlFormat": false,

@@ -14,6 +14,33 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.70.0 — 2026-09-27
+
+**Studio Pro CSV exports: dates day first, and the Log Viewer reads them.**
+
+### Fixed
+
+- **A Studio Pro CSV export lost its times in the Log Viewer's Correlation Flow
+  and in the Incident Report.** The Log Viewer read only ISO timestamps, so a
+  request had no duration and the report could not fill its time window. The
+  timeline and Gantt already worked through a fallback, which is how the gap
+  stayed hidden.
+- **The Log Viewer's date filter was always empty for a CSV export.** It
+  recognized ISO dates only; it now lists the export's day as well.
+
+### Changed
+
+- **Dates from a Studio Pro CSV export are shown day first: `27/09/2026
+  20:43:59`.** Studio Pro writes them month first (`09/27/2026`) whatever the
+  Windows regional settings are — checked on a Polish-locale machine, whose own
+  short date is `27.09.2026`. Every log tool, the Incident Report, search and
+  the date filter use the day-first form.
+- One timestamp reader for every log tool, next to the shared parser, instead
+  of three copies that had drifted apart (the missing CSV support above was one
+  copy falling behind the other two).
+
+---
+
 ## v1.69.0 — 2026-09-27
 
 **One parser for every log tool, and a log loaded once is parsed once.** The Log

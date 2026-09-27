@@ -658,13 +658,13 @@ window.lqeFilter = function() {
   const slowMs = slowMsEl ? (parseFloat(slowMsEl.value) || 0) : 0;
 
   // Time window from the Microflow Tracer cross-link — numeric comparison via the
-  // shared timestamp parser so live (ISO) and CSV (US date) formats both work
-  const twFrom = lqeTimeWindow && window.mftTsToMs ? window.mftTsToMs(lqeTimeWindow.from) : NaN;
-  const twTo = lqeTimeWindow && window.mftTsToMs ? window.mftTsToMs(lqeTimeWindow.to) : NaN;
+  // shared timestamp reader so live (ISO) and CSV (day/month/year) formats both work
+  const twFrom = lqeTimeWindow ? mtTsToMs(lqeTimeWindow.from) : NaN;
+  const twTo = lqeTimeWindow ? mtTsToMs(lqeTimeWindow.to) : NaN;
 
   const filtered = extractedQueries.filter(q => {
     if (!isNaN(twFrom) && !isNaN(twTo)) {
-      const t = window.mftTsToMs(q.timestamp);
+      const t = mtTsToMs(q.timestamp);
       if (isNaN(t) || t < twFrom || t > twTo) return false;
     }
     if (typeFilter === 'DUP') {
@@ -1316,9 +1316,8 @@ window.lqeExportHtml = function() {
 // the user is looking at. Returns null when empty (data-driven rule).
 window.lqeReportSection = function(fromMs, toMs) {
   if (!lqeLastFiltered.length) return null;
-  const tsToMs = window.mftTsToMs || function () { return NaN; };
   const inWin = lqeLastFiltered.filter(function (q) {
-    const ms = tsToMs(q.timestamp);
+    const ms = mtTsToMs(q.timestamp);
     if (fromMs != null && !isNaN(ms) && ms < fromMs) return false;
     if (toMs != null && !isNaN(ms) && ms > toMs) return false;
     return true;
@@ -1327,7 +1326,7 @@ window.lqeReportSection = function(fromMs, toMs) {
 
   let firstMs = Infinity, lastMs = -Infinity;
   inWin.forEach(function (q) {
-    const ms = tsToMs(q.timestamp);
+    const ms = mtTsToMs(q.timestamp);
     if (!isNaN(ms)) { if (ms < firstMs) firstMs = ms; if (ms > lastMs) lastMs = ms; }
   });
 

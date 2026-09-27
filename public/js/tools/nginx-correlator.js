@@ -33,7 +33,7 @@ window.nxCorrResult = null;
 
 // Both the rtr log and the application log write ISO timestamps with
 // microsecond fractions and no offset (2026-08-10T00:00:04.812837) — same
-// clock, treated as UTC, matching logTsToMs's assumption in log-viewer.js.
+// clock, treated as UTC, matching mtTsToMs (mendix-log-parser.js).
 function nxCorrTsToMs(ts) {
   if (!ts) return NaN;
   const m = String(ts).match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(?:\.(\d+))?/);
