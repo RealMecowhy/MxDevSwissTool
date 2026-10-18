@@ -37,7 +37,7 @@ export const state = {
   // Raw counter tracking for rates calculation
   tmPrevCounters: {
     dbSelects: null, dbInserts: null, dbUpdates: null, dbDeletes: null,
-    requests: null, reqTime: null,
+    requests: null, latSum: null, latCount: null,
     gcCounts: null, gcTimes: null,
     netIn: null, netOut: null,
     allocatedBytes: null,

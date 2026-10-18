@@ -133,7 +133,6 @@ let logReadAgain = false;    // a trigger fired mid-read — re-check once on co
 const OTLP_PORT = 4318;
 let otelTraceBuffer = [];
 let otelLogBuffer = [];
-let otelMetricBuffer = [];
 let otelTracesCount = 0;
 let otelLogsCount = 0;
 let otelMetricsCount = 0;
@@ -587,10 +586,8 @@ function handleOtlpRequest(req, res, buffer) {
           formatStr = 'Protobuf';
           if (buffer === otelTraceBuffer) {
             payload = mapTracesProtobufToJson(rawBody);
-          } else if (buffer === otelLogBuffer) {
-            payload = mapLogsProtobufToJson(rawBody);
           } else {
-            payload = {};
+            payload = mapLogsProtobufToJson(rawBody);
           }
         }
 
@@ -627,10 +624,7 @@ function handleOtlpRequest(req, res, buffer) {
           });
         }
       }
-      else if (buffer === otelMetricBuffer) {
-        typeStr = 'Metrics';
-        otelMetricsCount++;
-      }
+
       
       console.log(`[Bridge OTLP] Successfully received ${typeStr} via ${formatStr} (items count: ${count}). Total requests: Traces=${otelTracesCount}, Logs=${otelLogsCount}`);
       
@@ -671,7 +665,16 @@ const otlpServer = http.createServer((req, res) => {
     return handleOtlpRequest(req, res, otelLogBuffer);
   }
   if (req.method === 'POST' && pathOnly === '/v1/metrics') {
-    return handleOtlpRequest(req, res, otelMetricBuffer);
+    // Metric payloads are not kept: nothing reads them (the dashboard takes
+    // metrics from the Prometheus endpoint), so a buffer of up to 20 MB each
+    // was memory held for no one. Answered 200: an error would make the
+    // exporter retry and flood the runtime's log.
+    return readBody(req, res, 20 * 1024 * 1024, () => {
+      otelMetricsCount++;
+      console.log(`[Bridge OTLP] Metrics received: ${otelMetricsCount} request(s) - not displayed, use the Prometheus endpoint.`);
+      res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders(req) });
+      res.end(JSON.stringify({}));
+    });
   }
   
   console.log(`[Bridge OTLP] 404 Not Found for path: ${req.url}`);
@@ -852,16 +855,16 @@ async function fetchPostgresMetrics(req, res, dbConfig) {
   if (!Client) {
     return sendError(req, res, "PostgreSQL metrics require the 'pg' module. Run 'npm install pg' in the tool directory and restart the Bridge (the rest of the tool works without it).", 503);
   }
-  const client = new Client({
-    host: dbConfig.host || 'localhost',
-    port: dbConfig.port || 5432,
-    user: dbConfig.user || 'postgres',
-    password: dbConfig.password || '',
-    database: dbConfig.database || 'mendix',
-  });
+  // The same connection settings as every other Live DB route, including the
+  // 8 s connect timeout: this route is polled every 8 s, and a host that does not
+  // answer used to hang each request on the OS timeout, stacking them up.
+  const client = new Client(livedb.mapDbConfig({ ...dbConfig, database: dbConfig.database || 'mendix' }));
 
   try {
     await client.connect();
+    // A runaway statistics query must not hold the database for a poll that is
+    // already giving up (session-level: there is no transaction here).
+    await client.query('SET statement_timeout = 10000');
 
     // Query 1: Database overview stats (connections, size, hitrate, locks count, tables count)
     const statsSql = `
@@ -1256,12 +1259,6 @@ function handleRequest(req, res) {
   if (url.pathname === '/otel/logs') {
     const since = parseInt(url.searchParams.get('since') || '0');
     const filtered = otelLogBuffer.filter(l => l.timestamp > since);
-    return sendJson(req, res, { timestamp: Date.now(), items: filtered });
-  }
-
-  if (url.pathname === '/otel/metrics') {
-    const since = parseInt(url.searchParams.get('since') || '0');
-    const filtered = otelMetricBuffer.filter(m => m.timestamp > since);
     return sendJson(req, res, { timestamp: Date.now(), items: filtered });
   }
 
@@ -1868,6 +1865,11 @@ function handleRequest(req, res) {
           if (config.status !== undefined && !(typeof config.status === 'string' && /^\d{3}( .*)?$/.test(config.status))) {
             return sendError(req, res, 'status must be a string such as "200" or "404 Not Found"', 400);
           }
+          // "000" or "099" pass the shape check but are not HTTP statuses: writeHead
+          // throws on them, inside a timer, which took the whole Bridge down.
+          if (config.status !== undefined && !(parseInt(config.status, 10) >= 200 && parseInt(config.status, 10) <= 599)) {
+            return sendError(req, res, 'status code must be between 200 and 599', 400);
+          }
           if (config.payload !== undefined && typeof config.payload !== 'string') {
             return sendError(req, res, 'payload must be a string', 400);
           }
@@ -1908,11 +1910,17 @@ function handleRequest(req, res) {
     if (isNaN(statusCode)) statusCode = 200;
 
     setTimeout(() => {
-      res.writeHead(statusCode, {
-        'Content-Type': 'application/json',
-        ...corsHeaders(req)
-      });
-      res.end(outPayload);
+      try {
+        res.writeHead(statusCode, {
+          'Content-Type': 'application/json',
+          ...corsHeaders(req)
+        });
+        res.end(outPayload);
+      } catch (e) {
+        // A throw in a timer is an uncaught exception — it must not end the Bridge.
+        console.error(`[Bridge Mock] Could not answer: ${e.message}`);
+        if (!res.headersSent) { res.statusCode = 500; res.end(); }
+      }
     }, outDelay);
     return;
   }

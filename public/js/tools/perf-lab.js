@@ -274,6 +274,7 @@ function plVmFromStats(stats) {
     errors: stats.errors,
     min: stats.min, max: stats.max, avg: stats.avg,
     p50: stats.p50, p95: stats.p95, p99: stats.p99,
+    cappedFrom: stats.cappedFrom || [],
     rps: stats.rps,
     rpsRecent: stats.rpsRecent,
     activeWorkers: stats.activeWorkers,
@@ -381,6 +382,11 @@ function plFmtMs(ms) {
   return (Math.round(n * 10) / 10) + ' ms';
 }
 
+// A percentile in the histogram's last bin (300 s and beyond) is a lower bound.
+function plFmtPct(vm, p) {
+  return ((vm.cappedFrom || []).indexOf(p) !== -1 ? '≥ ' : '') + plFmtMs(vm['p' + p]);
+}
+
 function plFmtDur(ms) {
   const s = (Number(ms) || 0) / 1000;
   return s >= 90 ? (s / 60).toFixed(1) + ' min' : s.toFixed(1) + ' s';
@@ -393,7 +399,7 @@ function plFmtCount(n) {
 }
 
 function plStatusFailed(key) {
-  if (key === 'Error' || key === 'Timeout') return true;
+  if (key === 'Error' || key === 'Timeout' || key === 'Aborted body') return true;
   const n = parseInt(key, 10);
   return isFinite(n) && n >= 400;
 }
@@ -466,10 +472,10 @@ function plSummarize(vm, meta) {
     headline = 'No responses came back — ' + plFmtCount(vm.sent) + ' request' + (vm.sent === 1 ? '' : 's') + ' sent in ' + dur + '.';
   } else if (m.running) {
     headline = 'Running for ' + dur + ' — ' + plFmtCount(completed) + ' requests so far, '
-      + (vm.rps || 0).toFixed(1) + ' req/s, ' + errText + ', p95 ' + plFmtMs(vm.p95) + '.';
+      + (vm.rps || 0).toFixed(1) + ' req/s, ' + errText + ', p95 ' + plFmtPct(vm, 95) + '.';
   } else {
     headline = plFmtCount(completed) + ' request' + (completed === 1 ? '' : 's') + ' in ' + dur + ' — '
-      + (vm.rps || 0).toFixed(1) + ' req/s, ' + errText + ', p95 ' + plFmtMs(vm.p95) + '.';
+      + (vm.rps || 0).toFixed(1) + ' req/s, ' + errText + ', p95 ' + plFmtPct(vm, 95) + '.';
   }
 
   // Thread span comes from the buckets rather than the slider: the slider shows
@@ -491,7 +497,7 @@ function plSummarize(vm, meta) {
   ];
   if (completed) {
     facts.push({ label: 'Latency', value: 'min ' + plFmtMs(vm.min) + ' · avg ' + plFmtMs(vm.avg) + ' · max ' + plFmtMs(vm.max) });
-    facts.push({ label: 'Percentiles', value: 'p50 ' + plFmtMs(vm.p50) + ' · p95 ' + plFmtMs(vm.p95) + ' · p99 ' + plFmtMs(vm.p99) + (vm.exact ? '' : ' (±1 bin)') });
+    facts.push({ label: 'Percentiles', value: 'p50 ' + plFmtPct(vm, 50) + ' · p95 ' + plFmtPct(vm, 95) + ' · p99 ' + plFmtPct(vm, 99) + (vm.exact ? '' : ' (±1 bin)') });
   }
 
   // A run that was rejected end to end still produces latency numbers, and they
@@ -519,7 +525,7 @@ function plSummarize(vm, meta) {
   }
 
   if (levels.length) notes.push('The second in which the thread count changed is left out of both levels — it carries traffic from both.');
-  if (completed && !vm.exact) notes.push('Percentiles come from a fixed-bin histogram, so they are accurate to a bin width (1 ms below 100 ms, 5 ms below 1 s, 50 ms below 10 s).');
+  if (completed && !vm.exact) notes.push('Percentiles come from a fixed-bin histogram, so they are accurate to a bin width (1 ms below 100 ms, 5 ms below 1 s, 50 ms below 10 s, 500 ms below 60 s, 5 s up to the 300 s timeout).');
   if (m.mfActive) notes.push('Every request carried its own generated message (Message Factory, seed ' + m.seed + ').');
   if (m.sampleGap) notes.push('The run outpaced the sample buffer, so the scatter chart and the CSV are missing individual samples. Every number above covers all requests.');
   if (m.authType && m.authType !== 'none') notes.push('Requests were sent with ' + (m.authType === 'basic' ? 'Basic' : 'Bearer') + ' authentication.');
@@ -1478,13 +1484,46 @@ function plMaskPresetHeaders(text) {
 }
 window.plMaskPresetHeaders = plMaskPresetHeaders;
 
+// The URL, the body and the Message Factory sample carry secrets as well: a key
+// in the query string, a password in a login body. They go through the
+// Anonymizer's "Auth Tokens & Secrets" rules (anonymizer-core.js). In a URL a
+// query parameter with a secret-looking name is masked too, and {placeholders}
+// of the Message Factory are set aside first — `password={pwd}` is a template,
+// not a secret, and masking it would break the run after loading.
+const PL_PLACEHOLDER = /\[(?:AWS_KEY|URL_PASSWORD|COOKIE|HEADER_SECRET|SECRET|JWT_TOKEN|AUTH_TOKEN)\]/g;
+function plMaskPresetText(text, isUrl) {
+  if (!text || typeof text !== 'string') return { text: text || '', masked: 0 };
+  const count = s => (s.match(PL_PLACEHOLDER) || []).length;
+  const slots = [];
+  let out = isUrl ? text.replace(/\{[^{}\s]*\}/g, m => '}' + (slots.push(m) - 1) + '}') : text;
+  out = window.mtAnonCoreFactory().createMasker({ auth: true }).maskChunk(out, true).anon;
+  // The core reads `label=value` and `label: value`. A JSON member or an XML
+  // element named like a credential ("token", <wsse:Password>) is judged here
+  // by the same name list as the headers.
+  const byName = (all, head, name, value) =>
+    PL_SECRET_HEADER.test(name) && !/^(\[[A-Z_]+\]|\}\d+\}|\*\*\*)$/.test(value.trim()) ? head + '[SECRET]' : all;
+  out = out.replace(/("([^"\\]+)"\s*:\s*")([^"\\]+)(?=")/g, byName);
+  out = out.replace(/(<([\w:.-]+)(?:\s[^<>]*)?>)([^<>]+)(?=<\/)/g, byName);
+  if (isUrl) {
+    out = out.replace(/([?&]([^=&#\s]+)=)([^&#\s]+)/g, byName);
+    out = out.replace(/\}(\d+)\}/g, (all, i) => slots[i] !== undefined ? slots[i] : all);
+  }
+  // Counted by placeholders gained, so saving an already masked preset reports 0.
+  return { text: out, masked: Math.max(0, count(out) - count(text)) };
+}
+window.plMaskPresetText = plMaskPresetText;
+
 window.plSavePreset = function () {
   const headers = plMaskPresetHeaders(plEl('pl-headers').value);
+  const url = plMaskPresetText(plEl('pl-url').value, true);
+  const body = plMaskPresetText(plEl('pl-body').value);
+  const sample = plMaskPresetText(plEl('pl-mf-sample') ? plEl('pl-mf-sample').value : '');
+  const masked = headers.masked + url.masked + body.masked + sample.masked;
   const preset = {
-    url: plEl('pl-url').value,
+    url: url.text,
     method: plEl('pl-method').value,
     headers: headers.text,
-    body: plEl('pl-body').value,
+    body: body.text,
     conc: plTargetConcurrency(),
     count: plEl('pl-count').value,
     engine: plEl('pl-engine') ? plEl('pl-engine').value : 'browser',
@@ -1495,14 +1534,18 @@ window.plSavePreset = function () {
     authUser: plEl('pl-auth-user') ? plEl('pl-auth-user').value : '',
     // The field map is the expensive part to rebuild — a preset that restored
     // the URL but not the message would send the wrong traffic on the next run.
-    mfSample: plEl('pl-mf-sample') ? plEl('pl-mf-sample').value : '',
+    mfSample: sample.text,
     mfKind: plMf.kind,
-    mfFields: plMf.fields,
+    // Each row keeps the value it was read from; copies, so the form stays as typed.
+    mfFields: plMf.fields.map(f => Object.assign({}, f, {
+      sample: typeof f.sample !== 'string' || !f.sample ? f.sample
+        : (PL_SECRET_HEADER.test(f.name || '') ? '[SECRET]' : plMaskPresetText(f.sample).text)
+    })),
     mfSeed: plEl('pl-mf-seed') ? plEl('pl-mf-seed').value : 1
   };
   localStorage.setItem('perfLabPreset', JSON.stringify(preset));
-  window.mtToast(headers.masked
-    ? 'Preset saved. ' + headers.masked + ' secret header value' + (headers.masked === 1 ? ' was' : 's were') + ' stored as *** — fill ' + (headers.masked === 1 ? 'it' : 'them') + ' in again after loading.'
+  window.mtToast(masked
+    ? 'Preset saved. ' + masked + ' secret value' + (masked === 1 ? ' was' : 's were') + ' left out (headers, URL, body or sample message) — fill ' + (masked === 1 ? 'it' : 'them') + ' in again after loading.'
     : 'Preset saved to browser memory.', 'success');
 };
 
@@ -1511,10 +1554,13 @@ window.plLoadPreset = function () {
   if (!saved) return window.mtToast('No preset found in memory.', 'warning');
   try {
     const preset = JSON.parse(saved);
+    if (!preset || typeof preset !== 'object') throw new Error('not a preset');
     if (preset.url) plEl('pl-url').value = preset.url;
     if (preset.method) { plEl('pl-method').value = preset.method; window.plMethodChanged(); }
-    if (preset.headers) plEl('pl-headers').value = preset.headers;
-    if (preset.body) plEl('pl-body').value = preset.body;
+    // An empty string is a saved value too: skipping it left the previous
+    // body or headers in the form, so the preset sent traffic it never recorded.
+    if (typeof preset.headers === 'string') plEl('pl-headers').value = preset.headers;
+    if (typeof preset.body === 'string') plEl('pl-body').value = preset.body;
     if (preset.count) plEl('pl-count').value = preset.count;
     if (preset.engine && plEl('pl-engine')) plEl('pl-engine').value = preset.engine;
     if (preset.runmode && plEl('pl-runmode')) plEl('pl-runmode').value = preset.runmode;

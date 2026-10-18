@@ -117,7 +117,8 @@ export function tmCheckThresholds() {
   // 1. Memory Threshold
   const heapMax = state.tmHistory.heapMax[lastIdx];
   const heapUsed = state.tmHistory.heapUsed[lastIdx];
-  if (heapMax > 0) {
+  // No alert on a missing measurement: null means the metric was not in the scrape.
+  if (heapMax !== null && heapUsed !== null && heapMax > 0) {
     const heapPct = (heapUsed / heapMax) * 100;
     if (heapPct >= t.heapDanger) {
       showThresholdAlert('heap_danger', 'Critical Memory Usage', `Heap usage is at ${heapPct.toFixed(1)}% (${heapUsed}MB / ${heapMax}MB). System may crash soon.`, 'danger');
@@ -133,7 +134,7 @@ export function tmCheckThresholds() {
   // 2. Threads Threshold
   const threadsMax = state.tmHistory.threadsMax[lastIdx];
   const threadsActive = state.tmHistory.threadsActive[lastIdx];
-  if (threadsMax > 0) {
+  if (threadsMax !== null && threadsActive !== null && threadsMax > 0) {
     const threadsPct = (threadsActive / threadsMax) * 100;
     if (threadsPct >= t.threadsDanger) {
       showThresholdAlert('threads_danger', 'Thread Pool Exhaustion', `Thread pool is ${threadsPct.toFixed(1)}% full (${threadsActive} / ${threadsMax}). New requests will be blocked.`, 'danger');
@@ -148,7 +149,9 @@ export function tmCheckThresholds() {
 
   // 3. Database Threshold
   const dbTx = state.tmHistory.dbTx[lastIdx];
-  if (dbTx > t.dbDanger) {
+  if (dbTx === null || dbTx === undefined) {
+    // nothing measured, nothing to judge
+  } else if (dbTx > t.dbDanger) {
     showThresholdAlert('db_danger', 'High Database Load', `Database transactions reached ${dbTx.toFixed(1)}/s.`, 'danger');
   } else if (dbTx > t.dbWarn) {
     showThresholdAlert('db_warn', 'Elevated Database Load', `Database transactions are at ${dbTx.toFixed(1)}/s.`, 'warning');

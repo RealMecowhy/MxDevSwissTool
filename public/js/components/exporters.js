@@ -230,6 +230,57 @@
     };
   }
 
+  // ── Anonymize before export ────────────────────────────────────────────────
+  // The rules are the Log & Text Anonymizer's own (anonymizer-core.js), with the
+  // categories that identify a person, a machine or a session. Timestamps and
+  // plain numbers stay: without them a report is no longer a diagnosis.
+  const MT_EXPORT_ANON_OPTS = { uuid: true, ip: true, email: true, mendixId: true, mac: true, creditcard: true, auth: true, consistent: true };
+
+  // One masker per export, so a value keeps its alias across every table of it.
+  function mtExportMasker() {
+    const masker = root.mtAnonCoreFactory().createMasker(MT_EXPORT_ANON_OPTS);
+    return {
+      stats: masker.stats,
+      mask: function (v) {
+        if (typeof v !== 'string' || !v) return v;
+        const out = masker.maskChunk(v, true).anon;
+        // A cell the tool cut short ends in the first half of some value — an
+        // address without its domain matches no rule. It cannot be classified,
+        // so the cut fragment goes; a fragment that is already a placeholder stays.
+        return out.replace(/(\S+)…$/, function (all, frag) { return /\]$/.test(frag) ? all : '[TRUNCATED]…'; });
+      }
+    };
+  }
+
+  function mtAnonymizeRows(rows, masker) {
+    const m = masker || mtExportMasker();
+    return (rows || []).map(function (r) { return r.map(m.mask); });
+  }
+
+  // Takes mtExportToHtml opts, returns { model, stats, total }. Everything that
+  // can carry loaded data is masked: rows, subtitles, notes, meta values. The
+  // title and the column names stay — the user typed one, the tool the other.
+  function mtAnonymizeReport(opts) {
+    const m = mtExportMasker();
+    const part = function (s) {
+      const out = Object.assign({}, s);
+      if (s.subtitle) out.subtitle = m.mask(s.subtitle);
+      if (s.note) out.note = m.mask(s.note);
+      if (s.rows) out.rows = mtAnonymizeRows(s.rows, m);
+      return out;
+    };
+    const model = part(opts);
+    if (opts.sections) model.sections = opts.sections.map(part);
+    let total = 0;
+    Object.keys(m.stats).forEach(function (k) { total += m.stats[k]; });
+    model.meta = (opts.meta || []).map(function (x) { return { label: x.label, value: m.mask(x.value) }; })
+      .concat([{ label: 'Anonymized', value: total + ' value' + (total === 1 ? '' : 's') + ' replaced' }]);
+    return { model: model, stats: m.stats, total: total };
+  }
+
+  root.mtExportMasker = mtExportMasker;
+  root.mtAnonymizeRows = mtAnonymizeRows;
+  root.mtAnonymizeReport = mtAnonymizeReport;
   root.mtExportToCsv = mtExportToCsv;
   root.mtExportToMarkdown = mtExportToMarkdown;
   root.mtExportToHtml = mtExportToHtml;
@@ -257,13 +308,15 @@
       csv: mtExportToCsv,
       markdown: mtExportToMarkdown,
       html: mtExportToHtml,
-      downloadCsv: function (filename, header, rows) { download(mtExportToCsv(header, rows), filename, 'text/csv;charset=utf-8'); },
-      downloadHtml: function (filename, opts) { download(mtExportToHtml(opts), filename, 'text/html;charset=utf-8'); },
+      // `anonymize` (opts.anonymize for CSV and Markdown, a field of the report
+      // opts for HTML) passes the data through mtAnonymize* first. Off by default.
+      downloadCsv: function (filename, header, rows, opts) { download(mtExportToCsv(header, opts && opts.anonymize ? mtAnonymizeRows(rows) : rows), filename, 'text/csv;charset=utf-8'); },
+      downloadHtml: function (filename, opts) { download(mtExportToHtml(opts && opts.anonymize ? mtAnonymizeReport(opts).model : opts), filename, 'text/html;charset=utf-8'); },
       buildIncident: mtBuildIncidentReport,
       incidentHtml: function (sections, opts) { return mtExportToHtml(mtBuildIncidentReport(sections, opts)); },
       downloadIncident: function (filename, sections, opts) { download(mtExportToHtml(mtBuildIncidentReport(sections, opts)), filename, 'text/html;charset=utf-8'); },
-      copyMarkdown: function (header, rows, btn) {
-        const md = mtExportToMarkdown(header, rows);
+      copyMarkdown: function (header, rows, btn, opts) {
+        const md = mtExportToMarkdown(header, opts && opts.anonymize ? mtAnonymizeRows(rows) : rows);
         if (navigator.clipboard) navigator.clipboard.writeText(md).then(function () { flashBtn(btn); });
         return md;
       }

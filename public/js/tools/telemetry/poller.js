@@ -1,7 +1,8 @@
 import { state, TM_USED_METRICS } from './state.js';
 import { tmProcessMetrics } from './processor.js';
 import { tmUpdateTabsVisibility } from './ui.js';
-import { tmParsePrometheusText } from './parsers/prometheus.js';
+import { tmParsePrometheusTextDetailed } from './parsers/prometheus.js';
+import { tmSingleFlight, tmTimeoutSignal } from './channel.js';
 
 export function tmFetchMetrics() {
   let url = document.getElementById('tm-endpoint-url').value.trim();
@@ -18,43 +19,47 @@ export function tmFetchMetrics() {
     if (authKey) headers['X-API-Key'] = authKey;
   }
 
-  const btn = document.getElementById('tm-btn-fetch');
-  if (btn && state.tmConnectionProfile === 'direct') {
-    btn.disabled = true;
-    btn.innerHTML = '<span style="display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:spin 1s linear infinite;margin-right:5px"></span> Fetching...';
-  }
+  tmSingleFlight('prometheus', (isStale) => {
+    const btn = document.getElementById('tm-btn-fetch');
+    if (btn && state.tmConnectionProfile === 'direct') {
+      btn.disabled = true;
+      btn.innerHTML = '<span style="display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:spin 1s linear infinite;margin-right:5px"></span> Fetching...';
+    }
 
-  fetch(url, { headers })
-    .then(res => {
-      if (!res.ok) throw new Error(`HTTP Error Status: ${res.status}`);
-      return res.text();
-    })
-    .then(data => {
-      // Check if it's the error JSON wrapper from the bridge
-      if (data.startsWith('{"error":true')) return;
-      tmProcessMetrics(data);
+    return fetch(url, { headers, signal: tmTimeoutSignal() })
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP Error Status: ${res.status}`);
+        return res.text();
+      })
+      .then(data => {
+        if (isStale()) return;
+        // Check if it's the error JSON wrapper from the bridge
+        if (data.startsWith('{"error":true')) return;
+        tmProcessMetrics(data);
 
-      if (state.tmConnectionProfile === 'direct') {
-        state.tmDirectConnected = true;
-        tmUpdateTabsVisibility();
-      }
-    })
-    .catch(err => {
-      if (state.tmConnectionProfile === 'direct') {
-        console.error(err);
-        tmStopPolling();
-        state.tmDirectConnected = false;
-        tmUpdateTabsVisibility();
-        window.mtToast(`Connection failed!\n\nCould not retrieve telemetry from "${url}".\nReason: ${err.message}`, 'error');
-      }
-      // Silently ignore if proxy fails in agent mode (e.g., Mendix Prometheus not enabled)
-    })
-    .finally(() => {
-      if (btn && state.tmConnectionProfile === 'direct') {
-        btn.disabled = false;
-        btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg> Fetch Metrics';
-      }
-    });
+        if (state.tmConnectionProfile === 'direct') {
+          state.tmDirectConnected = true;
+          tmUpdateTabsVisibility();
+        }
+      })
+      .catch(err => {
+        if (isStale()) return;
+        if (state.tmConnectionProfile === 'direct') {
+          console.error(err);
+          tmStopPolling();
+          state.tmDirectConnected = false;
+          tmUpdateTabsVisibility();
+          window.mtToast(`Connection failed!\n\nCould not retrieve telemetry from "${url}".\nReason: ${err.message}`, 'error');
+        }
+        // Silently ignore if proxy fails in agent mode (e.g., Mendix Prometheus not enabled)
+      })
+      .finally(() => {
+        if (btn && state.tmConnectionProfile === 'direct') {
+          btn.disabled = false;
+          btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg> Fetch Metrics';
+        }
+      });
+  });
 }
 
 export function tmChangePollInterval() {
@@ -114,14 +119,14 @@ export function tmDumpAllMetrics() {
   fetch(url)
     .then(r => r.text())
     .then(text => {
-      const parsed = tmParsePrometheusText(text);
+      const { metrics: parsed, rejected } = tmParsePrometheusTextDetailed(text);
       const allNames = Object.keys(parsed).sort();
 
       const used = allNames.filter(n => TM_USED_METRICS.has(n));
       const unused = allNames.filter(n => !TM_USED_METRICS.has(n));
 
       let html = `<div style="max-height:70vh;overflow-y:auto;font-family:var(--font-mono);font-size:0.78rem">`;
-      html += `<p style="color:var(--text-secondary);margin-bottom:12px"><strong>Total unique metrics received: ${allNames.length}</strong> &mdash; Visualized: ${used.length}, Not used: ${unused.length}</p>`;
+      html += `<p style="color:var(--text-secondary);margin-bottom:12px"><strong>Total unique metrics received: ${allNames.length}</strong> &mdash; Visualized: ${used.length}, Not used: ${unused.length}${rejected ? ` &mdash; ${rejected} line${rejected === 1 ? '' : 's'} not understood` : ''}</p>`;
 
       html += `<h4 style="color:var(--success);margin:8px 0 4px"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px;margin-right:6px"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>Currently Visualized (${used.length})</h4>`;
       html += `<table style="width:100%;border-collapse:collapse;margin-bottom:16px">`;
@@ -129,8 +134,8 @@ export function tmDumpAllMetrics() {
       for (let name of used) {
         const entries = parsed[name];
         const sample = entries[0];
-        const lbls = Object.entries(sample.labels).map(([k,v]) => `${k}="${v}"`).join(', ') || '—';
-        html += `<tr style="border-bottom:1px solid var(--border-subtle)"><td style="padding:3px 8px;color:var(--success)">${name}</td><td style="padding:3px 8px;color:var(--text-muted)">${lbls}</td><td style="padding:3px 8px">${sample.value}</td></tr>`;
+        const lbls = Object.entries(sample.labels).map(([k,v]) => `${escHtml(k)}="${escHtml(v)}"`).join(', ') || '—';
+        html += `<tr style="border-bottom:1px solid var(--border-subtle)"><td style="padding:3px 8px;color:var(--success)">${escHtml(name)}</td><td style="padding:3px 8px;color:var(--text-muted)">${lbls}</td><td style="padding:3px 8px">${escHtml(String(sample.value))}</td></tr>`;
       }
       html += `</table>`;
 
@@ -140,8 +145,8 @@ export function tmDumpAllMetrics() {
       for (let name of unused) {
         const entries = parsed[name];
         const sample = entries[0];
-        const lbls = Object.entries(sample.labels).map(([k,v]) => `${k}="${v}"`).join(', ') || '—';
-        html += `<tr style="border-bottom:1px solid var(--border-subtle)"><td style="padding:3px 8px;color:var(--warning)">${name}</td><td style="padding:3px 8px;color:var(--text-muted);max-width:300px;overflow:hidden;text-overflow:ellipsis">${lbls}</td><td style="padding:3px 8px">${sample.value}</td><td style="padding:3px 8px">${entries.length}</td></tr>`;
+        const lbls = Object.entries(sample.labels).map(([k,v]) => `${escHtml(k)}="${escHtml(v)}"`).join(', ') || '—';
+        html += `<tr style="border-bottom:1px solid var(--border-subtle)"><td style="padding:3px 8px;color:var(--warning)">${escHtml(name)}</td><td style="padding:3px 8px;color:var(--text-muted);max-width:300px;overflow:hidden;text-overflow:ellipsis">${lbls}</td><td style="padding:3px 8px">${escHtml(String(sample.value))}</td><td style="padding:3px 8px">${entries.length}</td></tr>`;
       }
       html += `</table>`;
       html += `</div>`;

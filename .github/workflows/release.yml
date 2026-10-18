@@ -15,6 +15,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
+      # A tag is pushed from a laptop and nothing else guards it: without this a
+      # release can ship a build that fails its own tests.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+
       - name: Prepare Release Package
         run: |
           mkdir -p release_package
@@ -43,8 +52,10 @@ jobs:
           SIGNING_KEY: ${{ secrets.MXDEV_RELEASE_PRIVATE_KEY }}
         run: |
           if [ -z "$SIGNING_KEY" ]; then
-            echo "::warning::MXDEV_RELEASE_PRIVATE_KEY is not set — publishing an UNSIGNED release."
-            exit 0
+            # The client refuses to install an unsigned package, so an unsigned
+            # release is an update that cannot be applied — better no release.
+            echo "::error::MXDEV_RELEASE_PRIVATE_KEY is not set — refusing to publish an unsigned release."
+            exit 1
           fi
           printf '%s' "$SIGNING_KEY" > /tmp/release_key.pem
           node -e '

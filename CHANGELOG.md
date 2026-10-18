@@ -14,6 +14,186 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.76.0 — 2026-10-18
+
+*This release also carries v1.75.0, v1.74.0 and v1.73.0 below, which were not
+published separately.*
+
+**The small utilities no longer put the session at risk.** Text Diff, the Regex
+Tester and the Markdown preview share a tab with whatever logs you have loaded;
+none of them can freeze that tab any more, and none does more than it says.
+
+### Fixed
+
+- **Text Diff handles big files with small changes.** The lines both texts start
+  and end with are set aside before comparing, so two 20,000-line files that
+  differ in a few neighbouring lines compare at once. When the changed part is
+  still too large (more than 25 million line pairs, about 5,000 × 5,000 lines)
+  the tool says so, with both line counts, instead of freezing the tab. Changes
+  scattered across a very large file can still hit that limit: compare a smaller
+  section.
+- **Text Diff: a large changed block is listed as removed and added lines**
+  rather than paired up line by line, which is what used to take seconds.
+- **Text Diff: synchronised scrolling was wired again on every visit** to the
+  tool, so after twenty visits one scroll did the work twenty times.
+- **A regex that backtracks without end is stopped after 2 seconds.** Matching
+  runs off the main thread; a pattern such as `(a+)+$` on a long input used to
+  freeze the whole tab, and now ends with a message naming the likely cause.
+- **Regex Tester says which engine it runs.** It runs the browser's JavaScript
+  engine, not Java, and the panel now lists the differences that matter in
+  Mendix: possessive quantifiers and atomic groups are errors; `\Q…\E`, `\A`,
+  `\z` and `\Z` are silently read as plain letters; inline flags such as `(?i)`
+  go in the flags field; Java's `$0` and `${name}` in a replacement are `$&` and
+  `$<name>`.
+- **Markdown preview: links and images are limited to safe addresses.** Only
+  `http`, `https`, `mailto`, anchors and relative paths become links; anything
+  else (`javascript:`, `data:`, `file:`) stays as the text you typed. Links open
+  without access to the page that opened them.
+
+### Changed
+
+- **Regex replace has its own switch.** *Replace matches with* turns the preview
+  on; an empty replacement is now a real one and removes every match. Typing a
+  replacement turns the switch on by itself.
+- **Markdown preview does not load images from other hosts by itself.** Such an
+  image shows as a button, *External image — click to load*. *Export HTML* and
+  *Copy HTML* still produce the document with its images.
+
+---
+
+## v1.75.0 — 2026-10-18 *(no release published)*
+
+**What leaves the app is what you meant to share.** Reports and exports can be
+anonymized on the way out, a saved request no longer carries its secrets, and
+the offline cache holds the app's own files only.
+
+### Added
+
+- **Anonymize before export** in the Incident Report, and **Anonymize exports**
+  in the Log Query Extractor (CSV, Markdown and HTML). E-mail addresses, IP and
+  MAC addresses, UUIDs, Mendix object IDs, card numbers, tokens and secrets are
+  replaced with placeholders such as `[EMAIL-1]`; the same value gets the same
+  placeholder across the whole file. Timestamps and numbers stay. Both are off
+  by default. The rules are the Log & Text Anonymizer's own — one piece of code
+  now serves the tool and the exports. Names and free text are not recognised,
+  so a report still needs reading before it is shared.
+- **The Incident Report counts before you download.** With the box ticked, a
+  line under it says how many values of each kind the current window and
+  sources contain, and the report itself states how many were replaced.
+- **Backup Settings asks about the Load Tester preset.** The preset is a saved
+  request (URL, headers, body, sample message), not a preference, so the backup
+  file leaves it out unless you tick *Include the Load Tester preset*. A file
+  that contains one is restored as before.
+
+### Fixed
+
+- **A Load Tester preset is saved without secrets.** Only header values were
+  masked; a key in the query string, a password in the body or a token in the
+  Message Factory sample went to browser storage — and into the backup file —
+  as typed. They are now saved as `[SECRET]`, by the Anonymizer's secret rules
+  and by name (`token`, `secret`, `password`, `api key` as a query parameter,
+  a JSON field or an XML element). The message after saving says how many
+  values were left out. `{placeholders}` in the URL are kept and the form is
+  not changed. A secret under a name the rules do not know is still saved.
+- **The offline cache stores the app's own files and nothing else.** The service
+  worker used a list of routes *not* to cache, so every GET route missing from
+  it had its response stored: an OpenAPI document fetched through the bridge,
+  the project's security model, a Prometheus endpoint on another origin. The
+  rule is now the other way round — this origin and a file from the app's own
+  list — and everything else goes straight to the network. Entries stored by
+  earlier versions are removed when this version activates.
+
+### Removed
+
+- `public/js/worker-anonymizer.js`, an unused copy of the Anonymizer's rules
+  that was shipped and cached but never run.
+
+---
+
+## v1.74.0 — 2026-10-18 *(no release published)*
+
+**Telemetry tells the truth: a missing measurement looks like a missing
+measurement, and every number on the dashboard has one meaning.** Where the
+dashboard used to draw a line it now may show a gap; that is intended.
+
+### Fixed
+
+- **No more invented values.** A scrape without a thread pool showed 10 / 200
+  threads, one without a heap limit showed a 1 GiB heap (and could raise a heap
+  alert against it), and a missing counter drew a request rate of 0. Each is now
+  empty: a dash on the card, a break in the chart line, no alert.
+  Heap used is no longer taken from *committed* memory, and a label filter that
+  matches no series (asking for *busy* threads and getting the *idle* count) now
+  returns nothing instead of the first series.
+- **Average latency comes from one metric family.** It is the change in the
+  `_sum` divided by the change in the `_count` of the same family (Jetty, else
+  the HTTP server timer), over all its series. A counter that goes backwards
+  because the runtime restarted is a gap, not a 0 or a negative spike, and an
+  interval in which no request finished has no average.
+- **The Prometheus parser follows the format.** A comma, `=` or `}` inside a
+  label value (`uri="/api/{id}"`), escaped quotes, metric names with `:`, a
+  trailing timestamp and `+Inf` are read correctly; a metric named
+  `constructor` is just a metric. *Metrics Inventory* reports how many lines it
+  could not read.
+- **One request per polling channel.** An endpoint slower than its interval used
+  to collect a queue of identical requests, and an answer arriving after you had
+  changed profile or disconnected still updated the dashboard. A busy channel
+  skips its tick, stale answers are dropped, and every poll has a 15 s timeout.
+- **`/postgres` gives up.** The statistics route used its own connection
+  settings with no connect timeout, so a host that did not answer hung every
+  8-second poll. It now shares the 8 s connect timeout of the other Live DB
+  routes and caps each statement at 10 s.
+
+### Changed
+
+- **OTLP metrics are counted, not stored.** The Bridge kept up to 50 metric
+  payloads (20 MB each) that nothing read. It now answers 200, counts them, and
+  the Bridge popover says they are not displayed — the dashboard takes metrics
+  from the Prometheus endpoint. The unused `GET /otel/metrics` route is gone.
+
+---
+
+## v1.73.0 — 2026-10-18 *(no release published)*
+
+**Results you can trust: the numbers and ranges now match what actually
+happened, plus a handful of small holes closed.**
+
+### Fixed
+
+- **REST Load Tester: a cut-off response is an error.** A server that sent the
+  headers and half the body used to be counted as a clean 200. It is now an
+  error with the status *Aborted body*.
+- **REST Load Tester: percentiles up to the 300 s timeout.** The histogram
+  stopped at 10 s, so every slower request looked like exactly 10 s. It now
+  resolves 500 ms bins up to 60 s and 5 s bins up to 300 s; a percentile beyond
+  that is shown as a lower bound (`≥`).
+- **REST Load Tester: a saved preset restores an empty body and empty headers**
+  instead of leaving whatever was typed since.
+- **Incident Report: the window includes the last second of data.** The
+  automatic end was cut to the whole second below the last entry; it is now
+  rounded up (and the start down).
+- **JWT Decoder reads UTF-8.** Polish letters and emoji in a token's claims no
+  longer appear as mojibake.
+- **Telemetry Metrics Inventory escapes metric names, labels and values**, so a
+  label from an endpoint can no longer inject markup.
+- **Mock Server refuses a status outside 200–599** (such as `000`), which used to
+  crash the Bridge on the next request, and a failure while answering no longer
+  ends the process.
+- **A damaged settings backup cannot stop the app from starting.** Values of the
+  wrong shape are skipped on import and ignored when read.
+- **Live DB: `--` and `/*` inside string literals and quoted identifiers are no
+  longer treated as comments** before EXPLAIN. A CTE containing the word
+  `update` in a literal is accepted; a real data-modifying CTE is still refused.
+
+### Changed
+
+- **Releases are tested and signed or not published.** The release workflow now
+  runs lint and the full test suite before packaging and fails when the signing
+  key is missing. CI installs with `npm ci`, and the browser smoke test fails
+  instead of skipping when it runs in CI without a browser.
+
+---
+
 ## v1.72.0 — 2026-09-27
 
 **Log Viewer Insights: warnings and errors grouped by what caused them.**

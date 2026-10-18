@@ -58,21 +58,25 @@ let nextId = 1;
 // =========================================================================
 // LATENCY HISTOGRAM (fixed bins, O(1) memory for an unbounded run)
 // =========================================================================
-const HIST_OVERFLOW = 460;
+const HIST_OVERFLOW = 610;
 
 function histIndex(ms) {
   if (ms < 0) ms = 0;
   if (ms < 100) return Math.floor(ms);                 // 0..99    — 1 ms bins
   if (ms < 1000) return 100 + Math.floor((ms - 100) / 5);   // 100..279 — 5 ms
   if (ms < 10000) return 280 + Math.floor((ms - 1000) / 50); // 280..459 — 50 ms
-  return HIST_OVERFLOW;
+  if (ms < 60000) return 460 + Math.floor((ms - 10000) / 500); // 460..559 — 500 ms
+  if (ms < 300000) return 560 + Math.floor((ms - 60000) / 5000); // 560..609 — 5 s
+  return HIST_OVERFLOW;                                  // 610     — 300 s and beyond (the request timeout)
 }
 
 function histRange(i) {
   if (i < 100) return [i, i + 1];
   if (i < 280) return [100 + (i - 100) * 5, 100 + (i - 100) * 5 + 5];
-  if (i < HIST_OVERFLOW) return [1000 + (i - 280) * 50, 1000 + (i - 280) * 50 + 50];
-  return [10000, 10000];
+  if (i < 460) return [1000 + (i - 280) * 50, 1000 + (i - 280) * 50 + 50];
+  if (i < 560) return [10000 + (i - 460) * 500, 10000 + (i - 460) * 500 + 500];
+  if (i < HIST_OVERFLOW) return [60000 + (i - 560) * 5000, 60000 + (i - 560) * 5000 + 5000];
+  return [300000, 300000];
 }
 
 // Rank-based lookup over cumulative bin counts. Returns the bin midpoint, so a
@@ -87,14 +91,18 @@ function histPercentile(hist, total, p) {
     seen += c;
     if (seen >= target) {
       const r = histRange(i);
-      return i === HIST_OVERFLOW ? 10000 : (r[0] + r[1]) / 2;
+      return i === HIST_OVERFLOW ? 300000 : (r[0] + r[1]) / 2;
     }
   }
   return 0;
 }
 
+function percentilesInOverflow(hist, total) {
+  return [50, 90, 95, 99].filter(p => histPercentile(hist, total, p) >= 300000);
+}
+
 // Only non-empty bins travel to the browser — a saturated run touches a few
-// dozen of the 461, and the client needs the edges to group them for display.
+// dozen of the 611, and the client needs the edges to group them for display.
 function histSparse(hist) {
   const out = [];
   for (let i = 0; i <= HIST_OVERFLOW; i++) {
@@ -349,10 +357,18 @@ async function runWorker(s) {
         const r = await fetch(url, opts);
         // The body has to be drained or the connection is not really done, and
         // every latency after it would be measured against a stalled pool.
-        await r.arrayBuffer().catch(() => null);
+        // A body cut off mid-transfer is a failed request, not a 200 — a rejected
+        // read is told apart from a refused connection so the status table shows it.
+        try {
+          await r.arrayBuffer();
+        } catch (bodyErr) {
+          if (bodyErr && bodyErr.name === 'TimeoutError') throw bodyErr;
+          throw Object.assign(new Error('Aborted body'), { aborted: true });
+        }
         status = r.status;
       } catch (err) {
-        status = err && err.name === 'TimeoutError' ? 'Timeout' : 'Error';
+        if (err && err.name === 'TimeoutError') status = 'Timeout';
+        else status = err && err.aborted ? 'Aborted body' : 'Error';
       }
       record(s, id, t0, Date.now(), status);
     }
@@ -363,7 +379,7 @@ async function runWorker(s) {
 
 function record(s, id, t0, t1, status) {
   const ms = t1 - t0;
-  const failed = status === 'Error' || status === 'Timeout' || (typeof status === 'number' && status >= 400);
+  const failed = status === 'Error' || status === 'Timeout' || status === 'Aborted body' || (typeof status === 'number' && status >= 400);
 
   s.completed++;
   if (failed) s.errors++;
@@ -498,6 +514,9 @@ function getStats(id, sinceBucket, sinceSample) {
     p90: histPercentile(s.hist, completed, 90),
     p95: histPercentile(s.hist, completed, 95),
     p99: histPercentile(s.hist, completed, 99),
+    // The last bin has no upper edge, so a percentile landing there is a lower
+    // bound — the UI writes it with a leading ≥.
+    cappedFrom: s.hist[HIST_OVERFLOW] ? percentilesInOverflow(s.hist, completed) : [],
     rps: elapsedMs > 0 ? +(completed / (elapsedMs / 1000)).toFixed(2) : 0,
     // Before the first second closes there is no recent window yet — falling
     // back to the run average beats showing a hard 0 next to live traffic.

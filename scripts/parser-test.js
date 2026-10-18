@@ -1675,9 +1675,11 @@ EDX_LABELLED_TOOLS.forEach(function (id) {
 });
 
 // ── Log & Text Anonymizer — secret masking (public/js/tools/log-anonymizer.js) ─
-// The masking logic lives inside workerLogic(), which ships to the browser as
-// `'(' + workerLogic.toString() + ')();'`. The test extracts and runs that exact
-// source, so what is asserted here is what actually executes — not a re-implementation.
+// The masking rules live in anonymizer-core.js (mtAnonCoreFactory); the chunk loop
+// lives inside workerLogic(). The browser ships both to the worker as source text:
+// `'var mtAnonCoreFactory = ' + factory.toString() + ';(' + workerLogic.toString() + ')();'`.
+// The test assembles the same text, so what is asserted here is what actually
+// executes — not a re-implementation.
 // This tool decides whether a secret leaves the building, so the important
 // assertions are the negative ones: the raw secret must NOT survive anywhere in
 // the output.
@@ -1688,7 +1690,13 @@ const anonSrc = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'tool
 const anonStart = anonSrc.indexOf('  function workerLogic() {');
 const anonEnd = anonSrc.indexOf('\n  }\n', anonSrc.indexOf('processNextChunk();', anonStart));
 ok('anon: workerLogic source located', anonStart !== -1 && anonEnd > anonStart);
-const anonWorkerSrc = anonSrc.slice(anonStart, anonEnd + 4);
+require('../public/js/tools/anonymizer-core.js');
+ok('anon: core factory is exported', typeof global.mtAnonCoreFactory === 'function');
+// The worker must not keep its own copy of the patterns — one place decides
+// what a secret looks like, or the export path and the tool drift apart.
+ok('anon: workerLogic holds no masking patterns of its own', !/Regex\s*=|addMatches/.test(anonSrc));
+const anonWorkerSrc = 'var mtAnonCoreFactory = ' + global.mtAnonCoreFactory.toString() + ';\n' +
+  anonSrc.slice(anonStart, anonEnd + 4);
 
 // Minimal worker host: onmessage/postMessage plus the setTimeout the chunk loop uses.
 function anonRun(text, overrides) {
@@ -1824,6 +1832,16 @@ async function runAnonTests() {
   // 9. Counted under the auth statistic, so the summary reflects the work.
   r = await anonRun('AKIAIOSFODNN7EXAMPLE api_key=abcd1234efgh');
   eq('anon: both secrets are counted under `auth`', r.stats.auth, 2);
+
+  // 10. Plain mode (the export path): the same text the worker produces once
+  // the viewer markers are stripped, and no marked copy of the original.
+  const plainIn = 'user bob@example.com api_key=abcd1234efgh from 10.1.2.3\nCookie: sid=xyz';
+  r = await anonRun(plainIn, UI_DEFAULTS);
+  const plainMasker = global.mtAnonCoreFactory().createMasker(Object.assign({}, UI_DEFAULTS));
+  const plainOut = plainMasker.maskChunk(plainIn, true);
+  eq('anon: plain mode equals the worker result without markers', plainOut.anon, r.visible);
+  eq('anon: plain mode builds no marked original', plainOut.raw, '');
+  eq('anon: plain mode counts the same replacements', JSON.stringify(plainMasker.stats), JSON.stringify(r.stats));
 }
 
 // ── Shared export helpers (public/js/components/exporters.js) ────────────────
@@ -1860,6 +1878,74 @@ ok('html: sections mode renders multiple tables', (function () {
   return (h.match(/<h2>/g) || []).length === 2;
 })());
 ok('html: empty rows → "No rows." not a broken table', toHtml({ title: 'x', columns: ['A'], rows: [] }).indexOf('No rows.') !== -1);
+
+// ── Anonymize before export (mtAnonymizeRows / mtAnonymizeReport) ────────────
+console.log('\nExport helpers — anonymize');
+const anonRows = global.mtAnonymizeRows([
+  ['10:00:01', 1500, 'login of bob@example.com from 10.1.2.3'],
+  ['10:00:02', 20, 'object 4503599627370567 changed by bob@example.com'],
+  ['10:00:03', null, 'Authorization: Bearer abc.def.ghi-123']
+]);
+const anonFlat = JSON.stringify(anonRows);
+ok('export anon: e-mail, IP, Mendix ID and token are gone',
+  !/bob@example\.com|10\.1\.2\.3|4503599627370567|abc\.def/.test(anonFlat), anonFlat);
+eq('export anon: one value keeps one alias across rows', anonRows[0][2].match(/\[EMAIL-\d+\]/)[0], anonRows[1][2].match(/\[EMAIL-\d+\]/)[0]);
+eq('export anon: timestamps stay', anonRows[0][0] + ' ' + anonRows[2][0], '10:00:01 10:00:03');
+ok('export anon: numbers and empty cells pass through untouched', anonRows[0][1] === 1500 && anonRows[2][1] === null);
+// A tool that truncates a cell can cut a value in half; the half matches no rule.
+eq('export anon: the cut fragment of a truncated cell is dropped',
+  global.mtAnonymizeRows([['SELECT x WHERE mail = \'john.smith@exam…']])[0][0], 'SELECT x WHERE mail = [TRUNCATED]…');
+eq('export anon: a truncated cell ending in a placeholder keeps it',
+  global.mtAnonymizeRows([['from 10.1.2.3…']])[0][0], 'from [IP-1]…');
+eq('export anon: a cell that merely ends a sentence is left alone',
+  global.mtAnonymizeRows([['Loading… done']])[0][0], 'Loading… done');
+
+// Registration order is a security property (v1.42.0): a secret shaped like a
+// UUID, an IP or an e-mail must be taken by the secret rule, or the label says
+// "[EMAIL]" over a credential and the rest of the value stays readable. The
+// export path runs every category at once, so each collision is checked there.
+[
+  ['URL password vs e-mail', 'jdbc:postgresql://svc_user:Hunter2Secret@db.internal:5432/app', 'jdbc:postgresql://svc_user:[URL_PASSWORD-1]@db.internal:5432/app'],
+  ['secret vs IP', 'password=10.1.2.3', 'password=[SECRET-1]'],
+  ['secret vs UUID', 'client_secret=123e4567-e89b-12d3-a456-426614174000', 'client_secret=[SECRET-1]'],
+  ['secret vs e-mail', 'api_key=bob@example.com', 'api_key=[SECRET-1]'],
+  ['secret vs Mendix ID', 'access_token=4503599627370567', 'access_token=[SECRET-1]'],
+  ['cookie vs UUID', 'Cookie: sid=123e4567-e89b-12d3-a456-426614174000; u=bob@example.com', 'Cookie: [COOKIE-1]'],
+  ['HAR header vs e-mail', '{"name": "X-Api-Key", "value": "bob@example.com"}', '{"name": "X-Api-Key", "value": "[HEADER_SECRET-1]"}'],
+  ['bearer vs JWT', 'Authorization: Bearer eyJhbGciOi.eyJzdWIiOi.c2lnbmF0dXJl', null]
+].forEach(function (c) {
+  const out = global.mtAnonymizeRows([[c[1]]])[0][0];
+  if (c[2] === null) ok('export anon order: ' + c[0], /^Authorization: \[(AUTH_TOKEN|JWT_TOKEN)-1\]$/.test(out) || /^Authorization: Bearer \[JWT_TOKEN-1\]$/.test(out), out);
+  else eq('export anon order: ' + c[0], out, c[2]);
+});
+// The same value outside a secret context still gets its ordinary label.
+eq('export anon order: a plain e-mail, IP and UUID keep their own labels',
+  global.mtAnonymizeRows([['bob@example.com 10.1.2.3 123e4567-e89b-12d3-a456-426614174000']])[0][0], '[EMAIL-1] [IP-1] [UUID-1]');
+// Guard on the source: the secret block is registered before every other rule.
+(function () {
+  const src = global.mtAnonCoreFactory.toString();
+  const first = src.indexOf('addMatches(awsKeyRegex');
+  const others = ['uuidRegex', 'ipv4Regex', 'emailRegex', 'macRegex', 'creditCardRegex', 'mendixIdRegex'].map(function (n) { return src.indexOf('addMatches(' + n); });
+  ok('anon core: secrets are registered ahead of uuid, ip, e-mail, mac, card and Mendix ID',
+    first !== -1 && others.every(function (i) { return i > first; }) && src.indexOf('addMatches(bearerRegex') < Math.min.apply(null, others), first + ' / ' + others.join(','));
+})();
+
+const anonRep = global.mtAnonymizeReport({
+  title: 'Incident for bob@example.com', subtitle: 'Period: 2026-09-20 10:00:00 UTC  →  2026-09-20 10:00:04 UTC',
+  note: 'reported by anna@example.com', meta: [{ label: 'Total rows', value: 2 }],
+  sections: [
+    { title: 'Log', subtitle: 'from 10.1.2.3', columns: ['Msg'], rows: [['bob@example.com']] },
+    { title: 'SQL', columns: ['SQL'], rows: [['WHERE mail = \'bob@example.com\'']] }
+  ]
+});
+const anonRepHtml = toHtml(anonRep.model);
+ok('report anon: rows, section subtitle and notes are masked',
+  !/anna@example\.com|10\.1\.2\.3/.test(anonRepHtml) && anonRepHtml.split('bob@example.com').length === 3, anonRepHtml.match(/<h1>.*?<\/section>/)[0]);
+ok('report anon: the title is left as typed', anonRepHtml.indexOf('<h1>Incident for bob@example.com</h1>') !== -1);
+ok('report anon: the period survives', anonRepHtml.indexOf('2026-09-20 10:00:00 UTC') !== -1);
+eq('report anon: one alias for one value across sections', anonRep.model.sections[0].rows[0][0], anonRep.model.sections[1].rows[0][0].match(/\[EMAIL-\d+\]/)[0]);
+eq('report anon: counts what it replaced', anonRep.total + ' / ' + anonRep.stats.email + ' / ' + anonRep.stats.ip, '4 / 3 / 1');
+ok('report anon: the report says it was anonymized', anonRep.model.meta.some(function (m) { return m.label === 'Anonymized' && m.value === '4 values replaced'; }), JSON.stringify(anonRep.model.meta));
 
 // ── Incident Report model builder (mtBuildIncidentReport) ────────────────────
 console.log('\nIncident Report builder');
@@ -1931,6 +2017,18 @@ ok('livedb: leading block comment allowed', livedb.isReadOnlySelect('/* c */ SEL
 ok('livedb: leading line comment allowed', livedb.isReadOnlySelect('-- c\nSELECT 1') === true);
 ok('livedb: leading paren allowed', livedb.isReadOnlySelect('(SELECT 1)') === true);
 ok('livedb: DELETE keyword inside a string literal still read-only', livedb.isReadOnlySelect("SELECT * FROM audit WHERE action='DELETE'") === true);
+// Comments are cut only outside literals and quoted identifiers.
+eq('livedb: a -- inside a literal is data, not a comment', livedb.stripSqlComments("SELECT '--hello' FROM t"), "SELECT '--hello' FROM t");
+eq('livedb: a /* inside a literal is data', livedb.stripSqlComments("SELECT '/* x */' FROM t"), "SELECT '/* x */' FROM t");
+eq('livedb: a -- inside a quoted identifier is data', livedb.stripSqlComments('SELECT "a--b" FROM t'), 'SELECT "a--b" FROM t');
+eq('livedb: an escaped quote does not end the literal', livedb.stripSqlComments("SELECT 'it''s -- fine' FROM t"), "SELECT 'it''s -- fine' FROM t");
+eq('livedb: a real comment after a literal is still cut', livedb.stripSqlComments("SELECT 'a' -- note\nFROM t").replace(/\s+/g, ' '), "SELECT 'a' FROM t");
+eq('livedb: a real block comment is still cut', livedb.stripSqlComments('SELECT /* c */ 1').replace(/\s+/g, ' '), 'SELECT 1');
+ok('livedb: SELECT with a -- literal is read-only', livedb.isReadOnlySelect("SELECT '--hello'") === true);
+ok('livedb: CTE with the word update in a literal is accepted', livedb.isReadOnlySelect("WITH x AS (SELECT 'update' AS a) SELECT * FROM x") === true);
+ok('livedb: CTE with a real DELETE is still refused', livedb.isReadOnlySelect('WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d') === false);
+ok('livedb: a comment before DELETE does not hide it', livedb.isReadOnlySelect('WITH d AS (/* x */ DELETE FROM t RETURNING *) SELECT * FROM d') === false);
+ok('livedb: a literal ending in -- cannot swallow a DELETE after it', livedb.isReadOnlySelect("WITH d AS (SELECT '--' AS a), e AS (DELETE FROM t RETURNING *) SELECT * FROM e") === false);
 // ── JDBC placeholders (wave 24) ─────────────────────────────────────────────
 // Mendix logs its SQL with `?`, not `$1`, so every query the Log Query Extractor
 // hands to "Run EXPLAIN live" used to die on a syntax error. Measured on two
@@ -3562,6 +3660,12 @@ require('../public/js/tools/jwt.js');
 const jwtB64 = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64')
   .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 eq('jwt: base64url JSON decodes', global.jwtBase64UrlDecodeJson(jwtB64).alg, 'RS256');
+{
+  const utf = Buffer.from(JSON.stringify({ name: 'Zażółć gęślą jaźń', emoji: '😀' })).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const dec = global.jwtBase64UrlDecodeJson(utf);
+  eq('jwt: Polish characters decode as UTF-8', dec && dec.name, 'Zażółć gęślą jaźń');
+  eq('jwt: a 4-byte character decodes as UTF-8', dec && dec.emoji, '😀');
+}
 eq('jwt: malformed base64url returns null, not a throw', global.jwtBase64UrlDecodeJson('not-json-!!!'), null);
 
 ok('jwt: a known claim (exp) gets a title tooltip', /title="[^"]*[Ee]xpiration/.test(global.jwtClaimCell('exp')));
@@ -3651,10 +3755,24 @@ ok('regex presets: Mendix entity path accepts Module.Entity', new RegExp(rxPrese
 ok('regex presets: Mendix entity path accepts an association chain', new RegExp(rxPreset('mx-entity-path').pattern).test('Sales.Order_Customer/Sales.Customer'));
 ok('regex presets: Mendix entity path rejects a bare word', !new RegExp(rxPreset('mx-entity-path').pattern).test('Order'));
 
-const rxRepl = global.regexReplacePreview;
-eq('regex replace: group reference substitution', rxRepl('(\\w+)@(\\w+)', '', 'dev@mendix', '$2:$1').result, 'mendix:dev');
-eq('regex replace: empty replacement is skipped (returns null, not an empty result)', rxRepl('a', '', 'abc', ''), null);
-ok('regex replace: an invalid pattern reports an error instead of throwing', !!rxRepl('(', '', 'abc', 'x').error);
+// regexRun is the whole job the Worker does: matches, groups and the replace
+// preview from one call, with errors returned instead of thrown.
+const rxRun = (pattern, flags, test, extra) => global.regexRun(Object.assign({ pattern: pattern, flags: flags, test: test, isMatchMode: false, replacement: null }, extra || {}));
+eq('regex run: group reference substitution', rxRun('(\\w+)@(\\w+)', '', 'dev@mendix', { replacement: '$2:$1' }).replaced, 'mendix:dev');
+eq('regex run: no replacement means no replace preview', rxRun('a', '', 'abc').replaced, null);
+eq('regex run: an empty replacement removes every match', rxRun('\\d', '', 'a1b22c', { replacement: '' }).replaced, 'abc');
+ok('regex run: an invalid pattern reports an error instead of throwing', !!rxRun('(', '', 'abc', { replacement: 'x' }).error);
+eq('regex run: every match with its index, without the g flag too', JSON.stringify(rxRun('\\d+', '', 'a1 b22 c333').matches.map(m => [m.index, m.text])), JSON.stringify([[1, '1'], [4, '22'], [8, '333']]));
+eq('regex run: numbered groups, an unmatched one stays undefined', JSON.stringify(rxRun('(a)|(b)', 'g', 'b').matches[0].groups), JSON.stringify([undefined, 'b']));
+eq('regex run: named groups', JSON.stringify(rxRun('(?<mod>\\w+)\\.(?<ent>\\w+)', 'g', 'Sales.Order').matches[0].named), JSON.stringify({ mod: 'Sales', ent: 'Order' }));
+eq('regex run: isMatch mode anchors to the whole string', rxRun('\\d+', 'g', 'abc 123', { isMatchMode: true }).matches.length, 0);
+eq('regex run: isMatch mode accepts a full match', rxRun('\\d+', 'g', '123', { isMatchMode: true }).matches.length, 1);
+eq('regex run: isMatch mode does not change the replace preview', rxRun('\\d+', 'g', 'abc 123', { isMatchMode: true, replacement: '#' }).replaced, 'abc #');
+eq('regex run: zero-length matches do not loop forever', rxRun('x*', 'g', 'ab').matches.length, 3);
+rxPresets.forEach(p => ok('regex run: preset "' + p.id + '" compiles', rxRun(p.pattern, p.flags, 'x').error === null));
+// The Worker is built from the function's own source, so it must not lean on
+// anything outside itself.
+ok('regex run: runs from its source text alone', (new Function('return (' + global.regexRun.toString() + ')({pattern:"a",flags:"",test:"aa",isMatchMode:false,replacement:"b"}).replaced'))() === 'bb');
 
 // =========================================================================
 // PASSWORD GENERATOR — strength meter, Mendix Cloud preset charset (10.4)
@@ -3694,6 +3812,25 @@ const withWs = global.computeDiff(wsA, wsB);
 const withoutWs = global.computeDiff(wsA, wsB, l => global.diffNormalizeLine(l, true));
 ok('diff ignore-ws off: a whitespace-only difference shows as a real change', withWs.some(d => d[0] === 'added' || d[0] === 'removed'));
 ok('diff ignore-ws on: a whitespace-only difference is treated as equal', withoutWs.every(d => d[0] === 'equal'));
+
+// Lines shared at the start and the end stay out of the LCS table: two
+// 20,000-line texts that differ in five lines are compared, not refused.
+const bigA = Array.from({ length: 20000 }, (_, i) => 'line ' + i);
+const bigB = bigA.slice();
+[10000, 10001, 10050, 10100, 10200].forEach(i => { bigB[i] = 'changed ' + i; });
+const bigDiff = global.computeDiff(bigA, bigB);
+ok('diff: 20,000 lines with five changed are compared', Array.isArray(bigDiff));
+eq('diff: ...five lines removed', bigDiff.filter(d => d[0] === 'removed').length, 5);
+eq('diff: ...five lines added', bigDiff.filter(d => d[0] === 'added').length, 5);
+eq('diff: ...and the rest equal', bigDiff.filter(d => d[0] === 'equal').length, 19995);
+eq('diff: the left side reads back in order', bigDiff.filter(d => d[0] !== 'added').map(d => d[1]).join('\n'), bigA.join('\n'));
+eq('diff: the right side reads back in order', bigDiff.filter(d => d[0] !== 'removed').map(d => d[1]).join('\n'), bigB.join('\n'));
+eq('diff: a line repeated across the change is not counted twice', JSON.stringify(global.computeDiff(['a', 'a'], ['a'])), JSON.stringify([['equal', 'a'], ['removed', 'a']]));
+eq('diff: an insertion in the middle keeps both ends equal', JSON.stringify(global.computeDiff(['a', 'c'], ['a', 'b', 'c'])), JSON.stringify([['equal', 'a'], ['added', 'b'], ['equal', 'c']]));
+// Two texts with nothing in common would need a 10,000 x 10,000 table.
+const hugeDiff = global.computeDiff(Array.from({ length: 10000 }, (_, i) => 'a' + i), Array.from({ length: 10000 }, (_, i) => 'b' + i));
+eq('diff: 10,000 x 10,000 different lines are refused, not allocated', JSON.stringify(hugeDiff), JSON.stringify({ tooLarge: true, linesA: 10000, linesB: 10000 }));
+ok('diff: the refusal names both line counts', /10,000 on the left and 10,000 on the right/.test(global.diffTooLargeMessage(hugeDiff)), global.diffTooLargeMessage(hugeDiff));
 
 // =========================================================================
 // HTTP STATUS CODES — search (already existed), "In Mendix" column (10.6)
@@ -3865,6 +4002,24 @@ eq('markdown snippet insert: empty editor gets no leading blank line', global.md
 eq('markdown snippet insert: caret right after a blank line gets no extra blank line', global.mdSnippetInsertText('Some text\n\n', '## X\n'), '## X\n');
 eq('markdown snippet insert: caret at end of a single newline gets one more, not two', global.mdSnippetInsertText('Some text\n', '## X\n'), '\n## X\n');
 eq('markdown snippet insert: caret mid-paragraph gets a full blank-line separator', global.mdSnippetInsertText('Some text', '## X\n'), '\n\n## X\n');
+
+// Links and images: only http, https, mailto, anchors and relative paths become
+// elements; the preview does not fetch an image from another host by itself.
+[['https://example.test/a', 'external'], ['HTTP://example.test', 'external'], ['//cdn.example.test/x.png', 'external'],
+ ['mailto:dev@example.test', 'mail'], ['#section', 'local'], ['docs/setup.md', 'local'], ['/assets/x.png', 'local'], ['?page=2', 'local'],
+ ['javascript:alert(1)', 'blocked'], ['JaVaScRiPt:alert(1)', 'blocked'], [' javascript:alert(1)', 'blocked'], ['java\tscript:alert(1)', 'blocked'],
+ ['data:text/html,x', 'blocked'], ['vbscript:x', 'blocked'], ['file:///c:/x', 'blocked']
+].forEach(c => eq('markdown url: ' + JSON.stringify(c[0]) + ' is ' + c[1], global.mdUrlKind(c[0]), c[1]));
+const mdP = global.parseMarkdown;
+eq('markdown: an https link opens in a new tab without an opener', mdP('[docs](https://example.test/a)'), '<a href="https://example.test/a" target="_blank" rel="noopener noreferrer">docs</a>');
+ok('markdown: a mailto link is a link', /<a href="mailto:dev@example\.test"/.test(mdP('[mail](mailto:dev@example.test)')));
+ok('markdown: an anchor link is a link', /<a href="#top"/.test(mdP('[up](#top)')));
+eq('markdown: a javascript link stays as typed', mdP('[x](javascript:alert(1))'), '<p>[x](javascript:alert(1))</p>');
+ok('markdown: a data: image stays as typed', !/<img|<a |<button/.test(mdP('![x](data:image/svg+xml,boom)')));
+ok('markdown: a relative image is an image', /<img src="assets\/shot\.png" alt="shot">/.test(mdP('![shot](assets/shot.png)')));
+ok('markdown: an image on another host is a button, not an image', /<button[^>]*data-src="https:\/\/example\.test\/a\.png"/.test(mdP('![a](https://example.test/a.png)')) && !/<img/.test(mdP('![a](https://example.test/a.png)')));
+ok('markdown: ...until that URL is allowed', /<img src="https:\/\/example\.test\/a\.png" alt="a">/.test(mdP('![a](https://example.test/a.png)', u => u === 'https://example.test/a.png')));
+ok('markdown: a quote in a URL cannot leave the attribute', !/" onerror=/.test(mdP('![a](https://example.test/a.png" onerror="x)', () => true)));
 
 // =========================================================================
 // HAR ANALYZER — waterfall grouping, duplicate-call detection, body decoding (12.1)
@@ -5074,7 +5229,18 @@ ok('hist: 100 ms crosses into the 5 ms bins', inBin(100) && perfSession.histRang
 ok('hist: 999 ms is the last 5 ms bin', inBin(999));
 ok('hist: 1000 ms crosses into the 50 ms bins', inBin(1000) && perfSession.histRange(perfSession.histIndex(1000))[1] === 1050);
 ok('hist: 9999 ms is the last 50 ms bin', inBin(9999));
-eq('hist: 10 s and beyond share the overflow bin', perfSession.histIndex(10000), perfSession.histIndex(120000));
+eq('hist: 300 s and beyond share the overflow bin', perfSession.histIndex(300000), perfSession.histIndex(900000));
+[9999, 10001, 25000, 59999, 60000, 120000, 299999].forEach(ms => ok('hist: ' + ms + ' ms lands in its own bin', inBin(ms)));
+ok('hist: 10 001 ms is no longer the overflow bin', perfSession.histIndex(10001) !== perfSession.histIndex(300000));
+{
+  const hh = new Array(611).fill(0);
+  for (let i = 0; i < 100; i++) hh[perfSession.histIndex(25000)]++;
+  const r = perfSession.histRange(perfSession.histIndex(25000));
+  const p99 = perfSession.histPercentile(hh, 100, 99);
+  ok('hist: p99 of 25 000 ms samples sits in their bin', p99 >= r[0] && p99 <= r[1], String(p99));
+  hh.fill(0); hh[perfSession.histIndex(300000)] = 10;
+  eq('hist: a percentile in the overflow bin is its lower bound', perfSession.histPercentile(hh, 10, 99), 300000);
+}
 
 // A percentile must fall inside the bin the measurement fell in — that is the
 // accuracy the UI promises ("± one bin width"), not a vaguer claim.
@@ -5083,7 +5249,7 @@ for (let i = 1; i <= 100; i++) h[perfSession.histIndex(i)]++;   // 1..100 ms, on
 ok('hist: p50 of 1..100 ms sits within a bin of 50 ms', Math.abs(perfSession.histPercentile(h, 100, 50) - 50) <= 1);
 ok('hist: p95 of 1..100 ms sits within a bin of 95 ms', Math.abs(perfSession.histPercentile(h, 100, 95) - 95) <= 1);
 ok('hist: p99 of 1..100 ms sits within a bin of 99 ms', Math.abs(perfSession.histPercentile(h, 100, 99) - 99) <= 1);
-eq('hist: percentile of an empty run is 0, not NaN', perfSession.histPercentile(new Array(461).fill(0), 0, 95), 0);
+eq('hist: percentile of an empty run is 0, not NaN', perfSession.histPercentile(new Array(611).fill(0), 0, 95), 0);
 
 // The gate deciding whether a target needs explicit authorization. A false
 // "private" verdict here silently lifts the external thread cap.
@@ -5316,6 +5482,13 @@ console.log('\nSettings backup');
   ok('export: skips keys that were never set', !('perfLabPreset' in dump.data));
   // A shared origin may hold other apps' keys; an export must never scoop them up.
   ok('export: ignores keys this app does not own', !('unrelated-app-key' in dump.data));
+  // The Load Tester preset is a saved request (URL, body): out unless asked for.
+  store.set('perfLabPreset', '{"url":"https://acc.example.test/rest"}');
+  ok('export: leaves the Load Tester preset out by default', !('perfLabPreset' in exportSettings().data));
+  eq('export: includes the preset when asked', exportSettings({ includePreset: true }).data.perfLabPreset, '{"url":"https://acc.example.test/rest"}');
+  eq('import: a preset in the file is still restored',
+    importSettings(JSON.stringify(exportSettings({ includePreset: true }))).imported, 3);
+  store.delete('perfLabPreset');
 
   store.clear();
   const res = importSettings(JSON.stringify(dump));
@@ -5337,8 +5510,82 @@ console.log('\nSettings backup');
   eq('import: counts what it refused', mixed.skipped, 2);
   ok('import: an unowned key never reaches storage', !store.has('evil-key'));
 
+  // A string of valid JSON but the wrong shape would crash startup when read.
+  store.clear();
+  const shaped = importSettings(JSON.stringify({
+    app: 'mxdev-swiss-tool', format: 1,
+    data: { 'mt-favorites': '{"a":1}', 'mt-tool-state': 'null', 'tm-chart-groups': '[1]', 'perfLabPreset': '"x"', 'mt-theme': 'dark' }
+  }));
+  eq('import: wrong-shaped JSON values are refused', shaped.imported, 1);
+  eq('import: ...and counted as skipped', shaped.skipped, 4);
+  ok('import: a favourites object never reaches storage', !store.has('mt-favorites') && !store.has('mt-tool-state'));
+  eq('import: a well-shaped favourites list is accepted', importSettings(JSON.stringify({ app: 'mxdev-swiss-tool', format: 1, data: { 'mt-favorites': '["jwt"]' } })).imported, 1);
+  store.set('mt-tool-state', 'null');
+  eq('state: a tool-state blob of the wrong shape reads as defaults, not a throw', global.mtStateGet('jwt', 'x', 'dflt'), 'dflt');
+
   delete global.localStorage;
 })();
+
+// ── Service worker: what may reach Cache Storage (audit A01) ────────────────
+// The worker runs here against a stand-in `self`, `caches` and `fetch`, so the
+// test follows the real fetch handler: which requests it answers at all, and
+// which responses it stores. Only the app's own static files may be stored.
+function runServiceWorkerTests() {
+  console.log('\nService worker — cache allow-list');
+  const vm = require('vm');
+  const swSrc = fs.readFileSync(path.join(__dirname, '..', 'public', 'service-worker.js'), 'utf8');
+  const listeners = {};
+  const stored = [];
+  let online = true;
+  const sandbox = {
+    URL: URL, Set: Set, Promise: Promise, console: { warn: function () {} },
+    Response: function (body, init) { this.body = body; this.status = init.status; },
+    self: { location: { origin: 'http://localhost:8083' }, addEventListener: function (type, fn) { listeners[type] = fn; }, skipWaiting: function () {}, clients: { claim: function () {} } },
+    caches: {
+      open: function () { return Promise.resolve({ put: function (req) { stored.push(new URL(req.url).pathname); return Promise.resolve(); } }); },
+      match: function (req) { return Promise.resolve(req === '/index.html' ? { shell: true } : undefined); }
+    },
+    fetch: function () {
+      return online ? Promise.resolve({ status: 200, type: 'basic', clone: function () { return {}; } }) : Promise.reject(new Error('offline'));
+    }
+  };
+  vm.runInNewContext(swSrc, sandbox);
+
+  // → false when the worker leaves the request to the network, otherwise the response it gave.
+  const request = function (url, opts) {
+    let answer = false;
+    listeners.fetch({
+      request: { url: url, method: (opts && opts.method) || 'GET', mode: (opts && opts.mode) || 'cors' },
+      respondWith: function (p) { answer = p; }
+    });
+    return answer;
+  };
+  const own = 'http://localhost:8083';
+  const leftAlone = [
+    own + '/openapi/fetch?url=https%3A%2F%2Fapi.example.test%2Fopenapi.json',
+    own + '/model/security',
+    own + '/prometheus',
+    own + '/status',
+    own + '/some/route/added/next/year',
+    'http://localhost:8090/metrics',
+    'http://localhost:8090/js/core.js'
+  ].filter(function (u) { return request(u) === false; });
+  eq('sw: bridge routes and other origins go to the network untouched', leftAlone.length, 7);
+  eq('sw: a POST is never answered', request(own + '/js/core.js', { method: 'POST' }), false);
+  ok('sw: the app\'s own files are answered', request(own + '/js/core.js') !== false && request(own + '/logo.png?v=2') !== false && request(own + '/') !== false);
+
+  const nav = request(own + '/anything', { mode: 'navigate' });
+  online = false;
+  const offlineNav = request(own + '/anything', { mode: 'navigate' });
+  const offlineMiss = request(own + '/js/core.js');
+  return Promise.all([nav, offlineNav, offlineMiss]).then(function (res) {
+    return new Promise(function (resolve) { setTimeout(function () { resolve(res); }, 0); });
+  }).then(function (res) {
+    eq('sw: only static files were stored — not the navigation to another path', stored.sort().join(' '), '/ /js/core.js /logo.png');
+    ok('sw: offline, a navigation gets the app shell', res[1] && res[1].shell === true);
+    eq('sw: offline, a file missing from the cache is a 404, not a hang', res[2] && res[2].status, 404);
+  });
+}
 
 // ── Deployment model (wave 26, server/model-deployment.js) ──────────────────
 // Two file shapes carry the same information depending on the Mendix version:
@@ -6789,8 +7036,116 @@ console.log('\nOne parser (shared parser vs the pre-v1.69 Log Viewer parser)');
   }
 })();
 
+// A server that sends the headers and half the body, then drops the socket, used
+// to be counted as a clean 200 because the failed read was swallowed.
+async function runPerfAbortedBodyTests() {
+  const http = require('http');
+  const target = http.createServer((q, r) => {
+    r.writeHead(200, { 'Content-Length': '1000' });
+    r.write('half');
+    setTimeout(() => r.socket.destroy(), 20);
+  });
+  await new Promise(resolve => target.listen(0, '127.0.0.1', resolve));
+  const started = perfSession.startSession({ url: 'http://127.0.0.1:' + target.address().port + '/', mode: 'count', count: 1, concurrency: 1 });
+  let stats;
+  for (let i = 0; i < 50; i++) {
+    await new Promise(r => setTimeout(r, 100));
+    stats = perfSession.getStats(started.sessionId, 0, 0);
+    if (!stats.running) break;
+  }
+  perfSession.stop(started.sessionId);
+  target.close();
+  eq('perf: a body cut off mid-transfer is one error', stats.errors, 1);
+  eq('perf: a cut-off body is not counted as 200', stats.statusCounts['200'], undefined);
+  eq('perf: a cut-off body is named in the status table', stats.statusCounts['Aborted body'], 1);
+}
+
+// ── Telemetry: Prometheus text parser (review A17) ──────────────────────────
+// An ES module with no imports, so it is loaded as one rather than wrapped.
+async function runPrometheusParserTests() {
+  console.log('\nTelemetry — Prometheus parser');
+  const pm = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'public', 'js', 'tools', 'telemetry', 'parsers', 'prometheus.js')).href);
+  const one = (line) => { const r = pm.tmParsePrometheusTextDetailed(line); const n = Object.keys(r.metrics)[0]; return { name: n, s: n && r.metrics[n][0], rejected: r.rejected }; };
+
+  let r = one('http_x{label="a,b=c"} 3');
+  eq('prom: a comma and = inside a label value stay in the value', r.s.labels.label, 'a,b=c');
+  r = one('http_x{uri="/api/{id}",method="GET"} 3');
+  eq('prom: a } inside a label value stays in the value', r.s.labels.uri, '/api/{id}');
+  eq('prom: the label after it is still read', r.s.labels.method, 'GET');
+  r = one('x{a="q\\"uote",b="back\\\\slash",c="line\\nbreak"} 1');
+  eq('prom: escaped quote', r.s.labels.a, 'q"uote');
+  eq('prom: escaped backslash', r.s.labels.b, 'back\\slash');
+  eq('prom: escaped newline', r.s.labels.c, 'line\nbreak');
+  r = one('job:http_requests:rate5m{job="a"} 0.5');
+  eq('prom: a recording-rule name with colons is kept', r.name, 'job:http_requests:rate5m');
+  r = one('constructor 7');
+  eq('prom: a metric called constructor is just a metric', r.s && r.s.value, 7);
+  eq('prom: the result has no prototype', Object.getPrototypeOf(pm.tmParsePrometheusText('a 1')), null);
+  ok('prom: NaN is read', Number.isNaN(one('m NaN').s.value));
+  eq('prom: +Inf is read', one('m +Inf').s.value, Infinity);
+  eq('prom: -Inf is read', one('m -Inf').s.value, -Infinity);
+  eq('prom: exponent notation is read', one('m 1.5e3').s.value, 1500);
+  r = one('m{a="b"} 12 1700000000000');
+  eq('prom: a trailing timestamp is accepted', r.s.value, 12);
+  eq('prom: a trailing comma in the labels is accepted', one('m{a="b",} 1').s.labels.a, 'b');
+  eq('prom: an empty label set is accepted', one('m{} 4').s.value, 4);
+  const mixed = pm.tmParsePrometheusTextDetailed('# HELP x y\n# TYPE x counter\nx 1\r\nthis is not a sample\nx{broken 2\ny{a="unterminated} 3\n\n');
+  eq('prom: comments and blank lines are not counted as rejected', mixed.rejected, 3);
+  eq('prom: valid lines around the rejected ones are kept', mixed.metrics.x.length, 1);
+  eq('prom: a line with a bad value is rejected', one('m abc').rejected, 1);
+
+  // ── A03: a missing measurement is null, not a stand-in ──
+  const P = (text) => pm.tmParsePrometheusText(text);
+  eq('metric: a label filter with no matching series is null, not the first series',
+    pm.tmGetMetricValue(P('jetty_thread_pool_threads{state="idle"} 8'), 'jetty_thread_pool_threads', { state: 'busy' }), null);
+  eq('metric: a matching series is returned', pm.tmGetMetricValue(P('t{state="busy"} 3\nt{state="idle"} 8'), 't', { state: 'idle' }), 8);
+  eq('metric: NaN is no measurement', pm.tmGetMetricValue(P('process_cpu_usage NaN'), 'process_cpu_usage'), null);
+  eq('metric sum: a series with value 0 sums to 0, not "missing"', pm.tmGetMetricSum(P('q{a="x"} 0'), 'q'), 0);
+  eq('metric sum: a negative value (-1 = no limit) is skipped', pm.tmGetMetricSum(P('m{area="a"} -1\nm{area="b"} 5'), 'm'), 5);
+  eq('metric sum: only negative values is no measurement', pm.tmGetMetricSum(P('m{area="a"} -1'), 'm'), null);
+
+  const dv = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'public', 'js', 'tools', 'telemetry', 'derive.js')).href);
+  const empty = dv.tmDeriveSample(P('# nothing useful\nfoo 1'), null, 1000).sample;
+  eq('derive: no threads metric means null, not 10', empty.threadsActive, null);
+  eq('derive: no thread limit means null, not 200', empty.threadsMax, null);
+  eq('derive: no heap max means null, not 1 GiB', empty.heapMax, null);
+  eq('derive: no heap used means null, not 0', empty.heapUsed, null);
+  eq('derive: no request counter means null rate, not 0', empty.reqsRate, null);
+  eq('derive: no sessions means null, not 0', empty.namedSessions, null);
+  const noMax = dv.tmDeriveSample(P('jvm_memory_used_bytes{area="heap"} 104857600\njvm_memory_committed_bytes{area="heap"} 524288000'), null, 1000).sample;
+  eq('derive: used heap is read from used', noMax.heapUsed, 100);
+  eq('derive: with no max metric the limit stays null', noMax.heapMax, null);
+  const noUsed = dv.tmDeriveSample(P('jvm_memory_committed_bytes{area="heap"} 524288000'), null, 1000).sample;
+  eq('derive: committed memory is not passed off as used', noUsed.heapUsed, null);
+  eq('derive: the first scrape has no rates', dv.tmDeriveSample(P('jetty_requests_total 5'), null, 1000).sample.reqsRate, null);
+
+  // ── A04: latency from the _sum/_count of ONE family, over all its series ──
+  const scrape = (a, b, extra) => P(
+    'jetty_requests_seconds_sum{uri="/a"} ' + a[0] + '\njetty_requests_seconds_count{uri="/a"} ' + a[1] + '\n' +
+    'jetty_requests_seconds_sum{uri="/b"} ' + b[0] + '\njetty_requests_seconds_count{uri="/b"} ' + b[1] + '\n' +
+    'jetty_requests_total ' + (a[1] + b[1]) + '\n' + (extra || ''));
+  // The other family is deliberately wildly different: if it were mixed in the
+  // result would not match the hand calculation.
+  const other = (sum, count) => 'http_server_requests_seconds_sum ' + sum + '\nhttp_server_requests_seconds_count ' + count + '\n';
+  const d1 = dv.tmDeriveSample(scrape([1, 10], [2, 20], other(900, 3)), null, 0);
+  const d2 = dv.tmDeriveSample(scrape([3, 20], [6, 40], other(901, 4)), d1.counters, 10000);
+  eq('derive: latency is (Δsum / Δcount) over both endpoints, in ms', d2.sample.avgLatency, 200);   // (9 - 3) s / (60 - 30) = 0.2 s
+  eq('derive: the request rate is the count delta per second', d2.sample.reqsRate, 3);              // 30 requests / 10 s
+  const d3 = dv.tmDeriveSample(scrape([0.5, 2], [0.5, 2]), d2.counters, 20000);
+  eq('derive: a counter that went down is a gap, not a negative or 0 (latency)', d3.sample.avgLatency, null);
+  eq('derive: a counter that went down is a gap, not a negative or 0 (rate)', d3.sample.reqsRate, null);
+  const d4 = dv.tmDeriveSample(scrape([0.7, 4], [0.7, 4]), d3.counters, 30000);
+  eq('derive: the first interval after a reset is measured again', d4.sample.avgLatency, 100);       // 0.4 s / 4
+  const noPair = dv.tmDeriveSample(P('jetty_requests_seconds_sum 5\nhttp_server_requests_seconds_count 9'), null, 0);
+  const noPair2 = dv.tmDeriveSample(P('jetty_requests_seconds_sum 8\nhttp_server_requests_seconds_count 12'), noPair.counters, 10000);
+  eq('derive: a sum without the count of its own family gives no latency', noPair2.sample.avgLatency, null);
+  const idle = dv.tmDeriveSample(scrape([3, 20], [6, 40]), d2.counters, 20000);
+  eq('derive: an interval with no finished request has no average latency', idle.sample.avgLatency, null);
+  eq('derive: ...and a request rate of 0 (it was measured)', idle.sample.reqsRate, 0);
+}
+
 // ── Summary ─────────────────────────────────────────────────────────────────
-runXlsxAsyncTests().then(runApiEconAsyncTests).then(runNginxAsyncTests).then(runAnonTests).then(function () {
+runXlsxAsyncTests().then(runApiEconAsyncTests).then(runNginxAsyncTests).then(runAnonTests).then(runPerfAbortedBodyTests).then(runPrometheusParserTests).then(runServiceWorkerTests).then(function () {
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
   process.exit(failed === 0 ? 0 : 1);
 }, function (err) {

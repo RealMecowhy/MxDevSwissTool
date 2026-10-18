@@ -1275,6 +1275,8 @@ const LQE_STMT_EXPORT_HEADER = ['Executions', 'Total (ms)', 'Avg (ms)', 'Max (ms
 
 function lqeExportHeader() { return lqeView === 'stmt' ? LQE_STMT_EXPORT_HEADER : LQE_EXPORT_HEADER; }
 
+function lqeAnonymize() { return document.getElementById('lqe-anonymize').checked; }
+
 // Exports go through the shared helper (window.mtExport) so quoting/escaping and
 // the self-contained HTML template live in one place across tools.
 window.lqeExportCsv = function() {
@@ -1282,7 +1284,7 @@ window.lqeExportCsv = function() {
     window.mtToast('Nothing to export — load a log first (and check the active filters).', 'warning');
     return;
   }
-  window.mtExport.downloadCsv('extracted-queries.csv', lqeExportHeader(), lqeExportRows(300));
+  window.mtExport.downloadCsv('extracted-queries.csv', lqeExportHeader(), lqeExportRows(300), { anonymize: lqeAnonymize() });
 };
 
 window.lqeCopyMarkdown = function(btn) {
@@ -1290,7 +1292,7 @@ window.lqeCopyMarkdown = function(btn) {
     window.mtToast('Nothing to copy — load a log first (and check the active filters).', 'warning');
     return;
   }
-  window.mtExport.copyMarkdown(lqeExportHeader(), lqeExportRows(120), btn);
+  window.mtExport.copyMarkdown(lqeExportHeader(), lqeExportRows(120), btn, { anonymize: lqeAnonymize() });
 };
 
 window.lqeExportHtml = function() {
@@ -1307,7 +1309,8 @@ window.lqeExportHtml = function() {
       { label: lqeView === 'stmt' ? 'Statements' : 'Queries', value: rows.length }
     ].concat(lqeView === 'stmt' ? [{ label: 'Executions', value: lqeLastFiltered.length }] : []),
     columns: lqeExportHeader(),
-    rows: rows
+    rows: rows,
+    anonymize: lqeAnonymize()
   });
 };
 

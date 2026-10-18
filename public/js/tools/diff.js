@@ -14,10 +14,25 @@ function diffCompare() {
   const ignoreWs = document.getElementById('diff-ignore-ws') ? document.getElementById('diff-ignore-ws').checked : false;
   const keyFn = line => diffNormalizeLine(line, ignoreWs);
   const lA=a.split('\n'), lB=b.split('\n'), diffs=computeDiff(lA,lB,keyFn);
+  if (diffs.tooLarge) {
+    document.getElementById('diff-out-a').innerHTML=''; document.getElementById('diff-out-b').innerHTML='';
+    if (statsEl) statsEl.textContent=diffTooLargeMessage(diffs);
+    return;
+  }
   const col = [];
-  let bA=[], bB=[];
+  let bA=[], bB=[], pairBudget=DIFF_PAIR_MAX_CELLS;
   const flush = () => {
     const m = bA.length, n = bB.length;
+    // Pairing changed lines costs a character-level comparison per cell (about
+    // 0.3 ms for two 150-character lines), so one comparison has a budget of
+    // cells; a block that does not fit is shown as removed-then-added.
+    if (m * n <= pairBudget) pairBudget -= m * n;
+    else {
+      bA.forEach(l => col.push(['removed', l]));
+      bB.forEach(l => col.push(['added', l]));
+      bA=[]; bB=[];
+      return;
+    }
     const dp = Array.from({length: m + 1}, () => new Array(n + 1).fill(0));
     const sim = Array.from({length: m}, () => new Array(n).fill(0));
     
@@ -114,14 +129,33 @@ function diffStats(col) {
   return s;
 }
 
+// The LCS table is (changed lines of A) x (changed lines of B), so the lines
+// the two texts share at the start and at the end are set aside first: two
+// 20,000-line files that differ in five lines need a table of a few cells.
+// When what is left is still over DIFF_MAX_CELLS, no table is allocated and
+// the result is {tooLarge:true, linesA, linesB} instead of the usual array.
+const DIFF_MAX_CELLS = 25000000;
+const DIFF_PAIR_MAX_CELLS = 2500;
+
 function computeDiff(a,b,keyFn) {
   keyFn = keyFn || (x=>x);
   const ka=a.map(keyFn), kb=b.map(keyFn);
-  const m=a.length,n=b.length,dp=Array.from({length:m+1},()=>new Array(n+1).fill(0));
-  for(let i=m-1;i>=0;i--) for(let j=n-1;j>=0;j--) dp[i][j]=ka[i]===kb[j]?dp[i+1][j+1]+1:Math.max(dp[i+1][j],dp[i][j+1]);
+  const short=Math.min(a.length,b.length);
+  let pre=0; while(pre<short&&ka[pre]===kb[pre]) pre++;
+  let suf=0; while(suf<short-pre&&ka[a.length-1-suf]===kb[b.length-1-suf]) suf++;
+  const m=a.length-pre-suf,n=b.length-pre-suf;
+  if(m*n>DIFF_MAX_CELLS) return {tooLarge:true,linesA:m,linesB:n};
+  const dp=Array.from({length:m+1},()=>new Array(n+1).fill(0));
+  for(let i=m-1;i>=0;i--) for(let j=n-1;j>=0;j--) dp[i][j]=ka[pre+i]===kb[pre+j]?dp[i+1][j+1]+1:Math.max(dp[i+1][j],dp[i][j+1]);
   const res=[];let i=0,j=0;
-  while(i<m||j<n){if(i<m&&j<n&&ka[i]===kb[j]){res.push(['equal',a[i]]);i++;j++;}else if(j<n&&(i>=m||dp[i][j+1]>=dp[i+1][j])){res.push(['added',b[j]]);j++;}else{res.push(['removed',a[i]]);i++;}}
+  for(let k=0;k<pre;k++) res.push(['equal',a[k]]);
+  while(i<m||j<n){if(i<m&&j<n&&ka[pre+i]===kb[pre+j]){res.push(['equal',a[pre+i]]);i++;j++;}else if(j<n&&(i>=m||dp[i][j+1]>=dp[i+1][j])){res.push(['added',b[pre+j]]);j++;}else{res.push(['removed',a[pre+i]]);i++;}}
+  for(let k=a.length-suf;k<a.length;k++) res.push(['equal',a[k]]);
   return res;
+}
+
+function diffTooLargeMessage(r) {
+  return 'Too many changed lines to compare: '+window.mtFmtInt(r.linesA)+' on the left and '+window.mtFmtInt(r.linesB)+' on the right, after skipping the lines both texts start and end with. Compare a smaller section.';
 }
 
 // ============================================================
@@ -130,10 +164,16 @@ function computeDiff(a,b,keyFn) {
 // --- AUTO-GENERATED ESM EXPORTS ---
 window.diffCompare = diffCompare;
 window.computeDiff = computeDiff;
+window.diffTooLargeMessage = diffTooLargeMessage;
 window.diffStats = diffStats;
 window.diffNormalizeLine = diffNormalizeLine;
 
+// core.js calls init() on every visit to the tool; the listeners go on once.
+let diffInited = false;
+
 export function init() {
+  if (diffInited) return;
+  diffInited = true;
   const ignoreWs = document.getElementById('diff-ignore-ws');
   if (ignoreWs) ignoreWs.addEventListener('change', diffCompare);
 

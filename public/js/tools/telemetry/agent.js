@@ -3,6 +3,7 @@ import { tmUpdateTabsVisibility, tmToggleConnectionCard, tmTogglePgConfigCard } 
 import { tmChangePollInterval } from './poller.js';
 import { tmRenderOtelTracesTable, tmRenderTraceWaterfall, tmGetTraceList, tmRenderOtelLogsTable } from './traces.js';
 import { tmGenerateMockPgStats } from './mock.js';
+import { tmSingleFlight, tmStaleCheck, tmNewGeneration, tmTimeoutSignal } from './channel.js';
 
 export function tmConnectAgent() {
   const agentUrl = document.getElementById('tm-agent-url').value.trim();
@@ -109,6 +110,8 @@ export function tmStartAgentPolling(agentUrl) {
 }
 
 export function tmStopAgentPolling() {
+  // Answers still on their way belong to the connection being closed.
+  tmNewGeneration();
   if (state.tmAgentTimerLogs) {
     clearInterval(state.tmAgentTimerLogs);
     state.tmAgentTimerLogs = null;
@@ -124,9 +127,10 @@ export function tmStopAgentPolling() {
 }
 
 export function tmFetchAgentLogs(agentUrl) {
-  fetch(`${agentUrl}/logs?since=${state.tmLastLogTimestamp}`)
+  return tmSingleFlight('logs', (isStale) => fetch(`${agentUrl}/logs?since=${state.tmLastLogTimestamp}`, { signal: tmTimeoutSignal() })
     .then(res => res.json())
     .then(data => {
+      if (isStale()) return;
       state.tmLastLogTimestamp = data.timestamp;
       
       if (data.lines && data.lines.length > 0) {
@@ -148,15 +152,16 @@ export function tmFetchAgentLogs(agentUrl) {
       }
     })
     .catch(err => {
-      console.warn('[Bridge] Log fetch failed:', err.message);
-    });
+      if (!isStale()) console.warn('[Bridge] Log fetch failed:', err.message);
+    }));
 }
 
 export function tmFetchAgentOtel(agentUrl) {
   // Fetch Traces
-  fetch(`${agentUrl}/otel/traces?since=${state.tmLastOtelTraceTimestamp}`)
+  tmSingleFlight('otel-traces', (isStale) => fetch(`${agentUrl}/otel/traces?since=${state.tmLastOtelTraceTimestamp}`, { signal: tmTimeoutSignal() })
     .then(res => res.json())
     .then(data => {
+      if (isStale()) return;
       state.tmLastOtelTraceTimestamp = data.timestamp;
       if (data.items && data.items.length > 0) {
         // Collect spans from payload
@@ -192,12 +197,13 @@ export function tmFetchAgentOtel(agentUrl) {
         }
       }
     })
-    .catch(err => console.warn('[Bridge] OTEL Trace fetch failed:', err.message));
+    .catch(err => { if (!isStale()) console.warn('[Bridge] OTEL Trace fetch failed:', err.message); }));
 
   // Fetch Logs
-  fetch(`${agentUrl}/otel/logs?since=${state.tmLastOtelLogTimestamp}`)
+  tmSingleFlight('otel-logs', (isStale) => fetch(`${agentUrl}/otel/logs?since=${state.tmLastOtelLogTimestamp}`, { signal: tmTimeoutSignal() })
     .then(res => res.json())
     .then(data => {
+      if (isStale()) return;
       state.tmLastOtelLogTimestamp = data.timestamp;
       if (data.items && data.items.length > 0) {
         let logLines = '';
@@ -244,7 +250,7 @@ export function tmFetchAgentOtel(agentUrl) {
         }
       }
     })
-    .catch(err => console.warn('[Bridge] OTEL Log fetch failed:', err.message));
+    .catch(err => { if (!isStale()) console.warn('[Bridge] OTEL Log fetch failed:', err.message); }));
 }
 
 export function tmFetchAgentPostgres(agentUrl, isAutoPoll = false) {
@@ -273,13 +279,18 @@ export function tmFetchAgentPostgres(agentUrl, isAutoPoll = false) {
     if (isAutoPoll && state.tmAgentTimerPg) { clearInterval(state.tmAgentTimerPg); state.tmAgentTimerPg = null; }
   };
 
-  fetch(`${agentUrl}/postgres`, {
+  // A background poll waits for the previous one; a button press is not queued
+  // behind it, but is still dropped if the connection changed meanwhile.
+  const flight = (run) => (isAutoPoll ? tmSingleFlight('pg', run) : run(tmStaleCheck()));
+  flight((isStale) => fetch(`${agentUrl}/postgres`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(dbConfig)
+    body: JSON.stringify(dbConfig),
+    signal: tmTimeoutSignal()
   })
     .then(res => res.json())
     .then(data => {
+      if (isStale()) return;
       if (!isAutoPoll) {
         if (connBtn) {
           connBtn.disabled = false;
@@ -312,6 +323,7 @@ export function tmFetchAgentPostgres(agentUrl, isAutoPoll = false) {
       }
     })
     .catch(err => {
+      if (isStale()) return;
       pauseAutoPoll();
       if (!isAutoPoll) {
         if (connBtn) {
@@ -329,7 +341,7 @@ export function tmFetchAgentPostgres(agentUrl, isAutoPoll = false) {
       if (!isAutoPoll) {
         tmTogglePgConfigCard(false); // auto-expand on manual error
       }
-    });
+    }));
 }
 
 export function tmRefreshPostgres() {

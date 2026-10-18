@@ -152,6 +152,8 @@ async function run() {
   try {
     puppeteer = require('puppeteer');
   } catch (e) {
+    // In CI a skipped browser test is a hidden hole, not a pass.
+    if (process.env.CI) { console.error('  ✗ puppeteer not installed, the browser smoke test is mandatory in CI'); process.exit(1); }
     console.log('  – puppeteer not installed, browser smoke skipped');
     process.exit(0);
   }
@@ -160,6 +162,7 @@ async function run() {
   try {
     browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox', '--disable-dev-shm-usage'] });
   } catch (e) {
+    if (process.env.CI) { console.error('  ✗ no browser available (' + e.message.split('\n')[0] + '), the browser smoke test is mandatory in CI'); process.exit(1); }
     console.log('  – no browser available (' + e.message.split('\n')[0] + '), browser smoke skipped');
     process.exit(0);
   }
@@ -365,6 +368,65 @@ async function run() {
     eq('Incident Report marks a malformed start on leaving the field', JSON.stringify(irCheck.bad), '{"invalid":true,"aria":"true","hint":true,"trailing":true}');
     eq('Incident Report marks an end before the start', JSON.stringify(irCheck.reversed), '{"invalid":true,"hint":true}');
     eq('a corrected window clears the mark and the hint', JSON.stringify(irCheck.good), '{"invalid":false,"hint":false}');
+    // The automatic window is whole seconds; the end rounds up so the data's last
+    // second is inside it (a .299 end used to be cut to :03.000).
+    const irBounds = await page.evaluate(() => {
+      const t = s => Date.parse(s + 'Z');
+      const b = window.irAutoBounds(t('2026-09-20T10:00:00.400'), t('2026-09-20T10:00:03.299'));
+      const exact = window.irAutoBounds(t('2026-09-20T10:00:00.000'), t('2026-09-20T10:00:03.000'));
+      const late = window.irAutoBounds(t('2026-09-20T10:00:00.999'), t('2026-09-20T10:00:03.999'));
+      const f = ms => window.mtFmtTs(ms).replace(' UTC', '');
+      return [f(b.from), f(b.to), f(exact.from), f(exact.to), f(late.from), f(late.to)].join('|');
+    });
+    eq('Incident Report window rounds the start down and the end up to a whole second', irBounds,
+      '2026-09-20 10:00:00|2026-09-20 10:00:04|2026-09-20 10:00:00|2026-09-20 10:00:03|2026-09-20 10:00:00|2026-09-20 10:00:04');
+    // "Anonymize before export": off by default, and the downloaded file — not a
+    // model in memory — is what gets checked. One source is stood in for, so the
+    // test does not depend on what the other tools hold at this point.
+    const irAnon = await page.evaluate(async () => {
+      const realSection = window.nginxReportSection, realCreate = URL.createObjectURL;
+      const blobs = [];
+      URL.createObjectURL = function (b) { blobs.push(b); return realCreate.call(URL, b); };
+      window.nginxReportSection = function () {
+        return { id: 'nginx-log', title: 'Nginx', subtitle: '1 request', columns: ['Client', 'Request'],
+          rows: [['10.1.2.3', 'GET /p?user=bob@example.com']], total: 1, firstMs: null, lastMs: null };
+      };
+      try {
+        window.irRefresh();
+        Array.prototype.forEach.call(document.querySelectorAll('.ir-source-cb'), cb => { cb.checked = cb.value === 'nginx-log'; });
+        const box = document.getElementById('ir-anonymize');
+        const byDefault = box.checked;
+        document.getElementById('ir-notes').value = 'seen by anna@example.com';
+        window.irGenerate();
+        const countEl = document.getElementById('ir-anonymize-count');
+        const countOff = countEl.style.display;
+        box.click();
+        const countOn = countEl.style.display + '|' + countEl.textContent;
+        window.irGenerate();
+        const summary = document.getElementById('ir-summary').textContent;
+        document.querySelector('.ir-source-cb[value="nginx-log"]').click();
+        const countNone = countEl.style.display;
+        box.click();
+        document.getElementById('ir-notes').value = '';
+        const texts = await Promise.all(blobs.map(b => b.text()));
+        const leaks = t => ['10.1.2.3', 'bob@example.com', 'anna@example.com'].filter(v => t.indexOf(v) !== -1).length;
+        return { byDefault: byDefault, files: texts.length, plainLeaks: leaks(texts[0]), anonLeaks: leaks(texts[1]),
+          placeholders: /\[IP-1\]/.test(texts[1]) && /\[EMAIL-\d\]/.test(texts[1]), chip: /Anonymized<\/b> 3 values replaced/.test(texts[1]),
+          summary: /Anonymized: 3 values replaced/.test(summary), countOff: countOff, countOn: countOn, countNone: countNone };
+      } finally {
+        URL.createObjectURL = realCreate;
+        window.nginxReportSection = realSection;
+        window.irRefresh();
+      }
+    });
+    eq('Incident Report: "Anonymize before export" is off by default', irAnon.byDefault, false);
+    eq('Incident Report: without it the report carries the data as loaded', irAnon.files + ' files, ' + irAnon.plainLeaks + ' values', '2 files, 3 values');
+    eq('Incident Report: with it no address is left in the downloaded file', irAnon.anonLeaks, 0);
+    ok('Incident Report: the anonymized file has placeholders and says how many', irAnon.placeholders && irAnon.chip, JSON.stringify(irAnon));
+    ok('Incident Report: the on-screen summary reports the count', irAnon.summary);
+    eq('Incident Report: the per-category count shows only while the box is ticked and there are rows', irAnon.countOff + '/' + irAnon.countNone, 'none/none');
+    eq('Incident Report: the count under the box names each category and matches the file', irAnon.countOn,
+      '|In this report: 2 e-mail addresses, 1 IP address — 3 values will be replaced.');
     await page.evaluate(() => window.navigate('log-viewer', null));
 
     // Review UX-05: no native confirm() anywhere — it blocks the page and ignores
@@ -372,6 +434,22 @@ async function run() {
     // no Undo; the Log Viewer offers Undo itself, so it is not asked twice.
     await page.evaluate(t => { window.navigate('log-query-extractor', null); window.lqeLoadText(t); }, LOG);
     await page.waitForFunction(() => window.lqeHasData(), { timeout: 20000 });
+    // The extractor's "Anonymize exports" box reaches all three exports.
+    const lqeAnon = await page.evaluate(() => {
+      const real = { csv: window.mtExport.downloadCsv, html: window.mtExport.downloadHtml, md: window.mtExport.copyMarkdown };
+      const seen = [];
+      window.mtExport.downloadCsv = (f, h, r, o) => seen.push(!!(o && o.anonymize));
+      window.mtExport.copyMarkdown = (h, r, b, o) => seen.push(!!(o && o.anonymize));
+      window.mtExport.downloadHtml = (f, o) => seen.push(!!o.anonymize);
+      const box = document.getElementById('lqe-anonymize');
+      const run = () => { window.lqeExportCsv(); window.lqeCopyMarkdown(null); window.lqeExportHtml(); };
+      try { run(); box.checked = true; run(); } finally {
+        box.checked = false;
+        window.mtExport.downloadCsv = real.csv; window.mtExport.downloadHtml = real.html; window.mtExport.copyMarkdown = real.md;
+      }
+      return seen.join(',');
+    });
+    eq('Query Extractor: exports are anonymized only when the box is ticked', lqeAnon, 'false,false,false,true,true,true');
     await page.evaluate(() => window.navigate('microflow-tracer', null));
     const hubCheck = await page.evaluate(async t => {
       const dialogOpen = () => !!document.querySelector('#mt-confirm.modal-overlay.active');
@@ -567,6 +645,272 @@ async function run() {
     eq('Telemetry mounts the shared Live DB bar', dbShared.sharedBar, true);
     eq('a host typed in one Live DB bar shows in the others', dbShared.tmHost, 'db.example.test');
     eq('Telemetry\'s PostgreSQL stats use the shared connection', dbShared.sentHost, 'db.example.test');
+
+    // Metrics Inventory prints names and labels from whatever the endpoint sends;
+    // a label value with markup must show as text, not become elements
+    // (the parser still splits labels on '=', so the probe avoids one — wave 42).
+    const inventory = await page.evaluate(async () => {
+      window.navigate('telemetry-monitor', null);
+      await new Promise(res => setTimeout(res, 100));
+      const urlEl = document.getElementById('tm-endpoint-url');
+      const realFetch = window.fetch;
+      window.__inv = 0;
+      window.fetch = () => Promise.resolve({ text: () => Promise.resolve(
+        'jvm_x{pod="<u>one</u>"} 1\nunused_y{k="<i>two</i>"} 2\n') });
+      if (urlEl) urlEl.value = 'http://localhost:9/metrics';
+      try { window.tmDumpAllMetrics(); await new Promise(res => setTimeout(res, 300)); } finally { window.fetch = realFetch; }
+      const r = { injected: Array.from(document.querySelectorAll('div')).filter(d => d.style.zIndex === '9999').reduce((n, d) => n + d.querySelectorAll('u, i').length, 0), shown: document.body.innerHTML.indexOf('&lt;u&gt;one') !== -1 && document.body.innerHTML.indexOf('&lt;i&gt;two') !== -1 };
+      Array.from(document.querySelectorAll('div')).filter(d => d.style.zIndex === '9999').forEach(d => d.remove());
+      return r;
+    });
+    eq('Metrics Inventory escapes label values (no injected elements)', inventory.injected, 0);
+    ok('Metrics Inventory shows the markup as text', inventory.shown);
+
+    // Text Diff wires its scroll sync in init(), which runs on every visit: after
+    // 20 visits one scroll of the left pane must move the right pane once, not 20 times.
+    const diffInit = await page.evaluate(async () => {
+      for (let i = 0; i < 20; i++) { window.navigate('text-diff', null); window.navigate('home', null); }
+      window.navigate('text-diff', null);
+      const lines = Array.from({ length: 400 }, (_, i) => 'line ' + i).join('\n');
+      document.getElementById('diff-a').value = lines;
+      document.getElementById('diff-b').value = lines + '\nextra';
+      window.diffCompare();
+      const outA = document.getElementById('diff-out-a'), outB = document.getElementById('diff-out-b');
+      const real = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
+      let writes = 0;
+      Object.defineProperty(outB, 'scrollTop', { configurable: true, get() { return real.get.call(this); }, set(v) { writes++; real.set.call(this, v); } });
+      outA.scrollTop = 200;
+      await new Promise(res => setTimeout(res, 300));
+      const r = { writes: writes, followed: real.get.call(outB) };
+      delete outB.scrollTop;
+      document.getElementById('diff-a').value = ''; document.getElementById('diff-b').value = '';
+      window.diffCompare();
+      return r;
+    });
+    eq('Text Diff: the right pane follows the left', diffInit.followed, 200);
+    eq('Text Diff syncs once per scroll after 20 visits', diffInit.writes, 1);
+
+    // Text Diff sizes: a small change is paired up as "modified", a big changed
+    // block is listed unpaired, and two texts with nothing in common get a
+    // message with both line counts instead of a 36-million-cell table.
+    const diffSize = await page.evaluate(() => {
+      const A = document.getElementById('diff-a'), B = document.getElementById('diff-b');
+      const stats = () => document.getElementById('diff-stats').textContent;
+      const many = (p, n) => Array.from({ length: n }, (_, i) => p + ' ' + i).join('\n');
+      const r = {};
+      A.value = 'same\nvalue = 1\nsame'; B.value = 'same\nvalue = 2\nsame'; window.diffCompare(); r.small = stats();
+      A.value = 'head\n' + many('left', 60) + '\ntail'; B.value = 'head\n' + many('right', 60) + '\ntail'; window.diffCompare(); r.block = stats();
+      const t0 = Date.now();
+      A.value = many('left', 6000); B.value = many('right', 6000); window.diffCompare();
+      r.huge = stats(); r.hugeMs = Date.now() - t0; r.hugeOut = document.getElementById('diff-out-a').innerHTML;
+      A.value = ''; B.value = ''; window.diffCompare(); r.cleared = stats();
+      return r;
+    });
+    ok('Text Diff: a one-line change is paired as modified', /Modified: 1/.test(diffSize.small), diffSize.small);
+    ok('Text Diff: a 60 x 60 changed block is listed unpaired', /Added: 60/.test(diffSize.block) && /Removed: 60/.test(diffSize.block) && /Modified: 0/.test(diffSize.block), diffSize.block);
+    ok('Text Diff: 6,000 x 6,000 different lines get a message with the counts', /6,000 on the left and 6,000 on the right/.test(diffSize.huge), diffSize.huge);
+    ok('Text Diff: ...at once, with nothing rendered', diffSize.hugeMs < 1000 && diffSize.hugeOut === '', diffSize.hugeMs + ' ms');
+    eq('Text Diff: clearing the inputs clears the message', diffSize.cleared, '');
+
+    // Markdown preview: a javascript: link never becomes a link, and an image on
+    // another host is not requested until its button is clicked. The probe is an
+    // absolute URL to this test server, which the page treats as external.
+    let mdProbeRequests = 0;
+    const mdOnRequest = req => { if (/md-ext-probe/.test(req.url())) mdProbeRequests++; };
+    page.on('request', mdOnRequest);
+    const mdProbeUrl = 'http://127.0.0.1:' + port + '/logo.png?md-ext-probe';
+    const mdBefore = await page.evaluate(async (probe) => {
+      window.navigate('md-preview', null);
+      document.getElementById('md-input').value = '[bad](javascript:window.__mdPwned=1)\n\n[good](https://example.test/a)\n\n![logo](' + probe + ')';
+      window.mdRender();
+      await new Promise(res => setTimeout(res, 400));
+      const out = document.getElementById('md-preview-output');
+      return { hrefs: Array.from(out.querySelectorAll('a')).map(a => a.getAttribute('href') + '|' + a.rel), text: out.textContent,
+        imgs: out.querySelectorAll('img').length, buttons: out.querySelectorAll('button[data-src]').length,
+        exported: window.mdDocumentHtml() };
+    }, mdProbeUrl);
+    const mdRequestsBeforeClick = mdProbeRequests;
+    const mdAfter = await page.evaluate(async () => {
+      const out = document.getElementById('md-preview-output');
+      out.querySelector('button[data-src]').click();
+      await new Promise(res => setTimeout(res, 600));
+      const img = out.querySelector('img');
+      const r = { imgs: out.querySelectorAll('img').length, buttons: out.querySelectorAll('button[data-src]').length, loaded: !!img && img.naturalWidth > 0 };
+      document.getElementById('md-input').value += '\n\nmore text'; window.mdRender();
+      r.staysLoaded = out.querySelectorAll('img').length === 1;
+      document.getElementById('md-input').value = ''; window.mdRender();
+      return r;
+    });
+    page.off('request', mdOnRequest);
+    eq('Markdown: only the https link becomes a link', mdBefore.hrefs.join(' , '), 'https://example.test/a|noopener noreferrer');
+    ok('Markdown: the javascript link is shown as typed', mdBefore.text.indexOf('[bad](javascript:window.__mdPwned=1)') !== -1, mdBefore.text);
+    ok('Markdown: an external image is a button', mdBefore.imgs === 0 && mdBefore.buttons === 1, JSON.stringify(mdBefore));
+    eq('Markdown: no request for the external image before the click', mdRequestsBeforeClick, 0);
+    ok('Markdown: the click loads the image', mdAfter.imgs === 1 && mdAfter.buttons === 0 && mdAfter.loaded && mdProbeRequests >= 1, JSON.stringify(mdAfter) + ' requests=' + mdProbeRequests);
+    ok('Markdown: a loaded image stays loaded while typing', mdAfter.staysLoaded);
+    ok('Markdown: Export/Copy HTML carry the image, not the button', /<img src="[^"]*md-ext-probe"/.test(mdBefore.exported) && !/<button/.test(mdBefore.exported), mdBefore.exported);
+
+    // Log & Text Anonymizer: the worker is a Blob assembled from two sources
+    // (the core factory and the chunk loop), so only a real browser shows
+    // whether that assembly still runs.
+    const anon = await page.evaluate(async () => {
+      window.navigate('log-anonymizer', null);
+      const stats = () => document.getElementById('anon-stats').textContent;
+      window.pendingAnonymizerText = 'user bob@example.test api_key=abcd1234efgh\njdbc:postgresql://svc:Hunter2Secret@db.internal:5432/app';
+      window.anonymizerCheckPending();
+      const t0 = Date.now();
+      while (!/\[SECRET/.test(document.getElementById('anonymizer-clean-output').textContent) && Date.now() - t0 < 5000) await new Promise(res => setTimeout(res, 25));
+      const r = { out: document.getElementById('anonymizer-clean-output').textContent, stats: stats() };
+      window.anonymizerClear();
+      return r;
+    });
+    ok('Anonymizer: the worker built from the shared core masks secrets',
+      /\[SECRET-1\]/.test(anon.out) && /\[URL_PASSWORD-1\]/.test(anon.out) && /\[EMAIL-1\]/.test(anon.out), anon.out + ' | ' + anon.stats);
+    ok('Anonymizer: no secret survives in the output',
+      anon.out.indexOf('abcd1234efgh') === -1 && anon.out.indexOf('Hunter2Secret') === -1 && anon.out.indexOf('bob@example.test') === -1, anon.out);
+    ok('Anonymizer: the host survives for diagnosis', anon.out.indexOf('db.internal:5432/app') !== -1, anon.out);
+
+    // Regex Tester matches in a Worker: a pattern that backtracks without end is
+    // stopped after 2 s with a message, the page keeps answering meanwhile, and
+    // the next ordinary pattern works.
+    const rx = await page.evaluate(async () => {
+      window.navigate('regex-tester', null);
+      const set = (id, v) => { document.getElementById(id).value = v; };
+      const text = id => document.getElementById(id).textContent;
+      const wait = ms => new Promise(res => setTimeout(res, ms));
+      const until = async (fn, ms) => { const t0 = Date.now(); while (!fn() && Date.now() - t0 < ms) await wait(25); return Date.now() - t0; };
+      const r = {};
+      set('regex-flags', 'g'); set('regex-replacement', '');
+      set('regex-input', '(\\w+)@(?<host>\\w+)'); set('regex-test-str', 'dev@mendix and ops@cloud');
+      window.regexTestMendixMode();
+      await until(() => /2 matches/.test(text('regex-stats')), 3000);
+      r.normalStats = text('regex-stats'); r.normalList = text('regex-matches');
+      r.marks = document.querySelectorAll('#regex-highlight mark').length;
+      // The replace preview has its own switch: off hides the result, typing a
+      // replacement turns it on, and on with an empty field removes the matches.
+      const replOn = document.getElementById('regex-replace-on'), replEl = document.getElementById('regex-replacement');
+      const blockShown = () => document.getElementById('regex-replace-block').style.display !== 'none';
+      r.replaceOffHidden = !replOn.checked && !blockShown();
+      replEl.value = '$2'; replEl.dispatchEvent(new Event('input', { bubbles: true }));
+      await until(() => text('regex-replace-result') !== '', 3000);
+      r.typingTurnsOn = replOn.checked && blockShown();
+      r.replaced = text('regex-replace-result');
+      replEl.value = ''; replEl.dispatchEvent(new Event('input', { bubbles: true }));
+      await until(() => text('regex-replace-result') === ' and ', 3000);
+      r.replacedEmpty = text('regex-replace-result');
+      replOn.checked = false; replOn.dispatchEvent(new Event('change', { bubbles: true }));
+      await wait(150);
+      r.replaceOffAgain = !blockShown();
+      r.engineNote = text('regex-engine-note');
+
+      set('regex-input', '(a+)+$'); set('regex-test-str', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!');
+      window.regexTestMendixMode();
+      let ticks = 0; const iv = setInterval(() => { ticks++; }, 50);
+      r.stoppedAfter = await until(() => /stopped/.test(text('regex-stats')), 6000);
+      clearInterval(iv);
+      r.ticks = ticks; r.message = text('regex-matches');
+
+      set('regex-input', '\\d+'); set('regex-test-str', 'a1 b22');
+      window.regexTestMendixMode();
+      await until(() => /2 matches/.test(text('regex-stats')), 3000);
+      r.afterStats = text('regex-stats');
+
+      // A newer input replaces a run that is still going; the old one must not
+      // come back later and overwrite it with "stopped".
+      set('regex-input', '(a+)+$'); set('regex-test-str', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!');
+      window.regexTestMendixMode();
+      await wait(200);
+      set('regex-input', 'b'); set('regex-test-str', 'abc');
+      window.regexTestMendixMode();
+      await wait(2600);
+      r.supersededStats = text('regex-stats');
+
+      r.presets = [];
+      for (const p of window.REGEX_PRESETS) {
+        window.regexApplyPreset(p.id);
+        await wait(150);
+        if (/Invalid|stopped/.test(text('regex-matches') + text('regex-stats'))) r.presets.push(p.id);
+      }
+      set('regex-input', ''); set('regex-test-str', ''); set('regex-flags', 'gm');
+      window.regexTestMendixMode();
+      return r;
+    });
+    ok('Regex: an ordinary pattern lists its matches', /2 matches/.test(rx.normalStats) && rx.marks === 2 && /host:\s*mendix/.test(rx.normalList), rx.normalStats + ' | ' + rx.normalList.slice(0, 200));
+    ok('Regex: the replace result is hidden until Replace is on', rx.replaceOffHidden && rx.replaceOffAgain, JSON.stringify([rx.replaceOffHidden, rx.replaceOffAgain]));
+    ok('Regex: typing a replacement turns Replace on', rx.typingTurnsOn);
+    eq('Regex: the replace preview uses group references', rx.replaced, 'mendix and cloud');
+    eq('Regex: an empty replacement removes the matches', rx.replacedEmpty, ' and ');
+    ok('Regex: the panel says it runs the JavaScript engine and names the Java differences', /possessive/.test(rx.engineNote) && /\\Q…\\E/.test(rx.engineNote) && /\(\?i\)/.test(rx.engineNote) && /\\z/.test(rx.engineNote), rx.engineNote);
+    ok('Regex: a runaway pattern is stopped with a message after about 2 s', /catastrophic backtracking/.test(rx.message) && rx.stoppedAfter >= 1800 && rx.stoppedAfter < 3500, rx.stoppedAfter + ' ms | ' + rx.message);
+    ok('Regex: the page keeps running while the pattern is stuck', rx.ticks >= 20, rx.ticks + ' timer ticks');
+    ok('Regex: the next ordinary pattern works after a stop', /2 matches/.test(rx.afterStats), rx.afterStats);
+    ok('Regex: a newer input replaces a stuck run for good', /1 match\b/.test(rx.supersededStats), rx.supersededStats);
+    eq('Regex: every preset runs', rx.presets.join(', '), '');
+
+    // A scrape with no heap limit, no thread pool and no request metric must show
+    // dashes and raise no alert: the dashboard used to invent a 1 GiB heap, a
+    // 200-thread pool and 10 busy threads, and judge those.
+    const noMetrics = await page.evaluate(async () => {
+      window.navigate('telemetry-monitor', null);
+      await new Promise(res => setTimeout(res, 100));
+      window.tmResetData();
+      const text = id => document.getElementById(id).textContent;
+      window.tmProcessMetrics('jvm_memory_used_bytes{area="heap"} 943718400\n');
+      window.tmProcessMetrics('jvm_memory_used_bytes{area="heap"} 943718400\n');
+      const r = { heap: text('tm-card-heap'), pct: text('tm-card-heap-pct'), threads: text('tm-card-threads'),
+                  reqs: text('tm-card-reqs'), db: text('tm-card-db'), alerts: document.querySelectorAll('.tm-alert-msg').length };
+      window.tmResetData();
+      return r;
+    });
+    eq('Telemetry: heap used without a limit shows the used value and a dash', noMetrics.heap, '900 MB / —');
+    eq('Telemetry: no heap limit metric is said so, not shown as 0%', noMetrics.pct, 'no heap limit metric');
+    eq('Telemetry: no thread metrics show dashes, not 10 / 200', noMetrics.threads, '— / —');
+    eq('Telemetry: no request metric shows a dash, not 0 req/s', noMetrics.reqs, '—');
+    eq('Telemetry: no database counters show a dash', noMetrics.db, '—');
+    eq('Telemetry: nothing measured raises no alert', noMetrics.alerts, 0);
+
+    // One request per channel (review A13): an endpoint slower than the poll
+    // interval used to collect a queue of identical requests, and an answer that
+    // arrived after the connection was left still updated the dashboard.
+    const flight = await page.evaluate(async () => {
+      window.navigate('telemetry-monitor', null);
+      await new Promise(res => setTimeout(res, 100));
+      const sel = document.getElementById('tm-conn-profile');
+      sel.value = 'direct';
+      window.tmChangeConnectionProfile();
+      document.getElementById('tm-endpoint-url').value = 'http://localhost:9/metrics';
+      window.tmResetData();
+      const heapCard = () => document.getElementById('tm-card-heap').textContent;
+      const realFetch = window.fetch;
+      let calls = 0, release = [];
+      // Only the metrics endpoint is counted and held: the page also fetches on
+      // its own timers (the bridge status check every 5 s), and those go through.
+      window.fetch = (url, opts) => {
+        if (String(url).indexOf('localhost:9/metrics') === -1) return realFetch(url, opts);
+        calls++; return new Promise(res => release.push(() => res({ ok: true, text: () => Promise.resolve('jvm_memory_used_bytes{area="heap"} 104857600\n') })));
+      };
+      const r = {};
+      try {
+        window.tmFetchMetrics(); window.tmFetchMetrics(); window.tmFetchMetrics();
+        r.whileBusy = calls;
+        release.shift()();
+        await new Promise(res => setTimeout(res, 50));
+        r.afterAnswer = heapCard();
+        window.tmFetchMetrics();
+        r.afterFree = calls;
+        // Leave the connection while the request is still out, then let it answer.
+        window.tmResetData();
+        window.tmStopAgentPolling();
+        release.shift()();
+        await new Promise(res => setTimeout(res, 50));
+        r.staleAnswer = heapCard();
+      } finally { window.fetch = realFetch; }
+      return r;
+    });
+    eq('Telemetry: three ticks while a request is out make one request', flight.whileBusy, 1);
+    eq('Telemetry: the answer is shown', flight.afterAnswer, '100 MB / —');
+    eq('Telemetry: the next tick, once the channel is free, makes a new request', flight.afterFree, 2);
+    eq('Telemetry: an answer from a connection that was left changes nothing', flight.staleAnswer, '0 MB / 0 MB');
 
     // Review UX-10 / decision Q9: WASM Profiler is gone, and API Economics sits in
     // Data & Format next to the JSON Formatter instead of a section of its own.
@@ -872,6 +1216,79 @@ async function run() {
     ok('...keeps the header names and the harmless values', /Authorization/.test(preset.stored) && /application\/json/.test(preset.stored));
     ok('...and leaves the form itself untouched', preset.box.indexOf('smoke-secret') !== -1);
 
+    // The same promise for the URL, the body and the Message Factory sample
+    // (audit A11), and for the backup file, which leaves the preset out by default.
+    const presetSecrets = await page.evaluate(async () => {
+      const set = (id, v) => { document.getElementById(id).value = v; };
+      const typed = {
+        'pl-url': 'https://svc:pw-in-url@acc.example.test/rest/{orderId}?api_key=q-secret-1&token=q-secret-2&page={page}&password={pwd}',
+        'pl-headers': '{"Authorization": "Bearer h-secret-1"}',
+        'pl-body': '{"user": "anna", "password": "b-secret-1", "token": "b-secret-2", "note": "keep me"}',
+        'pl-mf-sample': '{"login": "anna", "client_secret": "s-secret-1", "amount": 12}'
+      };
+      Object.keys(typed).forEach(id => set(id, typed[id]));
+      document.getElementById('pl-mf-analyze').click();
+      window.plSavePreset();
+      const stored = localStorage.getItem('perfLabPreset') || '';
+      const formKept = Object.keys(typed).every(id => document.getElementById(id).value === typed[id]);
+      const again = window.plMaskPresetText(JSON.parse(stored).url, true).masked;
+      const xml = window.plMaskPresetText('<soap:Body><wsse:Password Type="text">x-secret-1</wsse:Password><City>Poznan</City></soap:Body>').text;
+
+      const realCreate = URL.createObjectURL;
+      const blobs = [];
+      URL.createObjectURL = function (b) { blobs.push(b); return realCreate.call(URL, b); };
+      try {
+        window.mtOpenSettingsBackup();
+        const box = document.getElementById('mt-settings-preset');
+        const row = document.getElementById('mt-settings-preset-row').style.display;
+        const byDefault = box.checked;
+        window.mtDownloadSettings();
+        box.checked = true;
+        window.mtDownloadSettings();
+        window.mtCloseSettingsBackup();
+        const files = await Promise.all(blobs.map(b => b.text()));
+        localStorage.removeItem('perfLabPreset');
+        window.mtOpenSettingsBackup();
+        const rowWithout = document.getElementById('mt-settings-preset-row').style.display;
+        window.mtCloseSettingsBackup();
+        ['pl-headers', 'pl-body', 'pl-mf-sample'].forEach(id => set(id, ''));
+        document.getElementById('pl-mf-analyze').click();
+        return { stored: stored, formKept: formKept, again: again, xml: xml, row: row, rowWithout: rowWithout, byDefault: byDefault,
+          plainHasPreset: /perfLabPreset/.test(files[0]), fullHasPreset: /perfLabPreset/.test(files[1]), full: files[1] };
+      } finally {
+        URL.createObjectURL = realCreate;
+      }
+    });
+    const presetLeaks = t => ['pw-in-url', 'q-secret-1', 'q-secret-2', 'h-secret-1', 'b-secret-1', 'b-secret-2', 's-secret-1'].filter(v => t.indexOf(v) !== -1);
+    eq('an XML element named like a credential is masked, its neighbours are not', presetSecrets.xml,
+      '<soap:Body><wsse:Password Type="text">[SECRET]</wsse:Password><City>Poznan</City></soap:Body>');
+    eq('a saved preset holds no secret from the URL, the headers, the body or the sample', presetLeaks(presetSecrets.stored).join(','), '');
+    ok('...keeps the host, the {placeholders} and the harmless values',
+      ['acc.example.test/rest/{orderId}', 'page={page}', 'password={pwd}', 'keep me', 'anna'].every(v => presetSecrets.stored.indexOf(v) !== -1), presetSecrets.stored.slice(0, 400));
+    ok('...and leaves the form itself untouched', presetSecrets.formKept);
+    eq('saving an already masked URL reports nothing new', presetSecrets.again, 0);
+    eq('Backup Settings offers the preset only when there is one, unticked', presetSecrets.row + '|' + presetSecrets.byDefault + '|' + presetSecrets.rowWithout, '|false|none');
+    eq('the backup file leaves the preset out unless the box is ticked', presetSecrets.plainHasPreset + '/' + presetSecrets.fullHasPreset, 'false/true');
+    eq('...and with the box ticked it still holds no secret', presetLeaks(presetSecrets.full).join(','), '');
+
+    // A preset saved with an empty body and no headers must restore them empty,
+    // not keep whatever was typed since.
+    const emptyPreset = await page.evaluate(() => {
+      window.navigate('perf-lab', null);
+      document.getElementById('pl-url').value = 'http://localhost:8080/rest/orders/v1';
+      document.getElementById('pl-headers').value = '';
+      document.getElementById('pl-body').value = '';
+      window.plSavePreset();
+      document.getElementById('pl-headers').value = '{"X-Typed": "later"}';
+      document.getElementById('pl-body').value = '{"typed":"later"}';
+      window.plLoadPreset();
+      const out = { headers: document.getElementById('pl-headers').value, body: document.getElementById('pl-body').value };
+      localStorage.removeItem('perfLabPreset');
+      return out;
+    });
+    eq('loading a preset saved with no headers empties the headers field', emptyPreset.headers, '');
+    eq('loading a preset saved with an empty body empties the body field', emptyPreset.body, '');
+
     // Correlation Flow: the list has to be discoverable, and picking a row has to
     // render the flow (wave 20, C5). Help promised this list for a year before it
     // existed, so it is worth a browser assertion rather than a pure-layer one.
@@ -996,6 +1413,16 @@ async function run() {
       }));
 
     // Focus has to move into the dialog, stay there, and come back on close.
+    // The dialog takes focus on the first frame after it is painted, and a
+    // headless page under load paints a few frames a second — so the test waits
+    // for the state (up to 3 s) instead of a fixed 200 ms, which failed at random.
+    await page.evaluate(() => {
+      window.__until = async function (fn) {
+        const t0 = Date.now();
+        while (!fn() && Date.now() - t0 < 3000) await new Promise(r => setTimeout(r, 50));
+        return !!fn();
+      };
+    });
     ok('opening a dialog moves focus into it, closing restores it',
       await page.evaluate(async () => {
         window.navigate('http-status', null);
@@ -1005,13 +1432,11 @@ async function run() {
         opener.focus();
         const before = document.activeElement;
         window.showHttpModal(404);
-        await new Promise(r => setTimeout(r, 200));
         const modal = document.getElementById('http-modal');
-        const inside = modal.contains(document.activeElement);
+        const inside = await window.__until(() => modal.contains(document.activeElement));
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-        await new Promise(r => setTimeout(r, 200));
-        const closed = !modal.classList.contains('active');
-        return inside && closed && document.activeElement === before;
+        const restored = await window.__until(() => !modal.classList.contains('active') && document.activeElement === before);
+        return inside && restored;
       }));
 
     eq('--text-muted meets WCAG AA in the light theme too',
@@ -1038,15 +1463,17 @@ async function run() {
       await page.evaluate(async () => {
         window.navigate('log-viewer', null);
         window.logOpenPasteModal();
-        await new Promise(r => setTimeout(r, 300));
         const modal = document.getElementById('log-paste-modal');
+        // Focus arriving inside means the dialog is painted — before that its
+        // controls compute hidden and cannot be focused by the test either.
+        await window.__until(() => modal.contains(document.activeElement));
         const sel = 'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
         const items = Array.from(modal.querySelectorAll(sel)).filter(el => el.offsetWidth || el.offsetHeight);
         if (items.length < 2) return false;
-        items[items.length - 1].focus();
+        const last = items[items.length - 1];
+        await window.__until(() => { last.focus(); return document.activeElement === last; });
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
-        await new Promise(r => setTimeout(r, 100));
-        const wrapped = document.activeElement === items[0];
+        const wrapped = await window.__until(() => document.activeElement === items[0]);
         window.logClosePasteModal();
         return wrapped;
       }));
@@ -1077,6 +1504,33 @@ async function run() {
     });
     ok('no clickable span/div in the shipped markup is left unreachable',
       unreachable.length === 0, unreachable.slice(0, 5).join(' | '));
+
+    // Service worker (audit A01): Cache Storage may hold the app's own static
+    // files and nothing else, and the app must still open with the network gone.
+    // The probe is a same-origin GET answered 200 that is not a static file of
+    // the app — the kind of response the old exclusion list let through.
+    console.log('\nService worker');
+    const swList = /const PRECACHE = \[([\s\S]*?)\];/.exec(fs.readFileSync(path.join(ROOT, 'service-worker.js'), 'utf8'))[1]
+      .split(',').map(s => s.trim().replace(/'/g, '')).filter(Boolean);
+    const swCached = await themePage.evaluate(async () => {
+      await navigator.serviceWorker.ready;
+      if (!navigator.serviceWorker.controller) await new Promise(r => navigator.serviceWorker.addEventListener('controllerchange', r, { once: true }));
+      await fetch('/service-worker.js?probe=1').then(r => r.text());
+      await fetch('/js/core.js').then(r => r.text());
+      await new Promise(r => setTimeout(r, 500));
+      const paths = [];
+      for (const name of await caches.keys()) {
+        for (const req of await (await caches.open(name)).keys()) paths.push(new URL(req.url).pathname);
+      }
+      return paths;
+    });
+    ok('the cache holds the app\'s static files', swCached.indexOf('/js/core.js') !== -1 && swCached.indexOf('/index.html') !== -1, swCached.length + ' entries');
+    eq('...and nothing that is not on the precache list', swCached.filter(p => swList.indexOf(p) === -1).join(' '), '');
+    await themePage.setOfflineMode(true);
+    await themePage.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
+    await themePage.waitForFunction(() => typeof window.navigate === 'function', { timeout: 30000 });
+    ok('with the network gone the app still starts', await themePage.evaluate(() => document.querySelectorAll('.nav-item').length > 10));
+    await themePage.setOfflineMode(false);
     await themePage.close();
 
     currentTool = 'teardown';

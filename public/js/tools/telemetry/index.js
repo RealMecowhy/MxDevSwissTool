@@ -79,6 +79,7 @@ export function tmInitChartGroups() {
   state.tmChartGroupsWired = true;
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem('tm-chart-groups') || '{}'); } catch (e) {}
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) saved = {};
   groups.forEach(g => {
     const id = g.getAttribute('data-group-id');
     if (saved[id] === false) g.removeAttribute('open');

@@ -177,7 +177,7 @@ const TOOLS_HELP = {
         <li><strong>Entity names instead of table names (optional):</strong> if you have loaded a domain model in <strong>Domain Model &amp; Architecture</strong> (<em>Load model from database</em>), the <strong>Table &middot; SQL</strong> column says <code>SELECT eShop.Order</code> instead of <code>SELECT eshop$order</code> &mdash; the names you work in, not the ones PostgreSQL uses. Without a loaded model nothing changes; this is a bonus, never a requirement.</li>
         <li>Statements executed multiple times with different parameters get a <strong>&times;N</strong> badge &mdash; use the <strong>Duplicates only (N+1)</strong> filter to instantly spot N+1 query patterns. Enable <strong>Slow only &gt; X ms</strong> to hide everything below your duration threshold.</li>
         <li><strong>Data Hub &mdash; load the file once, use it everywhere:</strong> after parsing, a bar above the list reports <em>Loaded: file &middot; N records &middot; format</em> with <strong>Open in&hellip;</strong> buttons for the Log Viewer, Microflow Tracer and REST &amp; WS Extractor. One click hands the same file over &mdash; the SQL you are looking at and the microflow that issued it come from one load, not three. A <code>&check;</code> marks tools that already have it.</li>
-        <li>Use <strong>Export CSV</strong>, <strong>Copy Markdown</strong> or <strong>Export HTML</strong> (a self-contained, shareable report) in the top bar to take the currently filtered list with you &mdash; e.g. into a ticket, a wiki page or a spreadsheet.</li>
+        <li>Use <strong>Export CSV</strong>, <strong>Copy Markdown</strong> or <strong>Export HTML</strong> (a self-contained, shareable report) in the top bar to take the currently filtered list with you &mdash; e.g. into a ticket, a wiki page or a spreadsheet. <strong>Anonymize exports</strong> replaces e-mail addresses, IPs, UUIDs, Mendix object IDs, tokens and secrets in all three with placeholders (the Log &amp; Text Anonymizer&rsquo;s rules); it is off by default, and the list on screen is not changed.</li>
         <li>Select a query from the list to see its details neatly grouped on the right:
           <ul>
             <li><strong>Runnable SQL:</strong> The final SQL statement with all <code>?</code> parameters substituted, laid out by the same formatter as the <strong>SQL Formatter</strong> tool &mdash; the same clause breaks, indentation, colours and bracket matching on hover, and it follows the indent and keyword-case settings you pick there.</li>
@@ -342,7 +342,7 @@ const TOOLS_HELP = {
       <ol>
         <li>Load data in the tools above, then open <strong>Incident Report</strong> (it re-scans every time you open it; use <strong>Refresh sources</strong> after loading more).</li>
         <li>Give the incident a <strong>title</strong> (used for the report heading and the file name).</li>
-        <li>Set the <strong>time window</strong> (UTC). It is pre-filled from the span of the loaded data &mdash; narrow it to focus on the incident, or clear both fields to include everything. Leave one side blank for an open-ended bound. Use <code>YYYY-MM-DD HH:MM:SS</code>; a value that does not fit, or an end before the start, is marked on the field with what it expects.</li>
+        <li>Set the <strong>time window</strong> (UTC). It is pre-filled from the span of the loaded data, widened to whole seconds so the last second of data is inside it &mdash; narrow it to focus on the incident, or clear both fields to include everything. Leave one side blank for an open-ended bound. Use <code>YYYY-MM-DD HH:MM:SS</code>; a value that does not fit, or an end before the start, is marked on the field with what it expects.</li>
         <li>Tick which <strong>sources</strong> to include &mdash; the row count next to each reflects that tool&rsquo;s <em>current filter</em> <em>and the time window above</em>, so it is exactly what will land in the report. A source reading &ldquo;<em>X of Y in window</em>&rdquo; is being trimmed by the window, and &ldquo;<em>none in window</em>&rdquo; means it will be left out entirely &mdash; widen the window or press Clear. Add optional <strong>notes</strong> that appear at the top of the report.</li>
         <li>Click <strong>Generate HTML report</strong>. The file downloads immediately and a summary shows exactly what went in. Open it in any browser &mdash; it is fully self-contained.</li>
       </ol>
@@ -352,7 +352,7 @@ const TOOLS_HELP = {
         <li><strong>One window, many angles:</strong> because every section is filtered to the same time window, a spike lines up across the Nginx 5xx responses, the slow SQL, the failing microflow and the blocked threads &mdash; that alignment is the point of the report.</li>
         <li><strong>Data-driven:</strong> a section only appears when its source produced rows for the window; anything ticked but left out is named under &ldquo;Skipped&rdquo; in the summary. An empty report for a window means those tools logged nothing there &mdash; widen the window or confirm the log levels.</li>
         <li><strong>Point-in-time JVM:</strong> a thread dump is a snapshot, so the JVM section is not time-filtered &mdash; it reflects the dump you last analyzed in JVM Health.</li>
-        <li><strong>Sensitive data:</strong> the report carries real log content (SQL, payloads, IPs). Review it before sharing &mdash; the Log &amp; Text Anonymizer can scrub logs before you load them.</li>
+        <li><strong>Sensitive data:</strong> the report carries real log content (SQL, payloads, IPs). Tick <strong>Anonymize before export</strong> to replace e-mail addresses, IP and MAC addresses, UUIDs, Mendix object IDs, card numbers, tokens and secrets with placeholders such as <code>[EMAIL-1]</code> in the rows and in your notes &mdash; the same rules as the Log &amp; Text Anonymizer, and the same value gets the same placeholder across the whole report. Timestamps and numbers stay, and so does the title. The line under the box shows how many values of each kind the current window and sources contain, before you download. Names and free text are not recognised, so still read the report before sharing it.</li>
       </ul>
     `
   },
@@ -462,7 +462,7 @@ const TOOLS_HELP = {
             <li><strong>Service Name:</strong> e.g., <code>MendixApp</code></li>
             <li><strong>Enable Traces & Logs:</strong> Yes / Yes</li>
           </ul>
-          No Extra JVM parameters are required! (The Agent natively supports both binary Protobuf and JSON OTLP formats).
+          No Extra JVM parameters are required! (The Agent natively supports both binary Protobuf and JSON OTLP formats). Metrics sent over OTLP are only counted &mdash; the dashboard takes its metrics from the Prometheus endpoint below.
         </li>
         <li><strong>Enable Metrics in Mendix (Prometheus):</strong> In Mendix Studio Pro, go to <em>Settings</em> → <em>Configurations</em> → add Custom Setting:
           <br>Key: <code>Metrics.Registries</code>, Value: <code>[{"type": "prometheus", "settings": {"step": "10s"}}]</code>.
@@ -483,7 +483,9 @@ const TOOLS_HELP = {
         <li><strong>JVM Heap Memory:</strong> If memory usage constantly increases (staircase chart upwards) and does not drop after Garbage Collection, the application might have a memory leak.</li>
         <li><strong>Database Connection Pool:</strong> If the number of used connections approaches the limit (e.g., 50), subsequent user requests will be blocked waiting for a free connection, drastically slowing down the system.</li>
         <li><strong>Waterfall (Traces):</strong> A long horizontal bar means the longest running activity. If you see dozens of small SQL query bars to the same table underneath, you've detected an <strong>N+1 queries</strong> problem, which should be optimized (e.g., by fetching data at once using an association or modifying a loop).</li>
-        <li><strong>Threshold alerts:</strong> rather than eyeballing the charts, a breach of your configured Warning/Danger level is surfaced immediately as a toast, so you catch a leak or pool exhaustion while it is building rather than after it takes the app down.</li>
+        <li><strong>Threshold alerts:</strong> rather than eyeballing the charts, a breach of your configured Warning/Danger level is surfaced immediately as a toast, so you catch a leak or pool exhaustion while it is building rather than after it takes the app down. A metric the endpoint does not provide is never alerted on.</li>
+        <li><strong>Dashes and gaps are information:</strong> a card shows <strong>&mdash;</strong> and a chart line breaks when the metric was not in the scrape, when a rate has no earlier scrape to compare with, or when a counter went backwards (the runtime restarted). Nothing is filled in with a default, so a flat line means the value really was flat. <em>Avg latency</em> is the change in one metric family&rsquo;s <code>_sum</code> divided by the change in its <code>_count</code> over all its series, and is left empty for an interval in which no request finished.</li>
+        <li><strong>Metrics Inventory</strong> lists every metric the endpoint sent and how many lines it could not read.</li>
       </ul>
     `
   },
@@ -661,6 +663,7 @@ const TOOLS_HELP = {
       <ul>
         <li><strong>For beginners:</strong> If an integration worked yesterday but fails today, compare the JSON responses from both days to instantly spot what field changed.</li>
         <li><strong>Configuration sync:</strong> Use this to compare <code>yaml</code> configs between test and production environments to find missing variables.</li>
+        <li><strong>Large texts:</strong> The lines both texts start and end with are skipped before comparing, so a big file with a small change compares at once. If the changed part is still too large (about 5,000 &times; 5,000 lines), the tool shows <em>Too many changed lines to compare</em> with both counts &mdash; compare a smaller section. A large changed block is listed as removed and added lines, without the line-by-line <em>Modified</em> pairing.</li>
       </ul>
     `
   },
@@ -699,6 +702,7 @@ const TOOLS_HELP = {
       <ul>
         <li><strong>For beginners:</strong> Markdown is the standard way developers write documentation. Use this to format text easily without needing Word.</li>
         <li><strong>Tables:</strong> Generating markdown tables manually is painful. Paste your data from a spreadsheet instead of typing pipes by hand &mdash; ideal for structured release notes.</li>
+        <li><strong>Links and images:</strong> Only <code>http</code>, <code>https</code>, <code>mailto</code>, <code>#anchor</code> and relative links become links; any other scheme stays as the text you typed. An image on another host shows as <em>External image &mdash; click to load</em>, so opening someone else's document fetches nothing until you ask. <em>Export HTML</em> and <em>Copy HTML</em> contain the images themselves.</li>
       </ul>
     `
   },
@@ -1075,7 +1079,7 @@ Customer [1] -- [*] Order : places</pre>
             <li><strong>Seed</strong> makes a run reproducible: the same seed sends the same sequence of messages, so a failure can be replayed.</li>
           </ul>
           Always press <em>Preview 3 messages</em> before starting &mdash; it renders exactly what the run will send. While the factory is active the static <em>Request Body</em> is ignored, and <code>Content-Type</code> is set from the sample's format unless you set it yourself.</li>
-        <li><strong>Presets:</strong> Use <em>Save Preset</em> and <em>Load Preset</em> buttons to store your frequently used test configurations.</li>
+        <li><strong>Presets:</strong> Use <em>Save Preset</em> and <em>Load Preset</em> buttons to store your frequently used test configurations. Loading a preset restores every saved field, including an empty body or empty headers. A preset is saved <strong>without secrets</strong>: values of credential headers become <code>***</code>, and in the URL, the body and the Message Factory sample the Anonymizer&rsquo;s &ldquo;Auth Tokens &amp; Secrets&rdquo; rules apply, plus any query parameter, JSON field or XML element whose name contains <em>token</em>, <em>secret</em>, <em>password</em> or <em>api key</em> &mdash; these become <code>[SECRET]</code>. The message after saving says how many values were left out; fill them in again after loading. <code>{placeholders}</code> in the URL are kept, and the form itself is not changed. A secret under a name the rules do not know (for example <code>"sid"</code>) is saved as typed, so check the URL and body before you save a preset you intend to share. <strong>Backup Settings</strong> leaves the preset out of its file unless you tick the box for it.</li>
         <li>Click <strong>Start Load Test</strong>, then <strong>Stop</strong> whenever you want to end it. After the test, click <strong>Export CSV</strong> to download the raw latency data.</li>
       </ol>
     `,
@@ -1085,7 +1089,8 @@ Customer [1] -- [*] Order : places</pre>
         <li><strong>p99 Response Time:</strong> Metric for the 1% slowest requests. If p99 is drastically higher than p50 (e.g., 5 seconds vs 100 ms), the Mendix application might have issues with occasional thread blocking, database locking, or long Garbage Collector pauses.</li>
         <li><strong>Throughput &amp; Threads:</strong> Read the two series together. While the app has headroom, throughput rises with the thread count. Once throughput flattens while latency climbs, extra threads are only filling a queue &mdash; that plateau is the app's real capacity, and pushing past it just makes every user wait longer.</li>
         <li><strong>Error Rate:</strong> Appearance of network errors or 5xx statuses under higher load suggests the application has reached its performance limit (e.g., CPU overload or database connection pool exhaustion).</li>
-        <li><strong>The ≈ next to Percentiles:</strong> on the Bridge engine percentiles are computed from a fixed-bin histogram, so they are accurate to a bin width (1 ms below 100 ms, 5 ms below 1 s, 50 ms below 10 s). A run with no end cannot keep every individual measurement. The browser engine keeps them all, so its percentiles are exact.</li>
+        <li><strong>The ≈ next to Percentiles:</strong> on the Bridge engine percentiles are computed from a fixed-bin histogram, so they are accurate to a bin width (1 ms below 100 ms, 5 ms below 1 s, 50 ms below 10 s, 500 ms below 60 s, 5 s up to the 300 s request timeout). A percentile that lands beyond 300 s is written with a leading <code>≥</code>, because it is a lower bound. A run with no end cannot keep every individual measurement. The browser engine keeps them all, so its percentiles are exact.</li>
+        <li><strong>Aborted body:</strong> a response whose headers arrived but whose body was cut off mid-transfer (the server or a proxy dropped the connection) is counted as an error with this status, not as a successful 200.</li>
         <li><strong>Summary &mdash; read this before the charts.</strong> It states the run in one paragraph and copies as Markdown for a ticket. Three things it tells you that the tiles cannot:
           <ul>
             <li><strong>Which path you measured.</strong> If most responses share one failing status, the summary says so &mdash; a run answered <code>401</code> end to end produces beautiful latency numbers, because rejecting a request is fast. Those numbers describe the rejection, not your endpoint.</li>
@@ -1105,7 +1110,7 @@ Customer [1] -- [*] Order : places</pre>
     howToUse: `
       <ol>
         <li><strong>Response Payload:</strong> Enter the JSON or XML that you want the simulated API to return to your Mendix application.</li>
-        <li><strong>HTTP Status:</strong> This represents the server's response code. It defaults to <code>200 OK</code> (which means the request was successful). You can change this to simulate different scenarios. Common codes include:
+        <li><strong>HTTP Status:</strong> This represents the server's response code. It defaults to <code>200 OK</code> (which means the request was successful). You can change this to simulate different scenarios; only codes from 200 to 599 are accepted. Common codes include:
           <ul>
             <li><code>400 Bad Request</code> (Client sent invalid data)</li>
             <li><code>401 Unauthorized</code> (Authentication failed)</li>
@@ -1257,20 +1262,22 @@ Customer [1] -- [*] Order : places</pre>
   },
   'regex-tester': {
     title: 'Java Regex Tester (Mendix)',
-    description: 'Dedicated tool for testing Regular Expressions (Regex). It works based on Java regular expression engine rules (which is directly used by Mendix Runtime e.g., in attribute validation functions and in the <code>isMatch()</code> function in Microflows).',
+    description: 'Tool for testing the regular expressions you use in Mendix (attribute validation, <code>isMatch()</code> and <code>replaceAll()</code> in microflows). It runs the JavaScript regex engine of your browser, not the Java engine of the Mendix Runtime; most patterns behave the same, and the panel lists the differences that matter.',
     howToGet: 'Prepare a regular expression you want to test (e.g., zip code validator, tax ID) and test text.',
     howToUse: `
       <ol>
         <li>Enter the Regex pattern in the top field (e.g., <code>^\\d{2}-\\d{3}$</code> for Polish zip codes).</li>
         <li>Enter test text in the bottom field.</li>
-        <li>The tool will instantly highlight matching text fragments and inform about potential syntax errors in the Java regular expression engine.</li>
+        <li>The tool highlights the matching fragments, lists every match with its groups, and reports syntax errors as the JavaScript engine sees them.</li>
+        <li><strong>Replace:</strong> tick <em>Replace matches with</em> (typing a replacement ticks it for you) to see the result of replacing every match. An empty replacement removes the matches.</li>
       </ol>
     `,
     interpretation: `
       <ul>
         <li><strong>Full String Match:</strong> Mendix's <code>isMatch()</code> requires the <strong>entire</strong> text to match the pattern. Enabling "Simulate isMatch()" simulates this by anchoring the pattern.</li>
         <li><strong>Multiline Testing:</strong> Because the tool has the <code>m</code> (multiline) flag enabled by default, it evaluates each line independently. This allows you to conveniently test multiple examples (one per line) simultaneously. To strictly simulate Mendix (which treats the whole multi-line text as a single string block), remove the <code>m</code> flag from the flags input.</li>
-        <li><strong>Engine Differences:</strong> This tool uses the browser's JS engine. Some Java-specific regex features (like possessive quantifiers <code>.*+</code> or inline flags like <code>(?x)</code>) are not supported in JS and cannot be simulated here.</li>
+        <li><strong>Engine Differences:</strong> This tool uses the browser's JS engine. Possessive quantifiers (<code>.*+</code>) and atomic groups (<code>(?&gt;…)</code>) are reported as errors. <code>\\Q…\\E</code>, <code>\\A</code>, <code>\\z</code> and <code>\\Z</code> are <em>not</em> reported: JavaScript reads them as plain letters, so the pattern quietly matches something else. Inline flags such as <code>(?i)</code> go in the flags field. In a replacement, Java's <code>$0</code> and <code>\${name}</code> are <code>$&amp;</code> and <code>$&lt;name&gt;</code> here.</li>
+        <li><strong>Pattern stopped after 2 s:</strong> the pattern backtracks without end on this input &mdash; usually a repeated group inside another repetition, such as <code>(a+)+</code>. The same pattern can hang a microflow in the Mendix Runtime, so rewrite it rather than shortening the test text.</li>
       </ul>
     `
   },

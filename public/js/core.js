@@ -68,7 +68,7 @@ const TOOLS = [
   {id:'saml-debugger', label:'SAML / OIDC Debugger',       desc:'Decode SAML responses and OIDC id_tokens \u2013 inspect assertions, claims and validity locally', color:'#9b59b6', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><path d="M12 3l7 4v5c0 4.5-3 8-7 9-4-1-7-4.5-7-9V7z"/></svg>', section:'Security & Tokens'},
   {id:'hash-gen',      label:'Hash Generator',             desc:'Generate SHA-256, SHA-512, SHA-1 hashes in-browser',                           color:'#a29bfe',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>',             section:'Security & Tokens'},
   {id:'password-generator',label:'Password Generator',    desc:'Generate strong random passwords with customizable parameters',                  color:'#e17055',         icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>', section:'Security & Tokens'},
-  {id:'regex-tester',  label:'Java Regex Tester (Mendix)', desc:'Test regular expressions behaving like Java Engine in Mendix',                 color:'var(--warning)',  icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',            section:'Utilities'},
+  {id:'regex-tester',  label:'Java Regex Tester (Mendix)', desc:'Test regular expressions for Mendix, with the differences from Java spelled out',                 color:'var(--warning)',  icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',            section:'Utilities'},
   {id:'timestamp',     label:'Timestamp Converter',        desc:'Convert epoch, ISO 8601 and dates across timezones',                            color:'var(--accent)',   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',        section:'Utilities'},
 
 ];
@@ -83,6 +83,7 @@ let favoriteTools = [];
 try {
   const stored = localStorage.getItem('mt-favorites');
   if (stored) favoriteTools = JSON.parse(stored);
+  if (!Array.isArray(favoriteTools)) favoriteTools = [];
 } catch (e) {
   console.error("Error loading favorites", e);
 }
@@ -184,7 +185,7 @@ async function navigate(toolId, navEl, initialTab) {
   document.getElementById('topbar-title').textContent = tool.label;
   // The browser tab and history carry the tool too, and a screen reader hears the switch.
   document.title = (toolId === 'home') ? 'MxDev Swiss Tool — Developer Toolkit' : tool.label + ' — MxDev Swiss Tool';
-  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.72.0' : (tool.desc || '');
+  document.getElementById('topbar-subtitle').textContent = (toolId === 'home') ? 'MxDev Swiss Tool v1.76.0' : (tool.desc || '');
   const previousTool = currentTool;
   currentTool = toolId;
   window.currentTool = currentTool;
@@ -367,7 +368,7 @@ function toggleTheme() {
 // patching each one live would be more code than a reload for the same result.
 function mtOpenSettingsBackup() {
   const existing = document.getElementById('mt-settings-modal');
-  if (existing) { existing.classList.add('active'); return; }
+  if (existing) { existing.classList.add('active'); mtSettingsPresetRow(); return; }
 
   const overlay = document.createElement('div');
   overlay.id = 'mt-settings-modal';
@@ -385,8 +386,11 @@ function mtOpenSettingsBackup() {
         '<p style="margin-top:0">Your favourites, theme, sidebar state and every per-tool setting live in this browser only. ' +
         'Clearing site data, switching browser or moving to another machine loses them. Save them to a file here and restore them there.</p>' +
         '<p style="color:var(--text-muted)"><strong>Settings only.</strong> No log, HAR or database content is ever stored, so none of it is in the file — ' +
-        'it holds preferences plus the <em>name</em> and size of the last file each tool opened, and the REST Load Tester&rsquo;s saved request ' +
-        '(URL, headers and body &mdash; secret header values are stored as <code>***</code>, passwords and tokens from Authentication never).</p>' +
+        'it holds preferences plus the <em>name</em> and size of the last file each tool opened.</p>' +
+        '<div id="mt-settings-preset-row" style="display:none">' +
+          '<label style="display:flex; align-items:center; gap:8px; cursor:pointer;"><input type="checkbox" id="mt-settings-preset" aria-describedby="mt-settings-preset-hint"> Include the Load Tester preset (URL, body and sample message)</label>' +
+          '<div id="mt-settings-preset-hint" style="font-size:0.72rem; color:var(--text-muted); margin-top:4px;">A saved request, not a preference: it names your environment. Secrets the Anonymizer rules recognise were left out when the preset was saved, and passwords and tokens from Authentication are never stored &mdash; still read the URL and body before sharing the file.</div>' +
+        '</div>' +
         '<div style="display:flex; gap:var(--sp-2); margin-top:var(--sp-4); flex-wrap:wrap;">' +
           '<button class="btn btn-primary btn-sm" type="button" onclick="window.mtDownloadSettings()">Save to file</button>' +
           '<button class="btn btn-ghost btn-sm" type="button" onclick="document.getElementById(\'mt-settings-file\').click()">Restore from file…</button>' +
@@ -395,6 +399,16 @@ function mtOpenSettingsBackup() {
     '</div>';
   overlay.addEventListener('click', (e) => { if (e.target === overlay) mtCloseSettingsBackup(); });
   document.body.appendChild(overlay);
+  mtSettingsPresetRow();
+}
+
+// The preset option is offered only when there is a preset, and starts unticked
+// on every open.
+function mtSettingsPresetRow() {
+  const row = document.getElementById('mt-settings-preset-row');
+  if (!row) return;
+  row.style.display = localStorage.getItem('perfLabPreset') === null ? 'none' : '';
+  document.getElementById('mt-settings-preset').checked = false;
 }
 
 function mtCloseSettingsBackup() {
@@ -403,7 +417,8 @@ function mtCloseSettingsBackup() {
 }
 
 function mtDownloadSettings() {
-  const payload = window.mtExportSettings();
+  const presetBox = document.getElementById('mt-settings-preset');
+  const payload = window.mtExportSettings({ includePreset: !!(presetBox && presetBox.checked) });
   const stamp = new Date().toISOString().slice(0, 10);
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -680,7 +695,9 @@ import './components/virtual-viewer.js';
 // virtual row list used by the Log Query Extractor (and future row-heavy tools).
 import './components/virtual-list.js';
 // Side-effect import: attaches window.mtExport + the pure mtExportTo* builders —
-// the shared CSV / Markdown / self-contained-HTML export helpers.
+// the shared CSV / Markdown / self-contained-HTML export helpers. The anonymizer
+// core comes with it: "Anonymize before export" runs its rules on the cells.
+import './tools/anonymizer-core.js';
 import './components/exporters.js';
 // Side-effect import: attaches window.mtHub — the Data Hub, one loaded log file
 // shared across the log tools ("Open in…" instead of a second drag-and-drop).
@@ -842,7 +859,7 @@ function mtBridgePopoverHtml(status) {
       '<dt>Version</dt><dd>' + esc(status.version || 'unknown') + '</dd>' +
       '<dt>Address</dt><dd>http://localhost:9999</dd>' +
       '<dt>OTLP receiver</dt><dd>port ' + esc(String(otel.port || '')) + ' &middot; ' + counts[0] + ' traces, ' +
-        counts[1] + ' logs, ' + counts[2] + ' metrics</dd>' +
+        counts[1] + ' logs, ' + counts[2] + ' metrics (counted, not displayed &mdash; use the Prometheus endpoint)</dd>' +
       '<dt>Log tail</dt><dd>' + (tailed
         ? esc(status.logFile) + ' &middot; ' + window.mtFmtInt(status.logLinesCount || 0) + ' lines buffered'
         : 'no file &mdash; <button type="button" class="btn btn-ghost btn-xs" onclick="window.mtCloseBridgePopover(); window.navigate(\'telemetry-monitor\', null)">set one in Metrics &amp; Telemetry</button>') +

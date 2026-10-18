@@ -14,7 +14,13 @@ const MT_STATE_KEY = 'mt-tool-state';
 let mtStateWarned = false;
 
 function mtStateLoadAll() {
-  try { return JSON.parse(localStorage.getItem(MT_STATE_KEY) || '{}'); } catch (e) {
+  try {
+    // Valid JSON of the wrong shape (null, a list, a number) would throw on the
+    // first mtStateGet — as bad as a parse error, so it gets the same recovery.
+    const all = JSON.parse(localStorage.getItem(MT_STATE_KEY) || '{}');
+    if (!all || typeof all !== 'object' || Array.isArray(all)) throw new Error('unexpected shape');
+    return all;
+  } catch (e) {
     // A corrupted blob silently wiped every tool's saved settings — returning {}
     // and carrying on means the next write overwrites the damaged value with a
     // fresh one, so the loss is real and permanent. Still recover (the app must
@@ -91,12 +97,30 @@ const MT_OWNED_KEYS = [
 ];
 const MT_SETTINGS_FORMAT = 1;
 
+// The shape each JSON key must have to be safe to read at startup. A backup is
+// user-supplied: a favourites list that is an object used to stop the app from
+// starting, because it is read before anything can show an error.
+const MT_KEY_SHAPES = { 'mt-tool-state': 'object', 'mt-favorites': 'array', 'tm-chart-groups': 'object', 'perfLabPreset': 'object' };
+
+function mtShapeOk(key, value) {
+  const want = MT_KEY_SHAPES[key];
+  if (!want) return true;
+  let v;
+  try { v = JSON.parse(value); } catch (e) { return false; }
+  if (want === 'array') return Array.isArray(v);
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
 // Versioned on purpose: nothing stored today carries a schema marker, so a future
 // change to any of these shapes has no way to detect an old file. Starting the
 // count now means the next change can migrate instead of guessing.
-function mtExportSettings() {
+//
+// The Load Tester preset is a saved request, not a preference: its URL and body
+// name an environment and may carry data. It stays out unless asked for.
+function mtExportSettings(opts) {
   const data = {};
   MT_OWNED_KEYS.forEach(k => {
+    if (k === 'perfLabPreset' && !(opts && opts.includePreset)) return;
     const v = localStorage.getItem(k);
     if (v !== null) data[k] = v;
   });
@@ -127,7 +151,7 @@ function mtImportSettings(payload) {
   Object.keys(parsed.data).forEach(k => {
     if (MT_OWNED_KEYS.indexOf(k) === -1) { skipped++; return; }
     const v = parsed.data[k];
-    if (typeof v !== 'string') { skipped++; return; }
+    if (typeof v !== 'string' || !mtShapeOk(k, v)) { skipped++; return; }
     try { localStorage.setItem(k, v); imported++; } catch (e) { skipped++; }
   });
   return { ok: true, imported: imported, skipped: skipped };

@@ -16,7 +16,11 @@ function jwtBase64UrlDecodeJson(s) {
   try {
     const p = s.replace(/-/g, '+').replace(/_/g, '/');
     const pad = p.length % 4;
-    return JSON.parse(atob(pad ? p + '='.repeat(4 - pad) : p));
+    // atob() yields one char per byte; JSON.parse on that shows UTF-8 as mojibake
+    // ("Åwiat" for "świat"), so the bytes go through a UTF-8 decoder first.
+    const bin = atob(pad ? p + '='.repeat(4 - pad) : p);
+    const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+    return JSON.parse(new TextDecoder('utf-8').decode(bytes));
   } catch (e) { return null; }
 }
 

@@ -324,6 +324,16 @@ setTimeout(async () => {
     const otlpLocal = await request({ port: 4318, path: '/v1/traces', method: 'POST', headers: { 'Content-Type': 'application/json' } }, '{}');
     if (otlpLocal.status === 403) return fail('the OTLP port must accept 127.0.0.1');
 
+    // Metric payloads are counted and acknowledged, not stored: nothing reads them.
+    console.log('Checking OTLP metrics are acknowledged but not buffered...');
+    const metricsBefore = JSON.parse((await request({ path: '/status' })).body).otel.metricsReceived;
+    const otlpMetrics = await request({ port: 4318, path: '/v1/metrics', method: 'POST', headers: { 'Content-Type': 'application/json' } }, '{"resourceMetrics":[]}');
+    if (otlpMetrics.status !== 200) return fail('OTLP /v1/metrics must answer 200 (an error makes the exporter retry)', 'status=' + otlpMetrics.status);
+    const metricsAfter = JSON.parse((await request({ path: '/status' })).body).otel.metricsReceived;
+    if (metricsAfter !== metricsBefore + 1) return fail('/status must count a received metrics request', metricsBefore + ' -> ' + metricsAfter);
+    const metricsRoute = await request({ path: '/otel/metrics', headers: { 'X-Bridge-Token': parsed.token } });
+    if (metricsRoute.status === 200) return fail('/otel/metrics must be gone: its buffer had no reader');
+
     // A bad mock-config value used to be stored and crash the Bridge on the
     // next /mock call (status: null → null.toString()).
     console.log('Checking /mock-config validates its input...');
@@ -332,6 +342,13 @@ setTimeout(async () => {
     if (nullStatus.status !== 400) return fail('/mock-config must reject status:null', 'status=' + nullStatus.status);
     const hugeDelay = await request({ path: '/mock-config', method: 'POST', headers: tokenJson }, JSON.stringify({ delay: 600000 }));
     if (hugeDelay.status !== 400) return fail('/mock-config must reject a delay over 60 s', 'status=' + hugeDelay.status);
+    for (const bad of ['000', '099', '199', '600', '999 Nope']) {
+      const r = await request({ path: '/mock-config', method: 'POST', headers: tokenJson }, JSON.stringify({ status: bad }));
+      if (r.status !== 400) return fail('/mock-config must reject status ' + bad, 'status=' + r.status);
+    }
+    const okStatus = await request({ path: '/mock-config', method: 'POST', headers: tokenJson }, JSON.stringify({ status: '404 Not Found' }));
+    if (okStatus.status !== 200) return fail('/mock-config must accept 404 Not Found', 'status=' + okStatus.status);
+    await request({ path: '/mock-config', method: 'POST', headers: tokenJson }, JSON.stringify({ status: '200 OK' }));
     const stillMocking = await request({ path: '/mock' });
     if (stillMocking.status !== 200) return fail('/mock must keep answering after a rejected config', 'status=' + stillMocking.status);
 
@@ -379,6 +396,19 @@ setTimeout(async () => {
       JSON.stringify({ host: '127.0.0.1', port: 1, database: 'x', user: 'x', password: 'x' }));
     if (deadDb.status !== 502 && deadDb.status !== 503) return fail('/postgres on a dead database must be 502 (or 503 without pg)', 'status=' + deadDb.status + ' body=' + deadDb.body);
     if (!JSON.parse(deadDb.body).message) return fail('the error status must still carry a message', deadDb.body);
+
+    // A host that accepts the connection and never answers used to hang the
+    // request on the OS timeout; /postgres is polled every 8 s, so they piled up.
+    console.log('Checking /postgres gives up on a silent host...');
+    const silent = require('net').createServer(() => { /* accept, never answer */ });
+    await new Promise(resolve => silent.listen(0, '127.0.0.1', resolve));
+    const t0 = Date.now();
+    const hung = await request({ path: '/postgres', method: 'POST', headers: tokenJson },
+      JSON.stringify({ host: '127.0.0.1', port: silent.address().port, database: 'x', user: 'x', password: 'x' }));
+    const waited = Date.now() - t0;
+    silent.close();
+    if (hung.status !== 502 && hung.status !== 503) return fail('/postgres on a silent host must be 502 (or 503 without pg)', 'status=' + hung.status + ' body=' + hung.body);
+    if (waited > 12000) return fail('/postgres must give up on a silent host within its 8 s connect timeout', 'waited ' + waited + ' ms');
 
     // An oversized body used to destroy the socket before the 413 was written.
     console.log('Checking an oversized body gets a 413 answer...');

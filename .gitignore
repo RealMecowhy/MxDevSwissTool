@@ -17,6 +17,10 @@ CLAUDE.md
 /advisor-plans/
 skills-lock.json
 
+# Project plan (read by the plan-band mod) and the page generated from it.
+/PLAN.md
+/plan.html
+
 # Dev-only scripts and fixtures. Kept locally, never shipped to end users:
 # the repo is what people download, so it holds only what is needed to run the app.
 scripts/analyze.js

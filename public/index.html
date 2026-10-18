@@ -107,7 +107,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.72.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.76.0</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -291,7 +291,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><h1 id="topbar-title">Home</h1></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.72.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.76.0</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -535,6 +535,7 @@
           <button class="btn btn-secondary btn-sm" onclick="window.lqeExportCsv()" title="Download the currently filtered query list as a CSV file"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export CSV</button>
           <button class="btn btn-secondary btn-sm" onclick="window.lqeCopyMarkdown(this)" title="Copy the currently filtered query list as a Markdown table"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy Markdown</button>
           <button class="btn btn-secondary btn-sm" onclick="window.lqeExportHtml()" title="Download the currently filtered query list as a self-contained HTML report"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>Export HTML</button>
+          <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:0.8rem; color:var(--text-secondary);" title="Replace e-mail addresses, IPs, UUIDs, Mendix object IDs, tokens and secrets with placeholders in the CSV, Markdown and HTML exports. Same rules as the Log &amp; Text Anonymizer."><input type="checkbox" id="lqe-anonymize"> Anonymize exports</label>
           <button class="btn btn-secondary btn-sm" onclick="window.lqeClear()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Clear</button>
         </div>
       <div data-mt-hub="log-query-extractor" style="display:none;margin:0 var(--sp-4) var(--sp-2)"></div>
@@ -874,7 +875,13 @@
 
           <div>
             <label class="form-label" for="ir-notes">Notes (optional)</label>
-            <textarea id="ir-notes" class="input" rows="2" placeholder="Context shown at the top of the report…" style="resize:vertical;"></textarea>
+            <textarea id="ir-notes" class="input" rows="2" onchange="window.irAnonPreview()" placeholder="Context shown at the top of the report…" style="resize:vertical;"></textarea>
+          </div>
+
+          <div>
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.85rem;"><input type="checkbox" id="ir-anonymize" aria-describedby="ir-anonymize-hint" onchange="window.irAnonPreview()"> Anonymize before export</label>
+            <div id="ir-anonymize-count" role="status" style="display:none; font-size:0.78rem; color:var(--text-secondary); margin-top:4px;"></div>
+            <div id="ir-anonymize-hint" style="font-size:0.72rem; color:var(--text-muted); margin-top:4px;">Replaces e-mail addresses, IP and MAC addresses, UUIDs, Mendix object IDs, card numbers, tokens and secrets with placeholders such as [EMAIL-1], in the rows and in the notes. Timestamps and numbers stay. Same rules as the Log &amp; Text Anonymizer.</div>
           </div>
 
           <div id="ir-summary" style="display:none;"></div>
@@ -1540,7 +1547,7 @@
         <div style="display:flex;flex-direction:column;gap:var(--sp-3);overflow-y:auto;padding-right:var(--sp-2)">
           <div class="notice notice-warning" style="margin-bottom:0">
             <div>
-              <strong>Mendix uses Java regular expressions.</strong> This tool simulates Java <code>java.util.regex</code> behaviour. Note: Mendix <code>isMatch()</code> implicitly anchors to full string (like <code>^</code> and <code>$</code>). <br><span style="font-size:.75rem;opacity:.8">&#9888; Java-only features not supported in JS: possessive quantifiers (<code>a++</code>), <code>(?x)</code> verbose mode. Use <code>s</code> flag instead of <code>(?s)</code>.</span>
+              <strong>Runs on the JavaScript regex engine, not Java.</strong> Mendix uses <code>java.util.regex</code>; most patterns behave the same in both. Mendix <code>isMatch()</code> matches the whole string (like <code>^</code> and <code>$</code>). <br><span id="regex-engine-note" style="font-size:.75rem;opacity:.8">Differences that matter in Mendix: possessive quantifiers (<code>a++</code>) and atomic groups (<code>(?&gt;…)</code>) are errors here; <code>\Q…\E</code>, <code>\A</code>, <code>\z</code> and <code>\Z</code> are read as plain letters, without an error; inline flags such as <code>(?i)</code> or <code>(?s)</code> go in the flags field; in the replacement, Java's <code>$0</code> and <code>${name}</code> are <code>$&amp;</code> and <code>$&lt;name&gt;</code> here.</span>
             </div>
           </div>
           <div class="form-row" style="align-items:center;gap:var(--sp-2)">
@@ -1573,8 +1580,10 @@
           </div>
           <div id="regex-stats" style="display:flex;gap:var(--sp-3);flex-wrap:wrap"></div>
           <div class="form-group">
-            <div class="form-label">Replacement (Java <code>replaceAll</code> — <code>$1</code>, <code>$2</code>… reference groups)</div>
-            <input class="input input-mono" id="regex-replacement" placeholder="Leave empty to skip" oninput="regexTestMendixMode()">
+            <label class="form-label" style="display:flex;align-items:center;gap:6px;cursor:pointer">
+              <input type="checkbox" id="regex-replace-on" onchange="regexTestMendixMode()"> <span>Replace matches with (like <code>replaceAll</code> — <code>$1</code>, <code>$2</code>… reference groups)</span>
+            </label>
+            <input class="input input-mono" id="regex-replacement" aria-label="Replacement" placeholder="Empty = remove every match" oninput="document.getElementById('regex-replace-on').checked = true; regexTestMendixMode()">
           </div>
         </div>
         <div style="display:flex;flex-direction:column;gap:var(--sp-4);overflow-y:auto">
@@ -1582,7 +1591,7 @@
             <div class="form-label">Matches &amp; Groups</div>
             <div id="regex-matches" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-3);min-height:160px;font-family:var(--font-mono);font-size:.78rem;overflow:auto;max-height:300px"><span style="color:var(--text-muted)">No pattern entered</span></div>
           </div>
-          <div>
+          <div id="regex-replace-block" style="display:none">
             <div class="form-label">Replace Result</div>
             <div id="regex-replace-result" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--sp-3);min-height:60px;font-family:var(--font-mono);font-size:.78rem;overflow:auto;white-space:pre-wrap;word-wrap:break-word"></div>
           </div>
@@ -3057,7 +3066,7 @@ EntityName -> OtherEntity : Association"></textarea>
               <div class="json-pane-body" style="position:relative;" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="mdHandleDrop(event)"><textarea class="json-input-area" id="md-input" placeholder="# Hello World&#10;&#10;Start writing markdown...&#10;&#10;(or drop a .md file here)" oninput="mdRender()"></textarea></div>
             </div>
             <div class="json-pane" id="md-preview-pane">
-              <div class="json-pane-header"><h4>Preview</h4><button class="btn btn-ghost btn-sm" onclick="copyToClipboard(document.getElementById('md-preview-output').innerHTML)">Copy HTML</button></div>
+              <div class="json-pane-header"><h4>Preview</h4><button class="btn btn-ghost btn-sm" onclick="copyToClipboard(mdDocumentHtml())">Copy HTML</button></div>
               <div class="json-pane-body"><div class="md-preview" id="md-preview-output"></div></div>
             </div>
           </div>

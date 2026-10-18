@@ -52,6 +52,12 @@ function irParseMs(str) {
   return base + (m[5] ? parseFloat('0.' + m[5]) * 1000 : 0);
 }
 
+// The window fields hold whole seconds, so the automatic bounds are widened to
+// them: truncating the end would drop every entry in the data's last second.
+function irAutoBounds(minMs, maxMs) {
+  return { from: Math.floor(minMs / 1000) * 1000, to: Math.ceil(maxMs / 1000) * 1000 };
+}
+
 // Marks the window fields (review UX-07): a malformed bound or an end before the
 // start used to surface only as a toast at Generate, or not at all — a reversed
 // window just produced an empty report. The mark appears when the user leaves the
@@ -125,7 +131,7 @@ function irRefresh() {
   list.innerHTML = irProbed.map(function (p) {
     if (p.section) {
       return '<label class="ir-source ir-source-on">'
-        + '<input type="checkbox" class="ir-source-cb" value="' + p.src.id + '" checked>'
+        + '<input type="checkbox" class="ir-source-cb" value="' + p.src.id + '" checked onchange="window.irAnonPreview()">'
         + '<span class="ir-source-label">' + escHtml(p.src.label) + '</span>'
         + '<span class="ir-source-count" data-ir-count="' + p.src.id + '"></span>'
         + '</label>';
@@ -144,8 +150,9 @@ function irRefresh() {
   const fromEl = document.getElementById('ir-from');
   const toEl = document.getElementById('ir-to');
   if (fromEl && toEl && !fromEl.value && !toEl.value && minMs !== Infinity) {
-    fromEl.value = irFmtInput(minMs);
-    toEl.value = irFmtInput(maxMs);
+    const bounds = irAutoBounds(minMs, maxMs);
+    fromEl.value = irFmtInput(bounds.from);
+    toEl.value = irFmtInput(bounds.to);
     irAutoWindow = { from: fromEl.value, to: toEl.value };
   }
 
@@ -191,19 +198,15 @@ function irUpdateCounts() {
     else if (inWin < loaded) chip.textContent = inWin + ' of ' + loaded + ' in window';
     else chip.textContent = loaded + ' row' + (loaded === 1 ? '' : 's');
   });
+  irAnonPreview();
 }
 
-// Collect the selected sources at the chosen window, build the report and download
-// it; also render an on-screen summary of what went in.
-function irGenerate() {
+// The selected sources at the chosen window, and the report model built from them.
+// One function for the download and for the preview line under "Anonymize before
+// export", so the numbers shown there are the ones the file gets.
+function irCollect() {
   const fromMs = irParseMs(document.getElementById('ir-from').value);
   const toMs = irParseMs(document.getElementById('ir-to').value);
-  if (!irCheckWindow()) {
-    const bad = document.querySelector('#ir-from.is-invalid, #ir-to.is-invalid');
-    if (bad) bad.focus();
-    window.mtToast('Fix the time window first — the problem is described under the field.', 'warning');
-    return;
-  }
 
   const checked = {};
   Array.prototype.forEach.call(document.querySelectorAll('.ir-source-cb:checked'), function (cb) { checked[cb.value] = true; });
@@ -223,6 +226,50 @@ function irGenerate() {
     else skipped.push(src.label);
   });
 
+  const title = (document.getElementById('ir-title').value || '').trim() || 'Mendix Incident Report';
+  const notes = (document.getElementById('ir-notes').value || '').trim();
+  const opts = { title: title, fromMs: fromMs, toMs: toMs, notes: notes };
+  return { sections: sections, skipped: skipped, title: title, opts: opts,
+    model: sections.length ? window.mtBuildIncidentReport(sections, opts) : null };
+}
+
+// What "Anonymize before export" would replace right now, by category — the same
+// pass over the same model as the download. Shown only while the box is ticked.
+const IR_ANON_LABELS = [
+  ['email', 'e-mail address', 'e-mail addresses'], ['ip', 'IP address', 'IP addresses'], ['uuid', 'UUID', 'UUIDs'],
+  ['mendixId', 'Mendix object ID', 'Mendix object IDs'], ['mac', 'MAC address', 'MAC addresses'],
+  ['creditcard', 'card number', 'card numbers'], ['auth', 'token or secret', 'tokens and secrets']
+];
+function irAnonPreview() {
+  const line = document.getElementById('ir-anonymize-count');
+  const box = document.getElementById('ir-anonymize');
+  if (!line || !box) return;
+  const model = box.checked && irCheckWindow(true) ? irCollect().model : null;
+  line.style.display = model ? '' : 'none';
+  if (!model) return;
+  const anon = window.mtAnonymizeReport(model);
+  const parts = IR_ANON_LABELS.filter(function (l) { return anon.stats[l[0]] > 0; }).map(function (l) {
+    const n = anon.stats[l[0]];
+    return n + ' ' + (n === 1 ? l[1] : l[2]);
+  });
+  line.textContent = parts.length
+    ? 'In this report: ' + parts.join(', ') + ' — ' + anon.total + ' value' + (anon.total === 1 ? '' : 's') + ' will be replaced.'
+    : 'In this report: nothing the rules recognise. Names and free text are not recognised, so still read it before sharing.';
+}
+
+// Collect the selected sources at the chosen window, build the report and download
+// it; also render an on-screen summary of what went in.
+function irGenerate() {
+  if (!irCheckWindow()) {
+    const bad = document.querySelector('#ir-from.is-invalid, #ir-to.is-invalid');
+    if (bad) bad.focus();
+    window.mtToast('Fix the time window first — the problem is described under the field.', 'warning');
+    return;
+  }
+
+  const got = irCollect();
+  const sections = got.sections, skipped = got.skipped, title = got.title, opts = got.opts;
+
   const summary = document.getElementById('ir-summary');
   if (!sections.length) {
     if (summary) {
@@ -234,11 +281,9 @@ function irGenerate() {
     return;
   }
 
-  const title = (document.getElementById('ir-title').value || '').trim() || 'Mendix Incident Report';
-  const notes = (document.getElementById('ir-notes').value || '').trim();
-  const opts = { title: title, fromMs: fromMs, toMs: toMs, notes: notes };
-
-  const model = window.mtBuildIncidentReport(sections, opts);
+  let model = got.model;
+  const anon = document.getElementById('ir-anonymize').checked ? window.mtAnonymizeReport(model) : null;
+  if (anon) model = anon.model;
   const filename = title.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'incident-report';
   window.mtExport.downloadHtml(filename + '.html', model);
 
@@ -254,7 +299,11 @@ function irGenerate() {
           return '<li><strong>' + escHtml(s.title) + '</strong> — ' + escHtml(s.subtitle || (s.rows.length + ' rows')) + '</li>';
         }).join('') + '</ul>'
       + (skipped.length ? '<div class="ir-done-meta ir-done-skipped">Skipped — no rows inside the window: ' + escHtml(skipped.join(', ')) + '</div>' : '')
-      + '<div class="ir-done-meta">Open the file in any browser — it is fully self-contained. Review for sensitive data before sharing.</div>'
+      + '<div class="ir-done-meta">Open the file in any browser — it is fully self-contained. '
+      + (anon
+          ? 'Anonymized: ' + anon.total + ' value' + (anon.total === 1 ? '' : 's') + ' replaced with placeholders. Names and free text are not recognised, so still read it before sharing.'
+          : 'Review for sensitive data before sharing.')
+      + '</div>'
       + '</div>';
   }
 }
@@ -273,6 +322,8 @@ window.irUpdateCounts = irUpdateCounts;
 window.irGenerate = irGenerate;
 window.irResetWindow = irResetWindow;
 window.irCheckWindow = irCheckWindow;
+window.irAutoBounds = irAutoBounds;
+window.irAnonPreview = irAnonPreview;
 
 // navigate() calls init() on every open, so the source checklist always reflects
 // the current state of the other tools.

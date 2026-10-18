@@ -162,6 +162,8 @@ mx_runtime_stats_connectionbus_deletes ${state.tmSimState.deletes}
 jetty_requests_total ${state.tmSimState.requests}
 # HELP jetty_requests_seconds_sum Latency sum
 jetty_requests_seconds_sum ${state.tmSimState.reqTime}
+# HELP jetty_requests_seconds_count Latency count
+jetty_requests_seconds_count ${state.tmSimState.requests}
 # HELP jvm_gc_collection_seconds_count GC count
 jvm_gc_collection_seconds_count ${state.tmSimState.gcCounts}
 # HELP jvm_gc_collection_seconds_sum GC time

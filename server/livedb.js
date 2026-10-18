@@ -19,11 +19,46 @@
 'use strict';
 
 // Remove /* block */ and -- line comments so a leading comment can't hide the
-// real first keyword from the whitelist below.
-function stripSqlComments(sql) {
-  return String(sql)
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    .replace(/--[^\n\r]*/g, ' ');
+// real first keyword from the whitelist below. A scan, not a regex: '--' or '/*'
+// inside a string literal or a quoted identifier is data ('--hello'), and cutting
+// it there changed the query that EXPLAIN was asked about. Nested block comments
+// and dollar quoting are not handled — Mendix generates neither, and the READ ONLY
+// transaction is the real lock.
+// With blankLiterals the contents of '...' and "..." are emptied as well, which
+// is what the keyword scan below needs: 'update' in a literal is not an UPDATE.
+function stripSqlComments(sql, blankLiterals) {
+  const s = String(sql);
+  let out = '';
+  let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (c === "'" || c === '"') {
+      out += c; i++;
+      while (i < s.length) {
+        if (s[i] === c) {
+          if (s[i + 1] === c) { if (!blankLiterals) out += c + c; i += 2; continue; } // escaped
+          break;
+        }
+        if (!blankLiterals) out += s[i];
+        i++;
+      }
+      if (i < s.length) { out += c; i++; }
+      continue;
+    }
+    if (c === '/' && s[i + 1] === '*') {
+      const end = s.indexOf('*/', i + 2);
+      out += ' ';
+      i = end === -1 ? s.length : end + 2;
+      continue;
+    }
+    if (c === '-' && s[i + 1] === '-') {
+      while (i < s.length && s[i] !== '\n' && s[i] !== '\r') i++;
+      out += ' ';
+      continue;
+    }
+    out += c; i++;
+  }
+  return out;
 }
 
 // Whitelist guard. Accepts only a single read-only statement that starts with
@@ -45,7 +80,7 @@ function isReadOnlySelect(sql) {
   // written — but we still refuse to *plan* a write query. Only WITH needs this
   // scan; a plain SELECT cannot modify data, so it stays fully permissive
   // (avoids false positives on words like 'DELETE' inside a string literal).
-  if (/^with\b/i.test(head) && /\b(insert|update|delete|merge)\b/i.test(head)) return false;
+  if (/^with\b/i.test(head) && /\b(insert|update|delete|merge)\b/i.test(stripSqlComments(head, true))) return false;
   return true;
 }
 
@@ -1098,7 +1133,7 @@ async function runDistinctValues(Client, dbConfig, opts) {
 }
 
 module.exports = {
-  isReadOnlySelect, stripSqlComments, normalizeParamPlaceholders, runPing, runExplain,
+  isReadOnlySelect, stripSqlComments, normalizeParamPlaceholders, mapDbConfig, runPing, runExplain,
   assessStatsWindow, findRedundantIndexes, buildIndexAdvice, runIndexAdvisor, isPlatformTable,
   buildDomainModel, domainModelToArchJson, mxTypeName, runDomainModel,
   runSeedSchema, runDistinctValues, isSafeTableName,

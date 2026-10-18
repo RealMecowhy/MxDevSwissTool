@@ -1,6 +1,14 @@
 // MARKDOWN PREVIEW
 // ============================================================
-function mdRender(){document.getElementById('md-preview-output').innerHTML=parseMarkdown(document.getElementById('md-input').value);}
+// The preview loads nothing from the network on its own: an image on another
+// host shows as a button and is fetched once it is clicked. Keys are the URL as
+// it stands in the escaped text.
+const mdLoadedImages = new Set();
+function mdRender(){document.getElementById('md-preview-output').innerHTML=parseMarkdown(document.getElementById('md-input').value,u=>mdLoadedImages.has(u));}
+function mdLoadImage(btn){mdLoadedImages.add(escHtml(btn.dataset.src));mdRender();}
+// What Export HTML and Copy HTML hand over: the document itself, with its
+// images as images rather than the preview's buttons.
+function mdDocumentHtml(){return parseMarkdown(document.getElementById('md-input').value,()=>true);}
 
 const MD_DROP_EXT = /\.(md|markdown|mdown|mkd|mdx|txt)$/i;
 
@@ -23,8 +31,21 @@ function mdHandleDrop(e) {
   reader.onerror = () => window.mtToast('Could not read file: ' + file.name, 'error');
   reader.readAsText(file);
 }
-function mdExport(){const html='<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:system-ui,sans-serif;max-width:800px;margin:40px auto;padding:0 20px;line-height:1.7}pre{background:#f6f8fa;padding:16px;border-radius:8px;overflow:auto}code{background:#f6f8fa;padding:2px 6px;border-radius:4px;font-family:monospace}table{border-collapse:collapse;width:100%}th,td{border:1px solid #d0d7de;padding:8px 12px}blockquote{border-left:4px solid #0969da;padding-left:16px;color:#636c76;margin-left:0}</style></head><body>'+document.getElementById('md-preview-output').innerHTML+'</body></html>';downloadText(html,'document.html');}
-function parseMarkdown(md){
+function mdExport(){const html='<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:system-ui,sans-serif;max-width:800px;margin:40px auto;padding:0 20px;line-height:1.7}pre{background:#f6f8fa;padding:16px;border-radius:8px;overflow:auto}code{background:#f6f8fa;padding:2px 6px;border-radius:4px;font-family:monospace}table{border-collapse:collapse;width:100%}th,td{border:1px solid #d0d7de;padding:8px 12px}blockquote{border-left:4px solid #0969da;padding-left:16px;color:#636c76;margin-left:0}</style></head><body>'+mdDocumentHtml()+'</body></html>';downloadText(html,'document.html');}
+// Pure. 'external' = http(s) or //host, 'mail', 'local' = no scheme (relative
+// path, #anchor), 'blocked' = any other scheme (javascript:, data:, file:…).
+// Browsers ignore whitespace and control characters inside a scheme, so they
+// are dropped before the scheme is read.
+function mdUrlKind(url){
+  const u=String(url).replace(/[\u0000- ]/g,'');
+  const scheme=(u.match(/^([a-z][a-z0-9+.-]*):/i)||[])[1];
+  if(!scheme)return u.startsWith('//')?'external':'local';
+  const s=scheme.toLowerCase();
+  if(s==='http'||s==='https')return'external';
+  if(s==='mailto')return'mail';
+  return'blocked';
+}
+function parseMarkdown(md, imageAllowed){
   if(!md)return'';
   let h=escHtml(md);
   h=h.replace(/```[\w]*\n?([\s\S]*?)```/g,(_,c)=>'<pre><code>'+c.trim()+'</code></pre>');
@@ -32,7 +53,13 @@ function parseMarkdown(md){
   h=h.replace(/^---$/gm,'<hr>');
   h=h.replace(/\*\*\*(.+?)\*\*\*/g,'<strong><em>$1</em></strong>').replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\*(.+?)\*/g,'<em>$1</em>').replace(/__(.+?)__/g,'<strong>$1</strong>').replace(/_(.+?)_/g,'<em>$1</em>');
   h=h.replace(/`(.+?)`/g,'<code>$1</code>');
-  h=h.replace(/!\[([^\]]*)\]\(([^)]+)\)/g,'<img src="$2" alt="$1">').replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2" target="_blank">$1</a>');
+  // A link or image with a scheme outside the allowed ones stays as typed.
+  h=h.replace(/!\[([^\]]*)\]\(([^)]+)\)/g,(m,alt,url)=>{
+    const kind=mdUrlKind(url);
+    if(kind==='blocked'||kind==='mail')return m;
+    if(kind==='external'&&!(imageAllowed&&imageAllowed(url)))return'<button type="button" class="btn btn-secondary btn-sm" data-src="'+url+'" onclick="mdLoadImage(this)" title="'+url+'">External image'+(alt?' “'+alt+'”':'')+' — click to load</button>';
+    return'<img src="'+url+'" alt="'+alt+'">';
+  }).replace(/\[([^\]]+)\]\(([^)]+)\)/g,(m,text,url)=>mdUrlKind(url)==='blocked'?m:'<a href="'+url+'" target="_blank" rel="noopener noreferrer">'+text+'</a>');
   h=h.replace(/^&gt; (.+)$/gm,'<blockquote>$1</blockquote>');
   h=h.replace(/^(\s*)[*-] (.+)$/gm,'<li>$2</li>').replace(/(<li>.*<\/li>\n?)+/g,m=>'<ul>'+m+'</ul>');
   h=h.replace(/^\d+\. (.+)$/gm,'<li>$1</li>');
@@ -429,6 +456,9 @@ window.mdRender = mdRender;
 window.mdHandleDrop = mdHandleDrop;
 window.mdExport = mdExport;
 window.parseMarkdown = parseMarkdown;
+window.mdUrlKind = mdUrlKind;
+window.mdLoadImage = mdLoadImage;
+window.mdDocumentHtml = mdDocumentHtml;
 window.MD_SNIPPETS = MD_SNIPPETS;
 window.mdSnippetInsertText = mdSnippetInsertText;
 window.mdInsertSnippet = mdInsertSnippet;
