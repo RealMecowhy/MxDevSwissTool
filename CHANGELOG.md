@@ -14,6 +14,17 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## v1.76.1 — 2026-11-06
+
+### Fixed
+
+- **A toolkit that could not start now says so.** With the Bridge not running,
+  the browser could open the app from its cache while some of its files were
+  missing there: the sidebar was visible, the home screen showed no tools and
+  no menu item opened anything (the console filled with "navigate is not
+  defined"). The page now notices the app did not start and explains the fix:
+  run `Start-MxDevSwissTool.bat`, keep the Bridge window open, reload.
+
 ## v1.76.0 — 2026-10-18
 
 *This release also carries v1.75.0, v1.74.0 and v1.73.0 below, which were not

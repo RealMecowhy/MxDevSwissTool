@@ -107,7 +107,7 @@
         <line x1="7" y1="12" x2="17" y2="12" stroke-width="3.5"></line>
       </svg>
     </div>
-    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.76.0</div></div>
+    <div><div class="logo-text">MxDev Swiss Tool</div><div class="logo-sub">Developer Toolkit v1.76.1</div></div>
   </div>
   <div id="sidebar-nav">
     <button type="button" class="nav-item active" data-tool="home" onclick="navigate('home',this)">
@@ -291,7 +291,7 @@
     <div id="topbar-icon" aria-hidden="true"></div>
     <div id="topbar-info">
       <div id="topbar-titlebar"><h1 id="topbar-title">Home</h1></div>
-      <div id="topbar-subtitle">MxDev Swiss Tool v1.76.0</div>
+      <div id="topbar-subtitle">MxDev Swiss Tool v1.76.1</div>
     </div>
     <div id="topbar-spacer"></div>
     <button class="topbar-btn" id="topbar-search-btn" onclick="if(window.openCommandPalette)window.openCommandPalette()" title="Search tools (Ctrl+K)" style="margin-right:12px">
@@ -4384,6 +4384,35 @@ EntityName -> OtherEntity : Association"></textarea>
 </div>
 
 <script type="module" src="js/core.js"></script>
+<script>
+  // Startup guard. When the Bridge is not running, the service worker can still
+  // answer with a cached index.html while some of the app's modules are missing
+  // from its cache (an install that never finished precaching, or an older
+  // version's cache). The page then looks normal but nothing reacts: every menu
+  // click throws "navigate is not defined". Module scripts have all run by the
+  // time `load` fires, so a missing window.navigate means the app did not start —
+  // say so and say how to fix it, instead of leaving a dead UI.
+  window.addEventListener('load', function () {
+    if (typeof window.navigate === 'function') return;
+    var box = document.createElement('div');
+    box.id = 'mt-startup-failed';
+    box.setAttribute('role', 'alert');
+    box.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;' +
+      'padding:16px;background:rgba(0,0,0,0.75);font-family:system-ui,sans-serif;';
+    box.innerHTML =
+      '<div style="max-width:560px;background:#1b1b1b;color:#eee;border:1px solid #f08a00;border-radius:10px;padding:24px;line-height:1.5;">' +
+      '<h2 style="margin:0 0 12px;font-size:1.2rem;color:#f08a00;">The toolkit could not start</h2>' +
+      '<p style="margin:0 0 10px;">Some of its files could not be loaded. This almost always means the ' +
+      '<strong>Bridge is not running</strong> &mdash; the page was opened from the browser cache.</p>' +
+      '<ol style="margin:0 0 16px;padding-left:20px;">' +
+      '<li>Start <code>Start-MxDevSwissTool.bat</code> and keep the &ldquo;Mendix Observability Agent&rdquo; window open.</li>' +
+      '<li>Then reload this page (Ctrl+Shift+R).</li></ol>' +
+      '<button type="button" id="mt-startup-reload" style="background:#f08a00;color:#111;border:0;border-radius:6px;padding:8px 16px;font-weight:600;cursor:pointer;">Reload</button>' +
+      '</div>';
+    document.body.appendChild(box);
+    document.getElementById('mt-startup-reload').addEventListener('click', function () { location.reload(); });
+  });
+</script>
 </body>
 </html>
 
