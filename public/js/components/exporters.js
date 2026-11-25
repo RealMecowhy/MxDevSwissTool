@@ -189,9 +189,13 @@
       const metricIdx = jvmSec.columns.indexOf('Metric');
       const valueIdx = jvmSec.columns.indexOf('Value');
       if (metricIdx !== -1 && valueIdx !== -1) {
-        const dl = jvmSec.rows.find(function (r) { return r[metricIdx] === 'Deadlocks detected'; });
-        const dlCount = dl ? parseInt(dl[valueIdx], 10) : 0;
+        // A deadlock is what the JVM itself reported; a lock chain is a lead, counted apart.
+        const dl = jvmSec.rows.find(function (r) { return r[metricIdx] === 'Deadlocks reported by the JVM'; });
+        const dlCount = dl ? parseInt(dl[valueIdx], 10) || 0 : 0;
         if (dlCount > 0) bits.push(dlCount + ' deadlock' + (dlCount === 1 ? '' : 's'));
+        const ch = jvmSec.rows.find(function (r) { return /^Lock chains/.test(String(r[metricIdx])); });
+        const chCount = ch ? parseInt(ch[valueIdx], 10) || 0 : 0;
+        if (chCount > 0) bits.push(chCount + ' lock chain' + (chCount === 1 ? '' : 's'));
       }
     }
 

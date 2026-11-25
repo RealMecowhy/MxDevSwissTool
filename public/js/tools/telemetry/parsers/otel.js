@@ -1,5 +1,7 @@
 export function tmParseOtelMetrics(payload) {
-  const parsed = {};
+  // No prototype, as in prometheus.js: with {} a metric named constructor or toString found
+  // the property of Object and push() threw.
+  const parsed = Object.create(null);
   if (!payload || !payload.resourceMetrics) return parsed;
 
   function addMetricVal(name, value, labels) {

@@ -133,7 +133,6 @@ function miAnalyze() {
   
   let leakProbability = 'Low';
   let warningMessage = '';
-  let oldGen = 0; // Will be calculated from actual data if available
   
   if (parsedClasses.length > 0) {
     // Sort by bytes desc
@@ -145,7 +144,6 @@ function miAnalyze() {
       const ratio = mendixObjects.bytes / totalBytes;
       if (ratio > 0.15 || mendixObjects.bytes > 100 * 1024 * 1024) {
         leakProbability = 'High';
-        oldGen = Math.min(98, Math.floor(ratio * 100) + 40);
         warningMessage = `<strong>Leak Warning:</strong> <code>MendixObjectImpl</code> occupies ${formatBytes(mendixObjects.bytes)} (${(ratio * 100).toFixed(1)}% of scanned heap). This often points to uncommitted object lists in long-running Microflows.`;
       }
     }
@@ -179,7 +177,8 @@ function miAnalyze() {
     </div>
     <div style="background:var(--bg-elevated);padding:var(--sp-4);border-radius:var(--r-md)">
       <div style="font-size:0.75rem;color:var(--text-secondary);text-transform:uppercase">Old Gen Usage</div>
-      <div style="font-size:1.5rem;font-weight:bold;color:${oldGen > 80 ? 'var(--danger)' : oldGen > 0 ? 'var(--info)' : 'var(--text-muted)'}">${oldGen > 0 ? oldGen + '%' : 'N/A'}</div>
+      <div style="font-size:1.5rem;font-weight:bold;color:var(--text-muted)">N/A</div>
+      <div style="font-size:0.75rem;color:var(--text-muted)">A histogram counts objects; it holds no figure of the old generation. A GC log or the JVM metrics have it.</div>
     </div>
   </div>`;
   

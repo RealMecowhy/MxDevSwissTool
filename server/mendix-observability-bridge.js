@@ -972,7 +972,13 @@ async function fetchPostgresMetrics(req, res, dbConfig) {
     const resStats = await client.query(statsSql);
     const resSessions = await client.query(sessionsSql);
     const resLocks = await client.query(locksSql);
-    const resGlobal = await client.query(globalStatsSql);
+    // PostgreSQL 17 moved buffers_backend out of pg_stat_bgwriter (into pg_stat_io), and the
+    // query above fails there with 42703, which failed the whole health call. On 17 and later it
+    // is sent without that column, and the answer has buffers_backend: null.
+    const verRes = await client.query('SHOW server_version_num');
+    const pgVersionNum = parseInt((verRes.rows[0] || {}).server_version_num, 10) || 0;
+    const globalStatsSql17 = globalStatsSql.replace(/,\s*buffers_backend\s*\n/, '\n');
+    const resGlobal = await client.query(pgVersionNum >= 170000 ? globalStatsSql17 : globalStatsSql);
     const resTables = await client.query(tablesSql);
     const resTableHealth = await client.query(tableHealthSql);
 
@@ -1002,6 +1008,7 @@ async function fetchPostgresMetrics(req, res, dbConfig) {
     const sessions = resSessions.rows[0].json_data;
     const locks = resLocks.rows[0].json_data;
     const global_stats = resGlobal.rows[0].json_data;
+    if (pgVersionNum >= 170000 && global_stats) global_stats.buffers_backend = null;
     const top_tables = resTables.rows[0].json_data;
     const table_health = resTableHealth.rows[0].json_data;
 

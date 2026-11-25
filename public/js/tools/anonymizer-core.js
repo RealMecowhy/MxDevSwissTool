@@ -167,6 +167,16 @@
             var kwEscaped = escRegex(keywordsList[ki]);
             var kwRegex = new RegExp('\\b' + kwEscaped + '\\b', 'gi');
             addMatches(kwRegex, 'REDACTED', 'keywords');
+            // \b knows only A to Z, the digits and the underscore, so a keyword that begins or ends
+            // with any other character (Poznań, Żabka, José, S.A., C++) was never found, and its
+            // count stayed 0 without a word. Such a keyword gets a second pattern, with the edge
+            // of a word spelled out for every alphabet. It only adds: whatever the pattern above
+            // finds is still found.
+            if (/^[^A-Za-z0-9_]|[^A-Za-z0-9_]$/.test(keywordsList[ki])) {
+              try {
+                addMatches(new RegExp('(?<![\\p{L}\\p{N}_])' + kwEscaped + '(?![\\p{L}\\p{N}_])', 'giu'), 'REDACTED', 'keywords');
+              } catch (e) { /* a keyword this pattern cannot hold keeps the first pattern alone */ }
+            }
           }
         }
 
