@@ -472,7 +472,8 @@ export function tmRenderPostgresStats(data) {
   document.getElementById('tm-pg-global-alloc').textContent = window.mtFmtInt(globalStats.buffers_alloc || 0);
   document.getElementById('tm-pg-global-clean').textContent = window.mtFmtInt(globalStats.buffers_clean || 0);
   document.getElementById('tm-pg-global-maxclean').textContent = window.mtFmtInt(globalStats.maxwritten_clean || 0);
-  document.getElementById('tm-pg-global-backend').textContent = window.mtFmtInt(globalStats.buffers_backend || 0);
+  // null on PostgreSQL 17 and later, where the server no longer counts it in pg_stat_bgwriter.
+  document.getElementById('tm-pg-global-backend').textContent = globalStats.buffers_backend == null ? '—' : window.mtFmtInt(globalStats.buffers_backend);
 
   // 2. Active Sessions Table
   const sessionsTbody = document.getElementById('tm-pg-sessions-tbody');

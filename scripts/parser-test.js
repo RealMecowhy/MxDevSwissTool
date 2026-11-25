@@ -11,6 +11,15 @@
 const fs = require('fs');
 const path = require('path');
 
+// Local corpus files (never committed) are looked up by pattern, so the tests do not depend on
+// their exact names.
+function localAsset(dirParts, pattern) {
+  const dir = path.join(__dirname, '..', '_local_assets', ...dirParts);
+  let hit = null;
+  try { hit = fs.readdirSync(dir).filter(function (n) { return pattern.test(n); }).sort()[0] || null; } catch (e) { hit = null; }
+  return path.join(dir, hit || '(not present)');
+}
+
 global.self = global;
 require('../public/js/tools/mendix-log-parser.js');
 const parser = global.createMendixLogParser();
@@ -295,8 +304,7 @@ if (refCsv) {
 } else {
   console.log('  – reference CSV absent, skipped (repo hygiene: not committed)');
 }
-const refLive = path.join(__dirname, '..', '_local_assets', 'FilesForTest',
-  'logs_8d888530-51c3-4167-94f7-2d4c9a1b887e_2026-07-14.txt');
+const refLive = localAsset(['FilesForTest'], /^logs_[0-9a-f-]{36}_2026-07-14\.txt$/);
 if (fs.existsSync(refLive)) {
   const text = fs.readFileSync(refLive, 'utf8');
   const t0 = Date.now();
@@ -534,8 +542,8 @@ ok('background: empty input yields no events and no engine data',
 // Fallback for INFO-only logs: MicroflowEngine is silent, but background failures
 // are not — those are worth surfacing instead of an empty view.
 const bgErrLog = [
-  '2026-07-17T12:00:00.000000 ' + P + '  ERROR - TaskQueue: Task MDM.UPD_UserData failed',
-  '2026-07-17T12:00:01.000000 ' + P + '  ERROR - TaskQueue: Task MDM.UPD_UserData failed',
+  '2026-07-17T12:00:00.000000 ' + P + '  ERROR - TaskQueue: Task Sync.UPD_UserData failed',
+  '2026-07-17T12:00:01.000000 ' + P + '  ERROR - TaskQueue: Task Sync.UPD_UserData failed',
   '2026-07-17T12:00:02.000000 ' + P + '  WARNING - TaskQueue: Retrying task',
   '2026-07-17T12:00:03.000000 ' + P + '  ERROR - Core: Error executing scheduled event Ops.Nightly',
   '2026-07-17T12:00:04.000000 ' + P + '  ERROR - Jetty: Unrelated request failure'
@@ -732,8 +740,8 @@ const wsreLog = [
   // (2) REAL interleave case — two calls to the SAME method+URL in flight at once
   // (each with its own CallRest anchor), then both responses. FIFO must pair
   // req1→resp1 / req2→resp2 and BOTH calls must carry the uncertainty flag.
-  '2026-07-17T12:01:00.000000 ' + P + TR + 'MicroflowEngine: [3769f9ea-dd81-4306-8f0e-121a8af66755] Executing activity: {"current_activity":{"caption":"Call REST (POST)","type":"CallRest"},"name":"MyTT.SendShipment","type":"Microflow"}',
-  '2026-07-17T12:01:00.004000 ' + P + TR + 'MicroflowEngine: [a81f0323-947d-48c3-98ae-77a671cc8bbf] Executing activity: {"current_activity":{"caption":"Call REST (POST)","type":"CallRest"},"name":"MyTT.SendShipment","type":"Microflow"}',
+  '2026-07-17T12:01:00.000000 ' + P + TR + 'MicroflowEngine: [11111111-1111-4111-8111-111111111111] Executing activity: {"current_activity":{"caption":"Call REST (POST)","type":"CallRest"},"name":"Shipping.SendShipment","type":"Microflow"}',
+  '2026-07-17T12:01:00.004000 ' + P + TR + 'MicroflowEngine: [22222222-2222-4222-8222-222222222222] Executing activity: {"current_activity":{"caption":"Call REST (POST)","type":"CallRest"},"name":"Shipping.SendShipment","type":"Microflow"}',
   '2026-07-17T12:01:00.006000 ' + P + TR + 'REST Consume: Request content for POST request to https://api.example.com/rest/ship/v1/shipment HTTP/1.1',
   'Content-Type: application/json',
   '{"shipment":1}',
@@ -755,12 +763,12 @@ const wsreLog = [
   // (4) SOAP consume (WebServices) — SOAPAction header, XML bodies, own FIFO key
   '2026-07-17T12:03:00.000000 ' + P + TR + 'MicroflowEngine: [900-2] Executing activity: {"current_activity":{"caption":"Call web service \'getHeader\'","type":"CallWebservice"},"name":"Integration.GetInvoiceData","type":"Microflow"}',
   '2026-07-17T12:03:00.050000 ' + P + TR + 'WebServices: Created soap request:',
-  '<soapenv:Envelope><soapenv:Body><ns1:HeaderRequest><compCode>PL14</compCode></ns1:HeaderRequest></soapenv:Body></soapenv:Envelope>',
+  '<soapenv:Envelope><soapenv:Body><ns1:HeaderRequest><compCode>C001</compCode></ns1:HeaderRequest></soapenv:Body></soapenv:Envelope>',
   '2026-07-17T12:03:00.060000 ' + P + TR + 'WebServices: Creating http client for soap.example.com with timeout = 10s',
   '2026-07-17T12:03:00.100000 ' + P + TR + 'WebServices: Request content for POST request to https://soap.example.com/Invoices/InvoiceService HTTP/1.1',
   'SOAPAction: "urn:getHeader"',
   'Content-Type: text/xml; charset=UTF-8',
-  '<soapenv:Envelope><soapenv:Body><ns1:HeaderRequest><compCode>PL14</compCode></ns1:HeaderRequest></soapenv:Body></soapenv:Envelope>',
+  '<soapenv:Envelope><soapenv:Body><ns1:HeaderRequest><compCode>C001</compCode></ns1:HeaderRequest></soapenv:Body></soapenv:Envelope>',
   '2026-07-17T12:03:00.433000 ' + P + TR + 'WebServices: Response content for POST request to https://soap.example.com/Invoices/InvoiceService',
   'HTTP/1.1 200 OK',
   'content-type: text/xml; charset=utf-8',
@@ -771,7 +779,7 @@ const wsreLog = [
   // captured, response 200 with body, duration = incoming→outgoing delta
   '2026-07-17T12:04:00.000000 ' + P + TR + 'REST Publish: Incoming request from 127.0.0.1: POST http://app.example.com/rest/calculator/v1/httpRequest?request=42&cost=0',
   'Accept: application/json',
-  'traceparent: 00-68e15ede94f821a5b33f1cfd4433e811-d6de9389113ea824-00',
+  'traceparent: 00-0123456789abcdef0123456789abcdef-0123456789abcdef-00',
   'Content-Length: 0',
   '2026-07-17T12:04:00.001000 ' + P + TR + 'REST Publish: Path \'calculator/v1/httpRequest\' did not match \'getquotation/quotation\', continuing...',
   '2026-07-17T12:04:00.002000 ' + P + TR + 'REST Publish: Executing operation POST rest/calculator/v1/httpRequest',
@@ -828,8 +836,8 @@ eq('FIFO: second request gets second response', ship[1].responseBody, '{"receive
 eq('FIFO: first status 200', ship[0].status, 200);
 eq('FIFO: second status 500', ship[1].status, 500);
 ok('both interleaved calls flagged uncertain', ship[0].uncertain && ship[1].uncertain);
-eq('interleave: first anchor corrId', ship[0].corrId, '3769f9ea-dd81-4306-8f0e-121a8af66755');
-eq('interleave: second anchor corrId', ship[1].corrId, 'a81f0323-947d-48c3-98ae-77a671cc8bbf');
+eq('interleave: first anchor corrId', ship[0].corrId, '11111111-1111-4111-8111-111111111111');
+eq('interleave: second anchor corrId', ship[1].corrId, '22222222-2222-4222-8222-222222222222');
 ok('durations from own pair (1142/1142 ms)', Math.abs(ship[0].durationMs - 1142) < 0.001 && Math.abs(ship[1].durationMs - 1142) < 0.001,
   ship[0].durationMs + '/' + ship[1].durationMs);
 
@@ -994,13 +1002,13 @@ const insLog = [
   // Session state bloat — two requests, peak 450
   '2026-07-18T09:00:04.000000 ' + P + '  WARNING - RequestStatistics: Request state size of 315 objects exceeds the threshold of 300 objects.',
   '2026-07-18T09:00:05.000000 ' + P + '  WARNING - RequestStatistics: Request state size of 450 objects exceeds the threshold of 300 objects.',
-  // TaskQueue retry loop — MDM.UPD_UserData fails 6× from one queue, plus one other task
-  '2026-07-18T09:00:06.000000 ' + P + '   ERROR - TaskQueue: Failed to execute task \'MDM.UPD_UserData(Account=X@1)\' from task queue \'Queues.Schedule\'.',
-  '2026-07-18T09:00:07.000000 ' + P + '   ERROR - TaskQueue: Failed to execute task \'MDM.UPD_UserData(Account=X@1)\' from task queue \'Queues.Schedule\'.',
-  '2026-07-18T09:00:08.000000 ' + P + '   ERROR - TaskQueue: Failed to execute task \'MDM.UPD_UserData(Account=X@1)\' from task queue \'Queues.Schedule\'.',
-  '2026-07-18T09:00:09.000000 ' + P + '   ERROR - TaskQueue: Failed to execute task \'MDM.UPD_UserData(Account=X@1)\' from task queue \'Queues.Schedule\'.',
-  '2026-07-18T09:00:10.000000 ' + P + '   ERROR - TaskQueue: Failed to execute task \'MDM.UPD_UserData(Account=X@1)\' from task queue \'Queues.Schedule\'.',
-  '2026-07-18T09:00:11.000000 ' + P + '   ERROR - TaskQueue: Failed to execute task \'MDM.UPD_UserData(Account=X@1)\' from task queue \'Queues.Schedule\'.',
+  // TaskQueue retry loop — Sync.UPD_UserData fails 6× from one queue, plus one other task
+  '2026-07-18T09:00:06.000000 ' + P + '   ERROR - TaskQueue: Failed to execute task \'Sync.UPD_UserData(Account=X@1)\' from task queue \'Queues.Schedule\'.',
+  '2026-07-18T09:00:07.000000 ' + P + '   ERROR - TaskQueue: Failed to execute task \'Sync.UPD_UserData(Account=X@1)\' from task queue \'Queues.Schedule\'.',
+  '2026-07-18T09:00:08.000000 ' + P + '   ERROR - TaskQueue: Failed to execute task \'Sync.UPD_UserData(Account=X@1)\' from task queue \'Queues.Schedule\'.',
+  '2026-07-18T09:00:09.000000 ' + P + '   ERROR - TaskQueue: Failed to execute task \'Sync.UPD_UserData(Account=X@1)\' from task queue \'Queues.Schedule\'.',
+  '2026-07-18T09:00:10.000000 ' + P + '   ERROR - TaskQueue: Failed to execute task \'Sync.UPD_UserData(Account=X@1)\' from task queue \'Queues.Schedule\'.',
+  '2026-07-18T09:00:11.000000 ' + P + '   ERROR - TaskQueue: Failed to execute task \'Sync.UPD_UserData(Account=X@1)\' from task queue \'Queues.Schedule\'.',
   '2026-07-18T09:00:12.000000 ' + P + '   ERROR - TaskQueue: Failed to execute task \'Parking.SmsNotification(Id=9)\' from task queue \'Queues.Sms\'.',
   // Generic per-node error hotspot (SAML_SSO)
   '2026-07-18T09:00:13.000000 ' + P + '   ERROR - SAML_SSO: null',
@@ -1046,7 +1054,7 @@ ok('insights: taskqueue-fail category present', !!catBy['taskqueue-fail']);
 eq('taskqueue-fail: total failures', catBy['taskqueue-fail'].count, 7);
 eq('taskqueue-fail: severity error', catBy['taskqueue-fail'].severity, 'error');
 ok('taskqueue-fail: retry loop noted in subtitle', /retry-loop/.test(catBy['taskqueue-fail'].subtitle), catBy['taskqueue-fail'].subtitle);
-eq('taskqueue-fail: top task is MDM.UPD_UserData', catBy['taskqueue-fail'].items[0].filter.search, 'MDM.UPD_UserData');
+eq('taskqueue-fail: top task is Sync.UPD_UserData', catBy['taskqueue-fail'].items[0].filter.search, 'Sync.UPD_UserData');
 eq('taskqueue-fail: top task count', catBy['taskqueue-fail'].items[0].count, 6);
 
 // Generic per-node hotspot
@@ -1148,8 +1156,8 @@ eq('insights: empty input → zero categories', logInsights([]).categories.lengt
 
 // Reference: real INFO-level production log (local only, PII — never committed).
 // This is the 14.07 log from the SE/Log-Insights analysis: it carries a genuine
-// MDM.UPD_UserData retry loop, permission denials and request-state bloat.
-const refInfo = path.join(__dirname, '..', '_local_assets', 'FilesForTest', 'logs_8d888530-51c3-4167-94f7-2d4c9a1b887e_2026-07-14.txt');
+// UPD_UserData retry loop, permission denials and request-state bloat.
+const refInfo = localAsset(['FilesForTest'], /^logs_[0-9a-f-]{36}_2026-07-14\.txt$/);
 if (fs.existsSync(refInfo)) {
   const text = fs.readFileSync(refInfo, 'utf8');
   const recs4 = parser.parse(text).records;
@@ -1159,8 +1167,8 @@ if (fs.existsSync(refInfo)) {
   const by = {};
   out.categories.forEach(function (c) { by[c.key] = c; });
   eq('reference INFO: TaskQueue failures = 118', by['taskqueue-fail'] && by['taskqueue-fail'].count, 118);
-  eq('reference INFO: MDM.UPD_UserData is the top failing task', by['taskqueue-fail'].items[0].filter.search, 'MDM.UPD_UserData');
-  eq('reference INFO: MDM.UPD_UserData failed 103×', by['taskqueue-fail'].items[0].count, 103);
+  ok('reference INFO: UPD_UserData is the top failing task', /\.UPD_UserData$/.test(by['taskqueue-fail'].items[0].filter.search));
+  eq('reference INFO: UPD_UserData failed 103×', by['taskqueue-fail'].items[0].count, 103);
   eq('reference INFO: permission denials = 14', by['perm-denied'] && by['perm-denied'].count, 14);
   eq('reference INFO: session-state bloat warnings = 5', by['session-bloat'] && by['session-bloat'].count, 5);
   eq('reference INFO: SAML_SSO error hotspot = 266', by['node-error-SAML_SSO'] && by['node-error-SAML_SSO'].count, 266);
@@ -1429,7 +1437,7 @@ ok('errdec: published web service failure',
 ok('errdec: web service input parameters',
   edxIds("WebServices: Couldn't handle input parameters").indexOf('mx-ws-input-parameters') !== -1);
 ok('errdec: task queue failure',
-  edxIds("TaskQueue: Failed to execute task 'MDM.UPD_UserData(Account=X@1)' from task queue 'Queues.Schedule'.")
+  edxIds("TaskQueue: Failed to execute task 'Sync.UPD_UserData(Account=X@1)' from task queue 'Queues.Schedule'.")
     .indexOf('mx-taskqueue-failed') !== -1);
 ok('errdec: request state size',
   edxIds('RequestStatistics: Request state size of 450 objects exceeds the threshold of 300 objects.')
@@ -1503,7 +1511,7 @@ ok('errdec: ruleset has at least 30 patterns', global.EDX_RULES.length >= 30, gl
 
 // ── 404 static-file / scanner-probe rule (real MxCloud runtime log lines) ─────
 ok('errdec: 404 file not found matches',
-  edxIds('2026-07-17T00:10:57.791076 [runtime-container/27mj7]  ERROR - Connector: 404 - file not found for file: magento_version').indexOf('http-404-file-not-found') !== -1);
+  edxIds('2026-07-17T00:10:57.791076 [runtime-container/x1y2z]  ERROR - Connector: 404 - file not found for file: magento_version').indexOf('http-404-file-not-found') !== -1);
 const edx404 = edxTop('ERROR - Connector: 404 - file not found for file: magento_version');
 eq('errdec: 404 rule is categorized Platform', edx404.category, 'Platform');
 ok('errdec: 404 mechanism names the requested file', /magento_version/.test(edx404.mechanism), edx404.mechanism);
@@ -1524,7 +1532,7 @@ ok('errdec: 404 escapes an HTML-bearing probe path in the mechanism',
   !/<script>/.test(edxTop('ERROR - Connector: 404 - file not found for file: <script>alert(1)</script>').mechanism));
 
 // ── REST-publish 404 "no operation matches" (real MxCloud DEBUG log line) ─────
-const rest404line = '2026-07-17T00:10:59.251887 [runtime-container/27mj7]  DEBUG - REST Publish: Responding with 404 Not Found, because no operation matches http://weborderentry100-accp.mendixcloud.com/rest/default/V1/guest-carts';
+const rest404line = '2026-07-17T00:10:59.251887 [runtime-container/x1y2z]  DEBUG - REST Publish: Responding with 404 Not Found, because no operation matches http://shop-test.example.com/rest/default/V1/guest-carts';
 ok('errdec: REST-publish 404 matches',
   edxIds(rest404line).indexOf('http-404-rest-no-operation') !== -1);
 const edxRest404 = edxTop(rest404line);
@@ -1563,7 +1571,7 @@ ok('errdec: autocommitted objects on logout',
   edxIds("Core: Some autocommitted objects still existed on logout for session 'Anonymous_8c483d2b-9242-4b10-9ef1-36e495d960d7'.")
     .indexOf('mx-autocommitted-on-logout') !== -1);
 ok('errdec: slow query warning',
-  edxIds('ConnectionBus_Queries: Query executed in 6 seconds and 794 milliseconds: SELECT "myconnect$ticketmc"."id" FROM "myconnect$ticketmc"')
+  edxIds('ConnectionBus_Queries: Query executed in 6 seconds and 794 milliseconds: SELECT "support$ticket"."id" FROM "support$ticket"')
     .indexOf('mx-slow-query-warning') !== -1);
 ok('errdec: slow query states the measured duration',
   /6 s 794 ms/.test(edxTop('ConnectionBus_Queries: Query executed in 6 seconds and 794 milliseconds: SELECT 1').mechanism));
@@ -1571,19 +1579,19 @@ ok('errdec: slow query states the measured duration',
 ok('errdec: slow query handles singular units',
   edxIds('Query executed in 1 second and 1 millisecond: SELECT 1').indexOf('mx-slow-query-warning') !== -1);
 ok('errdec: widget missing XPath parameter',
-  edxIds("WebUI: The runtime operation 'XCLCU1T9sVGRCPbmKhEJNA' is missing parameters: [Search]. This might lead to an unresolvable XPath: '//myConnect.TeamMC[contains(Name,$Search)]'.")
+  edxIds("WebUI: The runtime operation 'AbCdEfGhIjKlMnOpQrStUv' is missing parameters: [Search]. This might lead to an unresolvable XPath: '//Support.Team[contains(Name,$Search)]'.")
     .indexOf('mx-widget-missing-parameter') !== -1);
 ok('errdec: widget rule names the missing parameter',
   /Search/.test(edxTop("WebUI: The runtime operation 'X' is missing parameters: [Search]. This might lead to an unresolvable XPath: '//A[1]'.").mechanism));
 // Both runtime phrasings of the permission refusal are the same family.
 ok('errdec: permission refusal (runtime-operation phrasing)',
-  edxIds("WebUI: User 'user1@example.com' attempted to execute runtime operation 'nFjwXyMA4F6N8suJZAXz4A' (microflow call 'TicketsAndTeams.ACT_ShowDetailsPageOperator') but does not have the required permissions")
+  edxIds("WebUI: User 'user1@example.com' attempted to execute runtime operation 'ZyXwVuTsRqPoNmLkJiHgFe' (microflow call 'Support.ACT_ShowDetailsPage') but does not have the required permissions")
     .indexOf('mx-microflow-not-permitted') !== -1);
 ok('errdec: permission refusal (action-name phrasing)',
-  edxIds("WebUI: User 'user2@example.com' attempted to execute the microflow with action name 'TimeWindows_DeliveryShow', but does not have the required permissions.")
+  edxIds("WebUI: User 'user2@example.com' attempted to execute the microflow with action name 'Orders_DetailsShow', but does not have the required permissions.")
     .indexOf('mx-microflow-not-permitted') !== -1);
 ok('errdec: permission refusal names the microflow',
-  /TimeWindows_DeliveryShow/.test(edxTop("WebUI: User 'a@b.c' attempted to execute the microflow with action name 'TimeWindows_DeliveryShow', but does not have the required permissions.").mechanism));
+  /Orders_DetailsShow/.test(edxTop("WebUI: User 'a@b.c' attempted to execute the microflow with action name 'Orders_DetailsShow', but does not have the required permissions.").mechanism));
 ok('errdec: TokenReplacer null ID list',
   edxIds('TokenReplacer: requirement failed: Ids should not be null\njava.lang.IllegalArgumentException: requirement failed: Ids should not be null')
     .indexOf('mx-tokenreplacer-null-ids') !== -1);
@@ -1596,10 +1604,10 @@ ok('errdec: glued-together addresses are called out',
 ok('errdec: an empty address string is reported as empty',
   /empty<\/strong>/.test(edxTop("javax.mail.internet.AddressException: Illegal address in string ``''").mechanism));
 ok('errdec: import mapping attribute parse failure',
-  edxIds("JSON Import: A problem occurred parsing attribute 'Loading_Country' of object of type 'Integration.ShipmentTemp'. The value was ''. This isn't allowed by the schema.")
+  edxIds("JSON Import: A problem occurred parsing attribute 'Country' of object of type 'Import.OrderTemp'. The value was ''. This isn't allowed by the schema.")
     .indexOf('mx-import-attribute-parse') !== -1);
 ok('errdec: import parse failure names attribute and entity',
-  /Loading_Country[\s\S]*Integration\.ShipmentTemp/.test(edxTop("XML Import: A problem occurred parsing attribute 'Loading_Country' of object of type 'Integration.ShipmentTemp'. The value was 'x'.").mechanism));
+  /Country[\s\S]*Import\.OrderTemp/.test(edxTop("XML Import: A problem occurred parsing attribute 'Country' of object of type 'Import.OrderTemp'. The value was 'x'.").mechanism));
 ok('errdec: XSD validation failure',
   edxIds("XML Import: Error occurred while parsing xml: cvc-complex-type.2.4.a: Invalid content was found starting with element '{\"http://schemas.xmlsoap.org/soap/envelope/\":Header}'.")
     .indexOf('mx-xsd-validation-failed') !== -1);
@@ -1842,6 +1850,17 @@ async function runAnonTests() {
   eq('anon: plain mode equals the worker result without markers', plainOut.anon, r.visible);
   eq('anon: plain mode builds no marked original', plainOut.raw, '');
   eq('anon: plain mode counts the same replacements', JSON.stringify(plainMasker.stats), JSON.stringify(r.stats));
+
+  // 11. Keywords that begin or end outside A to Z. \b knows only A-Z, digits and the underscore,
+  // so these were never found and their count stayed 0.
+  const kw = (keywords, text) => { const m = global.mtAnonCoreFactory().createMasker({ keywords: keywords }); return { text: m.maskChunk(text, true).anon, count: m.stats.keywords }; };
+  eq('anon keywords: a word that ends with a Polish letter', JSON.stringify(kw('Poznań', 'Oddział Poznań zamówił, Poznań.')), '{"text":"Oddział [REDACTED] zamówił, [REDACTED].","count":2}');
+  eq('anon keywords: a word that begins with one', kw('Żabka', 'Firma Żabka i żabka.').text, 'Firma [REDACTED] i [REDACTED].');
+  eq('anon keywords: a name that ends with a full stop', kw('Acme S.A.', 'Umowa z Acme S.A. na rok').text, 'Umowa z [REDACTED] na rok');
+  eq('anon keywords: a name made of signs', kw('C++', 'written in C++ and C++.').text, 'written in [REDACTED] and [REDACTED].');
+  eq('anon keywords: each place is counted once, though two patterns look at it', kw('Łódź', 'Łódź Łódź Łódź').count, 3);
+  eq('anon keywords: inside a longer word it is left alone', kw('żabka', 'z żabkami i żabka').text, 'z żabkami i [REDACTED]');
+  eq('anon keywords: a plain keyword behaves as before', JSON.stringify(kw('Core,ACME', 'Core: ACME and Cores, core.')), '{"text":"[REDACTED]: [REDACTED] and Cores, [REDACTED].","count":3}');
 }
 
 // ── Shared export helpers (public/js/components/exporters.js) ────────────────
@@ -1990,7 +2009,7 @@ const wsreSecWithErrors = { id: 'ws-rest-extractor', title: 'WSRE', subtitle: '5
 const jvmSecWithDeadlock = {
   id: 'thread-dump', title: 'JVM', subtitle: '',
   columns: ['Metric', 'Value'],
-  rows: [['BLOCKED', 1], ['Deadlocks detected', 2]]
+  rows: [['BLOCKED', 1], ['Deadlocks reported by the JVM', 2], ['Lock chains (waiting on a blocked or waiting holder)', 3]]
 };
 
 ok('summary: counts errors+critical from Log Viewer, not warnings',
@@ -2001,6 +2020,10 @@ ok('summary: pulls WSRE failed-call count from its own subtitle',
   summarize([wsreSecWithErrors], 'W').indexOf('2 failed calls') !== -1);
 ok('summary: surfaces JVM deadlocks when present',
   summarize([jvmSecWithDeadlock], 'W').indexOf('2 deadlocks') !== -1);
+ok('summary: a lock chain is counted apart from a deadlock the JVM reported',
+  summarize([jvmSecWithDeadlock], 'W').indexOf('3 lock chains') !== -1);
+ok('summary: no JVM report ("—") is no deadlock',
+  summarize([{ id: 'thread-dump', title: 'JVM', subtitle: '', columns: ['Metric', 'Value'], rows: [['Deadlocks reported by the JVM', '—'], ['Lock chains (waiting on a blocked or waiting holder)', 1]] }], 'W').indexOf('deadlock') === -1);
 eq('summary: always leads with the period', summarize([], 'X → Y'), 'Period: X → Y');
 ok('summary: a source with no matching columns contributes no clause',
   summarize([{ id: 'nginx-log', title: 'n', subtitle: '', columns: ['Time', 'Status'], rows: [['t', 500]] }], 'W') === 'Period: W');
@@ -2057,7 +2080,7 @@ eq('livedb: ...and the text is unchanged', nph('SELECT * FROM t WHERE a = $1').s
 // Real Mendix shape: dollar signs live in table names, and must not be mistaken
 // for placeholders.
 eq('livedb: a Mendix $ table name is not a placeholder',
-  nph('SELECT "myconnect$ticketmc"."id" FROM "myconnect$ticketmc" WHERE "id" = ?').count, 1);
+  nph('SELECT "sales$ticket"."id" FROM "sales$ticket" WHERE "id" = ?').count, 1);
 
 ok('livedb: multi-statement rejected', livedb.isReadOnlySelect('SELECT 1; DROP TABLE t') === false);
 ok('livedb: UPDATE rejected', livedb.isReadOnlySelect('UPDATE t SET a=1') === false);
@@ -2103,7 +2126,7 @@ eq('advisor: long warm window → ok',
 ok('advisor: withheld verdict always explains itself',
   /almost no queries/.test(livedb.assessStatsWindow({ totalIdxScan: 1, totalSeqScan: 1 }).reason));
 
-// -- the SS3DB trap: a restored copy must NOT be told to drop 597 indexes --
+// -- the cold-copy trap: a restored copy must NOT be told to drop 597 indexes --
 const coldAdvice = livedb.buildIndexAdvice({
   indexes: [ixFix({ idxScan: 0 }), ixFix({ name: 'idx_b', idxScan: 0, keyColumns: 'status' })],
   tables: [tbFix({ seqScan: 20, idxScan: 0 })],
@@ -4599,6 +4622,16 @@ eq('hour derivation: unrecognized format falls back to a 13-char slice, not a cr
 
 ok('worker threshold: matches the 2 MB convention shared with LQE/MFT/WSRE', global.NGINX_WORKER_THRESHOLD === 2 * 1024 * 1024);
 
+// A missing response time is not 0 ms: the combined format logs one only when the
+// log format adds $request_time, and a 0 would pull every average down.
+eq('parse: the combined format without a response time has none, not 0',
+  global.nginxParseLine('203.0.113.5 - - [24/Jul/2026:10:15:23 +0000] "GET /a HTTP/1.1" 200 12 "-" "Mozilla/5.0"').time, null);
+eq('parse: with one it is read', global.nginxParseLine('203.0.113.5 - - [24/Jul/2026:10:15:23 +0000] "GET /a HTTP/1.1" 200 12 "-" "Mozilla/5.0" 0.250').time, 0.25);
+eq('parse: a key-value line without response_time_in_seconds has none',
+  global.nginxParseLine('2026-08-10T00:00:01.000000 [nginx/x]   request="GET /a HTTP/1.1" status="200"').time, null);
+eq('parse: a measured 0.000 stays a measurement',
+  global.nginxParseLine('2026-08-10T00:00:01.000000 [nginx/x]   request="GET /a HTTP/1.1" status="200" response_time_in_seconds="0.000"').time, 0);
+
 // ── 404 classification (nginxClassifyTraffic) ────────────────────────────────
 // Every path below is verbatim from the NewLogs corpus. The rule it encodes:
 // a 404 belongs to a SCANNER, to a browser CONVENTION, or to your own APP —
@@ -4641,8 +4674,8 @@ eq('classify: ...and they contribute no scanner sources', nxConv.sources.length,
 
 // The app bucket: the honest default when nothing is proven.
 const nxApp = nxClassify([
-  nx404('/rest/networkerforshuttleplan/v1/leadtime', '2.2.2.1'),
-  nx404('/ui/theme-cape/images/myApp_logoRed.png', '2.2.2.2'),
+  nx404('/rest/orderservice/v1/leadtime', '2.2.2.1'),
+  nx404('/ui/theme/images/logo_red.png', '2.2.2.2'),
   nx404('/fonts/KFOlCnqEu92Fr1MmEU9fABc4EsA.woff2', '2.2.2.3'),
   nx404('/widgets/AutoCompleteForMendix.js.map', '2.2.2.4')
 ]);
@@ -4726,9 +4759,9 @@ ok('ts→ms: empty input is NaN', isNaN(global.nxCorrTsToMs('')));
 // practice: bare ERROR/WARNING lines, and (separately) corrId groups when a
 // richer log does have them.
 const nxcBareRecords = [
-  { level: 'ERROR', timestamp: '2026-08-10T00:02:55.139200', logNode: 'Connector', message: '404 - file not found for file: wp-login.php' },
-  { level: 'INFO', timestamp: '2026-08-10T00:02:55.200000', logNode: 'Core', message: 'Nothing wrong here' },
-  { level: 'WARN', timestamp: '2026-08-10T00:03:00.000000', logNode: 'Scheduler', message: 'Queue backing up' }
+  { level: 'ERROR', timestamp: '2026-08-11T00:12:31.139200', logNode: 'Connector', message: '404 - file not found for file: wp-login.php' },
+  { level: 'INFO', timestamp: '2026-08-11T00:12:31.200000', logNode: 'Core', message: 'Nothing wrong here' },
+  { level: 'WARN', timestamp: '2026-08-11T00:12:36.000000', logNode: 'Scheduler', message: 'Queue backing up' }
 ];
 const nxcBareEvents = global.nxCorrBuildRuntimeEvents(nxcBareRecords, []);
 eq('runtime events: INFO lines produce no event', nxcBareEvents.length, 2);
@@ -4746,24 +4779,34 @@ eq('runtime events: a group with an unparseable span is dropped rather than cras
 
 // ── nxCorrelate ──
 const nxcRtr = [
-  { rawLine: '2026-08-10T00:02:55.142369 [nginx/x]   request="GET /wp-login.php HTTP/1.1" status="404"', status: 404, method: 'GET', url: '/wp-login.php', time: 0.001, ip: '1.2.3.4' },
-  { rawLine: '2026-08-10T00:10:00.000000 [nginx/x]   request="GET /far-away HTTP/1.1" status="200"', status: 200, method: 'GET', url: '/far-away', time: 0.001, ip: '1.2.3.4' },
+  { rawLine: '2026-08-11T00:12:31.142369 [nginx/x]   request="GET /wp-login.php HTTP/1.1" status="404"', status: 404, method: 'GET', url: '/wp-login.php', time: 0.001, ip: '1.2.3.4' },
+  { rawLine: '2026-08-11T00:19:36.000000 [nginx/x]   request="GET /far-away HTTP/1.1" status="200"', status: 200, method: 'GET', url: '/far-away', time: 0.001, ip: '1.2.3.4' },
   { rawLine: 'not-a-timestamp', status: 200, method: 'GET', url: '/no-ts', time: 0, ip: '1.2.3.4' }
 ];
 const nxcEvents = [
-  { kind: 'entry', ms: global.nxCorrTsToMs('2026-08-10T00:02:55.139200'), msEnd: global.nxCorrTsToMs('2026-08-10T00:02:55.139200'), level: 'ERROR', node: 'Connector', message: '404 - file not found for file: wp-login.php' }
+  { kind: 'entry', ms: global.nxCorrTsToMs('2026-08-11T00:12:31.139200'), msEnd: global.nxCorrTsToMs('2026-08-11T00:12:31.139200'), level: 'ERROR', node: 'Connector', message: '404 - file not found for file: wp-login.php' }
 ];
 const nxcResult = global.nxCorrelate(nxcRtr, nxcEvents, 3000);
 eq('correlate: a request with no parseable timestamp is dropped, not matched', nxcResult.requests.length, 2);
 eq('correlate: the near-simultaneous request/event pair links', nxcResult.links.length, 1);
-eq('correlate: the distant request does not link within a 3s window', nxcResult.links.some(l => nxcResult.requests[l.reqIndex].url === '/far-away'), false);
+eq('correlate: the distant request does not link within a 3s window', nxcResult.links.some(l => global.nxCorrRequestOf(nxcResult, l).url === '/far-away'), false);
 ok('correlate: the linked distance matches the real 3.2ms gap seen in the corpus', nxcResult.links[0].distMs > 3 && nxcResult.links[0].distMs < 4, nxcResult.links[0].distMs);
 eq('correlate: default window applies when none is given', global.nxCorrelate(nxcRtr, nxcEvents, undefined).windowMs, 3000);
 eq('correlate: empty inputs produce empty output, not a crash', global.nxCorrelate([], [], 1000).links.length, 0);
+// A link names the request by its index in the records given, not by its place in
+// result.requests (filtered and sorted): out of time order the two differ.
+const nxcOutOfOrder = [
+  { rawLine: '2026-08-11T10:00:09.000000 [nginx/x]   request="GET /late HTTP/1.1" status="500"', status: 500, method: 'GET', url: '/late', time: 0.001, ip: '1.2.3.4' },
+  { rawLine: '2026-08-11T10:00:01.000000 [nginx/x]   request="GET /early HTTP/1.1" status="200"', status: 200, method: 'GET', url: '/early', time: 0.001, ip: '1.2.3.4' }
+];
+const nxcLateEvent = [{ kind: 'entry', ms: global.nxCorrTsToMs('2026-08-11T10:00:09.001000'), msEnd: global.nxCorrTsToMs('2026-08-11T10:00:09.001000'), level: 'ERROR', node: 'Core', message: 'x' }];
+const nxcOoo = global.nxCorrelate(nxcOutOfOrder, nxcLateEvent, 10);
+eq('correlate: out of time order, the link still names the request that matched', global.nxCorrRequestOf(nxcOoo, nxcOoo.links[0]).url, '/late');
+eq('correlate: ...where reading result.requests by that index would show another one', nxcOoo.requests[nxcOoo.links[0].reqIndex].url, '/early');
 
 // ── Real corpus (when present locally) — the pair that led to this design ──
-const nxcRtrFile = path.join(__dirname, '..', '_local_assets', 'FilesForTest', 'NewLogs', 'Bridge', 'rtr_logs_eb2b8f2f-501f-4856-a13b-9e9705118f0d_2026-08-10.txt');
-const nxcAppFile = path.join(__dirname, '..', '_local_assets', 'FilesForTest', 'NewLogs', 'Bridge', 'logs_eb2b8f2f-501f-4856-a13b-9e9705118f0d_2026-08-10.txt');
+const nxcRtrFile = localAsset(['FilesForTest', 'NewLogs', 'Bridge'], /^rtr_logs_[0-9a-f-]{36}_2026-08-10\.txt$/);
+const nxcAppFile = path.join(path.dirname(nxcRtrFile), path.basename(nxcRtrFile).replace(/^rtr_/, ''));
 if (fs.existsSync(nxcRtrFile) && fs.existsSync(nxcAppFile)) {
   const nxcRtrText = fs.readFileSync(nxcRtrFile, 'utf8');
   const nxcAppText = fs.readFileSync(nxcAppFile, 'utf8');
@@ -4774,7 +4817,7 @@ if (fs.existsSync(nxcRtrFile) && fs.existsSync(nxcAppFile)) {
   const nxcRealResult = global.nxCorrelate(nxcRealRtr, nxcRealEvents, 3000);
   ok('real corpus: this app log runs INFO-and-above only, so every runtime event is a bare entry, none a corrId flow',
     nxcRealEvents.length > 0 && nxcRealEvents.every(e => e.kind === 'entry'));
-  const nxcWpMatches = nxcRealResult.links.filter(l => nxcRealResult.requests[l.reqIndex].url === '/wp-login.php');
+  const nxcWpMatches = nxcRealResult.links.filter(l => global.nxCorrRequestOf(nxcRealResult, l).url === '/wp-login.php');
   ok('real corpus: rtr 404s for /wp-login.php pair up with the app log\'s "file not found" ERROR line', nxcWpMatches.length > 0);
   ok('real corpus: the match distance is a few milliseconds, not a coincidence across the window', nxcWpMatches.every(l => l.distMs < 50));
 } else {
@@ -7142,6 +7185,13 @@ async function runPrometheusParserTests() {
   const idle = dv.tmDeriveSample(scrape([3, 20], [6, 40]), d2.counters, 20000);
   eq('derive: an interval with no finished request has no average latency', idle.sample.avgLatency, null);
   eq('derive: ...and a request rate of 0 (it was measured)', idle.sample.reqsRate, 0);
+
+  // OTLP: a metric named like a property of Object is a metric like any other.
+  const ot = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'public', 'js', 'tools', 'telemetry', 'parsers', 'otel.js')).href);
+  const otp = ot.tmParseOtelMetrics({ resourceMetrics: [{ scopeMetrics: [{ metrics: [{ name: 'constructor', gauge: { dataPoints: [{ asDouble: 1 }] } }, { name: 'toString', gauge: { dataPoints: [{ asDouble: 2 }] } }] }] }] });
+  eq('otlp: a metric named constructor does not throw and is read', otp.constructor[0].value, 1);
+  eq('otlp: nor one named toString', otp.toString[0].value, 2);
+  eq('otlp: the result has no prototype', Object.getPrototypeOf(ot.tmParseOtelMetrics({ resourceMetrics: [] })), null);
 }
 
 // ── Summary ─────────────────────────────────────────────────────────────────

@@ -168,7 +168,10 @@ function analyzeThreadDump() {
   const parsed = jvmParseThreadDump(input);
   const blocked = parsed.blocked, waiting = parsed.waiting, runnable = parsed.runnable;
 
-  // Detect deadlocks: threads waiting for locks held by other blocked/waiting threads
+  // Lock chains: threads waiting for locks held by other blocked/waiting threads.
+  // This is a deadlock only when the chain closes into a cycle (A waits for B, B for C,
+  // and C may be running on); the JVM checks for cycles itself and prints
+  // "Found N deadlock" when it finds one, so that line is the deadlock signal.
   const deadlocks = [];
   const allProblematic = [...blocked, ...waiting.filter(t => t.trace.includes('waiting to lock'))];
   allProblematic.forEach(t => {
@@ -180,12 +183,16 @@ function analyzeThreadDump() {
     }
   });
 
+  // The JVM's own deadlock report: jstack prints it after finding a cycle.
+  const foundDeadlockMatch = input.match(/Found (\d+) deadlock/);
+
   // Stash a lightweight summary for the Incident Report. A thread dump is a
   // point-in-time snapshot (no time window), so the report includes it only when
   // one has actually been analyzed here (data-driven rule).
   window._jvmLastSummary = {
     blocked: blocked.length, waiting: waiting.length, runnable: runnable.length,
     total: blocked.length + waiting.length + runnable.length, deadlocks: deadlocks.length,
+    jvmDeadlocks: foundDeadlockMatch ? parseInt(foundDeadlockMatch[1], 10) : null,
     blockedThreads: blocked.slice(0, 25).map(function (t) { return (t.name.split('"')[1] || t.name); })
   };
 
@@ -211,7 +218,7 @@ function analyzeThreadDump() {
   html += `</p></div></div>`;
 
   if (deadlocks.length > 0) {
-    html += `<div class="notice notice-error" style="margin-bottom:var(--sp-3)"><strong>⚠️ ${deadlocks.length} Deadlock(s) detected!</strong><ul style="margin-top:4px;padding-left:1.2em">`;
+    html += `<div class="notice notice-warning" style="margin-bottom:var(--sp-3)"><strong>⚠️ ${deadlocks.length} lock chain(s)</strong>: a thread waits for a lock held by a thread that is itself blocked or waiting. This is a deadlock only when the chain closes into a cycle; the JVM reports a cycle itself as "Found N deadlock".<ul style="margin-top:4px;padding-left:1.2em">`;
     deadlocks.forEach(d => { html += `<li><code>${escHtml(d.waiter)}</code> waiting for lock held by <code>${escHtml(d.holder)}</code> (lock: ${d.lock})</li>`; });
     html += '</ul></div>';
   }
@@ -238,8 +245,7 @@ function analyzeThreadDump() {
     });
   }
 
-  const foundDeadlockMatch = input.match(/Found (\d+) deadlock/);
-  if (foundDeadlockMatch && deadlocks.length === 0) {
+  if (foundDeadlockMatch) {
     html = `<div class="notice notice-error" style="margin-bottom:var(--sp-3)"><strong>⚠️ Java detected ${foundDeadlockMatch[1]} deadlock(s) in this thread dump.</strong> Look for "waiting to lock" entries above.</div>` + html;
   }
 
@@ -295,7 +301,8 @@ window.jvmReportSection = function() {
   if (!s || !s.total) return null;
   const rows = [
     ['BLOCKED', s.blocked], ['WAITING', s.waiting], ['RUNNABLE', s.runnable],
-    ['Total threads', s.total], ['Deadlocks detected', s.deadlocks]
+    ['Total threads', s.total], ['Deadlocks reported by the JVM', s.jvmDeadlocks === null || s.jvmDeadlocks === undefined ? '—' : s.jvmDeadlocks],
+    ['Lock chains (waiting on a blocked or waiting holder)', s.deadlocks]
   ];
   if (s.blockedThreads && s.blockedThreads.length) {
     rows.push(['Blocked threads', s.blockedThreads.join(', ') + (s.blocked > s.blockedThreads.length ? ', …' : '')]);

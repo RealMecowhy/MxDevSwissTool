@@ -19,10 +19,10 @@
 // ten apps in the NewLogs corpus, and every single one runs INFO-and-above
 // only, so none of them ever emits a [corrId] anywhere. Building the runtime
 // lane from corrId groups alone would make this feature empty-state on every
-// real log this tool has ever seen. The two real, verified matches that led
-// to this design: an rtr 404 for /wp-login.php at 00:02:55.142369 paired with
-// the app log's "404 - file not found for file: wp-login.php" ERROR at
-// 00:02:55.139200 (3.2ms apart) — a plain ERROR line, no correlation ID.
+// real log this tool has ever seen. The real, verified match that led to this
+// design: an rtr 404 for /wp-login.php paired with the app log's "404 - file
+// not found for file: wp-login.php" ERROR 3.2 ms earlier — a plain ERROR line,
+// no correlation ID.
 
 window.nxCorrAppLogText = null;
 window.nxCorrAppLogFilename = null;
@@ -114,9 +114,22 @@ function nxCorrelate(rtrRecords, events, windowMs) {
   return { requests: requests, events: evs, links: links, windowMs: windowMs };
 }
 
+// Pure. The request a link points at. link.reqIndex is the index of the request in
+// the records given to nxCorrelate, while result.requests is filtered (no timestamp)
+// and sorted by time, so the two only line up when every record has a timestamp and
+// the records are already in time order. Reading result.requests[link.reqIndex]
+// showed another request than the one that matched on any other log.
+function nxCorrRequestOf(result, link) {
+  for (let i = 0; i < result.requests.length; i++) {
+    if (result.requests[i].index === link.reqIndex) return result.requests[i];
+  }
+  return null;
+}
+
 window.nxCorrTsToMs = nxCorrTsToMs;
 window.nxCorrBuildRuntimeEvents = nxCorrBuildRuntimeEvents;
 window.nxCorrelate = nxCorrelate;
+window.nxCorrRequestOf = nxCorrRequestOf;
 
 // ── DOM: app log input ───────────────────────────────────────────────────
 
@@ -314,7 +327,7 @@ function nxCorrRender(result) {
 
   const rows = result.links.slice().sort(function (a, b) { return a.distMs - b.distMs; }).slice(0, 500);
   rows.forEach(function (l) {
-    const req = result.requests[l.reqIndex];
+    const req = nxCorrRequestOf(result, l);
     const e = result.events[l.eventIndex];
     if (!req || !e) return;
     const shortUrl = req.url.length > 48 ? req.url.slice(0, 48) + '…' : req.url;

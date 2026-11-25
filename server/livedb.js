@@ -91,7 +91,7 @@ function isReadOnlySelect(sql) {
 // dead on real input while working perfectly on hand-typed examples.
 //
 // The scan skips string literals and quoted identifiers so a '?' inside them is
-// left alone — Mendix double-quotes every table and column ("myconnect$ticket"),
+// left alone — Mendix double-quotes every table and column ("sales$ticket"),
 // so identifier handling is not optional here.
 function normalizeParamPlaceholders(sql) {
   const s = String(sql == null ? '' : sql);
@@ -221,7 +221,7 @@ async function runExplain(Client, dbConfig, sql, opts) {
 // The single most important design decision here: **usage statistics lie on a
 // cold database.** A freshly restored dev copy reports every index as "never
 // scanned" simply because pg_stat_* counters restart at zero — the reference
-// SS3DB had 597 "unused" indexes after 8 index scans total. A naive advisor
+// database had 597 "unused" indexes after 8 index scans total. A naive advisor
 // tells you to drop them all. So findings are split in two:
 //
 //   * STRUCTURAL (duplicate / redundant / invalid indexes) — derived from the

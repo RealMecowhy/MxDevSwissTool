@@ -249,7 +249,8 @@ function nginxParseLine(line) {
       url: url,
       status: parseInt(kv.status, 10) || 0,
       bytes: parseInt(kv.response_size_in_bytes, 10) || 0,
-      time: parseFloat(kv.response_time_in_seconds) || 0,
+      // null when the line has no response time: 0 would be a measurement of nothing.
+      time: /^[\d.]+$/.test(kv.response_time_in_seconds || '') ? parseFloat(kv.response_time_in_seconds) : null,
       referer: kv.http_referer || '-',
       userAgent: kv.http_user_agent || '-',
       rawLine: line
@@ -270,7 +271,7 @@ function nginxParseLine(line) {
     url: match[5] || match[7] || '-',
     status: parseInt(match[8], 10),
     bytes: match[9] === '-' ? 0 : parseInt(match[9], 10),
-    time: match[12] ? parseFloat(match[12]) : 0,
+    time: match[12] ? parseFloat(match[12]) : null, // null: the log format has no $request_time
     referer: match[10],
     userAgent: match[11],
     rawLine: line
@@ -688,11 +689,13 @@ async function nginxAggregateAndRender() {
   const topOs = Object.entries(stats.os).sort((a,b)=>b[1]-a[1]).slice(0,10);
   const topIps = Object.entries(stats.ips).sort((a,b)=>b[1]-a[1]).slice(0,10);
 
+  // Only addresses whose lines carry a response time; the average is over those lines.
+  // Dividing by every request counted lines without a time as 0 ms.
   const slowestUrls = Object.entries(stats.urlTimes)
-    .filter(([_, d]) => d.count > 0)
+    .filter(([_, d]) => d.times.length > 0)
     .map(([url, d]) => {
       d.times.sort((a,b) => a - b);
-      const avg = d.totalTime / d.count;
+      const avg = d.totalTime / d.times.length;
       const p95 = d.times.length > 0 ? d.times[Math.floor(d.times.length * 0.95)] : 0;
       const p99 = d.times.length > 0 ? d.times[Math.floor(d.times.length * 0.99)] : 0;
       return [url, avg, p95, p99, d.count];
@@ -746,7 +749,7 @@ async function nginxAggregateAndRender() {
 
   document.getElementById('nx-slow-table').querySelector('tbody').innerHTML = slowestUrls.map(u =>
     `<tr><td style="padding:4px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--info);text-decoration:underline" title="${esc(u[0])}" onclick="nginxSetFilter('url', ${jsArg(u[0])})">${esc(u[0])}</td><td style="padding:4px 8px">${u[1].toFixed(3)}</td><td style="padding:4px 8px">${u[2].toFixed(3)}</td><td style="padding:4px 8px">${u[3].toFixed(3)}</td><td style="padding:4px 8px">${window.mtFmtInt(u[4])}</td></tr>`
-  ).join('');
+  ).join('') || '<tr><td colspan="5" style="padding:4px 8px;color:var(--text-muted)">No response times in this log: its format has no $request_time.</td></tr>';
 
   document.getElementById('nx-bw-table').querySelector('tbody').innerHTML = bwHogs.map(u =>
     `<tr><td style="padding:4px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--info);text-decoration:underline" title="${esc(u[0])}" onclick="nginxSetFilter('url', ${jsArg(u[0])})">${esc(u[0])}</td><td style="padding:4px 8px">${nginxFormatBytes(u[1])}</td><td style="padding:4px 8px">${window.mtFmtInt(u[2])}</td></tr>`

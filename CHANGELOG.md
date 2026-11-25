@@ -14,6 +14,46 @@ Dates are release dates where a release exists, commit dates otherwise.
 
 ---
 
+## Unreleased
+
+**Fixes found in a review of the parsers.** Each one is a place where
+the tool showed something other than what the input said.
+
+### Fixed
+
+- **The Nginx timeline correlator shows the request that matched.** A link carries
+  the position of its request in the parsed log, but the screen read that position
+  from the time-sorted list, so when the access log was out of time order it showed
+  a different request next to the event. The link is now resolved by the request's
+  own index (`nxCorrRequestOf`).
+- **The OTLP parser no longer stops on a metric named like an object method.** A
+  metric called `constructor` or `toString` threw, because the series were kept in
+  a plain object; they are kept in one without a prototype now.
+- **Masking catches keywords that begin or end with a non-ASCII letter.** A keyword
+  such as `Łódź` or `Zażółć` was matched with `\b`, which in JavaScript only knows
+  A–Z, so it was missed next to other letters or not matched at all. Such keywords
+  get a second, Unicode-aware pattern.
+- **The bridge's PostgreSQL health call works on PostgreSQL 17.** Version 17 moved
+  `buffers_backend` out of `pg_stat_bgwriter`, and the query failed the whole call.
+  On 17 and later the column is not asked for and the screen shows "—".
+
+### Changed
+
+- **The Memory Inspector no longer shows an "Old Gen Usage" figure.** A class
+  histogram holds no figure of the old generation; the number was made up. The card
+  says N/A and points to the GC log or the JVM metrics.
+- **The JVM thread dump separates lock chains from deadlocks.** A thread waiting for
+  a lock held by a blocked or waiting thread was called a deadlock. It is a lock
+  chain, and a deadlock only when it closes into a cycle, which the JVM reports
+  itself ("Found N deadlock"). The JVM's report is now the deadlock notice, the
+  chains are listed apart, and the incident report counts both under their own
+  names.
+- **A missing Nginx response time is no longer 0 ms.** A log format without
+  `$request_time` has no response time; it is now empty, not 0, the slowest-address
+  table averages only the lines that have one, and says so when none do.
+
+---
+
 ## v1.76.0 — 2026-10-18
 
 *This release also carries v1.75.0, v1.74.0 and v1.73.0 below, which were not
